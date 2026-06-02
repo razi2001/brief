@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Claude Brief — Setup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --cream: #f5f1e8;
+        --cream-2: #efe9dc;
+        --ink: #1a1612;
+        --muted: #8a8378;
+        --accent: #dd6936;
+        --success: #16a34a;
+        --hairline: rgba(26, 22, 18, 0.12);
+        --display: 'Instrument Serif', Georgia, serif;
+        --mono: 'JetBrains Mono', ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        background: var(--cream);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 580px; margin: 0 auto; padding: 56px 28px 100px; }
+
+      header {
+        display: flex; align-items: center; gap: 14px;
+        padding-bottom: 22px; margin-bottom: 32px;
+        border-bottom: 1px solid var(--hairline);
+      }
+      .mark { flex-shrink: 0; display: block; filter: drop-shadow(0 2px 6px rgba(26,22,18,0.18)); }
+      .brand-text { flex: 1; }
+      .wordmark { font-family: var(--display); font-size: 28px; letter-spacing: -0.02em; line-height: 1; }
+      .howlink {
+        font-size: 12px; color: var(--muted);
+        text-decoration: underline; text-decoration-thickness: 1px;
+        text-underline-offset: 3px; cursor: pointer; background: none; border: 0;
+        font-family: var(--mono);
+      }
+      .howlink:hover { color: var(--ink); }
+
+      /* Step container */
+      .step { display: none; animation: fade 0.18s ease; }
+      .step.active { display: block; }
+      @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+      h1 {
+        font-family: var(--display); font-weight: 400;
+        font-size: 32px; line-height: 1.12; letter-spacing: -0.02em;
+        margin-bottom: 10px;
+      }
+      h1 em { font-style: italic; color: var(--accent); }
+      .lede { font-size: 14px; color: var(--muted); margin-bottom: 28px; }
+
+      .back {
+        display: inline-flex; align-items: center; gap: 6px;
+        background: none; border: 0; cursor: pointer;
+        font-family: var(--mono); font-size: 13px; color: var(--muted);
+        margin-bottom: 20px; padding: 0;
+      }
+      .back:hover { color: var(--ink); }
+
+      /* Menu option cards */
+      .options { display: flex; flex-direction: column; gap: 10px; }
+      .opt {
+        display: flex; align-items: center; gap: 14px;
+        width: 100%; text-align: left;
+        padding: 16px 18px;
+        background: rgba(255,255,255,0.55);
+        border: 1px solid var(--hairline);
+        border-radius: 11px;
+        cursor: pointer;
+        font-family: var(--mono);
+        transition: background 0.13s, border-color 0.13s, transform 0.08s;
+      }
+      .opt:hover { background: #fff; border-color: var(--accent); }
+      .opt:active { transform: translateY(1px); }
+      .opt-num {
+        flex-shrink: 0; width: 30px; height: 30px;
+        border-radius: 8px; background: rgba(221,105,54,0.12);
+        color: var(--accent); display: flex; align-items: center; justify-content: center;
+        font-size: 14px;
+      }
+      .opt-body { flex: 1; }
+      .opt-title { font-size: 14px; font-weight: 500; color: var(--ink); margin-bottom: 2px; }
+      .opt-desc { font-family: var(--display); font-style: italic; font-size: 13px; color: var(--muted); }
+      .opt-arrow { color: var(--muted); flex-shrink: 0; }
+      .opt:hover .opt-arrow { color: var(--accent); }
+
+
+      /* Prompt box */
+      .prompt-box {
+        position: relative; background: var(--ink); color: var(--cream);
+        border-radius: 11px; padding: 26px 18px 16px; margin-bottom: 14px;
+        font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .prompt-box::before {
+        content: 'Paste into Claude Code Desktop'; position: absolute; top: 9px; left: 18px;
+        font-family: var(--mono); font-size: 9px; text-transform: uppercase;
+        letter-spacing: 0.12em; color: rgba(245,241,232,0.45);
+      }
+
+      .btn {
+        padding: 13px 22px; border: 0; border-radius: 9px;
+        font-family: var(--mono); font-size: 14px; font-weight: 500;
+        cursor: pointer; transition: background 0.15s, transform 0.08s;
+      }
+      .btn:active { transform: translateY(1px); }
+      .btn-accent { background: var(--accent); color: var(--cream); }
+      .btn-accent:hover { background: #b54328; }
+      .btn-accent.copied { background: var(--success); }
+      .btn-danger { background: #b54328; color: var(--cream); }
+      .btn-danger:hover { background: #9a371f; }
+
+      .hint {
+        font-family: var(--display); font-style: italic;
+        font-size: 13px; color: var(--muted); margin-top: 12px; line-height: 1.5;
+      }
+      .done-flag {
+        margin-top: 18px; padding: 13px 16px;
+        background: rgba(22,163,74,0.1); border: 1px solid rgba(22,163,74,0.3);
+        border-radius: 9px; color: #166534; font-size: 13px; display: none;
+      }
+      .done-flag.show { display: block; }
+
+      code { font-family: var(--mono); font-size: 12.5px; background: rgba(26,22,18,0.06); padding: 1px 5px; border-radius: 3px; }
+
+      /* How-it-works panels */
+      .how-panel { margin-bottom: 16px; }
+      .how-panel p { font-size: 14px; line-height: 1.6; margin-bottom: 12px; }
+      .how-step { display: flex; gap: 12px; align-items: baseline; margin-bottom: 12px; }
+      .how-step .n { font-family: var(--display); font-size: 20px; color: var(--accent); min-width: 20px; }
+
+      .footnote { font-size: 12px; color: var(--muted); margin-top: 36px; line-height: 1.5; border-top: 1px solid var(--hairline); padding-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <svg class="mark" viewBox="0 0 128 128" width="48" height="48" aria-hidden="true">
+          <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
+          <path fill="#f5f1e8" d="
+            M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
+            M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z
+            M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
+            M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
+          "/>
+          <path fill="#f5f1e8" d="
+            M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88
+            C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z
+          "/>
+        </svg>
+        <span class="brand-text"><span class="wordmark">Brief</span></span>
+      </header>
+
+      <section class="step active" data-step="how">
+        <h1>How <em>Brief</em> works</h1>
+        <p class="lede">No install. The skill travels inside every brief, so any agent with local file access can act on it.</p>
+
+        <div class="how-panel">
+          <div class="how-step"><span class="n">1</span><p>Name a brief, then click <strong>Record</strong> on it — talk through the bug or task while showing it on screen, then hit stop. It saves locally to <code>~/Downloads/brief/</code> as a self-contained zip (transcript, screenshots, and the filing skill inside).</p></div>
+          <div class="how-step"><span class="n">2</span><p>Stack up as many as you like in your list.</p></div>
+          <div class="how-step"><span class="n">3</span><p>Hit <strong>Export</strong> and paste the prompt into your coding agent. It reads the skill bundled in the brief, files a real ticket in your tracker, and deletes that brief once it's filed.</p></div>
+        </div>
+
+        <div class="how-panel" style="margin-top:14px">
+          <div class="how-step"><span class="n">✦</span><p><strong>Works with any local agent.</strong> Claude Code Desktop, Cursor, Cline — anything that can read files in <code>~/Downloads/brief/</code> and reach your tracker. The prompt points it at <code>skill/SKILL.md</code> inside the brief.</p></div>
+        </div>
+
+        <p class="hint">Everything is local. Briefs never leave your machine until an agent — running on your machine — reads them. You'll need a tracker connected to that agent (Linear, GitHub, Jira, Notion).</p>
+      </section>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>

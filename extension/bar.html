@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Claude Brief</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="bar.css" />
+  </head>
+  <body class="state-loading">
+    <div id="root">
+      <!-- The dark pill — single container, content swaps per state -->
+      <div class="bar">
+        <!-- LOADING -->
+        <div data-state="loading" class="state-inner">
+          <div class="spinner small"></div>
+          <span class="state-text">Starting…</span>
+        </div>
+
+        <!-- RECORDING -->
+        <div data-state="recording" class="state-inner">
+          <button id="dragGrip" class="drag-grip" title="Drag to move">
+            <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">
+              <circle cx="2" cy="3"  r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="3"  r="1.2" fill="currentColor"/>
+              <circle cx="2" cy="8"  r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="8"  r="1.2" fill="currentColor"/>
+              <circle cx="2" cy="13" r="1.2" fill="currentColor"/>
+              <circle cx="8" cy="13" r="1.2" fill="currentColor"/>
+            </svg>
+          </button>
+          <button id="stopBtn" class="stop-btn" title="Stop &amp; copy">
+            <span class="stop-square"></span>
+          </button>
+          <span class="timer" id="timer">00:00</span>
+          <span class="lang-pills" role="group" aria-label="Recognition language">
+            <button type="button" class="lang-pill" data-lang="en-US">EN</button>
+            <button type="button" class="lang-pill" data-lang="fr-FR">FR</button>
+          </span>
+          <span class="spacer"></span>
+          <button id="muteBtn" class="icon-btn" title="Mute mic">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1.5a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0v-7a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+              <line x1="12" y1="18" x2="12" y2="22"/>
+            </svg>
+          </button>
+          <button id="cancelBtn" class="icon-btn" title="Cancel and discard">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- SAVING -->
+        <div data-state="saving" class="state-inner">
+          <div class="spinner small"></div>
+          <span class="state-text">Building brief…</span>
+        </div>
+
+        <!-- SAVED — auto-dismiss after 5s -->
+        <div data-state="saved" class="state-inner">
+          <span class="check-pill">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </span>
+          <span class="state-text"><strong>Copied.</strong><em> Paste into your agent.</em></span>
+          <span class="spacer"></span>
+          <button id="closeBtn" class="icon-btn" title="Dismiss">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- INBOXED — added to inbox, no Claude prompt yet -->
+        <div data-state="inboxed" class="state-inner">
+          <span class="check-pill">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12l5 5L20 7"/>
+            </svg>
+          </span>
+          <span class="state-text"><strong>Recorded.</strong><em> Saved to your briefs.</em></span>
+          <span class="spacer"></span>
+          <button id="inboxCloseBtn" class="icon-btn" title="Done">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- CANCELLED — auto-dismiss after 2s -->
+        <div data-state="cancelled" class="state-inner">
+          <span class="cancel-pill">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18"/>
+            </svg>
+          </span>
+          <span class="state-text"><strong>Cancelled.</strong><em> Nothing was saved.</em></span>
+          <span class="spacer"></span>
+        </div>
+
+        <!-- ERROR -->
+        <div data-state="error" class="state-inner">
+          <span class="alert-pill">!</span>
+          <span class="state-text err" id="errText">—</span>
+          <span class="spacer"></span>
+          <button id="errCloseBtn" class="icon-btn" title="Dismiss">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Transcript panel below the bar (only visible during recording) -->
+      <div class="transcript-panel" id="transcriptPanel" hidden>
+        <div class="bars-anim" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="transcript-text" id="transcriptText">
+          <span class="placeholder">Listening…</span>
+        </div>
+      </div>
+    </div>
+
+    <video id="preview" autoplay muted playsinline style="display:none"></video>
+    <script type="module" src="bar.js"></script>
+  </body>
+</html>

@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Claude Brief — Microphone access</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --cream: #f5f1e8;
+        --ink: #1a1612;
+        --muted: #8a8378;
+        --accent: #dd6936;
+        --success: #16a34a;
+        --hairline: rgba(26, 22, 18, 0.12);
+        --display: 'Instrument Serif', Georgia, serif;
+        --mono: 'JetBrains Mono', ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        background: var(--cream);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 560px;
+        margin: 0 auto;
+        padding: 64px 28px 80px;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding-bottom: 28px;
+        border-bottom: 1px solid var(--hairline);
+        margin-bottom: 44px;
+      }
+      .mark {
+        flex-shrink: 0;
+        display: block;
+        filter: drop-shadow(0 2px 6px rgba(26, 22, 18, 0.18));
+      }
+      .wordmark {
+        font-family: var(--display);
+        font-size: 32px;
+        letter-spacing: -0.02em;
+      }
+      h1 {
+        font-family: var(--display);
+        font-weight: 400;
+        font-size: 36px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        margin-bottom: 18px;
+      }
+      h1 em { font-style: italic; color: var(--accent); }
+      p {
+        font-size: 14.5px;
+        line-height: 1.65;
+        color: var(--ink);
+        margin-bottom: 14px;
+      }
+      .muted { color: var(--muted); font-size: 13px; }
+      code {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        background: rgba(26, 22, 18, 0.06);
+        padding: 1px 5px;
+        border-radius: 3px;
+      }
+      .card {
+        background: rgba(255, 255, 255, 0.55);
+        border: 1px solid var(--hairline);
+        border-radius: 10px;
+        padding: 20px 22px;
+        margin-top: 28px;
+      }
+      .step {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        font-size: 14.5px;
+        padding: 8px 0;
+      }
+      .step .num {
+        font-family: var(--display);
+        font-size: 22px;
+        color: var(--accent);
+        min-width: 22px;
+      }
+      .status {
+        margin-top: 28px;
+        padding: 14px 18px;
+        border-radius: 8px;
+        font-size: 13.5px;
+        display: none;
+      }
+      .status.show { display: block; }
+      .status.ok {
+        background: rgba(22, 163, 74, 0.1);
+        border: 1px solid rgba(22, 163, 74, 0.3);
+        color: #166534;
+      }
+      .status.err {
+        background: rgba(221, 105, 54, 0.1);
+        border: 1px solid rgba(221, 105, 54, 0.3);
+        color: #b54328;
+      }
+      button.primary {
+        margin-top: 32px;
+        padding: 14px 24px;
+        background: var(--ink);
+        color: var(--cream);
+        border: 0;
+        border-radius: 8px;
+        font-family: var(--mono);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      button.primary:hover { background: #2a2520; }
+      button.primary:disabled { opacity: 0.55; cursor: default; }
+      .close-hint {
+        margin-top: 40px;
+        padding: 14px 18px;
+        background: rgba(221, 105, 54, 0.08);
+        border-left: 3px solid var(--accent);
+        border-radius: 4px;
+        color: var(--ink);
+        font-size: 13.5px;
+        display: none;
+      }
+      .close-hint.show { display: block; }
+
+      /* (legacy styles) */
+      #step2 {
+        display: none;
+        margin-top: 48px;
+        padding-top: 40px;
+        border-top: 1px solid var(--hairline);
+      }
+      #step2.show { display: block; }
+
+      h2 {
+        font-family: var(--display);
+        font-weight: 400;
+        font-size: 28px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        margin-bottom: 14px;
+      }
+      h2 em { font-style: italic; color: var(--accent); }
+
+      .prompt-box {
+        position: relative;
+        background: var(--ink);
+        color: var(--cream);
+        border-radius: 10px;
+        padding: 18px 20px;
+        margin: 22px 0 6px;
+        font-family: var(--mono);
+        font-size: 13px;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .prompt-box::before {
+        content: 'Prompt';
+        position: absolute;
+        top: -10px;
+        left: 14px;
+        background: var(--cream);
+        padding: 0 8px;
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--muted);
+      }
+      button.copy-prompt {
+        margin-top: 14px;
+        padding: 12px 20px;
+        background: var(--accent);
+        color: var(--cream);
+        border: 0;
+        border-radius: 8px;
+        font-family: var(--mono);
+        font-size: 13.5px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      button.copy-prompt:hover { background: #b54328; }
+      button.copy-prompt.copied { background: #166534; }
+
+      .skip-link {
+        display: inline-block;
+        margin-top: 24px;
+        margin-left: 14px;
+        font-size: 12.5px;
+        color: var(--muted);
+        text-decoration: underline;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+        cursor: pointer;
+      }
+      .skip-link:hover { color: var(--ink); }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <svg class="mark" viewBox="0 0 128 128" width="56" height="56" aria-hidden="true">
+          <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
+          <path fill="#f5f1e8" d="
+            M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
+            M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z
+            M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
+            M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
+          "/>
+          <path fill="#f5f1e8" d="
+            M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88
+            C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z
+          "/>
+        </svg>
+        <span class="wordmark">Claude Brief</span>
+      </header>
+
+      <h1>Quick setup — <em>microphone access</em>.</h1>
+
+      <p>Claude Brief needs your microphone to capture voice while recording. Granting it here makes it work on every website you visit — no more prompts.</p>
+
+      <div class="card">
+        <div class="step"><span class="num">1.</span><span>Click the button below.</span></div>
+        <div class="step"><span class="num">2.</span><span>Chrome will ask <em>"Use your microphone?"</em> — click <strong>Allow</strong>.</span></div>
+      </div>
+
+      <button id="grantBtn" class="primary">Grant microphone access</button>
+
+      <div id="status" class="status"></div>
+    </main>
+    <script src="permission.js"></script>
+  </body>
+</html>

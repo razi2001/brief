@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Claude Brief</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header class="head">
+        <span class="brand">
+          <svg class="mark" viewBox="0 0 128 128" width="38" height="38" aria-hidden="true">
+            <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
+            <path fill="#f5f1e8" d="
+              M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
+              M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z
+              M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
+              M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
+            "/>
+            <path fill="#f5f1e8" d="
+              M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88
+              C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z
+            "/>
+          </svg>
+          <span class="head-title">What's the <em>brief</em>?</span>
+        </span>
+        <button id="settingsBtn" class="gear" title="Settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </header>
+
+      <!-- Name a brief, then record it from the list -->
+      <form id="addForm" class="add-row" autocomplete="off">
+        <input id="addName" class="add-input" type="text" maxlength="60" placeholder="Name it…" spellcheck="false" />
+        <button type="submit" id="addBtn" class="add-btn" title="Add brief">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </form>
+
+      <!-- Section label + recorded count (quiet, notification-style) -->
+      <div id="listHeader" class="list-header" hidden>
+        <span class="list-title">Briefs</span>
+        <span id="recBadge" class="rec-badge" hidden><span id="recCount">0</span> ready</span>
+      </div>
+
+      <!-- The list of briefs (drafts + recorded) -->
+      <ul id="briefList" class="brief-list" hidden></ul>
+
+      <!-- Empty state (minimal) -->
+      <div id="emptyState" class="empty-state"></div>
+
+      <!-- Export action — only when at least one brief is recorded -->
+      <button id="exportBtn" class="export-btn">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Export <span id="exportCount">0</span></span>
+      </button>
+
+      <!-- Export-success overlay -->
+      <div id="exportDone" class="export-done" hidden>
+        <div class="export-done-inner">
+          <span class="export-done-check">✓</span>
+          <p class="export-done-title">Copied to clipboard</p>
+          <p class="export-done-sub">Paste it into your coding agent now</p>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <!-- Curved-surface shading: lighter top-left, deeper bottom-right -->
+    <linearGradient id="tile" x1="20" y1="6" x2="112" y2="124" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f08147"/>
+      <stop offset="0.52" stop-color="#dd6936"/>
+      <stop offset="1" stop-color="#bd4f1c"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="64" y1="0" x2="64" y2="70" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- FULL-BLEED tile (fills the canvas like the other toolbar icons) -->
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#tile)"/>
+  <!-- Top sheen for a lit, rounded read -->
+  <rect x="0" y="0" width="128" height="66" rx="28" fill="url(#sheen)"/>
+  <!-- Crisp top rim highlight + soft bottom inner shade = pillow edge -->
+  <path d="M30 2.5 H98" stroke="#ffffff" stroke-opacity="0.45" stroke-width="2" stroke-linecap="round"/>
+  <path d="M22 125.5 H106" stroke="#000000" stroke-opacity="0.12" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Foreground marks: subtle drop for depth, then cream marks -->
+  <g transform="translate(0,1.2)" fill="#7e3408" fill-opacity="0.25">
+    <path d="
+      M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
+      M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z
+      M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
+      M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
+    "/>
+    <path d="M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88 C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z"/>
+  </g>
+  <g fill="#f7f3ea">
+    <path d="
+      M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
+      M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z
+      M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
+      M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
+    "/>
+    <path d="M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88 C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z"/>
+  </g>
+</svg>

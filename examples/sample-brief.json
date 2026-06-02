@@ -1,0 +1,52 @@
+{
+  "id": "lz3k7n-a8f2qx",
+  "schemaVersion": 1,
+  "createdAt": "2026-05-26T18:42:11.000Z",
+  "durationMs": 28400,
+  "pageUrl": "https://app.example.com/checkout",
+  "pageTitle": "Checkout · Example",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) Chrome/137.0.0.0",
+  "transcript": "OK so I'm on the checkout page. I'm clicking the 'Pay' button. Notice nothing happens. The button just sits there. I'd expect a loading spinner and then either a success state or an error. Right now it's silent. Can you make the button show a loading state while the request is in flight, and surface any error from the API?",
+  "keyframes": [
+    { "index": 0, "timestamp": 0, "file": "keyframes/keyframe-000.png" },
+    { "index": 1, "timestamp": 2000, "file": "keyframes/keyframe-001.png" },
+    { "index": 2, "timestamp": 4000, "file": "keyframes/keyframe-002.png" },
+    { "index": 3, "timestamp": 6000, "file": "keyframes/keyframe-003.png" }
+  ],
+  "events": [
+    {
+      "type": "click",
+      "tMs": 3120,
+      "url": "https://app.example.com/checkout",
+      "element": {
+        "tag": "button",
+        "selector": "button#pay.primary",
+        "text": "Pay $29"
+      },
+      "x": 412,
+      "y": 568
+    },
+    {
+      "type": "click",
+      "tMs": 8240,
+      "url": "https://app.example.com/checkout",
+      "element": {
+        "tag": "button",
+        "selector": "button#pay.primary",
+        "text": "Pay $29"
+      },
+      "x": 412,
+      "y": 568
+    },
+    {
+      "type": "scroll",
+      "tMs": 12400,
+      "y": 240
+    }
+  ],
+  "recording": {
+    "file": "recording.webm",
+    "mimeType": "video/webm;codecs=vp9,opus",
+    "durationMs": 28400
+  }
+}
