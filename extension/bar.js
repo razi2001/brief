@@ -1,4 +1,4 @@
-// Claude Brief — bar (UI only)
+// Brief — bar (UI only)
 //
 // All recording happens in the offscreen document (chrome-extension origin,
 // immune to page Permissions-Policy). The bar sends control messages via

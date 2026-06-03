@@ -1,4 +1,4 @@
-// Claude Brief — offscreen recorder
+// Brief — offscreen recorder
 //
 // Runs in chrome-extension://<id>/offscreen.html as an offscreen document.
 // This origin is NOT subject to any host page's Permissions-Policy, so
