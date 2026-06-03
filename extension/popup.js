@@ -603,19 +603,26 @@ async function writeBriefZip(b) {
   if (!res?.ok) throw new Error(res?.error || 'zip_write_failed');
 }
 
-// For a RECORDING brief that later gained a screenshot, the recording's
-// on-disk zip predates it and we don't have the video bytes to rewrite it.
-// Write a tiny companion zip alongside it so the screenshot isn't lost.
+// For a RECORDING brief, anything the user adds after the recording is saved
+// (description, screenshot, key/value extras, the "attach the recording"
+// toggle) lives only in the popup until export. The recording's on-disk zip
+// predates those edits and we don't have the video bytes to rewrite it, so we
+// drop a small companion zip next to it carrying the post-record state. The
+// skill always looks for this companion and merges its fields over the main
+// brief.json — it is the source of truth for late edits.
 async function writeCompanionZip(b) {
   const briefJson = {
     id: b.id,
     name: b.name || '',
     companionFor: `brief-${b.id}.zip`,
-    note: 'Extra context added after the recording was saved.',
+    note: 'Extra context added after the recording was saved. Merge these fields over the main brief.json.',
     description: b.description || '',
     hasScreenshot: !!b.screenshot,
     screenshotAnnotated: !!b.screenshotAnnotated,
     extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
+    // The user's choice for whether to attach the recording to the ticket.
+    // Lives here (not in the prompt) so the agent reads it from disk.
+    attachRecording: !!b.includeVideo,
   };
   const entries = [
     { name: 'brief.json', data: new TextEncoder().encode(JSON.stringify(briefJson, null, 2)) },
@@ -642,12 +649,19 @@ exportBtn.addEventListener('click', async () => {
 
   // 1) Make sure every ready brief has a zip on disk. Recording briefs already
   //    do; screenshot/text-only briefs are written here, now. A recording brief
-  //    that also has a screenshot (added after the recording) gets a small
-  //    companion zip so that screenshot isn't lost.
+  //    gets a small companion zip if the user added anything after the
+  //    recording — screenshot, description, extras, or the attach-recording
+  //    toggle. The companion is the only on-disk channel for those late edits,
+  //    and the skill reads it as the source of truth.
+  const hasLateState = (b) =>
+    !!b.screenshot ||
+    !!(b.description && b.description.trim()) ||
+    (Array.isArray(b.extra) && b.extra.some((p) => p.key.trim() || p.value.trim())) ||
+    !!b.includeVideo;
   try {
     for (const b of ready) {
       if (b.hasRecording || b.recorded) {
-        if (b.screenshot) await writeCompanionZip(b);
+        if (hasLateState(b)) await writeCompanionZip(b);
       } else {
         await writeBriefZip(b);
       }
@@ -658,39 +672,26 @@ exportBtn.addEventListener('click', async () => {
     return;
   }
 
-  // 2) Build the prompt. Skill knows HOW; prompt carries where + which.
-  //    Keep it minimal: the description and additional-data key/values live
-  //    inside the brief.zip (or its companion -extra.zip) and the agent reads
-  //    them from there. Carrying them in the prompt would duplicate the data
-  //    and risk drift if the user edited a draft after recording.
-  function describe(b, i) {
+  // 2) Build the prompt. Skill knows HOW; prompt only carries WHICH briefs,
+  //    WHERE they live, and (for multi-brief batches) the parallelization
+  //    rule. Everything else — description, additional-data key/values, the
+  //    attach-recording toggle, the red-screenshot note, even the list of
+  //    kinds present — lives on disk (main brief.json or its companion) or
+  //    in the skill itself. The agent reads it from there.
+  const describe = (b, i) => {
     const name = (b.name && b.name.trim()) || `Untitled brief ${i + 1}`;
-    let s = `${b.id} ("${name}")`;
-    const bits = [];
-    const kinds = [];
-    if (b.hasRecording || b.recorded) kinds.push('recording');
-    if (b.screenshot) kinds.push(b.screenshotAnnotated ? 'screenshot with red annotations' : 'screenshot');
-    if (b.description && b.description.trim()) kinds.push('text description');
-    if (kinds.length) bits.push(kinds.join(' + '));
-    if (b.includeVideo && (b.hasRecording || b.recorded)) bits.push('attach the recording to this ticket');
-    // A recording brief with a screenshot has its extra context in a companion zip.
-    if ((b.hasRecording || b.recorded) && b.screenshot) {
-      bits.push(`also unzip brief-${b.id}-extra.zip for its screenshot`);
-    }
-    if (bits.length) s += ` [${bits.join(' | ')}]`;
-    return s;
-  }
+    return `${b.id} ("${name}")`;
+  };
   const named = ready.map(describe).join('; ');
   const firstId = ready[0].id;
   const multi = ready.length > 1;
   const prompt =
     `Process these briefs from ~/Downloads/brief/: ${named}. ` +
     `Each brief lives in its own folder (~/Downloads/brief/brief-<id>/). ` +
-    `Start with ~/Downloads/brief/brief-${firstId}/brief-${firstId}.zip — unzip it and follow its skill/SKILL.md. ` +
+    `Start with ~/Downloads/brief/brief-${firstId}/brief-${firstId}.zip — unzip it and follow its skill/SKILL.md.` +
     (multi
-      ? `Parallelize: dispatch each brief to its own sub-agent and process them concurrently — one sub-agent per brief, all running at once. `
-      : '') +
-    `Note: any red markings in a screenshot are drawn by me to show where the issue is.`;
+      ? ` Parallelize: dispatch each brief to its own sub-agent and process them concurrently — one sub-agent per brief, all running at once.`
+      : '');
   try { await navigator.clipboard.writeText(prompt); } catch {}
 
   // 3) Animate ready rows out, keep not-ready drafts.

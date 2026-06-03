@@ -11,7 +11,7 @@ Always read `brief.json` before anything else. A brief can contain any combinati
 - **`hasScreenshot: true`** — a `screenshot.png` is on disk. If `screenshotAnnotated` is true, **the red markings on it were drawn by the user to point at exactly where the issue is.** Center the ticket on what the red highlights. Describe the location in words too ("the red circle marks the nav item that should be plural").
 - **`extra`** — key/value pairs (credentials, IDs, context) the user attached. Put them in an **Additional data** section verbatim.
 
-Each brief lives in its own folder: `~/Downloads/brief/brief-<id>/`. Inside you'll find the main `brief-<id>.zip` and, when present, a companion `brief-<id>-extra.zip` — unzip both. The companion holds a screenshot and/or description the user added after recording; merge its `screenshot.png` and `description` into the same ticket.
+Each brief lives in its own folder: `~/Downloads/brief/brief-<id>/`. Inside you'll find the main `brief-<id>.zip` and, when present, a companion `brief-<id>-extra.zip`. **Always check for the companion and unzip it if it exists** — the prompt won't mention it. The companion holds anything the user added *after* the recording was saved: a screenshot, a typed description, additional key/value data, and an `attachRecording` flag for whether to attach `recording.webm` to the ticket. Treat the companion's fields as the source of truth — merge them over the main `brief.json` (companion wins on conflict).
 
 Use whatever is present, in this priority for understanding intent: description → red-annotated screenshot → transcript/keyframes → plain screenshot. A brief might be *only* a screenshot, or *only* a sentence of text — that's valid; file the best ticket you can from what's there. Never stall waiting for inputs that don't exist.
 
@@ -150,9 +150,9 @@ Create the issue FIRST (with placeholder image refs or an empty Evidence section
 
 A recording exists ONLY if `brief.json` has a `recording` field (and `recording.webm` is on disk). Screenshot-only and text-only briefs have none — skip this section for them.
 
-**If the prompt says to attach the recording for a brief** (the user ticked it — it appears in that brief's bracket as "attach the recording to this ticket"), then ALWAYS attach it for that brief, regardless of the judgment below. The user asked explicitly.
+**If `attachRecording: true` is set in the companion `brief-<id>-extra.zip`'s `brief.json`**, then ALWAYS attach the recording for that brief, regardless of the judgment below. The user explicitly asked for it via the popup checkbox — that flag is the on-disk record of their choice.
 
-Otherwise, you decide. **Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
+Otherwise (the flag is false or absent), you decide. **Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
 
 Attach the recording when:
 - The bug is about **motion or timing**: a janky animation, a flash, a race condition, a layout that jumps, scroll jank, a transition that breaks

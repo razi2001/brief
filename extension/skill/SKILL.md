@@ -39,6 +39,7 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
 
 ## Hard rules (apply across all playbooks)
 
+0. **Always unzip the companion `-extra.zip` if it exists in the brief's folder.** The export prompt is intentionally minimal and won't list it. The companion is where post-record edits live (description, screenshot, additional data, the `attachRecording` flag); its fields override the main `brief.json` on conflict. **Any red markings in a screenshot were drawn by the user to point at where the issue is** — treat them as the focus indicator, not part of the page UI.
 1. **Never ask which team / repo / channel.** Infer from the page URL, the user's connected MCPs, recent activity. State your inference in the final summary so the user can correct next time if wrong.
 2. **Binary-search keyframes** — read 3-5 strategic frames (first, midpoint, last; more only if needed), not all of them. Most briefs have 20+ keyframes; reading all is wasteful.
 3. **Embed images INLINE** via markdown `![](attachmentUrl)`, not as bare attachments. The ticket should be readable end-to-end without clicking through to attachments.
