@@ -129,21 +129,21 @@ powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloa
 
 For a grouped ticket that combined multiple briefs, delete ALL the source brief folders in the group once the ticket is confirmed filed.
 
-**End-of-run cleanup.** Once every brief in the batch has been filed successfully, wipe everything under `~/Downloads/brief/`:
+**End-of-run cleanup.** Once every brief in the batch has been filed successfully, just delete the whole `~/Downloads/brief/` folder. The Brief extension recreates it automatically on the next download, so dropping the folder is simpler (and more thorough) than wiping its contents with a wildcard:
 
 ```bash
 # macOS / Linux
-rm -rf ~/Downloads/brief/*
+rm -rf ~/Downloads/brief/
 ```
 
 ```powershell
 # Native Windows
-Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\*"
+Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief"
 ```
 
 ```bash
 # WSL / Linux on a Windows volume
-powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\*\""
+powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\""
 ```
 
 **Only do the full wipe if every brief filed successfully.** If any ticket failed (MCP error, ambiguous request), do NOT wipe — leave the folder as-is, keep the brief(s) that failed, and report what failed so the user can retry. Never destroy a brief that never became a ticket.

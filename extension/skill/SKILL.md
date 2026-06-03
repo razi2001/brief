@@ -59,9 +59,9 @@ For a single brief:
 - Delete the whole folder: `~/Downloads/brief/brief-<id>/` — this removes the main zip, the companion `-extra.zip`, and any extracted contents in one shot.
 
 For an inbox batch:
-- After each brief's ticket is confirmed filed, delete that brief's folder (`~/Downloads/brief/brief-<id>/`).
-- When every brief in the batch has been filed successfully, **wipe everything left under `~/Downloads/brief/`** — every `brief-*` subfolder (and any stray loose files). The folder should be empty when you're done.
-- If one brief fails, leave its folder in place and continue with the rest. Don't run the full wipe — only delete the folders of the briefs that succeeded.
+- After each brief's ticket is confirmed filed, delete that brief's folder (`~/Downloads/brief/brief-<id>/`). This way a partial failure leaves only the failed brief on disk for retry, not all of them.
+- When every brief in the batch has been filed successfully, **delete the whole `~/Downloads/brief/` folder** — one command, not a wildcard. The extension recreates it on the next download.
+- If one brief fails, leave its folder in place and don't run the full-folder delete — only the per-brief deletes that already happened for the successes stand.
 - Report at the end which were deleted vs. which were left for retry.
 
 **Windows deletion gotcha — Mark-of-the-Web.** Chrome attaches an NTFS read-only attribute to downloaded files. On native Windows you need `Remove-Item -Recurse -Force` (the `-Force` strips it). If you're running in WSL or a Linux container against a mounted Windows Downloads folder, plain `rm -rf` will fail with "Operation not permitted" because Linux can't strip NTFS-level attributes — shell out to PowerShell via interop: `powershell.exe -Command "Remove-Item -Recurse -Force ..."`. Each playbook has the exact commands.
