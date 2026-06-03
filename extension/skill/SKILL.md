@@ -64,7 +64,7 @@ For an inbox batch:
 - If one brief fails, leave its folder in place and continue with the rest. Don't run the full wipe — only delete the folders of the briefs that succeeded.
 - Report at the end which were deleted vs. which were left for retry.
 
-**On Windows, deletion needs `-Force`.** Chrome marks downloaded files read-only via Mark-of-the-Web, so `Remove-Item` without `-Force` refuses to delete them. Use `Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\brief-<id>"` (or `\*` for the full wipe). Each playbook has the exact commands.
+**Windows deletion gotcha — Mark-of-the-Web.** Chrome attaches an NTFS read-only attribute to downloaded files. On native Windows you need `Remove-Item -Recurse -Force` (the `-Force` strips it). If you're running in WSL or a Linux container against a mounted Windows Downloads folder, plain `rm -rf` will fail with "Operation not permitted" because Linux can't strip NTFS-level attributes — shell out to PowerShell via interop: `powershell.exe -Command "Remove-Item -Recurse -Force ..."`. Each playbook has the exact commands.
 
 The user does NOT want a directory full of old briefs accumulating. Briefs are ephemeral capture; tickets are the permanent artifact.
 

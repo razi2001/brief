@@ -131,27 +131,23 @@ Page: <pageUrl>
 <only if the user supplied key/value extras; otherwise omit>
 ```
 
-## 6b. File the ticket in a **good state** — mirror team conventions
+## 6b. Set sensible metadata on `save_issue` — go direct, don't research
 
-A bare title + description is not enough. A ticket the team can actually triage needs the metadata fields filled the same way the team already fills them for new tickets. Match what they do; don't invent your own conventions.
+Fill basic fields on the create call so the ticket isn't bare. **Do NOT call `list_issues`, `list_issue_labels`, or sample the team's recent tickets first — that research dance is slow and almost always wasteful.** Use the defaults below; the user can re-triage in the tracker in one click if a default is wrong.
 
-**Before calling `save_issue`, sample 5–10 of the team's most recently-created tickets** (use `list_issues({ team, orderBy: 'createdAt', limit: 10 })` on Linear, equivalent on other trackers). Read off the pattern:
+Defaults — apply directly, no listing:
 
-- **state / status** — what state are newly-created tickets in? Backlog, Triage, Todo, To Refine? Don't default to "In Progress" or "Done". If the team has a dedicated intake state (Triage, Backlog), use it.
-- **priority** — Linear: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low. For a bug, mirror what comparable bugs got. If unsure, **3 (Medium) for bugs, 4 (Low) for feature requests** — never leave a bug at None when most bugs in the team are triaged with a priority.
-- **labels** — almost every team uses a `Bug` / `Feature` / `Improvement` axis plus area labels (`checkout`, `auth`, `mobile`, …). Apply the type label (Bug vs Feature based on your step-1 classification) and the area label that best matches the `pageUrl` host and the inferred surface. If you're not sure a label exists, call `list_issue_labels({ team })` first — don't invent labels.
-- **cycle** — is the team active in a cycle right now? If new bugs typically get dropped into the current cycle, do that; if they go into the backlog and get pulled in later, leave cycle unset. Read recent tickets to tell which.
-- **project / milestone** — same rule: if recent tickets in this surface area are tagged with a project, match it. If unset is the norm, leave it.
-- **estimate / complexity** — if the team estimates at creation time, give a conservative starting estimate based on apparent scope (UI copy fix → smallest unit; multi-file refactor → larger). If estimates are added later in refinement, leave unset.
-- **assignee** — leave UNSET by default. Only set an assignee if the team's recent tickets show a clear auto-assign pattern (e.g. always assigned to the area owner). Filing a ticket onto a specific person without that signal is presumptuous.
-- **severity** — if the team uses a custom Severity field or label (S1/S2/S3, P0/P1/P2), apply the same calibration: data loss / outage = top severity; broken core flow = high; cosmetic = low.
-- **due date** — only set if recent tickets do so as a matter of course (rare). Otherwise unset.
+- **priority** — `3` (Medium) for bugs, `4` (Low) for features. Bump to `2` (High) only if the brief description explicitly says "broken" / "blocked" / "can't ship" / "data loss" / similar urgent language. Never leave a bug at `0` (None).
+- **labels** — pass `['Bug']` for bugs, `['Feature']` for features. That's it. Linear's `save_issue.labels` accepts names — if the team doesn't have a label by that name, Linear ignores it silently, no listing required. **Do not pass area labels** (`checkout`, `auth`, etc.) — you don't know what exists and inferring them costs a `list_issue_labels` call per sub-agent, which is exactly the slowness this rule is fixing.
+- **state** — **leave unset.** Linear's `save_issue` will use the team's default new-ticket state automatically. Don't try to pick one.
+- **assignee** — **leave unset.** Triage owner picks the assignee, not you.
+- **cycle / project / milestone / estimate / due date** — **leave unset.** Refinement adds these later.
 
-**The bar:** the freshly-filed ticket should be indistinguishable from one a team member would have filed manually. If a teammate opening the tracker can't tell which of the last 10 tickets the bot filed, you got it right.
+That's it. Two fields (`priority`, `labels`) — both inferred from the brief's classification (Step 1) without any tracker round-trips.
 
-If a particular field doesn't fit cleanly into the MCP's `save_issue` schema (Linear's custom-field support is limited, etc.), apply it as a label in the form `severity:high` or `complexity:medium` — that's the standard workaround and the team's existing tickets will tell you whether they actually do this.
+**The bar:** the ticket lands with a sensible priority and a type label, ready for the team's normal triage pass. It should NOT be a research project.
 
-State the metadata you applied in the final summary (Step 8), so the user can correct any miss with one word.
+Mention the priority + label in the closing summary (Step 8) so the user can spot a miss in one glance.
 
 ## 7. Upload + embed images INLINE
 
@@ -163,8 +159,20 @@ The user wants images to **render in the ticket**, not just appear as a chip in 
 2. For each image (selected keyframes **and/or** `screenshot.png`) and, if you decided to attach it, `recording.webm`:
    a. `prepare_attachment_upload({ issue: 'LIN-123', filename: 'keyframe-002.png', contentType: 'image/png', size: <exact bytes> })` returns `{ uploadRequest: { url, headers }, assetUrl }`. Note the **nested `uploadRequest`** — it is NOT a flat `uploadUrl` at the top level.
    b. PUT the raw bytes to `uploadRequest.url`. **Send every header in `uploadRequest.headers` verbatim — same names, same casing, same values.** Omitting one (or changing the case) returns HTTP 403 from Google's signed-URL backend. Do not base64-encode the bytes. The signed URL expires after 60 seconds, so PUT immediately after `prepare_attachment_upload`; if it expires, re-call `prepare_attachment_upload` for a fresh signed URL.
-   c. `create_attachment_from_upload({ issue: 'LIN-123', assetUrl, title: filename })` to register the upload as a Linear attachment row. **You must call this** — without it the file is uploaded to storage but Linear has no attachment record and the asset URL won't render reliably inline.
-3. Collect the returned `assetUrl`s, one per file.
+   c. `create_attachment_from_upload({ issue: 'LIN-123', assetUrl, title: filename })` to register the upload as a Linear attachment row. **You must call this** — without it the file is uploaded to storage but Linear has no attachment record, the description embed will 404, and the file effectively doesn't exist as far as the ticket is concerned.
+3. Collect the returned `assetUrl`s, one per file. **Use `assetUrl`, never `uploadRequest.url`, in the description.** This is the single most common upload bug:
+
+   ```
+   prepare_attachment_upload → {
+     uploadRequest: {
+       url: "https://uploads.linear.app/<bucket>/<obj>/<file>?X-Goog-Signature=…"  ← SIGNED PUT URL, expires in 60s, returns {"error":"not found"} after that
+       headers: { … }
+     },
+     assetUrl: "https://uploads.linear.app/<assetId>"                              ← PERMANENT, this is what goes in the description
+   }
+   ```
+
+   If you see `{"error":"not found"}` when opening an embedded image/video URL, you embedded `uploadRequest.url` instead of `assetUrl`. Fix the description (step 4) to use `assetUrl`.
 4. Call `save_issue({ id: 'LIN-123', description: <final markdown> })` once, with the real `assetUrl`s embedded inline:
    - **Images:** `![caption](assetUrl)` — Linear renders these as inline images.
    - **Video (`recording.webm`):** put the bare `assetUrl` on its own line inside the Recording section (see below). Linear's renderer auto-embeds Linear-hosted video URLs as a player; the markdown image syntax `![](url)` does **not** work for video.
@@ -231,18 +239,27 @@ That's it. No mid-flow questions. No "do you want me to attach the video?". You 
 
 ## 9. Delete the brief
 
-After the ticket is successfully filed, delete the brief's entire folder from disk — that removes the main zip, the companion `-extra.zip`, and anything you extracted into it in one shot. Pick the form that matches the platform you're on:
+After the ticket is successfully filed, delete the brief's entire folder from disk — that removes the main zip, the companion `-extra.zip`, and anything you extracted into it in one shot. Pick the form that matches your environment:
 
 ```bash
-# macOS / Linux
+# macOS / Linux (real Linux, not WSL touching a Windows volume)
 rm -rf ~/Downloads/brief/brief-<id>/
 ```
 
 ```powershell
-# Windows (PowerShell). -Force is REQUIRED — Chrome marks freshly-downloaded
-# files read-only/hidden (Mark-of-the-Web), and plain Remove-Item refuses to
-# delete those. -Force strips the attribute and removes them.
+# Native Windows (PowerShell). -Force strips Chrome's Mark-of-the-Web
+# read-only attribute that otherwise blocks deletion.
 Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\brief-<id>"
 ```
+
+```bash
+# WSL / Linux container reading a Windows Downloads folder (e.g. /mnt/c/Users/<u>/Downloads)
+# Plain rm -rf and chmod CAN'T strip Windows NTFS Mark-of-the-Web — you'll see "Permission
+# denied" or "Operation not permitted". Shell out to Windows PowerShell via interop instead;
+# that runs as a Windows process and is allowed to clear the attribute:
+powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\brief-<id>\""
+```
+
+**Why the WSL form looks weird:** Chrome attaches an NTFS alternate data stream (`:Zone.Identifier`, aka Mark-of-the-Web) plus a read-only flag to every downloaded file. From inside Linux, the kernel sees the read-only state but has no permission to clear the NTFS-side attribute, so `rm -rf` and `chmod` both fail. `powershell.exe` runs in Windows-land and can strip it.
 
 The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief's folder in place and tell the user what failed so they can retry.

@@ -109,7 +109,7 @@ Each filed ticket still has to be in a **good state** — state/priority/labels/
 
 ## Step 5 — Delete filed briefs, then clear the folder
 
-As each ticket is successfully filed, delete that brief's entire folder — that removes the main zip, the companion `-extra.zip`, and any extracted contents in one shot. Pick the form for the platform you're on:
+As each ticket is successfully filed, delete that brief's entire folder — that removes the main zip, the companion `-extra.zip`, and any extracted contents in one shot. Pick the form for your environment:
 
 ```bash
 # macOS / Linux
@@ -117,14 +117,19 @@ rm -rf ~/Downloads/brief/brief-<id>/
 ```
 
 ```powershell
-# Windows (PowerShell) — -Force is REQUIRED to clear Chrome's read-only
-# Mark-of-the-Web attribute on downloaded files.
+# Native Windows (PowerShell)
 Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\brief-<id>"
+```
+
+```bash
+# WSL / Linux container reading a Windows Downloads folder
+# rm -rf alone can't clear Chrome's NTFS Mark-of-the-Web; shell out to PowerShell:
+powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\brief-<id>\""
 ```
 
 For a grouped ticket that combined multiple briefs, delete ALL the source brief folders in the group once the ticket is confirmed filed.
 
-**End-of-run cleanup.** Once every brief in the batch has been filed successfully, wipe everything under `~/Downloads/brief/` — every `brief-*` subfolder and any stray loose files — so nothing stale is left behind:
+**End-of-run cleanup.** Once every brief in the batch has been filed successfully, wipe everything under `~/Downloads/brief/`:
 
 ```bash
 # macOS / Linux
@@ -132,8 +137,13 @@ rm -rf ~/Downloads/brief/*
 ```
 
 ```powershell
-# Windows (PowerShell)
+# Native Windows
 Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\*"
+```
+
+```bash
+# WSL / Linux on a Windows volume
+powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\*\""
 ```
 
 **Only do the full wipe if every brief filed successfully.** If any ticket failed (MCP error, ambiguous request), do NOT wipe — leave the folder as-is, keep the brief(s) that failed, and report what failed so the user can retry. Never destroy a brief that never became a ticket.
