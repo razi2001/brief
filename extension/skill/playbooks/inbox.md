@@ -14,18 +14,19 @@ Both mean the same thing: file tickets for everything currently in `~/Downloads/
 
 If the user named brief IDs in the prompt, use that list.
 
-Otherwise, **list everything** in `~/Downloads/brief/`:
+Otherwise, **list the per-brief folders** under `~/Downloads/brief/`:
 
 ```bash
 ls ~/Downloads/brief/
 ```
 
-Pick up every `brief-<id>.zip` and every extracted `brief-<id>/` folder. If both exist for the same id, use the folder (already extracted). Build the list yourself.
+Each brief is a folder `brief-<id>/` containing `brief-<id>.zip` and optionally `brief-<id>-extra.zip`. Build the list yourself.
 
-For each brief:
-1. Extract the zip if it isn't already extracted
-2. Read `brief.json`
-3. Note `id`, `pageUrl`, `pageTitle`, `transcript`, `transcriptChunks`, `keyframeMeta`, `events`
+For each brief folder:
+1. Unzip `brief-<id>.zip` into the folder if not already extracted
+2. If `brief-<id>-extra.zip` is present, unzip it too (into the same folder) — it carries a screenshot and/or description the user added after recording
+3. Read `brief.json` (the main one; merge the extra one's `description`/`screenshot.png` into your understanding)
+4. Note `id`, `pageUrl`, `pageTitle`, `transcript`, `transcriptChunks`, `keyframeMeta`, `events`
 
 Don't read keyframes yet — just metadata.
 
@@ -68,7 +69,7 @@ When grouping, the resulting ticket should:
 
 The prompt from the extension names the exact set of briefs to process, each with a user-given name, e.g.:
 
-> Process these briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Unzip brief-a1b2c3.zip and follow its skill/SKILL.md.
+> Process these briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Each brief lives in its own folder (~/Downloads/brief/brief-<id>/). Start with ~/Downloads/brief/brief-a1b2c3/brief-a1b2c3.zip — unzip it and follow its skill/SKILL.md. Parallelize: dispatch each brief to its own sub-agent and process them concurrently.
 
 The prompt is intentionally short — it only tells you *where* to look and *which* briefs the user kept. The rules below are yours to apply. When the prompt names a subset:
 - **Process only those briefs.** Ignore any other files in the folder — the user may have other briefs in progress that they haven't exported yet.
@@ -77,25 +78,25 @@ The prompt is intentionally short — it only tells you *where* to look and *whi
 
 If the prompt does NOT name a subset (just "process my inbox"), process everything in the folder and delete each brief as you file it.
 
-## Step 4 — Process each ticket
+## Step 4 — Process each ticket (in parallel)
 
 For each item in your processed list (single brief or grouped briefs), follow `playbooks/ticket.md` — same rules apply (binary-search keyframes, inline images, no clarifying questions about team, etc.).
 
-The only adjustment vs. solo ticket filing: be **concise** in the description. The user is processing several things at once; they're not going to read each ticket in detail. Lead with what's broken, then evidence, then technical notes — skip the speculation.
+**Dispatch sub-agents in parallel — one sub-agent per ticket, all launched at once.** Each ticket is independent: a separate folder, a separate tracker write, no shared state. Spawn them concurrently rather than processing serially, then aggregate the results into a single summary at the end. For a grouped ticket combining N briefs, that's still one sub-agent (it owns all N folders in the group).
+
+The only adjustment vs. solo ticket filing: be **concise** in each description. The user is processing several things at once; they're not going to read each ticket in detail. Lead with what's broken, then evidence, then technical notes — skip the speculation.
 
 ## Step 5 — Delete filed briefs, then clear the folder
 
-As each ticket is successfully filed, delete that brief's files:
+As each ticket is successfully filed, delete that brief's entire folder — that removes the main zip, the companion `-extra.zip`, and any extracted contents in one shot:
 
 ```bash
-rm -rf ~/Downloads/brief/brief-<id>.zip
-rm -rf ~/Downloads/brief/brief-<id>-extra.zip
 rm -rf ~/Downloads/brief/brief-<id>/
 ```
 
-For a grouped ticket that combined multiple briefs, delete ALL the source briefs in the group once the ticket is confirmed filed.
+For a grouped ticket that combined multiple briefs, delete ALL the source brief folders in the group once the ticket is confirmed filed.
 
-**End-of-run cleanup.** Once every brief in the batch has been filed successfully, clear out the whole folder so nothing stale is left behind:
+**End-of-run cleanup.** Once every brief in the batch has been filed successfully, wipe everything under `~/Downloads/brief/` — every `brief-*` subfolder and any stray loose files — so nothing stale is left behind:
 
 ```bash
 rm -rf ~/Downloads/brief/*

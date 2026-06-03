@@ -14,7 +14,7 @@ A Chrome extension for people who use a coding agent. Record what's broken, hit 
 
 ## What is this
 
-You spot a bug or want a feature. You hit ✦ in your toolbar, talk through what you want while showing it on screen, and stop. Brief saves a zip locally in `~/Downloads/brief/` and adds it to your inbox.
+You spot a bug or want a feature. You hit ✦ in your toolbar, talk through what you want while showing it on screen, and stop. Brief saves the zip into its own folder under `~/Downloads/brief/brief-<id>/` and adds it to your inbox.
 
 Capture as many as you like through the day — they queue up. Then copy the inbox prompt and paste it into your coding agent. The agent reads each brief, files a real ticket in your tracker, groups duplicates, and deletes the source brief once it's filed.
 
@@ -52,10 +52,12 @@ That's it.
        click ✦              local zip              └──────────────────┘
 ```
 
-A brief is a folder:
+Each brief lives in its own folder containing one zip (plus an optional `-extra.zip` companion when you added a screenshot or description after recording). Unzipped, it looks like:
 
 ```
-~/Downloads/brief/<id>/
+~/Downloads/brief/brief-<id>/
+├── brief-<id>.zip          ← the main payload (the agent unzips it here)
+├── brief-<id>-extra.zip    ← optional: screenshot / description added after recording
 ├── brief.json              ← transcript, time-stamped chunks, events, console errors
 ├── recording.webm          ← original screen + voice
 └── keyframes/
@@ -71,7 +73,7 @@ When your agent processes briefs (one at a time, or your whole inbox at once), i
 - Embeds keyframes inline as markdown images (not as bare attachments)
 - Attaches the recording only when it beats the keyframes (motion/timing/multi-step bugs)
 - Includes console errors verbatim for bug reports
-- **Deletes the brief from `~/Downloads/brief/` once the ticket is confirmed filed**
+- **Deletes the brief's whole folder from `~/Downloads/brief/` once the ticket is confirmed filed**
 
 The skill's hard rules (no clarifying questions, inline images, binary-search frames, delete-on-success) live in `extension/skill/` — and a copy is bundled into every brief zip so any agent can read them.
 
@@ -113,7 +115,7 @@ Chromium-based browsers only for now (Chrome, Edge, Brave, Arc).
 - Windows: `%USERPROFILE%\Downloads\brief\`
 
 **Can I share a brief with a teammate?**
-The zip is self-contained — it includes the skill. Send it to them; they unzip it and paste `Read brief-<id>/skill/SKILL.md and follow it to file this as a ticket.` into any local agent and it'll process it on their machine.
+The zip is self-contained — it includes the skill. Send them `brief-<id>.zip` from the brief's folder; they unzip it and paste `Read brief-<id>/skill/SKILL.md and follow it to file this as a ticket.` into any local agent and it'll process it on their machine.
 
 **Why did the recording bar move when I zoomed?**
 It shouldn't anymore. You *can* drag it (grip the 6-dot handle on the left); its position is saved across tabs. It scales with Chrome page-zoom like everything else on the page, but it stays put.

@@ -11,7 +11,7 @@ Always read `brief.json` before anything else. A brief can contain any combinati
 - **`hasScreenshot: true`** — a `screenshot.png` is on disk. If `screenshotAnnotated` is true, **the red markings on it were drawn by the user to point at exactly where the issue is.** Center the ticket on what the red highlights. Describe the location in words too ("the red circle marks the nav item that should be plural").
 - **`extra`** — key/value pairs (credentials, IDs, context) the user attached. Put them in an **Additional data** section verbatim.
 
-If the prompt mentions a companion `brief-<id>-extra.zip`, unzip it too — it holds a screenshot and/or description the user added after recording. Merge its `screenshot.png` and `description` into the same ticket.
+Each brief lives in its own folder: `~/Downloads/brief/brief-<id>/`. Inside you'll find the main `brief-<id>.zip` and, when present, a companion `brief-<id>-extra.zip` — unzip both. The companion holds a screenshot and/or description the user added after recording; merge its `screenshot.png` and `description` into the same ticket.
 
 Use whatever is present, in this priority for understanding intent: description → red-annotated screenshot → transcript/keyframes → plain screenshot. A brief might be *only* a screenshot, or *only* a sentence of text — that's valid; file the best ticket you can from what's there. Never stall waiting for inputs that don't exist.
 
@@ -189,12 +189,10 @@ That's it. No mid-flow questions. No "do you want me to attach the video?". You 
 
 ## 9. Delete the brief
 
-After the ticket is successfully filed, delete the source brief from disk:
+After the ticket is successfully filed, delete the brief's entire folder from disk — that removes the main zip, the companion `-extra.zip`, and anything you extracted into it in one shot:
 
 ```bash
-rm -rf ~/Downloads/brief/brief-<id>.zip
-rm -rf ~/Downloads/brief/brief-<id>-extra.zip
 rm -rf ~/Downloads/brief/brief-<id>/
 ```
 
-The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief in place and tell the user what failed so they can retry.
+The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief's folder in place and tell the user what failed so they can retry.

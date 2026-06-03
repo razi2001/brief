@@ -597,7 +597,7 @@ async function writeBriefZip(b) {
   const blobUrl = URL.createObjectURL(blob);
   const res = await chrome.runtime.sendMessage({
     type: 'DOWNLOAD_ZIP',
-    payload: { blobUrl, filename: `brief/brief-${b.id}.zip` },
+    payload: { blobUrl, filename: `brief/brief-${b.id}/brief-${b.id}.zip` },
   });
   URL.revokeObjectURL(blobUrl);
   if (!res?.ok) throw new Error(res?.error || 'zip_write_failed');
@@ -625,7 +625,7 @@ async function writeCompanionZip(b) {
   const blobUrl = URL.createObjectURL(blob);
   const res = await chrome.runtime.sendMessage({
     type: 'DOWNLOAD_ZIP',
-    payload: { blobUrl, filename: `brief/brief-${b.id}-extra.zip` },
+    payload: { blobUrl, filename: `brief/brief-${b.id}/brief-${b.id}-extra.zip` },
   });
   URL.revokeObjectURL(blobUrl);
   if (!res?.ok) throw new Error(res?.error || 'companion_write_failed');
@@ -658,9 +658,11 @@ exportBtn.addEventListener('click', async () => {
     return;
   }
 
-  // 2) Build the prompt. Skill knows HOW; prompt carries where + which + extras
-  //    the skill can't know (description is in the zip, but a one-line hint and
-  //    the red-screenshot note help the agent).
+  // 2) Build the prompt. Skill knows HOW; prompt carries where + which.
+  //    Keep it minimal: the description and additional-data key/values live
+  //    inside the brief.zip (or its companion -extra.zip) and the agent reads
+  //    them from there. Carrying them in the prompt would duplicate the data
+  //    and risk drift if the user edited a draft after recording.
   function describe(b, i) {
     const name = (b.name && b.name.trim()) || `Untitled brief ${i + 1}`;
     let s = `${b.id} ("${name}")`;
@@ -670,18 +672,6 @@ exportBtn.addEventListener('click', async () => {
     if (b.screenshot) kinds.push(b.screenshotAnnotated ? 'screenshot with red annotations' : 'screenshot');
     if (b.description && b.description.trim()) kinds.push('text description');
     if (kinds.length) bits.push(kinds.join(' + '));
-    // Carry the actual description text in the prompt. This is the one channel
-    // that always reaches the agent — important because a recording brief's
-    // on-disk zip is written at record time and may predate a description the
-    // user typed afterward (so brief.json could have an empty description).
-    if (b.description && b.description.trim()) {
-      bits.push(`description: "${b.description.trim().replace(/\s+/g, ' ')}"`);
-    }
-    if (Array.isArray(b.extra) && b.extra.length) {
-      const kv = b.extra.filter((p) => p.key.trim() || p.value.trim())
-        .map((p) => `${p.key.trim()}: ${p.value.trim()}`).join('; ');
-      if (kv) bits.push(`additional data — ${kv}`);
-    }
     if (b.includeVideo && (b.hasRecording || b.recorded)) bits.push('attach the recording to this ticket');
     // A recording brief with a screenshot has its extra context in a companion zip.
     if ((b.hasRecording || b.recorded) && b.screenshot) {
@@ -692,9 +682,14 @@ exportBtn.addEventListener('click', async () => {
   }
   const named = ready.map(describe).join('; ');
   const firstId = ready[0].id;
+  const multi = ready.length > 1;
   const prompt =
     `Process these briefs from ~/Downloads/brief/: ${named}. ` +
-    `Unzip brief-${firstId}.zip and follow its skill/SKILL.md. ` +
+    `Each brief lives in its own folder (~/Downloads/brief/brief-<id>/). ` +
+    `Start with ~/Downloads/brief/brief-${firstId}/brief-${firstId}.zip — unzip it and follow its skill/SKILL.md. ` +
+    (multi
+      ? `Parallelize: dispatch each brief to its own sub-agent and process them concurrently — one sub-agent per brief, all running at once. `
+      : '') +
     `Note: any red markings in a screenshot are drawn by me to show where the issue is.`;
   try { await navigator.clipboard.writeText(prompt); } catch {}
 

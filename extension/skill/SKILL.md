@@ -5,10 +5,12 @@ description: Use this skill whenever the user mentions a "brief" (e.g. "turn bri
 
 # Brief — Router
 
-Briefs are captured locally and stored in `~/Downloads/brief/`. Each is either:
+Briefs are captured locally and stored in `~/Downloads/brief/`. Each brief lives in its own folder, `~/Downloads/brief/brief-<id>/`, which contains:
 
-- a `.zip` file (`brief-<id>.zip`) — yet-to-be-extracted
-- a folder (`brief-<id>/`) after extraction
+- `brief-<id>.zip` — the main payload (unzip it to read `brief.json`, `recording.webm`, `keyframes/`, etc.)
+- optionally `brief-<id>-extra.zip` — a companion zip with a screenshot and/or description the user added after recording. Always unzip this too when present.
+
+Everything for one brief stays in that one folder — including whatever the zips extract into.
 
 **A brief can contain any combination of these** (check `brief.json` to see which):
 
@@ -47,16 +49,17 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
 
 ## Step 3 — Delete the brief after processing
 
-**Critical:** once a brief has been successfully turned into a real ticket (or batch of tickets), delete the source brief.
+**Critical:** once a brief has been successfully turned into a real ticket (or batch of tickets), delete the source brief — the entire per-brief folder, not just one zip inside it.
 
 For a single brief:
-- Delete both the zip (`~/Downloads/brief/brief-<id>.zip`) and any extracted folder (`~/Downloads/brief/brief-<id>/`)
+- Delete the whole folder: `~/Downloads/brief/brief-<id>/` — this removes the main zip, the companion `-extra.zip`, and any extracted contents in one shot.
 
 For an inbox batch:
-- Delete each brief in the batch as it's successfully processed
-- If one brief fails, leave that one and continue with the rest
-- Report at the end which were deleted vs. which were left for retry
+- After each brief's ticket is confirmed filed, delete that brief's folder (`~/Downloads/brief/brief-<id>/`).
+- When every brief in the batch has been filed successfully, **wipe everything left under `~/Downloads/brief/`** — every `brief-*` subfolder (and any stray loose files). The folder should be empty when you're done.
+- If one brief fails, leave its folder in place and continue with the rest. Don't run the full wipe — only delete the folders of the briefs that succeeded.
+- Report at the end which were deleted vs. which were left for retry.
 
 The user does NOT want a directory full of old briefs accumulating. Briefs are ephemeral capture; tickets are the permanent artifact.
 
-**Only delete on success.** If you couldn't file the ticket (MCP error, ambiguous request, anything), leave the brief in place so the user can retry. Tell them why it failed.
+**Only delete on success.** If you couldn't file the ticket (MCP error, ambiguous request, anything), leave the brief's folder in place so the user can retry. Tell them why it failed.
