@@ -133,18 +133,36 @@ Page: <pageUrl>
 
 ## 7. Upload + embed images INLINE
 
-The user wants images to **render in the ticket**, not appear as a list of file attachments. The flow on Linear (adapt for other MCPs):
+The user wants images to **render in the ticket**, not just appear as a chip in the attachments list. The flow on Linear (adapt for other MCPs):
 
-For each image you're using — selected keyframes **and/or** the user's `screenshot.png`:
+**Order of operations — strict:**
 
-1. `prepare_attachment_upload(issueId, filename, contentType, size)` → returns `uploadUrl`, `assetUrl`, `headers`
-2. PUT the image bytes to `uploadUrl` with those headers
-3. `create_attachment_from_upload(issueId, assetUrl, filename)` to register it
-4. **Use the `assetUrl` inline in the markdown description**: `![caption](assetUrl)`
+1. Create the issue first with `save_issue(...)`. Use a placeholder Evidence section (e.g. `**Evidence**\n_uploading…_`) — you'll rewrite the description in step 4 with the real `assetUrl`s. Linear needs an issue identifier before it'll accept uploads.
+2. For each image (selected keyframes **and/or** `screenshot.png`) and, if you decided to attach it, `recording.webm`:
+   a. `prepare_attachment_upload({ issue: 'LIN-123', filename: 'keyframe-002.png', contentType: 'image/png', size: <exact bytes> })` returns `{ uploadRequest: { url, headers }, assetUrl }`. Note the **nested `uploadRequest`** — it is NOT a flat `uploadUrl` at the top level.
+   b. PUT the raw bytes to `uploadRequest.url`. **Send every header in `uploadRequest.headers` verbatim — same names, same casing, same values.** Omitting one (or changing the case) returns HTTP 403 from Google's signed-URL backend. Do not base64-encode the bytes. The signed URL expires after 60 seconds, so PUT immediately after `prepare_attachment_upload`; if it expires, re-call `prepare_attachment_upload` for a fresh signed URL.
+   c. `create_attachment_from_upload({ issue: 'LIN-123', assetUrl, title: filename })` to register the upload as a Linear attachment row. **You must call this** — without it the file is uploaded to storage but Linear has no attachment record and the asset URL won't render reliably inline.
+3. Collect the returned `assetUrl`s, one per file.
+4. Call `save_issue({ id: 'LIN-123', description: <final markdown> })` once, with the real `assetUrl`s embedded inline:
+   - **Images:** `![caption](assetUrl)` — Linear renders these as inline images.
+   - **Video (`recording.webm`):** put the bare `assetUrl` on its own line inside the Recording section (see below). Linear's renderer auto-embeds Linear-hosted video URLs as a player; the markdown image syntax `![](url)` does **not** work for video.
 
-Create the issue FIRST (with placeholder image refs or an empty Evidence section), then upload, then update the issue's description with the real URLs. Most trackers require an `issueId` before file upload.
+For the curl/fetch equivalent of the PUT (in case you need to debug a 403):
+
+```bash
+curl -X PUT --data-binary @keyframe-002.png \
+  -H "content-type: image/png" \
+  -H "x-goog-content-length-range: 12345,12345" \
+  -H "cache-control: public, max-age=31536000" \
+  -H 'Content-Disposition: attachment; filename="keyframe-002.png"' \
+  "<uploadRequest.url>"
+```
+
+(Exact header set comes from `uploadRequest.headers` — that's just an example shape. Don't hardcode it.)
 
 **The user's screenshot.** If `brief.json.hasScreenshot` is true, embed `screenshot.png` inline in Evidence — it's often the single most important image. If `screenshotAnnotated`, caption it to point at the red, e.g. `![The red circle marks the nav label that should be plural](assetUrl)`. For a screenshot-only brief, this is your primary (often only) evidence image.
+
+**Don't use the deprecated `create_attachment` (base64) tool** unless `prepare_attachment_upload` is genuinely unavailable. Base64-uploading large recordings will blow up the agent context.
 
 ### The recording
 
@@ -165,19 +183,21 @@ Skip the recording (keyframes alone are enough) when:
 - The keyframes already show the before/after clearly
 - It's a **feature request** with no specific on-screen repro
 
-When you do include it, **embed it inline in the description so it renders as a player** — don't just leave a "see attached" line. When you don't, don't mention it at all — the keyframes carry the ticket.
+When you do include it, **embed it inline so it renders as a player** — don't just leave a "see attached" line. When you don't, don't mention it at all — the keyframes carry the ticket.
 
-To embed inline: use the same upload flow as keyframes — `prepare_attachment_upload(issueId, 'recording.webm', 'video/webm', size)` → PUT the bytes to `uploadUrl` → `create_attachment_from_upload(issueId, assetUrl, 'recording.webm')`. Then put the `assetUrl` **inline in the description markdown** in a Recording section:
+To embed inline, use the same upload flow as keyframes — `prepare_attachment_upload({ issue, filename: 'recording.webm', contentType: 'video/webm', size })` → PUT the bytes to `uploadRequest.url` with every header in `uploadRequest.headers` (verbatim, case-preserved) → `create_attachment_from_upload({ issue, assetUrl, title: 'recording.webm' })`. Then in the description, write the Recording section like this — **the assetUrl must be on its own line, with blank lines around it, and as a bare URL (no markdown image syntax, no `![]()` wrapper, no link wrapper)**:
 
 ```markdown
 **Recording**
 
-![Recording](<assetUrl>)
+<assetUrl>
 ```
 
-Linear (and most modern trackers) render an inline player from a video `assetUrl` — that's what makes it show in the preview instead of only in the Resources/attachments list. Do NOT also write a separate "see attached recording.webm" line — the inline player is enough. Place the Recording section right after Evidence (bugs) or Notes (features).
+Linear's renderer auto-embeds Linear-hosted video URLs into an inline player. `![Recording](assetUrl)` does **not** work for video — it renders as a broken-image icon, which is what produces the "image attached weird, video not attached" symptom. A wrapped link `[Recording](assetUrl)` renders as a clickable link, not a player. Bare URL on its own line is the correct form.
 
-If a particular tracker genuinely can't render video inline, fall back to a single `**Recording**: see attached recording.webm` line — but try the inline embed first.
+Place the Recording section right after Evidence (bugs) or Notes (features). Do NOT also write a separate "see attached recording.webm" line — the inline player + the attachment row from `create_attachment_from_upload` are enough.
+
+If a particular tracker genuinely can't auto-embed video, fall back to a single `**Recording**: <assetUrl>` line — but try the bare-URL embed first, it's what Linear expects.
 
 ## 8. Confirm + clean up
 
@@ -189,10 +209,18 @@ That's it. No mid-flow questions. No "do you want me to attach the video?". You 
 
 ## 9. Delete the brief
 
-After the ticket is successfully filed, delete the brief's entire folder from disk — that removes the main zip, the companion `-extra.zip`, and anything you extracted into it in one shot:
+After the ticket is successfully filed, delete the brief's entire folder from disk — that removes the main zip, the companion `-extra.zip`, and anything you extracted into it in one shot. Pick the form that matches the platform you're on:
 
 ```bash
+# macOS / Linux
 rm -rf ~/Downloads/brief/brief-<id>/
+```
+
+```powershell
+# Windows (PowerShell). -Force is REQUIRED — Chrome marks freshly-downloaded
+# files read-only/hidden (Mark-of-the-Web), and plain Remove-Item refuses to
+# delete those. -Force strips the attribute and removes them.
+Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\brief-<id>"
 ```
 
 The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief's folder in place and tell the user what failed so they can retry.

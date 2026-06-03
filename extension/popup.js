@@ -684,14 +684,10 @@ exportBtn.addEventListener('click', async () => {
   };
   const named = ready.map(describe).join('; ');
   const firstId = ready[0].id;
-  const multi = ready.length > 1;
   const prompt =
     `Process these briefs from ~/Downloads/brief/: ${named}. ` +
     `Each brief lives in its own folder (~/Downloads/brief/brief-<id>/). ` +
-    `Start with ~/Downloads/brief/brief-${firstId}/brief-${firstId}.zip — unzip it and follow its skill/SKILL.md.` +
-    (multi
-      ? ` Parallelize: dispatch each brief to its own sub-agent and process them concurrently — one sub-agent per brief, all running at once.`
-      : '');
+    `Start with ~/Downloads/brief/brief-${firstId}/brief-${firstId}.zip — unzip it and follow its skill/SKILL.md.`;
   try { await navigator.clipboard.writeText(prompt); } catch {}
 
   // 3) Animate ready rows out, keep not-ready drafts.

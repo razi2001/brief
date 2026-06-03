@@ -40,6 +40,7 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
 ## Hard rules (apply across all playbooks)
 
 0. **Always unzip the companion `-extra.zip` if it exists in the brief's folder.** The export prompt is intentionally minimal and won't list it. The companion is where post-record edits live (description, screenshot, additional data, the `attachRecording` flag); its fields override the main `brief.json` on conflict. **Any red markings in a screenshot were drawn by the user to point at where the issue is** — treat them as the focus indicator, not part of the page UI.
+0a. **Process multiple briefs in parallel via sub-agents.** Whenever the prompt names more than one brief (or `inbox.md` discovers more than one), dispatch one sub-agent per ticket and launch them all at once. Each brief is independent — separate folder, separate tracker write, no shared state — so there is no reason to process them serially. Aggregate their results into a single closing summary. For a grouped ticket combining N briefs, that's still one sub-agent (it owns all N folders in the group).
 1. **Never ask which team / repo / channel.** Infer from the page URL, the user's connected MCPs, recent activity. State your inference in the final summary so the user can correct next time if wrong.
 2. **Binary-search keyframes** — read 3-5 strategic frames (first, midpoint, last; more only if needed), not all of them. Most briefs have 20+ keyframes; reading all is wasteful.
 3. **Embed images INLINE** via markdown `![](attachmentUrl)`, not as bare attachments. The ticket should be readable end-to-end without clicking through to attachments.
@@ -60,6 +61,8 @@ For an inbox batch:
 - When every brief in the batch has been filed successfully, **wipe everything left under `~/Downloads/brief/`** — every `brief-*` subfolder (and any stray loose files). The folder should be empty when you're done.
 - If one brief fails, leave its folder in place and continue with the rest. Don't run the full wipe — only delete the folders of the briefs that succeeded.
 - Report at the end which were deleted vs. which were left for retry.
+
+**On Windows, deletion needs `-Force`.** Chrome marks downloaded files read-only via Mark-of-the-Web, so `Remove-Item` without `-Force` refuses to delete them. Use `Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\brief-<id>"` (or `\*` for the full wipe). Each playbook has the exact commands.
 
 The user does NOT want a directory full of old briefs accumulating. Briefs are ephemeral capture; tickets are the permanent artifact.
 
