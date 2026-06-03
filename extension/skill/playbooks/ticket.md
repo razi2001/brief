@@ -131,6 +131,28 @@ Page: <pageUrl>
 <only if the user supplied key/value extras; otherwise omit>
 ```
 
+## 6b. File the ticket in a **good state** — mirror team conventions
+
+A bare title + description is not enough. A ticket the team can actually triage needs the metadata fields filled the same way the team already fills them for new tickets. Match what they do; don't invent your own conventions.
+
+**Before calling `save_issue`, sample 5–10 of the team's most recently-created tickets** (use `list_issues({ team, orderBy: 'createdAt', limit: 10 })` on Linear, equivalent on other trackers). Read off the pattern:
+
+- **state / status** — what state are newly-created tickets in? Backlog, Triage, Todo, To Refine? Don't default to "In Progress" or "Done". If the team has a dedicated intake state (Triage, Backlog), use it.
+- **priority** — Linear: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low. For a bug, mirror what comparable bugs got. If unsure, **3 (Medium) for bugs, 4 (Low) for feature requests** — never leave a bug at None when most bugs in the team are triaged with a priority.
+- **labels** — almost every team uses a `Bug` / `Feature` / `Improvement` axis plus area labels (`checkout`, `auth`, `mobile`, …). Apply the type label (Bug vs Feature based on your step-1 classification) and the area label that best matches the `pageUrl` host and the inferred surface. If you're not sure a label exists, call `list_issue_labels({ team })` first — don't invent labels.
+- **cycle** — is the team active in a cycle right now? If new bugs typically get dropped into the current cycle, do that; if they go into the backlog and get pulled in later, leave cycle unset. Read recent tickets to tell which.
+- **project / milestone** — same rule: if recent tickets in this surface area are tagged with a project, match it. If unset is the norm, leave it.
+- **estimate / complexity** — if the team estimates at creation time, give a conservative starting estimate based on apparent scope (UI copy fix → smallest unit; multi-file refactor → larger). If estimates are added later in refinement, leave unset.
+- **assignee** — leave UNSET by default. Only set an assignee if the team's recent tickets show a clear auto-assign pattern (e.g. always assigned to the area owner). Filing a ticket onto a specific person without that signal is presumptuous.
+- **severity** — if the team uses a custom Severity field or label (S1/S2/S3, P0/P1/P2), apply the same calibration: data loss / outage = top severity; broken core flow = high; cosmetic = low.
+- **due date** — only set if recent tickets do so as a matter of course (rare). Otherwise unset.
+
+**The bar:** the freshly-filed ticket should be indistinguishable from one a team member would have filed manually. If a teammate opening the tracker can't tell which of the last 10 tickets the bot filed, you got it right.
+
+If a particular field doesn't fit cleanly into the MCP's `save_issue` schema (Linear's custom-field support is limited, etc.), apply it as a label in the form `severity:high` or `complexity:medium` — that's the standard workaround and the team's existing tickets will tell you whether they actually do this.
+
+State the metadata you applied in the final summary (Step 8), so the user can correct any miss with one word.
+
 ## 7. Upload + embed images INLINE
 
 The user wants images to **render in the ticket**, not just appear as a chip in the attachments list. The flow on Linear (adapt for other MCPs):
@@ -201,9 +223,9 @@ If a particular tracker genuinely can't auto-embed video, fall back to a single 
 
 ## 8. Confirm + clean up
 
-End with one short summary line:
+End with one short summary line. Include the metadata you set (state, priority, labels) so the user can spot a miss in one glance:
 
-> Filed **<title>** in **<team>** → <url>. Used N frames + Y transcript chunks. If <team> isn't right, just tell me.
+> Filed **<title>** in **<team>** → <url>. State: Triage · Priority: Medium · Labels: Bug, checkout. Used N frames + Y transcript chunks. If anything's off (team, priority, label), just tell me.
 
 That's it. No mid-flow questions. No "do you want me to attach the video?". You decided, you executed, you reported.
 

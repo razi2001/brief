@@ -86,6 +86,8 @@ For each item in your processed list (single brief or grouped briefs), follow `p
 
 The only adjustment vs. solo ticket filing: be **concise** in each description. The user is processing several things at once; they're not going to read each ticket in detail. Lead with what's broken, then evidence, then technical notes — skip the speculation.
 
+Each filed ticket still has to be in a **good state** — state/priority/labels/cycle filled to match the team's convention for new tickets (see `ticket.md` step 6b). Batch processing is no excuse for bare title-plus-description tickets.
+
 ## Step 5 — Delete filed briefs, then clear the folder
 
 As each ticket is successfully filed, delete that brief's entire folder — that removes the main zip, the companion `-extra.zip`, and any extracted contents in one shot. Pick the form for the platform you're on:
