@@ -1,4 +1,4 @@
-// Claude Brief — popup
+// Brief — popup
 //
 // On open:
 //   1. Fast-path: if we have a cached "mic granted" flag from a recent

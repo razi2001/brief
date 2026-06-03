@@ -1,4 +1,4 @@
-// Claude Brief — microphone permission page
+// Brief — microphone permission page
 //
 // This page exists only to fire Chrome's native mic prompt reliably (a
 // top-level extension tab is the one context where it works). Once mic is

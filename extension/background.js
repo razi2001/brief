@@ -54,7 +54,7 @@ async function ensureOffscreenDocument() {
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_PATH,
     reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'],
-    justification: 'Capture mic + tab audio/video for Claude Brief recording.',
+    justification: 'Capture mic + tab audio/video for Brief recording.',
   });
 }
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Claude Brief",
+  "name": "Brief",
   "version": "0.2.0",
-  "description": "Record what you want. Claude ships it. Tab + voice capture with live transcript, paired with the Claude Brief skill.",
+  "description": "Record what you want. Claude ships it. Tab + voice capture with live transcript, paired with the Brief skill.",
   "permissions": [
     "activeTab",
     "tabs",
@@ -18,7 +18,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Claude Brief",
+    "default_title": "Brief",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
