@@ -34,22 +34,15 @@ If the inbox is empty (no briefs found), say so briefly and stop: *"Inbox is emp
 
 ## Step 2 — Triage out loud
 
-Before filing anything, **show the user your read** in a single message:
+**Announce the plan in one line, then proceed immediately. Do NOT ask "Proceed?" or "Ready to file these?" — the user already clicked Export; that IS the go-ahead.**
 
-> Looking at your 7 briefs:
-> - 5 bugs, 2 feature requests
-> - Two of the bugs look like the same thing — both about the date picker on the Labels page. I'd dedupe those into one ticket with both recordings linked.
->
-> Plan: **6 tickets** to file (1 deduped from 2 briefs)
->
-> Proceed?
+A single short message like this is enough; the very next thing you do is dispatch the sub-agents in Step 4:
 
-Wait for the user's confirmation before filing. (If the user explicitly said to proceed without checking, you can skip straight to filing — but default to showing the plan first.)
+> Filing 7 briefs (5 bugs, 2 features). Deduping 2 about the date picker into one ticket. Dispatching 6 sub-agents now.
 
-This triage step is critical because:
-- The user can't watch you process 7 things one by one — too much output to read
-- You'll occasionally misread something or miss a dupe — letting them correct once is much better than them spotting it after 5 tickets are filed
-- It builds trust: they see you understood before you acted
+Then keep moving. The user can interrupt if anything in that line looks wrong; they don't need to type "yes" for you to start. The only time to pause for confirmation is if a brief is genuinely ambiguous (you can't tell what tracker / what team / can't classify it) — flag that one specifically and file the others without waiting.
+
+Why no checkpoint? Export already is the checkpoint. The user reviewed their list in the popup, decided which briefs were ready, and pressed the button. Treating Export as "draft for review" instead of "file these" defeats the whole point of the inbox flow.
 
 ## Step 3 — Group related briefs
 
@@ -69,7 +62,9 @@ When grouping, the resulting ticket should:
 
 The prompt from the extension names the exact set of briefs to process, each with a user-given name, e.g.:
 
-> Process these briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Each brief lives in its own folder (~/Downloads/brief/brief-<id>/). Start with ~/Downloads/brief/brief-a1b2c3/brief-a1b2c3.zip — unzip it and follow its skill/SKILL.md. Parallelize: dispatch each brief to its own sub-agent and process them concurrently.
+> Process these briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Each brief lives in its own folder (~/Downloads/brief/brief-<id>/). Start with ~/Downloads/brief/brief-a1b2c3/brief-a1b2c3.zip — unzip it and follow its skill/SKILL.md.
+
+(The prompt no longer carries a "parallelize" hint — that rule lives in this skill, Hard Rule 0a and Step 4 below. Apply it whether or not the prompt mentions it.)
 
 The prompt is intentionally short — it only tells you *where* to look and *which* briefs the user kept. The rules below are yours to apply. When the prompt names a subset:
 - **Process only those briefs.** Ignore any other files in the folder — the user may have other briefs in progress that they haven't exported yet.
@@ -78,15 +73,39 @@ The prompt is intentionally short — it only tells you *where* to look and *whi
 
 If the prompt does NOT name a subset (just "process my inbox"), process everything in the folder and delete each brief as you file it.
 
-## Step 4 — Process each ticket (in parallel)
+## Step 4 — Dispatch sub-agents (MANDATORY)
 
-For each item in your processed list (single brief or grouped briefs), follow `playbooks/ticket.md` — same rules apply (binary-search keyframes, inline images, no clarifying questions about team, etc.).
+**If there are 2 or more tickets to file, you MUST spawn one sub-agent per ticket and run them in parallel.** This is not a suggestion, not an optimization, not "if you feel like it" — it is the only correct way to process the batch. One sub-agent per ticket, dispatched in a single batch of parallel tool calls, all running concurrently.
 
-**Dispatch sub-agents in parallel — one sub-agent per ticket, all launched at once.** Each ticket is independent: a separate folder, a separate tracker write, no shared state. Spawn them concurrently rather than processing serially, then aggregate the results into a single summary at the end. For a grouped ticket combining N briefs, that's still one sub-agent (it owns all N folders in the group).
+**How to do it (Claude Code / similar harness):** make multiple `Task` / `Agent` tool calls **in a single assistant message**. That is what makes them run concurrently. Calling them across separate messages serializes them and defeats the entire point. In one message, fan out N tool calls — N = number of tickets after deduping.
 
-The only adjustment vs. solo ticket filing: be **concise** in each description. The user is processing several things at once; they're not going to read each ticket in detail. Lead with what's broken, then evidence, then technical notes — skip the speculation.
+**Each sub-agent owns exactly one ticket's worth of work.** Hand it the absolute path(s) to the brief folder(s) and tell it to follow `playbooks/ticket.md` end-to-end: read `brief.json` + companion, pick the team, upload attachments, call `save_issue`, fill metadata per Step 6b, and delete that brief's folder on success. It returns the filed ticket's URL + a one-line summary. Nothing else.
 
-Each filed ticket still has to be in a **good state** — state/priority/labels/cycle filled to match the team's convention for new tickets (see `ticket.md` step 6b). Batch processing is no excuse for bare title-plus-description tickets.
+**Why this is required, not optional:**
+
+- Tickets are genuinely independent: separate folders, separate tracker writes, no shared state. Serial processing wastes wall-clock for zero benefit.
+- Attachment uploads (keyframes + recording) are network-heavy. Concurrency hides that latency.
+- The main agent's context stays clean — it sees N short "Filed LIN-1234" summaries instead of N full upload transcripts.
+
+**Anti-patterns — do not do these:**
+
+| Anti-pattern | Why it's wrong |
+|---|---|
+| Process each brief inline yourself, one after another | Serial — exactly what sub-agents are for. If your message reads "Now processing brief 1… now brief 2…", you're doing it wrong. |
+| Spawn sub-agents across separate assistant messages | Sequential. Concurrency only happens when multiple Task/Agent calls are in the **same** message. |
+| Spawn one sub-agent for "the whole batch" | Defeats parallelism — that sub-agent will itself process serially. One per ticket. |
+| Skip sub-agents because there are "only 2 or 3 briefs" | Threshold is 2, not 5. Two tickets → two sub-agents, in parallel. |
+| Spawn sub-agents, then wait between rounds to spawn the next batch | Fan out **all** of them at once. The harness handles the actual concurrency cap. |
+
+**The one exception — a single ticket:** if, after deduping, there is exactly one ticket to file, do it inline yourself. No point spawning a sub-agent for one item.
+
+**Grouped tickets** (multiple source briefs combining into one ticket): still one sub-agent for that group — it owns all N source folders and deletes them all on success.
+
+Whatever the sub-agent does, it still follows `playbooks/ticket.md` exactly — same rules (binary-search keyframes, inline images, no clarifying questions about team, fill metadata per Step 6b, file in a good state matching team conventions).
+
+**Concision for batches.** The user is processing several things at once; they won't read each ticket in detail. Each sub-agent leads its description with what's broken, then evidence, then technical notes — skip the speculation.
+
+Each filed ticket still has to be in a **good state** — state/priority/labels/cycle filled to match the team's convention (see `ticket.md` step 6b). Batch processing is no excuse for bare title-plus-description tickets.
 
 ## Step 5 — Delete filed briefs, then clear the folder
 
