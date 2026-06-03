@@ -20,12 +20,13 @@ Otherwise, **list everything** in `~/Downloads/brief/`:
 ls ~/Downloads/brief/
 ```
 
-Pick up every `brief-<id>.zip` and every extracted `brief-<id>/` folder. If both exist for the same id, use the folder (already extracted). Build the list yourself.
+Each brief is a folder `brief-<id>/` containing `brief-<id>.zip` and optionally `brief-<id>-extra.zip`. Build the list yourself.
 
-For each brief:
-1. Extract the zip if it isn't already extracted
-2. Read `brief.json`
-3. Note `id`, `pageUrl`, `pageTitle`, `transcript`, `transcriptChunks`, `keyframeMeta`, `events`
+For each brief folder:
+1. Unzip `brief-<id>.zip` into the folder if not already extracted
+2. If `brief-<id>-extra.zip` is present, unzip it too (into the same folder) — it carries the late-edit state (description, screenshot, additional data, `attachRecording`) and overrides the main `brief.json`
+3. Read `brief.json` (merge the extra one's fields over it)
+4. Note `id`, `pageUrl`, `pageTitle`, `transcript`, `transcriptChunks`, `keyframeMeta`, `events`
 
 Don't read keyframes yet — just metadata.
 
@@ -68,7 +69,7 @@ When grouping, the resulting ticket should:
 
 The prompt from the extension names the exact set of briefs to process, each with a user-given name, e.g.:
 
-> Process these briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Unzip brief-a1b2c3.zip and follow its skill/SKILL.md.
+> Process these briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Each brief lives in its own folder (~/Downloads/brief/brief-<id>/). Start with ~/Downloads/brief/brief-a1b2c3/brief-a1b2c3.zip — unzip it and follow its skill/SKILL.md.
 
 The prompt is intentionally short — it only tells you *where* to look and *which* briefs the user kept. The rules below are yours to apply. When the prompt names a subset:
 - **Process only those briefs.** Ignore any other files in the folder — the user may have other briefs in progress that they haven't exported yet.
@@ -77,31 +78,56 @@ The prompt is intentionally short — it only tells you *where* to look and *whi
 
 If the prompt does NOT name a subset (just "process my inbox"), process everything in the folder and delete each brief as you file it.
 
-## Step 4 — Process each ticket
+## Step 4 — Dispatch sub-agents in parallel (MANDATORY)
 
-For each item in your processed list (single brief or grouped briefs), follow `playbooks/ticket.md` — same rules apply (binary-search keyframes, inline images, no clarifying questions about team, etc.).
+**For 2+ tickets, you MUST spawn one sub-agent per ticket via parallel Task/Agent tool calls in a single assistant message.** Same message = concurrent; across messages = serial. Processing the briefs inline yourself, one after another, is the anti-pattern this rule exists to prevent — speed is the whole point of the inbox flow.
 
-The only adjustment vs. solo ticket filing: be **concise** in the description. The user is processing several things at once; they're not going to read each ticket in detail. Lead with what's broken, then evidence, then technical notes — skip the speculation.
+Each sub-agent owns exactly one ticket's worth of work: it follows `playbooks/ticket.md` end-to-end (read `brief.json` + companion, classify, pick the team, file, upload attachments, delete its brief folder on success) and returns the filed ticket's URL plus a one-line summary. For a grouped ticket combining N briefs, that's still one sub-agent (it owns all N source folders).
+
+Exception: a single ticket after deduping → do it inline, no sub-agent.
+
+Per-ticket rules don't change — `ticket.md` applies. Just be **concise**: the user is processing several things at once and won't read each ticket in detail.
 
 ## Step 5 — Delete filed briefs, then clear the folder
 
-As each ticket is successfully filed, delete that brief's files:
+As each ticket is successfully filed, delete that brief's entire folder — that removes the main zip, the companion `-extra.zip`, and any extracted contents in one shot. Pick the form for your environment:
 
 ```bash
-rm -rf ~/Downloads/brief/brief-<id>.zip
-rm -rf ~/Downloads/brief/brief-<id>-extra.zip
+# macOS / Linux
 rm -rf ~/Downloads/brief/brief-<id>/
 ```
 
-For a grouped ticket that combined multiple briefs, delete ALL the source briefs in the group once the ticket is confirmed filed.
-
-**End-of-run cleanup.** Once every brief in the batch has been filed successfully, clear out the whole folder so nothing stale is left behind:
-
-```bash
-rm -rf ~/Downloads/brief/*
+```powershell
+# Native Windows (PowerShell)
+Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\brief-<id>"
 ```
 
-**Only do the full wipe if every brief filed successfully.** If any ticket failed (MCP error, ambiguous request), do NOT wipe — leave the folder as-is, keep the brief(s) that failed, and report what failed so the user can retry. Never destroy a brief that never became a ticket.
+```bash
+# WSL / Linux on a Windows volume — Linux can't strip Chrome's Mark-of-the-Web
+# from inside the kernel; shell out to PowerShell:
+powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\brief-<id>\""
+```
+
+For a grouped ticket that combined multiple briefs, delete ALL the source brief folders in the group once the ticket is confirmed filed.
+
+**End-of-run cleanup.** Once every brief in the batch has been filed successfully, delete the whole `~/Downloads/brief/` folder. The extension recreates it automatically on the next download — one command is simpler than wildcards and removes any stray loose files alongside the subfolders:
+
+```bash
+# macOS / Linux
+rm -rf ~/Downloads/brief/
+```
+
+```powershell
+# Native Windows
+Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief"
+```
+
+```bash
+# WSL / Linux on a Windows volume
+powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\""
+```
+
+**Only do the full-folder delete if every brief filed successfully.** If any ticket failed, leave the folder as-is — the failed brief(s) are still on disk for retry. Never destroy a brief that never became a ticket.
 
 ## Step 6 — Single closing summary
 

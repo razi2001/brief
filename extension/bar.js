@@ -484,7 +484,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
   const zipBlob = new Blob([zipBytes], { type: 'application/zip' });
   const blobUrl = URL.createObjectURL(zipBlob);
 
-  const filename = `brief/brief-${briefId}.zip`;
+  const filename = `brief/brief-${briefId}/brief-${briefId}.zip`;
   const result = await chrome.runtime.sendMessage({
     type: 'DOWNLOAD_ZIP',
     payload: { blobUrl, filename },
@@ -512,7 +512,7 @@ function base64ToBytes(b64) {
 // ---------- Ship-now: copy prompt + auto-dismiss ----------
 async function finishWithCopy(id, intent) {
   const prompt =
-    `Process brief ${id} from ~/Downloads/brief/: ` +
+    `Process brief ${id} from ~/Downloads/brief/brief-${id}/: ` +
     `unzip brief-${id}.zip and follow its skill/SKILL.md.`;
   try {
     await navigator.clipboard.writeText(prompt);

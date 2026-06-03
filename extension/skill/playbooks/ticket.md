@@ -11,7 +11,7 @@ Always read `brief.json` before anything else. A brief can contain any combinati
 - **`hasScreenshot: true`** — a `screenshot.png` is on disk. If `screenshotAnnotated` is true, **the red markings on it were drawn by the user to point at exactly where the issue is.** Center the ticket on what the red highlights. Describe the location in words too ("the red circle marks the nav item that should be plural").
 - **`extra`** — key/value pairs (credentials, IDs, context) the user attached. Put them in an **Additional data** section verbatim.
 
-If the prompt mentions a companion `brief-<id>-extra.zip`, unzip it too — it holds a screenshot and/or description the user added after recording. Merge its `screenshot.png` and `description` into the same ticket.
+Each brief lives in its own folder: `~/Downloads/brief/brief-<id>/`. Inside you'll find the main `brief-<id>.zip` and, when present, a companion `brief-<id>-extra.zip`. **Always check for the companion and unzip it if it exists** — the prompt won't mention it. The companion holds anything the user added *after* the recording was saved: a screenshot, a typed description, additional key/value data, and an `attachRecording` flag (see step 7 — the recording). Treat the companion's fields as the source of truth: merge them over the main `brief.json` (companion wins on conflict).
 
 Use whatever is present, in this priority for understanding intent: description → red-annotated screenshot → transcript/keyframes → plain screenshot. A brief might be *only* a screenshot, or *only* a sentence of text — that's valid; file the best ticket you can from what's there. Never stall waiting for inputs that don't exist.
 
@@ -150,7 +150,7 @@ Create the issue FIRST (with placeholder image refs or an empty Evidence section
 
 A recording exists ONLY if `brief.json` has a `recording` field (and `recording.webm` is on disk). Screenshot-only and text-only briefs have none — skip this section for them.
 
-**If the prompt says to attach the recording for a brief** (the user ticked it — it appears in that brief's bracket as "attach the recording to this ticket"), then ALWAYS attach it for that brief, regardless of the judgment below. The user asked explicitly.
+**If `attachRecording: true` is set in the companion `brief-<id>-extra.zip`'s `brief.json`**, then ALWAYS attach the recording for that brief, regardless of the judgment below. That flag is the on-disk record of the user explicitly ticking the "attach the recording to the ticket" box in the popup.
 
 Otherwise, you decide. **Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
 
@@ -189,12 +189,24 @@ That's it. No mid-flow questions. No "do you want me to attach the video?". You 
 
 ## 9. Delete the brief
 
-After the ticket is successfully filed, delete the source brief from disk:
+After the ticket is successfully filed, delete the brief's entire folder from disk — that removes the main zip, the companion `-extra.zip`, and anything you extracted in one shot. Pick the form for your environment:
 
 ```bash
-rm -rf ~/Downloads/brief/brief-<id>.zip
-rm -rf ~/Downloads/brief/brief-<id>-extra.zip
+# macOS / Linux
 rm -rf ~/Downloads/brief/brief-<id>/
 ```
 
-The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief in place and tell the user what failed so they can retry.
+```powershell
+# Native Windows (PowerShell). -Force strips Chrome's Mark-of-the-Web
+# read-only attribute that otherwise blocks deletion.
+Remove-Item -Recurse -Force "$env:USERPROFILE\Downloads\brief\brief-<id>"
+```
+
+```bash
+# WSL / Linux on a Windows volume. Plain rm -rf and chmod can't strip the
+# NTFS-level Mark-of-the-Web attribute; shell out to Windows PowerShell via
+# interop and let the Windows process clear it:
+powershell.exe -Command "Remove-Item -Recurse -Force \"\$env:USERPROFILE\Downloads\brief\brief-<id>\""
+```
+
+The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief's folder in place and tell the user what failed so they can retry.
