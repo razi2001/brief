@@ -1,15 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Brief",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Record what you want. Claude ships it. Tab + voice capture with live transcript, paired with the Brief skill.",
+  "author": "razi2001",
+  "homepage_url": "https://get-brief.app",
   "permissions": [
     "activeTab",
     "tabs",
     "scripting",
     "storage",
     "downloads",
-    "downloads.shelf",
+    "downloads.ui",
     "tabCapture",
     "offscreen"
   ],
