@@ -62,21 +62,30 @@ Do NOT read every keyframe. The typical recording has 10–30 frames; most are r
 
 You're trying to find the moments of state change, not narrate every second.
 
-## 4. Map transcript chunks to frames (recording briefs only)
+## 4. Map transcript chunks to frames (recording briefs only) — for YOUR understanding only
 
-For each frame you decided to use (step 3), look at `transcriptChunks` and pull any chunk whose `tMs` is within ±2000ms of the frame's `timestamp`. That text is what the user was saying while showing that visual. Use it to write the caption / context for the frame.
+For each frame you decided to use (step 3), pull any `transcriptChunks` whose `tMs` is within ±2000ms of the frame's `timestamp`. **This is for you to understand what's happening in the frame.** The transcript text NEVER appears in the ticket — not as a quote, not as a caption, not as a blockquote, not anywhere. You use it to figure out the right neutral caption ("Checkout page after clicking Pay"), then you throw it away.
 
-If a chunk has no nearby frame, treat it as ambient narration.
+Treat the transcript as a draft: silently correct obvious mis-transcriptions using on-screen text as ground truth.
+
+If a chunk has no nearby frame, use it as background context for the **What happens** / **Expected** sections — again, never quoted.
 
 ## 5. Pull console / JS / network errors if present
 
-Filter `events` for `type === 'console-error'` or `'js-error'` → put these verbatim in a **Console** section. Filter for `type === 'network-error'` (failed requests / non-2xx responses captured during the recording) → put these in a **Network** section, one line each: method, URL, and status or failure reason (e.g. `POST /api/checkout → 500` or `GET /api/user → failed (network error)`). These are high-signal for bugs — include them. If a category has none, skip that section entirely (don't write "No errors").
+All event types live in `brief.json.events[]` with a `type` field. Filter as follows:
+
+- `type === 'console-error'` → payload `{ args }` (whatever was passed to `console.error`). Put verbatim in **Console**.
+- `type === 'js-error'` → payload `{ message, filename, lineno, colno }`. Format as `<message>  (<filename>:<lineno>:<colno>)` in **Console**.
+- `type === 'promise-rejection'` → payload `{ reason }`. Format as `Unhandled promise rejection: <reason>` in **Console**.
+- `type === 'network-error'` → payload `{ method, url, status, reason }`. One line each in **Network**: `<METHOD> <url> → <status or "failed (reason)">`.
+
+These are high-signal for bugs — include them. If a category has no matching events, skip that section entirely. Never write "No errors" or "N/A".
 
 ## 6. Write the ticket
 
 ### Title
 
-One sentence, from the user's main complaint or the user's desired outcome. Imperative for bugs ("Pay button silently fails on /checkout"), noun phrase for features ("Add CSV export to invoices view").
+One sentence describing the bug or feature in neutral terms. Imperative for bugs ("Pay button silently fails on /checkout"), noun phrase for features ("Add CSV export to invoices view"). Never starts with "User wants…" or "Reporter says…".
 
 ### Description structure
 
@@ -94,26 +103,24 @@ Browser: <derived from userAgent>
 ...
 
 **What happens**
-<from transcript: user's description of the failure>
+<one or two neutral sentences describing the observed failure>
 
 **Expected**
-<from transcript "I'd expect…" / "should be…" parts; if missing, infer briefly>
+<one sentence; infer from context if not explicitly stated>
 
 **Console**
 ```
-<console-error / js-error events verbatim>
+<console-error / js-error / promise-rejection entries, one per line>
 ```
 
 **Network**
-<failed requests: method, URL, status/reason — one per line; omit section if none>
+<failed requests: one per line as "METHOD url → status (or failed: reason)">
 
 **Evidence**
 
-![Frame at 0:02 — checkout page before click](assetUrl-000)
-> "<transcript chunk near 0:02>"
+![Checkout page before clicking Pay](url-000)
 
-![Frame at 0:06 — no feedback after click](assetUrl-002)
-> "<transcript chunk near 0:06>"
+![Checkout page after the click — no UI feedback, button still active](url-002)
 
 **Additional data**
 <only if the user supplied key/value extras — render each as `**<key>**: <value>`; omit the whole section if none>
@@ -122,22 +129,23 @@ Browser: <derived from userAgent>
 **For features:**
 
 ```markdown
-**What**
-<one-paragraph summary derived from transcript>
+**Summary**
+<one paragraph stating what the feature is and the behavior expected>
 
-**Why**
-<motivation from transcript, if mentioned>
+**Rationale**
+<one or two sentences on why it's needed; omit if not clear>
 
 **Where**
 Page: <pageUrl>
 
-**Notes / sketches**
-![Frame at 0:04 — where it should appear](assetUrl-001)
-> "<transcript chunk near 0:04>"
+**Notes**
+![Where the new control should appear](url-001)
 
 **Additional data**
 <only if the user supplied key/value extras; otherwise omit>
 ```
+
+Captions describe what's in the image — what the screen shows, what just happened. They never reference timestamps, frame numbers, or anything the reporter said.
 
 ## 7. Upload + embed images INLINE
 

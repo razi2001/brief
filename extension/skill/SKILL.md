@@ -43,7 +43,19 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
 4. **Map transcript chunks to keyframes** by timestamp (±2000ms). When the user said something, what was on screen?
 5. **Treat the transcript as a draft.** Chrome's speech recognition is mediocre on accents and jargon. Use the keyframes and page context as ground truth; silently correct obvious mis-transcriptions.
 6. **Narrate each step in one short line as you do it.** The user wants to watch progress, not be left in silence. Before each tool call or phase write one declarative sentence — `Listing briefs…`, `Reading brief.json for mpogywhs…`, `Inferring team from app.acme.com/billing → Billing.`, `Uploading 3 keyframes in parallel…`, `Creating ticket…`, `Done.`. Statements, never questions. Don't dump tool output; one line of intent per action.
-7. **The ticket must read like a human wrote it.** Never mention "brief", "the brief", the Brief extension, recordings-as-source, file paths under `~/Downloads/brief/`, or how the report was captured. The ticket describes the bug/feature and shows evidence — nothing about the tooling that produced it. (The recording, if attached, is just "Recording" — not "the brief's recording".)
+7. **The ticket must read like a teammate wrote it from scratch.** It describes the bug or feature and shows evidence. Nothing else.
+
+   Banned vocabulary — never appears anywhere in the title, description, captions, or image alt text:
+   - `brief`, `the brief`, `briefs`, `Brief extension`, brief IDs (e.g. `mpztxhn5-…`)
+   - `recording`, `recorded`, `screen recording`, `captured`, `capture` (the noun form referring to the tool)
+   - `transcript`, `voice`, `narrated`, `said`, `mentioned`, `the user said`, `the user wants`, `the reporter`
+   - `keyframe`, `Frame at 0:02`, any `mm:ss` timestamp tied to media
+   - Paths like `~/Downloads/brief/…`, file names like `brief.json` / `recording.webm` / `keyframe-002.png`
+   - Phrases like "in the recording", "as shown in the video", "according to the transcript"
+
+   The single allowed reference to media is the inline embed itself — a markdown image or `![Recording](...)` block. The section is just called **Evidence** or **Recording**, never "Recorded evidence" or "Captured frames".
+
+   **Captions describe what's in the image, not what was said about it.** Not `Frame at 0:02 — checkout page before click`, just `Checkout page before clicking Pay`. The transcript informs your wording; it never appears as a quote in the ticket.
 
 ## Step 3 — Delete the brief after processing
 

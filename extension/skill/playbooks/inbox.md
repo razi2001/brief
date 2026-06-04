@@ -53,15 +53,14 @@ That's it. Move straight into Step 4. The user can interject in their next messa
 
 Look for pairs/triples that should be one ticket. Signals:
 
-- **Same page URL + overlapping transcript topic** → almost certainly the same issue captured twice
-- **Same error message in `console-error` events** → same bug
-- **One brief explicitly references another** (the user said "like the thing I just recorded") → linked, file both but cross-link
+- **Same page URL + overlapping topic** → almost certainly the same issue reported twice.
+- **Same error message in `console-error` events** → same bug.
+- **One report explicitly references another** ("like the thing I just sent you") → linked, file both but cross-link in your internal triage.
 
 When grouping, the resulting ticket should:
-- Have ONE title (best phrasing from across the briefs)
-- Embed keyframes from ALL contributing briefs (clearly labeled "from brief abc-123" etc.)
-- Concatenate the transcripts with brief-id markers
-- List all source brief IDs in the description for traceability
+- Have ONE title that covers the combined issue.
+- Embed evidence from every contributing source — but captions are still neutral. Never write "from brief abc-123", never label frames by source. The ticket reads as one investigation, not a stitched-together report.
+- Track the source brief ids ONLY in your own internal notes for cleanup (Step 5). They do NOT appear in the ticket body, title, or captions. (The hard rule in SKILL.md is absolute on this.)
 
 ## Step 1b — Honor a named subset
 
