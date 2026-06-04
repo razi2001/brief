@@ -62,6 +62,8 @@
         "shot.html",
         "shot.js",
         "shot.css",
+        "fonts.css",
+        "fonts/*",
         "skill/SKILL.md",
         "skill/playbooks/ticket.md",
         "skill/playbooks/inbox.md"
