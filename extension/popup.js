@@ -630,9 +630,12 @@ async function writeBriefZip(b) {
   if (!res?.ok) throw new Error(res?.error || 'zip_write_failed');
 }
 
-// For a RECORDING brief that later gained a screenshot, the recording's
-// on-disk zip predates it and we don't have the video bytes to rewrite it.
-// Write a tiny companion zip alongside it so the screenshot isn't lost.
+// For a RECORDING brief, the recording's on-disk zip is finalized when
+// recording stops — it predates any post-record additions (description,
+// screenshot, extra key/values, or the user toggling "attach recording").
+// We can't rewrite the recording zip (we don't have the video bytes anymore),
+// so we drop a small companion zip alongside it carrying every post-record
+// field. The skill merges this on top of the recording's brief.json.
 async function writeCompanionZip(b) {
   const briefJson = {
     id: b.id,
@@ -643,6 +646,11 @@ async function writeCompanionZip(b) {
     hasScreenshot: !!b.screenshot,
     screenshotAnnotated: !!b.screenshotAnnotated,
     extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
+    // `includeVideo: true` is the user's explicit "attach the recording to this
+    // ticket" signal (toggle in the popup). The skill treats this as an
+    // absolute rule — when true, always attach the recording regardless of
+    // its own attach/skip heuristics.
+    includeVideo: !!b.includeVideo,
   };
   const entries = [
     { name: 'brief.json', data: new TextEncoder().encode(JSON.stringify(briefJson, null, 2)) },
@@ -668,13 +676,23 @@ exportBtn.addEventListener('click', async () => {
   exportBtn.disabled = true;
 
   // 1) Make sure every ready brief has a zip on disk. Recording briefs already
-  //    do; screenshot/text-only briefs are written here, now. A recording brief
-  //    that also has a screenshot (added after the recording) gets a small
-  //    companion zip so that screenshot isn't lost.
+  //    do (written when recording stopped). Screenshot/text-only briefs are
+  //    written here, now. A recording brief with ANY post-record state — a
+  //    screenshot, description, extras, or the user toggling "attach the
+  //    recording" — gets a small companion zip so those fields aren't lost
+  //    (the recording's own brief.json was frozen at record time).
+  function hasPostRecordState(b) {
+    return !!(
+      b.screenshot ||
+      (b.description && b.description.trim()) ||
+      (Array.isArray(b.extra) && b.extra.some((p) => (p.key || '').trim() || (p.value || '').trim())) ||
+      b.includeVideo
+    );
+  }
   try {
     for (const b of ready) {
       if (b.hasRecording || b.recorded) {
-        if (b.screenshot) await writeCompanionZip(b);
+        if (hasPostRecordState(b)) await writeCompanionZip(b);
       } else {
         await writeBriefZip(b);
       }
@@ -685,15 +703,14 @@ exportBtn.addEventListener('click', async () => {
     return;
   }
 
-  // 2) Build the prompt. Skill reads everything else from brief.json — only
-  //    carry the signals that aren't in the on-disk zip: the user-given name
-  //    (a recording brief's brief.json is written at record time and lacks it)
-  //    and the per-brief "attach recording" export-time toggle. Companion
-  //    -extra.zip presence is discoverable by the skill via `ls`.
+  // 2) Build the prompt. Skill reads everything else from brief.json (and the
+  //    companion -extra.zip's brief.json, when one exists) — only carry the
+  //    user-given name as a quick title hint. The "attach recording" toggle
+  //    rides in the companion zip's brief.json as `includeVideo: true`, not
+  //    in the prompt. Companion -extra.zip presence is discoverable by `ls`.
   function describe(b) {
     let s = b.id;
     if (b.name && b.name.trim()) s += ` ("${b.name.trim()}")`;
-    if (b.includeVideo && (b.hasRecording || b.recorded)) s += ' [+recording]';
     return s;
   }
   const named = ready.map(describe).join(', ');

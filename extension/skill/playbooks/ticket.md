@@ -8,6 +8,10 @@ Goal: produce one high-quality ticket in the user's tracker (Linear / Jira / Git
 
 Narrate: **`Reading brief.json…`**
 
+**If a companion `brief-<id>-extra.zip` exists on disk, extract it and merge its `brief.json` on top of the recording's `brief.json`.** The companion carries post-record additions (description, screenshot, extra k/v pairs, the **`includeVideo`** attach-recording toggle) that the original brief.json — frozen when recording stopped — couldn't include. Companion values WIN on conflict; that's the whole point of writing one. After merging you have the canonical view of the brief.
+
+Specifically watch for `includeVideo: true` in the merged result. That's the user's explicit "attach the recording to this ticket" toggle — it's a hard rule (see Step 8 "Attach the recording? (decision)"). Record it now so you don't lose it five steps later.
+
 Always read `brief.json` before anything else. A brief can contain any combination of:
 
 - **`description`** (string) — the user's own words about the issue. If present, it's the single most authoritative statement of intent. Lead with it.
@@ -173,7 +177,7 @@ cat ~/Downloads/brief/guidance.txt 2>/dev/null
 
 ### Conflict resolution
 
-- **Per-brief signals win.** The `[+recording]` flag and any per-brief judgment from earlier steps (e.g. the team you inferred from `pageUrl`) override conflicting guidance lines. Guidance is the user's default; the brief itself is the user's intent for this specific case.
+- **Per-brief signals win.** The `includeVideo: true` flag from the brief itself, and any per-brief judgment from earlier steps (e.g. the team you inferred from `pageUrl`), override conflicting guidance lines. Guidance is the user's default; the brief is the user's intent for this specific case.
 - **Ambiguous rule** ("file under triage" with no triage label/project anywhere) → follow as best you can. If it can't be applied at all, do NOT ask — file the ticket without that field and note the deviation in the closing summary on its own line ("Couldn't apply `inbound` — that label doesn't exist in **Marketing**.").
 - **Never silently drop a rule.** Either apply it or surface the deviation in the summary.
 
@@ -204,13 +208,24 @@ Create the issue FIRST with a placeholder Evidence section like `_uploading…_`
 
 **The user's screenshot.** If `brief.json.hasScreenshot` is true, embed `screenshot.png` inline in Evidence — it's often the single most important image. If `screenshotAnnotated`, caption it to point at the red, e.g. `![The red circle marks the nav label that should be plural](url)`. For a screenshot-only brief, this is your primary (often only) evidence image.
 
-### The recording
+### Attach the recording? (decision)
 
-A recording exists ONLY if `brief.json` has a `recording` field (and `recording.webm` is on disk). Screenshot-only and text-only briefs have none — skip this section for them.
+A recording exists ONLY if `brief.json` has a `recording` field (and `recording.webm` is on disk). Screenshot-only and text-only briefs have none — skip this whole sub-section for them.
 
-**If the prompt marks a brief with `[+recording]`** (the user ticked the "attach recording" toggle at export time — it appears right after the brief id, e.g. `mpztxhn5-1f3t36 ("id1") [+recording]`), then ALWAYS attach the recording for that brief, regardless of the judgment below. The user asked explicitly.
+#### Rule 0 — the explicit override (check this FIRST, before anything else)
 
-Otherwise, you decide. **Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
+**If the merged `brief.json` from Step 0 has `includeVideo: true`, attach the recording. Full stop.**
+
+- This is a hard rule. No judgment, no weighing, no "but the bug looks static". The user opened the popup, ticked the "Attach the recording to the ticket" checkbox on that brief, and exported. They asked.
+- Skipping it in this case is a bug in your run, not a discretionary call.
+- Narrate: **`User asked to attach the recording — attaching.`** so it's visible in the progress log.
+- Do NOT continue reading the heuristics below for this brief. They don't apply when the explicit flag is set.
+
+If `includeVideo` is not `true` (false / missing / no companion zip), continue to Rule 1.
+
+#### Rule 1 — your judgment (only when no explicit override)
+
+**Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
 
 Attach the recording when:
 - The bug is about **motion or timing**: jank, flash, race, layout jump, scroll glitch, broken transition.
@@ -223,7 +238,9 @@ Skip the recording (keyframes alone are enough) when:
 - The keyframes already show the before/after clearly.
 - It's a **feature request** without an on-screen repro.
 
-When you do include it, use the same upload procedure above with `contentType='video/webm'`, then embed inline:
+#### When attaching (Rule 0 or Rule 1)
+
+Use the same upload procedure above with `contentType='video/webm'`, then embed inline:
 
 ```markdown
 **Recording**

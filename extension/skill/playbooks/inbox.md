@@ -68,14 +68,13 @@ When grouping, the resulting ticket should:
 
 The prompt from the extension names the exact set of briefs to process. The shape is intentionally minimal:
 
-> Process briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead") [+recording], d4e5f6 ("Logo too big"). Unzip brief-a1b2c3.zip and follow its skill/SKILL.md.
+> Process briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Unzip brief-a1b2c3.zip and follow its skill/SKILL.md.
 
 Per brief:
 - `<id>` — always present.
 - `("<name>")` — optional user-given quick name. Treat as a strong title hint when present; absent is fine, derive the title from `brief.json` (`description`, `transcript`) instead.
-- `[+recording]` — optional flag. When present, the user explicitly asked you to attach the recording to that brief's ticket — always honor it (see `ticket.md` recording-attach rules).
 
-Everything else (content type, full description text, `extra` k/v pairs, presence of `brief-<id>-extra.zip`) lives in `brief.json` on disk and discovered by `ls` — the skill reads those itself, the prompt does not duplicate them.
+**Everything else lives on disk, not in the prompt.** Content type, full description, `extra` k/v pairs, and the user's per-brief "attach recording" toggle (`includeVideo: true` in a companion `brief-<id>-extra.zip`'s `brief.json`) are all in the brief itself — `ticket.md` Step 0 reads and merges them. The prompt does not duplicate them.
 
 When the prompt names a subset:
 - **Process only those briefs.** Ignore any other files in the folder — the user may have other briefs in progress that they haven't exported yet.
