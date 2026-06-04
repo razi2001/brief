@@ -506,7 +506,7 @@ function updateChrome(items) {
   }
 }
 
-async function refreshInbox() {
+async function refreshInbox({ autoExpandNewest = false } = {}) {
   const items = await getInbox();
   briefList.innerHTML = '';
   if (items.length === 0) {
@@ -519,10 +519,24 @@ async function refreshInbox() {
   briefList.hidden = false;
   items.forEach((b) => briefList.appendChild(buildItem(b)));
   updateChrome(items);
+
+  // After a fresh capture (screenshot/recording), the popup is opened by
+  // background and the just-added brief is the last entry. Auto-expand its
+  // details panel so the user can immediately type a description, add extras,
+  // or toggle "attach recording" without an extra click.
+  if (autoExpandNewest) {
+    const lastLi = briefList.lastElementChild;
+    const lastToggle = lastLi?.querySelector('.brief-more');
+    if (lastLi && lastToggle && !lastLi.classList.contains('expanded')) {
+      toggleExpand(lastLi, lastToggle);
+    }
+  }
 }
 
-// On open: render whatever's stored (drafts are kept across closes).
-refreshInbox();
+// On open: render whatever's stored (drafts are kept across closes). Expand
+// the newest brief by default — the user almost always opened the popup
+// because they just captured something.
+refreshInbox({ autoExpandNewest: true });
 
 // ---------- Add a ticket ----------
 addForm.addEventListener('submit', async (e) => {
