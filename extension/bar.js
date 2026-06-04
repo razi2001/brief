@@ -242,10 +242,29 @@ function startSpeechRecognition() {
   }
 }
 
+// Resolves once the recognizer has finished processing buffered audio —
+// recognizer.stop() is async and the FINAL onresult events fire AFTER it
+// returns. Without waiting, the last spoken words get truncated. A 2s
+// safety net guards against onend never firing on flaky engines.
 function stopSpeechRecognition() {
   recognitionShouldRun = false;
-  try { recognizer?.stop(); } catch {}
+  const r = recognizer;
+  if (!r) return Promise.resolve();
   recognizer = null;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try { r.onend = null; r.onerror = null; } catch {}
+      resolve();
+    };
+    const safety = setTimeout(finish, 2000);
+    r.onend = () => { clearTimeout(safety); finish(); };
+    // onresult is left attached so any buffered final chunks still land
+    // in transcriptFinalCache / transcriptChunksCache before onend fires.
+    try { r.stop(); } catch { clearTimeout(safety); finish(); }
+  });
 }
 
 // ---------- Transcript ticker ----------
@@ -317,8 +336,8 @@ stopBtn?.addEventListener('click', async () => {
   stopBtn.disabled = true;
   if (cancelBtn) cancelBtn.disabled = true;
   stopTimer();
-  stopSpeechRecognition();
-  setView('saving');
+  setView('saving'); // show feedback immediately while transcription flushes
+  await stopSpeechRecognition(); // <- wait for buffered final chunks to land
   await sendToOffscreen('STOP', {
     transcriptFinal: transcriptFinalCache,
     transcriptChunks: transcriptChunksCache,
@@ -545,7 +564,9 @@ async function finishToInbox(id, intent) {
     // Best-effort: bring the user back to the brief to review/export. Chrome
     // only allows openPopup in some versions/contexts; it silently no-ops
     // otherwise (the toolbar badge still nudges).
-    chrome.runtime.sendMessage({ type: 'REOPEN_POPUP' }).catch(() => {});
+    // Carry the brief id along so background can tag this open as
+    // "post-capture" — popup uses it to auto-expand the right brief.
+    chrome.runtime.sendMessage({ type: 'REOPEN_POPUP', briefId: id }).catch(() => {});
   } catch (err) {
     console.warn('[brief/bar] inbox write failed:', err);
   }
