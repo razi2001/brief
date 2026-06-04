@@ -506,7 +506,7 @@ function updateChrome(items) {
   }
 }
 
-async function refreshInbox({ autoExpandNewest = false } = {}) {
+async function refreshInbox({ expandBriefId = null } = {}) {
   const items = await getInbox();
   briefList.innerHTML = '';
   if (items.length === 0) {
@@ -520,23 +520,39 @@ async function refreshInbox({ autoExpandNewest = false } = {}) {
   items.forEach((b) => briefList.appendChild(buildItem(b)));
   updateChrome(items);
 
-  // After a fresh capture (screenshot/recording), the popup is opened by
-  // background and the just-added brief is the last entry. Auto-expand its
-  // details panel so the user can immediately type a description, add extras,
-  // or toggle "attach recording" without an extra click.
-  if (autoExpandNewest) {
-    const lastLi = briefList.lastElementChild;
-    const lastToggle = lastLi?.querySelector('.brief-more');
-    if (lastLi && lastToggle && !lastLi.classList.contains('expanded')) {
-      toggleExpand(lastLi, lastToggle);
+  // Auto-expand only when explicitly told which brief to expand (post-capture).
+  // Manual opens don't pass an id and the list stays collapsed.
+  if (expandBriefId) {
+    const li = briefList.querySelector(`[data-id="${CSS.escape(expandBriefId)}"]`);
+    const toggle = li?.querySelector('.brief-more');
+    if (li && toggle && !li.classList.contains('expanded')) {
+      toggleExpand(li, toggle);
     }
   }
 }
 
-// On open: render whatever's stored (drafts are kept across closes). Expand
-// the newest brief by default — the user almost always opened the popup
-// because they just captured something.
-refreshInbox({ autoExpandNewest: true });
+// On open: render whatever's stored, and consume the post-capture signal if
+// background set one. The signal is a brief id stashed in chrome.storage by
+// `tryOpenPopup(briefId)` after a screenshot or recording finishes. We treat
+// it as fresh only when stashed in the last 30 seconds — defensive against
+// stale flags from a denied openPopup() that the user revisits hours later.
+(async function bootstrapInbox() {
+  let expandBriefId = null;
+  try {
+    const { pendingExpandBriefId, pendingExpandAt } = await chrome.storage.local.get([
+      'pendingExpandBriefId', 'pendingExpandAt',
+    ]);
+    if (pendingExpandBriefId && pendingExpandAt && Date.now() - pendingExpandAt < 30_000) {
+      expandBriefId = pendingExpandBriefId;
+    }
+  } catch {}
+  // Always clear the flag — even if stale or missing — so a later manual
+  // open doesn't accidentally expand something.
+  try {
+    await chrome.storage.local.remove(['pendingExpandBriefId', 'pendingExpandAt']);
+  } catch {}
+  await refreshInbox({ expandBriefId });
+})();
 
 // ---------- Add a ticket ----------
 // Find the smallest unused "Brief N" so anonymous additions don't collide.

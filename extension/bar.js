@@ -564,7 +564,9 @@ async function finishToInbox(id, intent) {
     // Best-effort: bring the user back to the brief to review/export. Chrome
     // only allows openPopup in some versions/contexts; it silently no-ops
     // otherwise (the toolbar badge still nudges).
-    chrome.runtime.sendMessage({ type: 'REOPEN_POPUP' }).catch(() => {});
+    // Carry the brief id along so background can tag this open as
+    // "post-capture" — popup uses it to auto-expand the right brief.
+    chrome.runtime.sendMessage({ type: 'REOPEN_POPUP', briefId: id }).catch(() => {});
   } catch (err) {
     console.warn('[brief/bar] inbox write failed:', err);
   }
