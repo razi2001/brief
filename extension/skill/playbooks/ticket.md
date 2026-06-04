@@ -143,22 +143,34 @@ Page: <pageUrl>
 
 Narrate: **`Creating ticket…`** then **`Compressing images…`** then **`Uploading N attachments in parallel…`** then **`Updating ticket with inline media…`**
 
-The user wants images to **render in the ticket**, not appear as a list of file attachments. Pick the upload path based on what you're uploading:
+The user wants images to **render in the ticket**, not appear as a list of file attachments. The Linear flow has been verified end-to-end against a live workspace — both upload paths produce identical-looking inline images. Follow the rules below exactly.
+
+### Verified facts (don't second-guess them)
+
+- `create_attachment` accepts base64 and returns a JSON object with an `id`, `title`, and a `url` of the form `https://uploads.linear.app/<workspace>/<obj>/<id>`. **Use that `url` field verbatim** in the markdown image — don't strip parts, don't append parameters.
+- `create_attachment_from_upload` (after a successful PUT) returns the same shape with the same kind of `url`.
+- The `url` Linear returns is **bare** (no query string). When the description is read later, Linear automatically appends `?signature=<JWT>` with a 5-minute expiry. **You do NOT add the signature yourself.** Submit bare; Linear signs on every read. Don't be alarmed when a re-read shows a long `?signature=…` you didn't write — that's expected.
+- Both `create_attachment` and `create_attachment_from_upload` register the asset as a real Linear attachment on the issue. The image renders inline at the markdown location AND appears in the issue's attachments list. That's correct behavior — don't try to suppress one or the other.
 
 ### Images (keyframes + `screenshot.png`) → `create_attachment` (base64)
 
-Linear's docs mark `create_attachment` as "deprecated fallback for tiny files only" and point to the signed-URL flow as preferred. **Ignore that advice for images.** The signed-URL flow PUTs directly to `storage.googleapis.com`, which is blocked by the proxy in most Claude sandboxes (returns 000 / 403). `create_attachment` ships bytes through the MCP worker, whose network isn't restricted — so it works everywhere.
+Linear's tool description marks `create_attachment` as "deprecated fallback for tiny files only" and points to the signed-URL flow as preferred. **Ignore that warning for images.** Reasons to default to base64:
 
-To stay well under the MCP payload limit:
+- One tool call instead of three (prepare + PUT + finalize) — fewer failure points.
+- No 60-second signed-URL expiry race.
+- No headers-must-be-exact landmine on the PUT (any case or value mismatch returns 403).
+- Bytes travel through the MCP worker, not the agent's HTTP path — works in every sandbox, including ones whose egress proxy blocks `storage.googleapis.com`.
 
-1. **Compress every image to ~20–40 KB before encoding.** Resize to max 1600 px on the long edge, re-encode as PNG with palette/quant or JPEG quality ~80. After compression a typical keyframe lands at 15–35 KB. The user's annotated `screenshot.png` may need a slightly larger budget (≤80 KB) to keep the red marks crisp — that's fine.
+Procedure per image:
+
+1. **Compress to ~20–40 KB before encoding.** Resize to max 1600 px on the long edge; re-encode as PNG with palette/quant, or JPEG quality ~80. After compression a typical keyframe lands at 15–35 KB. The annotated `screenshot.png` can run a bit larger (≤80 KB) to keep red marks crisp.
 2. Base64-encode the compressed bytes.
-3. Call `create_attachment(issue=<id>, filename=<name>, contentType=<mime>, base64Content=<b64>)`. Linear returns an `assetUrl` for the stored file.
-4. **Use that `assetUrl` inline in the markdown description**: `![caption](assetUrl)`.
+3. Call `create_attachment(issue=<id>, filename=<name>, contentType=<mime>, base64Content=<b64>, title=<short caption>)`. Capture the returned `url`.
+4. **Embed inline as `![caption](url)`** using the bare `url` field — no signature, no edits.
 
 Create the issue FIRST with a placeholder Evidence section like `_uploading…_`. Then run `create_attachment` for every image **in parallel** — they don't depend on each other once the issue exists. Finally one `save_issue` (with `id`) to swap the placeholder for the real inline markdown.
 
-**The user's screenshot.** If `brief.json.hasScreenshot` is true, embed `screenshot.png` inline in Evidence — it's often the single most important image. If `screenshotAnnotated`, caption it to point at the red, e.g. `![The red circle marks the nav label that should be plural](assetUrl)`. For a screenshot-only brief, this is your primary (often only) evidence image.
+**The user's screenshot.** If `brief.json.hasScreenshot` is true, embed `screenshot.png` inline in Evidence — it's often the single most important image. If `screenshotAnnotated`, caption it to point at the red, e.g. `![The red circle marks the nav label that should be plural](url)`. For a screenshot-only brief, this is your primary (often only) evidence image.
 
 ### The recording
 
@@ -169,40 +181,43 @@ A recording exists ONLY if `brief.json` has a `recording` field (and `recording.
 Otherwise, you decide. **Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
 
 Attach the recording when:
-- The bug is about **motion or timing**: a janky animation, a flash, a race condition, a layout that jumps, scroll jank, a transition that breaks
-- The repro is a **multi-step interaction** that's hard to convey with a few stills (drag-and-drop, a multi-field form flow, a hover/focus sequence)
-- The keyframes **miss the moment** — the sampling (every 2s) didn't capture the exact frame where it breaks
-- The user's **voice explanation references something dynamic** ("watch how it stutters when I click here")
+- The bug is about **motion or timing**: jank, flash, race, layout jump, scroll glitch, broken transition.
+- The repro is a **multi-step interaction** hard to convey with stills (drag-and-drop, multi-field form flow, hover/focus sequence).
+- The keyframes **miss the moment** — sampling didn't capture the exact failure frame.
+- The user's voice references something dynamic ("watch how it stutters when I click").
 
 Skip the recording (keyframes alone are enough) when:
-- It's a **static** bug — wrong text, broken layout, missing button, bad color, a value that's incorrect. A screenshot says everything.
-- The keyframes already show the before/after clearly
-- It's a **feature request** with no specific on-screen repro
+- It's a **static** bug — wrong text, broken layout, missing button, bad color. A screenshot says everything.
+- The keyframes already show the before/after clearly.
+- It's a **feature request** without an on-screen repro.
 
-When you do include it, **embed it inline in the description so it renders as a player** — don't just leave a "see attached" line. When you don't, don't mention it at all — the keyframes carry the ticket.
+When you do include it, embed it inline in the description as a player. When you don't, don't mention it at all — the keyframes carry the ticket.
 
-**Recording uploads use the signed-URL flow, NOT `create_attachment`.** A typical recording is 1–10 MB; base64-encoding it would blow the MCP payload budget. The signed-URL path is the only viable one for video.
+**Recording uploads use the signed-URL flow, not `create_attachment`.** A typical recording is 1–10 MB; base64 in the MCP message would be wasteful (and on some sandboxes blow the payload budget). The signed-URL path is the right one for video.
 
-To embed inline: `prepare_attachment_upload(issue, 'recording.webm', 'video/webm', size)` → PUT the bytes to `uploadUrl` with the returned headers verbatim → `create_attachment_from_upload(issue, assetUrl, title='recording.webm')`. Then put the bare `assetUrl` **inline in the description markdown** in a Recording section:
+Procedure:
 
-```markdown
-**Recording**
+1. `prepare_attachment_upload(issue=<id>, filename='recording.webm', contentType='video/webm', size=<bytes>)`. Capture `uploadRequest.url`, `uploadRequest.headers`, and `assetUrl`.
+2. PUT the raw bytes to `uploadRequest.url` **with every header from `uploadRequest.headers` verbatim** — same casing, same values. Any drift returns 403. The signed URL is valid for **60 seconds** — don't sit on it.
+3. `create_attachment_from_upload(issue=<id>, assetUrl=<assetUrl>, title='recording.webm')`. Capture the returned `url`.
+4. Embed inline:
 
-![Recording](<assetUrl>)
-```
+   ```markdown
+   **Recording**
 
-Linear (and most modern trackers) render an inline player from a video `assetUrl` — that's what makes it show in the preview instead of only in the Resources/attachments list. Do NOT also write a separate "see attached recording.webm" line — the inline player is enough. Place the Recording section right after Evidence (bugs) or Notes (features).
+   ![Recording](<url>)
+   ```
 
-**If the PUT fails** (common in Claude sandboxes — the proxy blocks `storage.googleapis.com`, you'll see status 000 or 403 from the proxy after CONNECT): **drop the recording and continue**. Don't try to base64 it through `create_attachment` — it won't fit. Don't fail the whole ticket. Just replace the Recording section with a single line:
+Linear renders an inline player from a video URL. Place the Recording section right after Evidence (bugs) or Notes (features). Don't also write a separate "see attached" line — the inline player is enough.
+
+**If the PUT fails** (status 000 / 403 / proxy block from a restricted sandbox — `storage.googleapis.com` is not on the egress allowlist): **drop the recording, do NOT fail the ticket, do NOT try to base64 it through `create_attachment`.** Replace the Recording section with a single line:
 
 ```markdown
 **Recording**
 _A screen recording was captured but couldn't be uploaded from this environment._
 ```
 
-Narrate: **`Recording upload blocked by proxy — skipping.`** Then proceed.
-
-If a particular tracker genuinely can't render video inline (even when upload succeeds), fall back to a single `**Recording**: see attached recording.webm` line — but try the inline embed first.
+Narrate: **`Recording upload blocked — skipping.`** Then proceed. The keyframes still carry the ticket.
 
 ## 8. Clean up and report — solo ticket only
 
