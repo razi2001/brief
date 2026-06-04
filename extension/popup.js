@@ -658,44 +658,22 @@ exportBtn.addEventListener('click', async () => {
     return;
   }
 
-  // 2) Build the prompt. Skill knows HOW; prompt carries where + which + extras
-  //    the skill can't know (description is in the zip, but a one-line hint and
-  //    the red-screenshot note help the agent).
-  function describe(b, i) {
-    const name = (b.name && b.name.trim()) || `Untitled brief ${i + 1}`;
-    let s = `${b.id} ("${name}")`;
-    const bits = [];
-    const kinds = [];
-    if (b.hasRecording || b.recorded) kinds.push('recording');
-    if (b.screenshot) kinds.push(b.screenshotAnnotated ? 'screenshot with red annotations' : 'screenshot');
-    if (b.description && b.description.trim()) kinds.push('text description');
-    if (kinds.length) bits.push(kinds.join(' + '));
-    // Carry the actual description text in the prompt. This is the one channel
-    // that always reaches the agent — important because a recording brief's
-    // on-disk zip is written at record time and may predate a description the
-    // user typed afterward (so brief.json could have an empty description).
-    if (b.description && b.description.trim()) {
-      bits.push(`description: "${b.description.trim().replace(/\s+/g, ' ')}"`);
-    }
-    if (Array.isArray(b.extra) && b.extra.length) {
-      const kv = b.extra.filter((p) => p.key.trim() || p.value.trim())
-        .map((p) => `${p.key.trim()}: ${p.value.trim()}`).join('; ');
-      if (kv) bits.push(`additional data — ${kv}`);
-    }
-    if (b.includeVideo && (b.hasRecording || b.recorded)) bits.push('attach the recording to this ticket');
-    // A recording brief with a screenshot has its extra context in a companion zip.
-    if ((b.hasRecording || b.recorded) && b.screenshot) {
-      bits.push(`also unzip brief-${b.id}-extra.zip for its screenshot`);
-    }
-    if (bits.length) s += ` [${bits.join(' | ')}]`;
+  // 2) Build the prompt. Skill reads everything else from brief.json — only
+  //    carry the signals that aren't in the on-disk zip: the user-given name
+  //    (a recording brief's brief.json is written at record time and lacks it)
+  //    and the per-brief "attach recording" export-time toggle. Companion
+  //    -extra.zip presence is discoverable by the skill via `ls`.
+  function describe(b) {
+    let s = b.id;
+    if (b.name && b.name.trim()) s += ` ("${b.name.trim()}")`;
+    if (b.includeVideo && (b.hasRecording || b.recorded)) s += ' [+recording]';
     return s;
   }
-  const named = ready.map(describe).join('; ');
+  const named = ready.map(describe).join(', ');
   const firstId = ready[0].id;
   const prompt =
-    `Process these briefs from ~/Downloads/brief/: ${named}. ` +
-    `Unzip brief-${firstId}.zip and follow its skill/SKILL.md. ` +
-    `Note: any red markings in a screenshot are drawn by me to show where the issue is.`;
+    `Process briefs from ~/Downloads/brief/: ${named}. ` +
+    `Unzip brief-${firstId}.zip and follow its skill/SKILL.md.`;
   try { await navigator.clipboard.writeText(prompt); } catch {}
 
   // 3) Animate ready rows out, keep not-ready drafts.

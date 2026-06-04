@@ -65,16 +65,22 @@ When grouping, the resulting ticket should:
 
 ## Step 1b — Honor a named subset
 
-The prompt from the extension names the exact set of briefs to process, each with a user-given name, e.g.:
+The prompt from the extension names the exact set of briefs to process. The shape is intentionally minimal:
 
-> Process these briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead"), d4e5f6 ("Logo too big"). Unzip brief-a1b2c3.zip and follow its skill/SKILL.md.
+> Process briefs from ~/Downloads/brief/: a1b2c3 ("Checkout button dead") [+recording], d4e5f6 ("Logo too big"). Unzip brief-a1b2c3.zip and follow its skill/SKILL.md.
 
-The prompt is intentionally short — it only tells you *where* to look and *which* briefs the user kept. The rules below are yours to apply. When the prompt names a subset:
+Per brief:
+- `<id>` — always present.
+- `("<name>")` — optional user-given quick name. Treat as a strong title hint when present; absent is fine, derive the title from `brief.json` (`description`, `transcript`) instead.
+- `[+recording]` — optional flag. When present, the user explicitly asked you to attach the recording to that brief's ticket — always honor it (see `ticket.md` recording-attach rules).
+
+Everything else (content type, full description text, `extra` k/v pairs, presence of `brief-<id>-extra.zip`) lives in `brief.json` on disk and discovered by `ls` — the skill reads those itself, the prompt does not duplicate them.
+
+When the prompt names a subset:
 - **Process only those briefs.** Ignore any other files in the folder — the user may have other briefs in progress that they haven't exported yet.
-- **Use the given names** as a strong hint for each ticket's title (the user already told you what each one is about). The transcript and keyframes still provide the detail; the name anchors the intent.
 - **Process those briefs**, then clear the whole folder at the end (see Step 5). The export hands off the user's full set, so once they're all filed nothing should remain.
 
-If the prompt does NOT name a subset (just "process my inbox"), process everything in the folder and delete each brief as you file it.
+If the prompt does NOT name a subset (just "process my inbox"), process everything in the folder.
 
 ## Step 4 — Process each ticket
 

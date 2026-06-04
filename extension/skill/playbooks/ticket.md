@@ -160,7 +160,7 @@ Create the issue FIRST (with a placeholder Evidence section like `_uploading…_
 
 A recording exists ONLY if `brief.json` has a `recording` field (and `recording.webm` is on disk). Screenshot-only and text-only briefs have none — skip this section for them.
 
-**If the prompt says to attach the recording for a brief** (the user ticked it — it appears in that brief's bracket as "attach the recording to this ticket"), then ALWAYS attach it for that brief, regardless of the judgment below. The user asked explicitly.
+**If the prompt marks a brief with `[+recording]`** (the user ticked the "attach recording" toggle at export time — it appears right after the brief id, e.g. `mpztxhn5-1f3t36 ("id1") [+recording]`), then ALWAYS attach the recording for that brief, regardless of the judgment below. The user asked explicitly.
 
 Otherwise, you decide. **Attach it only when the video genuinely beats the keyframes** — don't attach by default, and don't attach just because it exists.
 
