@@ -141,18 +141,22 @@ Page: <pageUrl>
 
 ## 7. Upload + embed images INLINE
 
-Narrate: **`Creating ticket…`** then **`Uploading N attachments in parallel…`** then **`Updating ticket with inline media…`**
+Narrate: **`Creating ticket…`** then **`Compressing images…`** then **`Uploading N attachments in parallel…`** then **`Updating ticket with inline media…`**
 
-The user wants images to **render in the ticket**, not appear as a list of file attachments. The flow on Linear (adapt for other MCPs):
+The user wants images to **render in the ticket**, not appear as a list of file attachments. Pick the upload path based on what you're uploading:
 
-For each image you're using — selected keyframes **and/or** the user's `screenshot.png`:
+### Images (keyframes + `screenshot.png`) → `create_attachment` (base64)
 
-1. `prepare_attachment_upload(issueId, filename, contentType, size)` → returns `uploadUrl`, `assetUrl`, `headers`
-2. PUT the image bytes to `uploadUrl` with those headers
-3. `create_attachment_from_upload(issueId, assetUrl, filename)` to register it
-4. **Use the `assetUrl` inline in the markdown description**: `![caption](assetUrl)`
+Linear's docs mark `create_attachment` as "deprecated fallback for tiny files only" and point to the signed-URL flow as preferred. **Ignore that advice for images.** The signed-URL flow PUTs directly to `storage.googleapis.com`, which is blocked by the proxy in most Claude sandboxes (returns 000 / 403). `create_attachment` ships bytes through the MCP worker, whose network isn't restricted — so it works everywhere.
 
-Create the issue FIRST (with a placeholder Evidence section like `_uploading…_`), then run the prepare→PUT→register flow for every attachment **in parallel** — they don't depend on each other once the issue exists. Then do a single update call to swap the placeholder for the real inline markdown.
+To stay well under the MCP payload limit:
+
+1. **Compress every image to ~20–40 KB before encoding.** Resize to max 1600 px on the long edge, re-encode as PNG with palette/quant or JPEG quality ~80. After compression a typical keyframe lands at 15–35 KB. The user's annotated `screenshot.png` may need a slightly larger budget (≤80 KB) to keep the red marks crisp — that's fine.
+2. Base64-encode the compressed bytes.
+3. Call `create_attachment(issue=<id>, filename=<name>, contentType=<mime>, base64Content=<b64>)`. Linear returns an `assetUrl` for the stored file.
+4. **Use that `assetUrl` inline in the markdown description**: `![caption](assetUrl)`.
+
+Create the issue FIRST with a placeholder Evidence section like `_uploading…_`. Then run `create_attachment` for every image **in parallel** — they don't depend on each other once the issue exists. Finally one `save_issue` (with `id`) to swap the placeholder for the real inline markdown.
 
 **The user's screenshot.** If `brief.json.hasScreenshot` is true, embed `screenshot.png` inline in Evidence — it's often the single most important image. If `screenshotAnnotated`, caption it to point at the red, e.g. `![The red circle marks the nav label that should be plural](assetUrl)`. For a screenshot-only brief, this is your primary (often only) evidence image.
 
@@ -177,7 +181,9 @@ Skip the recording (keyframes alone are enough) when:
 
 When you do include it, **embed it inline in the description so it renders as a player** — don't just leave a "see attached" line. When you don't, don't mention it at all — the keyframes carry the ticket.
 
-To embed inline: use the same upload flow as keyframes — `prepare_attachment_upload(issueId, 'recording.webm', 'video/webm', size)` → PUT the bytes to `uploadUrl` → `create_attachment_from_upload(issueId, assetUrl, 'recording.webm')`. Then put the `assetUrl` **inline in the description markdown** in a Recording section:
+**Recording uploads use the signed-URL flow, NOT `create_attachment`.** A typical recording is 1–10 MB; base64-encoding it would blow the MCP payload budget. The signed-URL path is the only viable one for video.
+
+To embed inline: `prepare_attachment_upload(issue, 'recording.webm', 'video/webm', size)` → PUT the bytes to `uploadUrl` with the returned headers verbatim → `create_attachment_from_upload(issue, assetUrl, title='recording.webm')`. Then put the bare `assetUrl` **inline in the description markdown** in a Recording section:
 
 ```markdown
 **Recording**
@@ -187,7 +193,16 @@ To embed inline: use the same upload flow as keyframes — `prepare_attachment_u
 
 Linear (and most modern trackers) render an inline player from a video `assetUrl` — that's what makes it show in the preview instead of only in the Resources/attachments list. Do NOT also write a separate "see attached recording.webm" line — the inline player is enough. Place the Recording section right after Evidence (bugs) or Notes (features).
 
-If a particular tracker genuinely can't render video inline, fall back to a single `**Recording**: see attached recording.webm` line — but try the inline embed first.
+**If the PUT fails** (common in Claude sandboxes — the proxy blocks `storage.googleapis.com`, you'll see status 000 or 403 from the proxy after CONNECT): **drop the recording and continue**. Don't try to base64 it through `create_attachment` — it won't fit. Don't fail the whole ticket. Just replace the Recording section with a single line:
+
+```markdown
+**Recording**
+_A screen recording was captured but couldn't be uploaded from this environment._
+```
+
+Narrate: **`Recording upload blocked by proxy — skipping.`** Then proceed.
+
+If a particular tracker genuinely can't render video inline (even when upload succeeds), fall back to a single `**Recording**: see attached recording.webm` line — but try the inline embed first.
 
 ## 8. Clean up and report — solo ticket only
 
