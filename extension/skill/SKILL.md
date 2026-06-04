@@ -37,12 +37,12 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
 
 ## Hard rules (apply across all playbooks)
 
-1. **Never ask which team / repo / channel.** Infer from the page URL, the user's connected MCPs, recent activity. State your inference in the final summary so the user can correct next time if wrong.
+1. **Never ask the user anything.** No "should I proceed?", no "which team?", no "do you want me to attach the recording?". Infer team / repo / channel from the page URL, the user's connected MCPs, recent activity. Decide every other judgment call yourself. State your inferences in the final summary so the user can correct next time if wrong.
 2. **Binary-search keyframes** — read 3-5 strategic frames (first, midpoint, last; more only if needed), not all of them. Most briefs have 20+ keyframes; reading all is wasteful.
 3. **Embed images INLINE** via markdown `![](attachmentUrl)`, not as bare attachments. The ticket should be readable end-to-end without clicking through to attachments.
 4. **Map transcript chunks to keyframes** by timestamp (±2000ms). When the user said something, what was on screen?
 5. **Treat the transcript as a draft.** Chrome's speech recognition is mediocre on accents and jargon. Use the keyframes and page context as ground truth; silently correct obvious mis-transcriptions.
-6. **One closing summary, not running commentary.** Don't narrate each step. When you're done, post one message: "Filed LIN-1234 — <title>." That's it.
+6. **Narrate each step in one short line as you do it.** The user wants to watch progress, not be left in silence. Before each tool call or phase write one declarative sentence — `Listing briefs…`, `Reading brief.json for mpogywhs…`, `Inferring team from app.acme.com/billing → Billing.`, `Uploading 3 keyframes in parallel…`, `Creating ticket…`, `Done.`. Statements, never questions. Don't dump tool output; one line of intent per action.
 7. **The ticket must read like a human wrote it.** Never mention "brief", "the brief", the Brief extension, recordings-as-source, file paths under `~/Downloads/brief/`, or how the report was captured. The ticket describes the bug/feature and shows evidence — nothing about the tooling that produced it. (The recording, if attached, is just "Recording" — not "the brief's recording".)
 
 ## Step 3 — Delete the brief after processing

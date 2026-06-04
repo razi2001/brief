@@ -2,7 +2,11 @@
 
 Goal: produce one high-quality ticket in the user's tracker (Linear / Jira / GitHub / Notion — whichever MCP is connected) with zero clarifying questions and images that render inline.
 
+**Narrate as you go.** Before each phase below, write one short declarative line saying what you're about to do — `Reading brief.json…`, `Inferring team from app.acme.com/billing → Billing.`, `Sampling 4 keyframes…`, `Creating ticket…`, `Uploading 3 attachments in parallel…`, `Done.` Statements, never questions. Don't dump tool output — one line of intent per action. The user is watching; silence reads as stuck.
+
 ## 0. Read brief.json first — which inputs exist?
+
+Narrate: **`Reading brief.json…`**
 
 Always read `brief.json` before anything else. A brief can contain any combination of:
 
@@ -26,6 +30,8 @@ This determines structure (see step 6).
 
 ## 2. Pick the team / project — DO NOT ASK
 
+Narrate: **`Listing teams…`** then **`Inferring team: <chosen team> (from <signal>).`**
+
 Order of preference:
 
 1. **Tracker MCP team listing.** Call `list_teams()` / equivalent. Look for a name that matches:
@@ -35,9 +41,11 @@ Order of preference:
 2. **Repo CODEOWNERS** if you're in a repo.
 3. **Most recently used team** by querying recent issues from this user.
 
-Pick the best match confidently. **State the chosen team in your final summary** so the user can redirect with one word if wrong. Never ask up front.
+Pick the best match confidently. **State the chosen team in your final summary** so the user can redirect with one word if wrong. Never ask up front. In the inbox flow `list_teams` has already been called and the result is cached — don't call it again per ticket.
 
 ## 3. Read keyframes — binary search (recording briefs only)
+
+Narrate: **`Sampling keyframes…`** (or skip the line entirely if there's no recording).
 
 **Skip this entirely if there's no recording.** For a screenshot-only or text-only brief, the screenshot and/or description are your evidence — go to step 5/6.
 
@@ -133,6 +141,8 @@ Page: <pageUrl>
 
 ## 7. Upload + embed images INLINE
 
+Narrate: **`Creating ticket…`** then **`Uploading N attachments in parallel…`** then **`Updating ticket with inline media…`**
+
 The user wants images to **render in the ticket**, not appear as a list of file attachments. The flow on Linear (adapt for other MCPs):
 
 For each image you're using — selected keyframes **and/or** the user's `screenshot.png`:
@@ -142,7 +152,7 @@ For each image you're using — selected keyframes **and/or** the user's `screen
 3. `create_attachment_from_upload(issueId, assetUrl, filename)` to register it
 4. **Use the `assetUrl` inline in the markdown description**: `![caption](assetUrl)`
 
-Create the issue FIRST (with placeholder image refs or an empty Evidence section), then upload, then update the issue's description with the real URLs. Most trackers require an `issueId` before file upload.
+Create the issue FIRST (with a placeholder Evidence section like `_uploading…_`), then run the prepare→PUT→register flow for every attachment **in parallel** — they don't depend on each other once the issue exists. Then do a single update call to swap the placeholder for the real inline markdown.
 
 **The user's screenshot.** If `brief.json.hasScreenshot` is true, embed `screenshot.png` inline in Evidence — it's often the single most important image. If `screenshotAnnotated`, caption it to point at the red, e.g. `![The red circle marks the nav label that should be plural](assetUrl)`. For a screenshot-only brief, this is your primary (often only) evidence image.
 
@@ -179,15 +189,13 @@ Linear (and most modern trackers) render an inline player from a video `assetUrl
 
 If a particular tracker genuinely can't render video inline, fall back to a single `**Recording**: see attached recording.webm` line — but try the inline embed first.
 
-## 8. Confirm + clean up
+## 8. Clean up and report — solo ticket only
 
-End with one short summary line:
+> **Inbox mode:** if this ticket is being filed as part of an inbox batch, **stop here**. Don't delete anything and don't post a closing summary — `inbox.md` handles cleanup (Step 5) and the single closing summary (Step 6) for the whole batch. Just return control with the ticket URL captured.
 
-> Filed **<title>** in **<team>** → <url>. Used N frames + Y transcript chunks. If <team> isn't right, just tell me.
+### 8a. Delete the brief (solo only)
 
-That's it. No mid-flow questions. No "do you want me to attach the video?". You decided, you executed, you reported.
-
-## 9. Delete the brief
+Narrate: **`Deleting source brief…`**
 
 After the ticket is successfully filed, delete the source brief from disk:
 
@@ -198,3 +206,19 @@ rm -rf ~/Downloads/brief/brief-<id>/
 ```
 
 The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief in place and tell the user what failed so they can retry.
+
+### 8b. Closing summary with the ticket URL (solo only)
+
+End with one short message. **The URL goes on its own line so it's unmissable.**
+
+> Done. Filed in **<team>**:
+> <url>
+> <title>
+
+Then a single optional line for traceability if it adds value: `Used N frames + Y transcript chunks.` Skip it if it doesn't.
+
+Close with:
+
+> If <team> isn't right, just tell me.
+
+That's it. No mid-flow questions. No "do you want me to attach the video?". You decided, you executed, you reported.
