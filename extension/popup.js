@@ -539,11 +539,24 @@ async function refreshInbox({ autoExpandNewest = false } = {}) {
 refreshInbox({ autoExpandNewest: true });
 
 // ---------- Add a ticket ----------
+// Find the smallest unused "Brief N" so anonymous additions don't collide.
+function nextAutoBriefName(list) {
+  const used = new Set();
+  for (const b of list) {
+    const m = (b?.name || '').trim().match(/^brief\s+(\d+)$/i);
+    if (m) used.add(parseInt(m[1], 10));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return `Brief ${n}`;
+}
+
 addForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const name = addName.value.trim();
-  if (!name) { addName.focus(); return; }
   const list = await getInbox();
+  // Empty input → auto-name "Brief N" instead of bailing. The user clearly
+  // wanted to add something; making them go back to type a name is friction.
+  const name = addName.value.trim() || nextAutoBriefName(list);
   list.push({ id: genId(), name, recorded: false, addedAt: Date.now() });
   await setInbox(list);
   addName.value = '';
