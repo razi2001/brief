@@ -107,25 +107,39 @@ Narrate: **`Cleared inbox.`**
 
 Never destroy a brief that never became a ticket.
 
-## Step 6 — Single closing summary with ticket URLs
+## Step 6 — Single closing summary — celebratory + actionable
 
-After cleanup, give one final message. **Every filed ticket gets its URL on its own line, prominently** — that's what the user is here for.
+After cleanup, give one final message. **Each ticket appears as a markdown hyperlink** (title is the link text, the tracker's returned URL is the target) — that's what makes the title clickable in Linear/Slack/Notion/etc. instead of a raw URL dangling on its own line. One celebration emoji on the header, no parade. End with a single soft offer for adjustments — never a gating question.
 
-> Done. Filed in **Billing**:
-> - https://linear.app/acme/issue/LIN-1234 — Date picker broken on Labels page
-> - https://linear.app/acme/issue/LIN-1235 — Test plan export missing CSV option
-> - https://linear.app/acme/issue/LIN-1236 — Add bulk delete to test cases
-> - https://linear.app/acme/issue/LIN-1237 — Customer impersonation should warn on save
+**All tickets in one team:**
+
+> 🎉 Filed **N** tickets in **Billing**:
+> - [Date picker broken on Labels page](https://linear.app/acme/issue/LIN-1234)
+> - [Test plan export missing CSV option](https://linear.app/acme/issue/LIN-1235)
+> - [Add bulk delete to test cases](https://linear.app/acme/issue/LIN-1236)
+> - [Customer impersonation should warn on save](https://linear.app/acme/issue/LIN-1237)
 >
-> Inbox cleared.
+> Anything to tweak? Just say which ticket and what to change.
+
+**Tickets across multiple teams** — drop the team from the header, suffix each line:
+
+> 🎉 Filed **N** tickets:
+> - [Date picker broken on Labels page](https://linear.app/acme/issue/LIN-1234) — *Billing*
+> - [Test plan export missing CSV option](https://linear.app/acme/issue/LIN-1235) — *Platform*
 >
-> If any team is wrong, just say which.
+> Anything to tweak? Just say which ticket and what to change.
 
-If tickets went to multiple teams, drop the "in **<team>**" header and instead suffix each line with `(<team>)`.
+If guidance from the user's settings applied something across the batch (e.g. you set every ticket to `Backlog` with priority `Medium`), add one quiet line just above the offer:
 
-If anything failed, add a **Retained for retry** section at the bottom listing each retained brief with one line of why (e.g. `brief pqr-678 — Linear save_issue returned 500`).
+> Applied your defaults to all: Backlog · Medium · `inbound`.
 
-URLs must be the actual ticket URLs returned by the tracker, not constructed identifiers. The user clicks them.
+If you had to deviate from the guidance for one or more tickets (e.g. a label they listed doesn't exist in a target team), name them on their own line below the list:
+
+> Couldn't apply `inbound` to the **Platform** ticket — that label doesn't exist there.
+
+If anything failed, add a **Retained for retry** section at the bottom listing each retained brief with one line of why (e.g. `pqr-678 — Linear save_issue returned 500`). Don't put brief ids in the ticket body itself — those go only in this summary.
+
+Use the actual ticket URLs returned by the tracker, not constructed identifiers. The user clicks them.
 
 ## What NOT to do
 

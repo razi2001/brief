@@ -221,18 +221,22 @@ rm -rf ~/Downloads/brief/brief-<id>/
 
 The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief in place and tell the user what failed so they can retry.
 
-### 8b. Closing summary with the ticket URL (solo only)
+### 8b. Closing summary (solo only) — celebratory + actionable
 
-End with one short message. **The URL goes on its own line so it's unmissable.**
+End with one short message. The ticket title is a markdown hyperlink to the URL, so the user can click it directly. One emoji at the start to mark the celebration — exactly one, no parade. End with a soft, single-line offer to tweak — never a question that gates anything.
 
-> Done. Filed in **<team>**:
-> <url>
-> <title>
+Template:
 
-Then a single optional line for traceability if it adds value: `Used N frames + Y transcript chunks.` Skip it if it doesn't.
+> 🎉 Filed in **<team>** — [<ticket title>](<url>)
+>
+> Anything to tweak? Status, priority, labels, assignee, or team — just say.
 
-Close with:
+If guidance from the user's settings applied something they should know about (e.g. you set `state: Backlog`, `priority: Medium`, `labels: ['inbound']`), add one quiet line just above the offer:
 
-> If <team> isn't right, just tell me.
+> Applied your defaults: Backlog · Medium · `inbound`.
+
+If you had to deviate from the guidance (e.g. a label they listed doesn't exist in the team's label set), say so neutrally on its own line:
+
+> Couldn't apply `inbound` — that label doesn't exist in **<team>**.
 
 That's it. No mid-flow questions. No "do you want me to attach the video?". You decided, you executed, you reported.

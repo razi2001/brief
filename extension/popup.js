@@ -685,9 +685,19 @@ exportBtn.addEventListener('click', async () => {
   }
   const named = ready.map(describe).join(', ');
   const firstId = ready[0].id;
-  const prompt =
+  // Pull the user's natural-language ticket-creation guidance (settings page)
+  // and append it to the prompt so the agent applies it to every ticket.
+  let guidance = '';
+  try {
+    const { ticketGuidance } = await chrome.storage.local.get('ticketGuidance');
+    guidance = (ticketGuidance || '').trim();
+  } catch {}
+  let prompt =
     `Process briefs from ~/Downloads/brief/: ${named}. ` +
     `Unzip brief-${firstId}.zip and follow its skill/SKILL.md.`;
+  if (guidance) {
+    prompt += `\n\nTicket guidance (apply to every ticket in this batch):\n${guidance}`;
+  }
   try { await navigator.clipboard.writeText(prompt); } catch {}
 
   // 3) Animate ready rows out, keep not-ready drafts.

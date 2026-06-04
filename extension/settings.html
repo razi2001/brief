@@ -145,6 +145,57 @@
       .how-step .n { font-family: var(--display); font-size: 20px; color: var(--accent); min-width: 20px; }
 
       .footnote { font-size: 12px; color: var(--muted); margin-top: 36px; line-height: 1.5; border-top: 1px solid var(--hairline); padding-top: 18px; }
+
+      /* Guidance section */
+      .guidance-block {
+        margin-top: 40px;
+        padding-top: 32px;
+        border-top: 1px solid var(--hairline);
+      }
+      .guidance-label {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; margin-bottom: 4px;
+      }
+      .guidance-title {
+        font-family: var(--display); font-size: 22px;
+        letter-spacing: -0.01em; color: var(--ink);
+      }
+      .guidance-title em { color: var(--accent); font-style: italic; }
+      .guidance-status {
+        font-family: var(--mono); font-size: 11px;
+        color: var(--muted); opacity: 0; transition: opacity 0.2s;
+      }
+      .guidance-status.show { opacity: 1; }
+      .guidance-status.saved { color: var(--success); }
+      .guidance-lede {
+        font-family: var(--display); font-style: italic;
+        font-size: 13px; color: var(--muted); margin-bottom: 14px; line-height: 1.55;
+      }
+      .guidance-input {
+        width: 100%; min-height: 150px; padding: 14px 16px;
+        background: rgba(255,255,255,0.6);
+        border: 1px solid var(--hairline);
+        border-radius: 11px;
+        font-family: var(--mono); font-size: 13px; line-height: 1.6;
+        color: var(--ink);
+        resize: vertical;
+        transition: border-color 0.13s, background 0.13s;
+      }
+      .guidance-input::placeholder {
+        color: var(--muted); opacity: 0.7;
+        white-space: pre-line;
+      }
+      .guidance-input:focus {
+        outline: none; border-color: var(--accent);
+        background: #fff;
+      }
+      .guidance-hint {
+        margin-top: 10px; font-size: 12px; color: var(--muted); line-height: 1.55;
+      }
+      .guidance-hint code {
+        font-family: var(--mono); font-size: 11.5px;
+        background: rgba(26,22,18,0.06); padding: 1px 5px; border-radius: 3px;
+      }
     </style>
   </head>
   <body>
@@ -181,6 +232,26 @@
         </div>
 
         <p class="hint">Everything is local. Briefs never leave your machine until an agent — running on your machine — reads them. You'll need a tracker connected to that agent (Linear, GitHub, Jira, Notion).</p>
+
+        <div class="guidance-block">
+          <div class="guidance-label">
+            <span class="guidance-title">Ticket <em>guidance</em></span>
+            <span class="guidance-status" id="guidanceStatus" aria-live="polite"></span>
+          </div>
+          <p class="guidance-lede">Plain-English rules the agent should follow when filing every ticket. Status, priority, labels, team routing, anything.</p>
+          <textarea
+            id="ticketGuidance"
+            class="guidance-input"
+            spellcheck="false"
+            placeholder="Always create tickets in Backlog status.
+Default priority to Medium; use Urgent only when the recording shows a production-impacting error.
+Bug reports go to the Engineering team; feature requests go to Product.
+Add the label &quot;inbound&quot; to every ticket.
+Assign to me if it's clearly something I'd take on; otherwise leave unassigned.
+Never set a due date."
+          ></textarea>
+          <p class="guidance-hint">Saved as you type. Travels with the next <code>Export</code> — the agent applies it to every ticket in the batch.</p>
+        </div>
       </section>
     </main>
     <script src="settings.js"></script>

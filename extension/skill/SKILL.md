@@ -37,7 +37,7 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
 
 ## Hard rules (apply across all playbooks)
 
-1. **Never ask the user anything.** No "should I proceed?", no "which team?", no "do you want me to attach the recording?". Infer team / repo / channel from the page URL, the user's connected MCPs, recent activity. Decide every other judgment call yourself. State your inferences in the final summary so the user can correct next time if wrong.
+1. **Never ask the user anything mid-flow.** No "should I proceed?", no "which team?", no "do you want me to attach the recording?". Infer team / repo / channel from the page URL, the user's connected MCPs, recent activity. Decide every other judgment call yourself. State your inferences in the final summary so the user can correct next time if wrong. The closing summary may end with a single soft offer ("anything to tweak?") — that's an invitation for follow-up, not a confirmation gate. Never put a question anywhere except that final line.
 2. **Binary-search keyframes** — read 3-5 strategic frames (first, midpoint, last; more only if needed), not all of them. Most briefs have 20+ keyframes; reading all is wasteful.
 3. **Embed images INLINE** via markdown `![](attachmentUrl)`, not as bare attachments. The ticket should be readable end-to-end without clicking through to attachments.
 4. **Map transcript chunks to keyframes** by timestamp (±2000ms). When the user said something, what was on screen?
@@ -56,6 +56,28 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
    The single allowed reference to media is the inline embed itself — a markdown image or `![Recording](...)` block. The section is just called **Evidence** or **Recording**, never "Recorded evidence" or "Captured frames".
 
    **Captions describe what's in the image, not what was said about it.** Not `Frame at 0:02 — checkout page before click`, just `Checkout page before clicking Pay`. The transcript informs your wording; it never appears as a quote in the ticket.
+
+## Honor the user's ticket guidance
+
+The export prompt may include a section like:
+
+> Ticket guidance (apply to every ticket in this batch):
+> Always create tickets in Backlog status.
+> Default priority to Medium…
+
+When present, apply those rules to **every** ticket you file in this run. Map natural-language statements to `save_issue` fields:
+
+- "Backlog status", "draft", "open as backlog" → `state: 'Backlog'`
+- "priority high/medium/low/urgent" → `priority: 1|2|3|4` (1 Urgent, 2 High, 3 Medium, 4 Low)
+- "label X", "tag with X", "add the X label" → `labels: ['X', …]`
+- "assign to me" → `assignee: 'me'`; "leave unassigned" → don't set `assignee`
+- "use the X project" / "milestone Y" → `project: 'X'` / `milestone: 'Y'`
+- "due date never" / "no due date" → don't set `dueDate`
+- Conditional routing ("bugs go to Engineering, features to Product") → apply your bug/feature classification (Step 1 of ticket.md) to pick the team
+
+If a rule is ambiguous or references something that doesn't exist (e.g. a label not in the team's label set), follow it as best you can and note the discrepancy in the closing summary. Don't ask. Don't silently drop the rule.
+
+The guidance is global to the batch — it doesn't override per-brief signals like the `[+recording]` flag or the user-given name. Per-brief signals always win where they conflict.
 
 ## Step 3 — Delete the brief after processing
 
