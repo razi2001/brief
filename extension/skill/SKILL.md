@@ -57,28 +57,6 @@ The playbooks live next to this file, in the same `skill/playbooks/` folder insi
 
    **Captions describe what's in the image, not what was said about it.** Not `Frame at 0:02 — checkout page before click`, just `Checkout page before clicking Pay`. The transcript informs your wording; it never appears as a quote in the ticket.
 
-## Honor the user's ticket guidance
-
-The export prompt may include a section like:
-
-> Ticket guidance (apply to every ticket in this batch):
-> Always create tickets in Backlog status.
-> Default priority to Medium…
-
-When present, apply those rules to **every** ticket you file in this run. Map natural-language statements to `save_issue` fields:
-
-- "Backlog status", "draft", "open as backlog" → `state: 'Backlog'`
-- "priority high/medium/low/urgent" → `priority: 1|2|3|4` (1 Urgent, 2 High, 3 Medium, 4 Low)
-- "label X", "tag with X", "add the X label" → `labels: ['X', …]`
-- "assign to me" → `assignee: 'me'`; "leave unassigned" → don't set `assignee`
-- "use the X project" / "milestone Y" → `project: 'X'` / `milestone: 'Y'`
-- "due date never" / "no due date" → don't set `dueDate`
-- Conditional routing ("bugs go to Engineering, features to Product") → apply your bug/feature classification (Step 1 of ticket.md) to pick the team
-
-If a rule is ambiguous or references something that doesn't exist (e.g. a label not in the team's label set), follow it as best you can and note the discrepancy in the closing summary. Don't ask. Don't silently drop the rule.
-
-The guidance is global to the batch — it doesn't override per-brief signals like the `[+recording]` flag or the user-given name. Per-brief signals always win where they conflict.
-
 ## Step 3 — Delete the brief after processing
 
 **Critical:** once a brief has been successfully turned into a real ticket (or batch of tickets), delete the source brief.

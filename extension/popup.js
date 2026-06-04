@@ -685,19 +685,28 @@ exportBtn.addEventListener('click', async () => {
   }
   const named = ready.map(describe).join(', ');
   const firstId = ready[0].id;
-  // Pull the user's natural-language ticket-creation guidance (settings page)
-  // and append it to the prompt so the agent applies it to every ticket.
-  let guidance = '';
-  try {
-    const { ticketGuidance } = await chrome.storage.local.get('ticketGuidance');
-    guidance = (ticketGuidance || '').trim();
-  } catch {}
-  let prompt =
+  const prompt =
     `Process briefs from ~/Downloads/brief/: ${named}. ` +
     `Unzip brief-${firstId}.zip and follow its skill/SKILL.md.`;
-  if (guidance) {
-    prompt += `\n\nTicket guidance (apply to every ticket in this batch):\n${guidance}`;
-  }
+
+  // Drop the user's natural-language ticket-creation guidance as a sidecar
+  // file next to the briefs. The skill picks it up during discovery without
+  // bloating the copied prompt. Only written when non-empty; gets wiped
+  // along with the rest of brief/ on successful cleanup, so next export
+  // re-creates it from the latest settings value.
+  try {
+    const { ticketGuidance } = await chrome.storage.local.get('ticketGuidance');
+    const guidance = (ticketGuidance || '').trim();
+    if (guidance) {
+      const blob = new Blob([guidance + '\n'], { type: 'text/plain' });
+      const blobUrl = URL.createObjectURL(blob);
+      await chrome.runtime.sendMessage({
+        type: 'DOWNLOAD_ZIP',
+        payload: { blobUrl, filename: 'brief/guidance.txt' },
+      });
+      URL.revokeObjectURL(blobUrl);
+    }
+  } catch {}
   try { await navigator.clipboard.writeText(prompt); } catch {}
 
   // 3) Animate ready rows out, keep not-ready drafts.

@@ -147,7 +147,37 @@ Page: <pageUrl>
 
 Captions describe what's in the image — what the screen shows, what just happened. They never reference timestamps, frame numbers, or anything the reporter said.
 
-## 7. Upload + embed images INLINE
+## 7. Apply user guidance (if any)
+
+Right before the `save_issue` call, check for a sidecar file written by the extension at export time:
+
+```bash
+cat ~/Downloads/brief/guidance.txt 2>/dev/null
+```
+
+- **File missing or empty** → no guidance set. Skip this section entirely and move on. Don't narrate, don't mention it.
+- **File has content** → narrate **`Applying ticket guidance…`** and treat its lines as natural-language rules to fold into the `save_issue` arguments. In an inbox run, you'll re-read the same file for every ticket (one cheap `cat` per ticket) so it applies to every one.
+
+### Mapping natural-language rules to `save_issue` fields
+
+| User writes… | `save_issue` field |
+|---|---|
+| `Status: Backlog` / "open as backlog" / "draft" | `state: 'Backlog'` |
+| `Priority: Medium` / "default to high" | `priority: 1\|2\|3\|4` (1 Urgent, 2 High, 3 Medium, 4 Low) |
+| `Label every ticket "inbound"` / "tag with X" | `labels: ['X', …]` |
+| `Assign to me` | `assignee: 'me'` |
+| `Leave unassigned` | don't pass `assignee` |
+| `Use the X project` / "milestone Y" | `project: 'X'` / `milestone: 'Y'` |
+| `Never set a due date` | don't pass `dueDate` |
+| `Bugs → Engineering, features → Product` | branch on the Step 1 bug/feature classification when picking the team in Step 2 |
+
+### Conflict resolution
+
+- **Per-brief signals win.** The `[+recording]` flag and any per-brief judgment from earlier steps (e.g. the team you inferred from `pageUrl`) override conflicting guidance lines. Guidance is the user's default; the brief itself is the user's intent for this specific case.
+- **Ambiguous rule** ("file under triage" with no triage label/project anywhere) → follow as best you can. If it can't be applied at all, do NOT ask — file the ticket without that field and note the deviation in the closing summary on its own line ("Couldn't apply `inbound` — that label doesn't exist in **Marketing**.").
+- **Never silently drop a rule.** Either apply it or surface the deviation in the summary.
+
+## 8. Upload + embed images INLINE
 
 Narrate: **`Creating ticket…`** then **`Uploading N attachments in parallel…`** then **`Updating ticket with inline media…`**
 
@@ -203,11 +233,11 @@ When you do include it, use the same upload procedure above with `contentType='v
 
 Linear renders an inline player from a video URL. Place the Recording section right after Evidence (bugs) or Notes (features). Don't also write a separate "see attached" line — the inline player is enough.
 
-## 8. Clean up and report — solo ticket only
+## 9. Clean up and report — solo ticket only
 
 > **Inbox mode:** if this ticket is being filed as part of an inbox batch, **stop here**. Don't delete anything and don't post a closing summary — `inbox.md` handles cleanup (Step 5) and the single closing summary (Step 6) for the whole batch. Just return control with the ticket URL captured.
 
-### 8a. Delete the brief (solo only)
+### 9a. Delete the brief (solo only)
 
 Narrate: **`Deleting source brief…`**
 
@@ -221,7 +251,7 @@ rm -rf ~/Downloads/brief/brief-<id>/
 
 The user does NOT want old briefs accumulating in their Downloads folder — the ticket is the permanent artifact now, the brief was just the input. **Only delete if the ticket filing was confirmed successful.** If anything went wrong (MCP error, network failure, ambiguous request), leave the brief in place and tell the user what failed so they can retry.
 
-### 8b. Closing summary (solo only) — celebratory + actionable
+### 9b. Closing summary (solo only) — celebratory + actionable
 
 End with one short message. The ticket title is a markdown hyperlink to the URL, so the user can click it directly. One emoji at the start to mark the celebration — exactly one, no parade. End with a soft, single-line offer to tweak — never a question that gates anything.
 

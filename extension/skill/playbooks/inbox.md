@@ -35,6 +35,8 @@ For each brief:
 
 Don't read keyframes yet — just metadata.
 
+If you see a `guidance.txt` file alongside the briefs, ignore it for now — it's not a brief. `ticket.md` reads it per ticket as part of its "Apply user guidance" step.
+
 If the inbox is empty (no briefs found), say so briefly and stop: *"Inbox is empty — nothing to process."* Don't error out.
 
 ## Step 2 — Triage silently, then announce the plan
@@ -102,6 +104,8 @@ rm -rf ~/Downloads/brief/*
 ```
 
 Narrate: **`Cleared inbox.`**
+
+The wipe includes `guidance.txt` — intentional. It's regenerated from the extension's settings on every export.
 
 **Any ticket failed** → leave the folder alone. Don't try to surgically delete only the successful ones; keep the inbox intact as a clean recovery point. Narrate: **`Inbox left intact — N succeeded, M failed (see summary).`**
 
