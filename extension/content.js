@@ -277,9 +277,16 @@
   document.addEventListener(
     'keydown',
     (e) => {
+      // Cheap guard: skip work entirely outside an active recording.
+      if (!active) return;
+      // Some sites (notably synthetic keydown events from autofill, OAuth
+      // redirects, password managers, framework testing harnesses) fire
+      // KeyboardEvents without a `key` field. Don't crash on those.
+      const k = e.key;
+      if (typeof k !== 'string') return;
       const isInput = ['INPUT', 'TEXTAREA'].includes((e.target?.tagName || '').toUpperCase());
       report('key', {
-        key: e.key.length === 1 ? '<char>' : e.key,
+        key: k.length === 1 ? '<char>' : k,
         isInput,
       });
     },

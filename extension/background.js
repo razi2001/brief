@@ -6,8 +6,25 @@
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
 // rejects it otherwise. We try it and swallow any failure — the toolbar badge
 // already signals there are briefs to review, so a no-op degrades gracefully.
-function tryOpenPopup() {
+//
+// When called with a briefId, stash a short-lived "just captured" flag in
+// storage so the popup knows to auto-expand THAT brief's details panel on
+// its next render. Manual popup opens (user clicks the toolbar icon) don't
+// set this flag and therefore stay collapsed.
+function tryOpenPopup(briefId) {
   try {
+    // Always stash the signal first, even before checking openPopup support:
+    // if Chrome silently denies the programmatic open, the user will manually
+    // open the popup a beat later and we still want THAT open to expand the
+    // just-captured brief.
+    if (briefId) {
+      try {
+        chrome.storage.local.set({
+          pendingExpandBriefId: briefId,
+          pendingExpandAt: Date.now(),
+        });
+      } catch {}
+    }
     if (!chrome.action || typeof chrome.action.openPopup !== 'function') return;
     // Small delay so the on-page "Saved ✓" state registers first.
     setTimeout(() => {
@@ -224,7 +241,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             }
             sendResponse({ ok: true });
             // Best-effort: pop the user back to the brief to review/export.
-            tryOpenPopup();
+            // Pass the brief id so the popup auto-expands its details panel.
+            tryOpenPopup(message.itemId);
           } catch (err) {
             sendResponse({ ok: false, error: String(err?.message || err) });
           }
@@ -232,7 +250,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'REOPEN_POPUP': {
-          tryOpenPopup();
+          tryOpenPopup(message.briefId);
           sendResponse({ ok: true });
           break;
         }

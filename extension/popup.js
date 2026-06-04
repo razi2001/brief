@@ -506,7 +506,7 @@ function updateChrome(items) {
   }
 }
 
-async function refreshInbox() {
+async function refreshInbox({ expandBriefId = null } = {}) {
   const items = await getInbox();
   briefList.innerHTML = '';
   if (items.length === 0) {
@@ -519,17 +519,60 @@ async function refreshInbox() {
   briefList.hidden = false;
   items.forEach((b) => briefList.appendChild(buildItem(b)));
   updateChrome(items);
+
+  // Auto-expand only when explicitly told which brief to expand (post-capture).
+  // Manual opens don't pass an id and the list stays collapsed.
+  if (expandBriefId) {
+    const li = briefList.querySelector(`[data-id="${CSS.escape(expandBriefId)}"]`);
+    const toggle = li?.querySelector('.brief-more');
+    if (li && toggle && !li.classList.contains('expanded')) {
+      toggleExpand(li, toggle);
+    }
+  }
 }
 
-// On open: render whatever's stored (drafts are kept across closes).
-refreshInbox();
+// On open: render whatever's stored, and consume the post-capture signal if
+// background set one. The signal is a brief id stashed in chrome.storage by
+// `tryOpenPopup(briefId)` after a screenshot or recording finishes. We treat
+// it as fresh only when stashed in the last 30 seconds — defensive against
+// stale flags from a denied openPopup() that the user revisits hours later.
+(async function bootstrapInbox() {
+  let expandBriefId = null;
+  try {
+    const { pendingExpandBriefId, pendingExpandAt } = await chrome.storage.local.get([
+      'pendingExpandBriefId', 'pendingExpandAt',
+    ]);
+    if (pendingExpandBriefId && pendingExpandAt && Date.now() - pendingExpandAt < 30_000) {
+      expandBriefId = pendingExpandBriefId;
+    }
+  } catch {}
+  // Always clear the flag — even if stale or missing — so a later manual
+  // open doesn't accidentally expand something.
+  try {
+    await chrome.storage.local.remove(['pendingExpandBriefId', 'pendingExpandAt']);
+  } catch {}
+  await refreshInbox({ expandBriefId });
+})();
 
 // ---------- Add a ticket ----------
+// Find the smallest unused "Brief N" so anonymous additions don't collide.
+function nextAutoBriefName(list) {
+  const used = new Set();
+  for (const b of list) {
+    const m = (b?.name || '').trim().match(/^brief\s+(\d+)$/i);
+    if (m) used.add(parseInt(m[1], 10));
+  }
+  let n = 1;
+  while (used.has(n)) n++;
+  return `Brief ${n}`;
+}
+
 addForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const name = addName.value.trim();
-  if (!name) { addName.focus(); return; }
   const list = await getInbox();
+  // Empty input → auto-name "Brief N" instead of bailing. The user clearly
+  // wanted to add something; making them go back to type a name is friction.
+  const name = addName.value.trim() || nextAutoBriefName(list);
   list.push({ id: genId(), name, recorded: false, addedAt: Date.now() });
   await setInbox(list);
   addName.value = '';
@@ -603,9 +646,12 @@ async function writeBriefZip(b) {
   if (!res?.ok) throw new Error(res?.error || 'zip_write_failed');
 }
 
-// For a RECORDING brief that later gained a screenshot, the recording's
-// on-disk zip predates it and we don't have the video bytes to rewrite it.
-// Write a tiny companion zip alongside it so the screenshot isn't lost.
+// For a RECORDING brief, the recording's on-disk zip is finalized when
+// recording stops — it predates any post-record additions (description,
+// screenshot, extra key/values, or the user toggling "attach recording").
+// We can't rewrite the recording zip (we don't have the video bytes anymore),
+// so we drop a small companion zip alongside it carrying every post-record
+// field. The skill merges this on top of the recording's brief.json.
 async function writeCompanionZip(b) {
   const briefJson = {
     id: b.id,
@@ -616,6 +662,11 @@ async function writeCompanionZip(b) {
     hasScreenshot: !!b.screenshot,
     screenshotAnnotated: !!b.screenshotAnnotated,
     extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
+    // `includeVideo: true` is the user's explicit "attach the recording to this
+    // ticket" signal (toggle in the popup). The skill treats this as an
+    // absolute rule — when true, always attach the recording regardless of
+    // its own attach/skip heuristics.
+    includeVideo: !!b.includeVideo,
   };
   const entries = [
     { name: 'brief.json', data: new TextEncoder().encode(JSON.stringify(briefJson, null, 2)) },
@@ -641,13 +692,23 @@ exportBtn.addEventListener('click', async () => {
   exportBtn.disabled = true;
 
   // 1) Make sure every ready brief has a zip on disk. Recording briefs already
-  //    do; screenshot/text-only briefs are written here, now. A recording brief
-  //    that also has a screenshot (added after the recording) gets a small
-  //    companion zip so that screenshot isn't lost.
+  //    do (written when recording stopped). Screenshot/text-only briefs are
+  //    written here, now. A recording brief with ANY post-record state — a
+  //    screenshot, description, extras, or the user toggling "attach the
+  //    recording" — gets a small companion zip so those fields aren't lost
+  //    (the recording's own brief.json was frozen at record time).
+  function hasPostRecordState(b) {
+    return !!(
+      b.screenshot ||
+      (b.description && b.description.trim()) ||
+      (Array.isArray(b.extra) && b.extra.some((p) => (p.key || '').trim() || (p.value || '').trim())) ||
+      b.includeVideo
+    );
+  }
   try {
     for (const b of ready) {
       if (b.hasRecording || b.recorded) {
-        if (b.screenshot) await writeCompanionZip(b);
+        if (hasPostRecordState(b)) await writeCompanionZip(b);
       } else {
         await writeBriefZip(b);
       }
@@ -658,44 +719,40 @@ exportBtn.addEventListener('click', async () => {
     return;
   }
 
-  // 2) Build the prompt. Skill knows HOW; prompt carries where + which + extras
-  //    the skill can't know (description is in the zip, but a one-line hint and
-  //    the red-screenshot note help the agent).
-  function describe(b, i) {
-    const name = (b.name && b.name.trim()) || `Untitled brief ${i + 1}`;
-    let s = `${b.id} ("${name}")`;
-    const bits = [];
-    const kinds = [];
-    if (b.hasRecording || b.recorded) kinds.push('recording');
-    if (b.screenshot) kinds.push(b.screenshotAnnotated ? 'screenshot with red annotations' : 'screenshot');
-    if (b.description && b.description.trim()) kinds.push('text description');
-    if (kinds.length) bits.push(kinds.join(' + '));
-    // Carry the actual description text in the prompt. This is the one channel
-    // that always reaches the agent — important because a recording brief's
-    // on-disk zip is written at record time and may predate a description the
-    // user typed afterward (so brief.json could have an empty description).
-    if (b.description && b.description.trim()) {
-      bits.push(`description: "${b.description.trim().replace(/\s+/g, ' ')}"`);
-    }
-    if (Array.isArray(b.extra) && b.extra.length) {
-      const kv = b.extra.filter((p) => p.key.trim() || p.value.trim())
-        .map((p) => `${p.key.trim()}: ${p.value.trim()}`).join('; ');
-      if (kv) bits.push(`additional data — ${kv}`);
-    }
-    if (b.includeVideo && (b.hasRecording || b.recorded)) bits.push('attach the recording to this ticket');
-    // A recording brief with a screenshot has its extra context in a companion zip.
-    if ((b.hasRecording || b.recorded) && b.screenshot) {
-      bits.push(`also unzip brief-${b.id}-extra.zip for its screenshot`);
-    }
-    if (bits.length) s += ` [${bits.join(' | ')}]`;
+  // 2) Build the prompt. Skill reads everything else from brief.json (and the
+  //    companion -extra.zip's brief.json, when one exists) — only carry the
+  //    user-given name as a quick title hint. The "attach recording" toggle
+  //    rides in the companion zip's brief.json as `includeVideo: true`, not
+  //    in the prompt. Companion -extra.zip presence is discoverable by `ls`.
+  function describe(b) {
+    let s = b.id;
+    if (b.name && b.name.trim()) s += ` ("${b.name.trim()}")`;
     return s;
   }
-  const named = ready.map(describe).join('; ');
+  const named = ready.map(describe).join(', ');
   const firstId = ready[0].id;
   const prompt =
-    `Process these briefs from ~/Downloads/brief/: ${named}. ` +
-    `Unzip brief-${firstId}.zip and follow its skill/SKILL.md. ` +
-    `Note: any red markings in a screenshot are drawn by me to show where the issue is.`;
+    `Process briefs from ~/Downloads/brief/: ${named}. ` +
+    `Unzip brief-${firstId}.zip and follow its skill/SKILL.md.`;
+
+  // Drop the user's natural-language ticket-creation guidance as a sidecar
+  // file next to the briefs. The skill picks it up during discovery without
+  // bloating the copied prompt. Only written when non-empty; gets wiped
+  // along with the rest of brief/ on successful cleanup, so next export
+  // re-creates it from the latest settings value.
+  try {
+    const { ticketGuidance } = await chrome.storage.local.get('ticketGuidance');
+    const guidance = (ticketGuidance || '').trim();
+    if (guidance) {
+      const blob = new Blob([guidance + '\n'], { type: 'text/plain' });
+      const blobUrl = URL.createObjectURL(blob);
+      await chrome.runtime.sendMessage({
+        type: 'DOWNLOAD_ZIP',
+        payload: { blobUrl, filename: 'brief/guidance.txt' },
+      });
+      URL.revokeObjectURL(blobUrl);
+    }
+  } catch {}
   try { await navigator.clipboard.writeText(prompt); } catch {}
 
   // 3) Animate ready rows out, keep not-ready drafts.
