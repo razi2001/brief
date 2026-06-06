@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="promo/promo-marquee.png" alt="Brief — voice the bug. Your agent ships the ticket." width="100%">
+# ✦ Brief
 
-<br><br>
+**Talk through a bug. Your agent writes the ticket.**
 
-**Half the bugs your team sees never get filed.** Writing a good ticket takes five minutes, so nobody bothers. Brief is a Chrome extension that captures voice + screen + logs in 30 seconds and hands the rest to your coding agent.
+Half the bugs your team sees never get filed. Writing a good ticket takes five minutes, so nobody bothers. Brief is a Chrome extension that captures voice + screen + logs in 30 seconds and hands the rest to your coding agent.
 
 [**Install from Chrome Web Store →**](https://chromewebstore.google.com/detail/brief/dbceddgckljkggbghaddpclblfbkmfig) &nbsp; · &nbsp; [get-brief.app](https://get-brief.app)
 
@@ -21,10 +21,6 @@
 Capture as many as you like through the day — they queue in your inbox. Process them whenever.
 
 Everything stays on your machine. No accounts, no upload, 100% local. MIT licensed.
-
-<p align="center">
-  <img src="promo/screen-popup.png" alt="Brief popup — stack briefs through the day, export the whole batch into your coding agent" width="720">
-</p>
 
 ## What you need
 
