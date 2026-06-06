@@ -1,12 +1,12 @@
 <div align="center">
 
-# ✦ Brief
+<img src="promo/promo-marquee.png" alt="Brief — voice the bug. Your agent ships the ticket." width="100%">
 
-**Talk through a bug. Your agent writes the ticket.**
+<br><br>
 
-Half the bugs your team sees never get filed. Writing a good ticket takes five minutes, so nobody bothers. Brief is a Chrome extension that captures voice + screen + logs in 30 seconds and hands the rest to your coding agent.
+**Half the bugs your team sees never get filed.** Writing a good ticket takes five minutes, so nobody bothers. Brief is a Chrome extension that captures voice + screen + logs in 30 seconds and hands the rest to your coding agent.
 
-[Install from Chrome Web Store](https://chromewebstore.google.com/detail/brief/dbceddgckljkggbghaddpclblfbkmfig) · [get-brief.app](https://get-brief.app) · [How it works](#how-it-works) · [FAQ](#faq)
+[**Install from Chrome Web Store →**](https://chromewebstore.google.com/detail/brief/dbceddgckljkggbghaddpclblfbkmfig) &nbsp; · &nbsp; [get-brief.app](https://get-brief.app)
 
 </div>
 
@@ -22,6 +22,10 @@ Capture as many as you like through the day — they queue in your inbox. Proces
 
 Everything stays on your machine. No accounts, no upload, 100% local. MIT licensed.
 
+<p align="center">
+  <img src="promo/screen-popup.png" alt="Brief popup — stack briefs through the day, export the whole batch into your coding agent" width="720">
+</p>
+
 ## What you need
 
 - **Chrome** (or any Chromium browser: Edge, Brave, Arc)
@@ -29,11 +33,22 @@ Everything stays on your machine. No accounts, no upload, 100% local. MIT licens
 
 Brief does the capturing; your agent does the filing.
 
-## Install
+## Brief vs. hand-written
 
-**Easiest:** [Chrome Web Store](https://chromewebstore.google.com/detail/brief/dbceddgckljkggbghaddpclblfbkmfig).
+|                | Brief        | By hand   |
+|----------------|--------------|-----------|
+| Time to write  | 20 seconds   | 5 minutes |
+| Attachment     | ✓            | ✕         |
+| Console logs   | ✓            | ✕         |
+| Repro steps    | ✓            | ✕         |
+| Follow-ups     | 0            | 3         |
 
-**Unpacked (for the latest):**
+---
+
+<details>
+<summary><b>Install unpacked (for the latest)</b></summary>
+
+<br>
 
 1. [Download the repo](https://github.com/razi2001/brief/archive/refs/heads/main.zip) and unzip it.
 2. Open `chrome://extensions`, toggle **Developer mode**, click **Load unpacked**, pick the `extension/` folder.
@@ -43,7 +58,12 @@ First click on ✦ opens a permission tab to grant the mic, then a short "how it
 
 **No skill to install separately.** Every brief is a self-contained zip — the filing playbook (`skill/SKILL.md` + playbooks) ships inside it. Any local agent that can read files and reach your tracker can file the ticket.
 
-## How it works
+</details>
+
+<details>
+<summary><b>How it works (under the hood)</b></summary>
+
+<br>
 
 ```
 ┌──────────────────┐    ┌────────────────────┐    ┌──────────────────┐
@@ -75,17 +95,12 @@ When your agent processes briefs, it:
 - Includes console errors verbatim
 - **Deletes the brief once the ticket is confirmed filed**
 
-## Brief vs. hand-written
+</details>
 
-|                | Brief        | By hand   |
-|----------------|--------------|-----------|
-| Time to write  | 20 seconds   | 5 minutes |
-| Attachment     | ✓            | ✕         |
-| Console logs   | ✓            | ✕         |
-| Repro steps    | ✓            | ✕         |
-| Follow-ups     | 0            | 3         |
+<details>
+<summary><b>Voice quality, honestly</b></summary>
 
-## Voice quality, honestly
+<br>
 
 Brief uses Chrome's built-in speech recognition (`webkitSpeechRecognition`). Free and local, but:
 
@@ -95,14 +110,24 @@ Brief uses Chrome's built-in speech recognition (`webkitSpeechRecognition`). Fre
 
 Whisper support may land in a future release.
 
-## Privacy
+</details>
+
+<details>
+<summary><b>Privacy</b></summary>
+
+<br>
 
 - Recording happens in your browser. The video never uploads.
 - Your mic audio passes through Google's speech-recognition service while transcribing (that's `webkitSpeechRecognition`, not us). Not stored.
 - Console-error capture runs only while recording, only on that tab, only forwards error messages — no DOM, no cookies, no storage.
 - Briefs are local. They never leave your machine unless your agent reads them.
 
-## FAQ
+</details>
+
+<details>
+<summary><b>FAQ</b></summary>
+
+<br>
 
 **Which coding agents work?**
 Any local agent with file access and a tracker integration. The filing skill ships inside each brief.
@@ -120,14 +145,19 @@ Chromium browsers only for now.
 **Can I share a brief with a teammate?**
 Yes — the zip includes the skill. They unzip it, point any local agent at `skill/SKILL.md`, and it'll file the ticket on their machine.
 
-## Updating
+</details>
 
-Pull the latest repo and reload the unpacked extension at `chrome://extensions`. New briefs bundle the newest skill automatically. (Web Store installs update on their own.)
+<details>
+<summary><b>Updating & uninstall</b></summary>
 
-## Uninstall
+<br>
 
-Remove the extension at `chrome://extensions`. Your briefs in `~/Downloads/brief/` stay put — delete the folder yourself if you want them gone.
+**Updating.** Pull the latest repo and reload the unpacked extension at `chrome://extensions`. New briefs bundle the newest skill automatically. (Web Store installs update on their own.)
 
-## License
+**Uninstall.** Remove the extension at `chrome://extensions`. Your briefs in `~/Downloads/brief/` stay put — delete the folder yourself if you want them gone.
+
+</details>
+
+---
 
 MIT — see [LICENSE](LICENSE).
