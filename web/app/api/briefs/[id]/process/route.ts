@@ -1,23 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { getLinearToken, makeLinearApi } from "@/lib/linear";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
+import { corsPreflight, jsonCors } from "@/lib/cors";
 
 export const maxDuration = 300;
+
+export function OPTIONS() {
+  return corsPreflight();
+}
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const token = bearerFromHeader(req.headers.get("authorization"));
   const userId = token ? await userIdForToken(token) : null;
-  if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!userId) return jsonCors({ error: "unauthorized" }, { status: 401 });
 
   const admin = createAdminSupabase();
   const { data: brief } = await admin.from("briefs").select("*").eq("id", id).eq("user_id", userId).maybeSingle();
-  if (!brief) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!brief) return jsonCors({ error: "not found" }, { status: 404 });
 
   const tok = await getLinearToken(userId);
-  if (!tok) return NextResponse.json({ error: "linear not connected" }, { status: 409 });
+  if (!tok) return jsonCors({ error: "linear not connected" }, { status: 409 });
 
   await admin.from("briefs").update({ status: "processing" }).eq("id", id);
   try {
@@ -49,9 +54,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const toDelete: string[] = [`${prefix}/brief.json`, `${prefix}/recording.webm`, `${prefix}/screenshot.png`, ...names.map((n) => `${prefix}/keyframes/${n}`)];
     await admin.storage.from("briefs").remove(toDelete);
 
-    return NextResponse.json(result);
+    return jsonCors(result);
   } catch (e: any) {
     await admin.from("briefs").update({ status: "failed", error: String(e?.message ?? e) }).eq("id", id);
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+    return jsonCors({ error: String(e?.message ?? e) }, { status: 500 });
   }
 }
