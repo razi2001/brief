@@ -6,7 +6,43 @@
 
 **Architecture:** A Next.js (App Router, TypeScript) app in `web/` provides the UI, API routes, and the processing agent. Supabase provides Auth (Google + magic link), Postgres (with RLS), and private Storage. The existing `extension/` is modified to pair with the cloud (via `externally_connectable`), upload a brief, and trigger processing. The processing route runs the Claude Agent SDK with the user's Linear OAuth token wired into Linear's remote MCP server (`mcp.linear.app`).
 
-**Tech Stack:** Next.js 15 (App Router), TypeScript, Tailwind, `@supabase/supabase-js` + `@supabase/ssr`, Supabase CLI (SQL migrations), `@anthropic-ai/claude-agent-sdk`, Vitest, Chrome MV3.
+**Tech Stack:** Next.js 15 (App Router), TypeScript, Tailwind, **Clerk** (`@clerk/nextjs`) for user login, `@supabase/supabase-js` for Postgres + Storage, Supabase CLI (SQL migrations), `@anthropic-ai/claude-agent-sdk`, Vitest, Chrome MV3.
+
+---
+
+## REVISION 1 — Login uses Clerk (not Supabase Auth)
+
+**Decision (2026-06-09):** user login is handled by **Clerk**; Supabase is used **only** for Postgres + Storage (accessed server-side via the service-role client). This supersedes the Supabase-Auth wording in the tasks below. Concrete deltas:
+
+- **Deps (Task 1 addendum):** also install `@clerk/nextjs`. (Done as a follow-up if Task 1 already ran.)
+- **Env:** add `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`. Enable **Google** + **Email** in the Clerk dashboard. Supabase Auth provider config is no longer needed. Keep all `SUPABASE_*` and `TOKEN_ENC_KEY`, `LINEAR_*`, `ANTHROPIC_API_KEY`, `APP_URL` vars.
+- **User IDs are Clerk strings** (e.g. `user_2ab...`), not UUIDs. Every `user_id` column becomes `text`.
+- **Task 5 (schema):** drop the `profiles` table and the `handle_new_user` trigger/function entirely (Clerk is the user store). For `connections`, `extension_tokens`, `briefs`: change `user_id uuid ... references auth.users(id)` → `user_id text not null`. **Remove all RLS policies and `enable row level security`** — there is no `auth.uid()` without Supabase Auth. Access is server-only via the service-role client, always scoped by the Clerk `userId` in code. (Re-introducing RLS via Clerk JWT templates is a later hardening step.)
+- **Task 6 (clients):** keep ONLY `createAdminSupabase()` (service role) for DB + Storage. Delete the `createServerSupabase` / browser Supabase-auth clients. `lib/auth.ts` becomes Clerk-based:
+  ```ts
+  import { auth } from "@clerk/nextjs/server";
+  import { redirect } from "next/navigation";
+  export async function getUserId() { return (await auth()).userId; }
+  export async function requireUserId() {
+    const { userId } = await auth();
+    if (!userId) redirect("/sign-in");
+    return userId;
+  }
+  ```
+  Everywhere later tasks call `requireUser()` / use `user.id`, use `requireUserId()` / the returned string instead.
+- **Task 7 (login + callback):** REPLACE entirely. Wrap `app/layout.tsx` in `<ClerkProvider>`. Add `web/middleware.ts`:
+  ```ts
+  import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+  const isPublic = createRouteMatcher(["/sign-in(.*)", "/api/briefs(.*)"]);
+  export default clerkMiddleware(async (auth, req) => { if (!isPublic(req)) await auth.protect(); });
+  export const config = { matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)"] };
+  ```
+  Note `/api/briefs(.*)` is PUBLIC to Clerk because it authenticates via the extension **bearer token**, not a Clerk session. Add `web/app/sign-in/[[...sign-in]]/page.tsx` rendering Clerk's `<SignIn />`. No `/auth/callback` route is needed.
+- **Tasks 8, 9, 10, 16:** unchanged except `requireUser()`→`requireUserId()` and `user.id`→ the returned `userId` string; stored into `*.user_id` (text).
+- **Tasks 11, 12, 15 (extension bearer API):** UNAFFECTED by Clerk — they authenticate via `extension_tokens` bearer lookup. Only the column type (`user_id text`) changes.
+- **Tasks 2, 3, 4 (pure logic):** UNAFFECTED.
+
+When dispatching the affected tasks, the controller feeds the Clerk-correct code directly.
 
 ---
 
