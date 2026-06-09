@@ -6,7 +6,91 @@
 
 **Architecture:** A Next.js (App Router, TypeScript) app in `web/` provides the UI, API routes, and the processing agent. Supabase provides Auth (Google + magic link), Postgres (with RLS), and private Storage. The existing `extension/` is modified to pair with the cloud (via `externally_connectable`), upload a brief, and trigger processing. The processing route runs the Claude Agent SDK with the user's Linear OAuth token wired into Linear's remote MCP server (`mcp.linear.app`).
 
-**Tech Stack:** Next.js 15 (App Router), TypeScript, Tailwind, `@supabase/supabase-js` + `@supabase/ssr`, Supabase CLI (SQL migrations), `@anthropic-ai/claude-agent-sdk`, Vitest, Chrome MV3.
+**Tech Stack:** Next.js 15 (App Router), TypeScript, Tailwind, **Clerk** (`@clerk/nextjs`) for user login, `@supabase/supabase-js` for Postgres + Storage, Supabase CLI (SQL migrations), `@anthropic-ai/claude-agent-sdk`, Vitest, Chrome MV3.
+
+---
+
+## REVISION 1 — Login uses Clerk (not Supabase Auth)
+
+**Decision (2026-06-09):** user login is handled by **Clerk**; Supabase is used **only** for Postgres + Storage (accessed server-side via the service-role client). This supersedes the Supabase-Auth wording in the tasks below. Concrete deltas:
+
+- **Deps (Task 1 addendum):** also install `@clerk/nextjs`. (Done as a follow-up if Task 1 already ran.)
+- **Env:** add `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`. Enable **Google** + **Email** in the Clerk dashboard. Supabase Auth provider config is no longer needed. Keep all `SUPABASE_*` and `TOKEN_ENC_KEY`, `LINEAR_*`, `ANTHROPIC_API_KEY`, `APP_URL` vars.
+- **User IDs are Clerk strings** (e.g. `user_2ab...`), not UUIDs. Every `user_id` column becomes `text`.
+- **Task 5 (schema):** drop the `profiles` table and the `handle_new_user` trigger/function entirely (Clerk is the user store). For `connections`, `extension_tokens`, `briefs`: change `user_id uuid ... references auth.users(id)` → `user_id text not null`. **Remove all RLS policies and `enable row level security`** — there is no `auth.uid()` without Supabase Auth. Access is server-only via the service-role client, always scoped by the Clerk `userId` in code. (Re-introducing RLS via Clerk JWT templates is a later hardening step.)
+- **Task 6 (clients):** keep ONLY `createAdminSupabase()` (service role) for DB + Storage. Delete the `createServerSupabase` / browser Supabase-auth clients. `lib/auth.ts` becomes Clerk-based:
+  ```ts
+  import { auth } from "@clerk/nextjs/server";
+  import { redirect } from "next/navigation";
+  export async function getUserId() { return (await auth()).userId; }
+  export async function requireUserId() {
+    const { userId } = await auth();
+    if (!userId) redirect("/sign-in");
+    return userId;
+  }
+  ```
+  Everywhere later tasks call `requireUser()` / use `user.id`, use `requireUserId()` / the returned string instead.
+- **Task 7 (login + callback):** REPLACE entirely. Wrap `app/layout.tsx` in `<ClerkProvider>`. Add `web/middleware.ts`:
+  ```ts
+  import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+  const isPublic = createRouteMatcher(["/sign-in(.*)", "/api/briefs(.*)"]);
+  export default clerkMiddleware(async (auth, req) => { if (!isPublic(req)) await auth.protect(); });
+  export const config = { matcher: ["/((?!_next|.*\\..*).*)", "/(api|trpc)(.*)"] };
+  ```
+  Note `/api/briefs(.*)` is PUBLIC to Clerk because it authenticates via the extension **bearer token**, not a Clerk session. Add `web/app/sign-in/[[...sign-in]]/page.tsx` rendering Clerk's `<SignIn />`. No `/auth/callback` route is needed.
+- **Tasks 8, 9, 10, 16:** unchanged except `requireUser()`→`requireUserId()` and `user.id`→ the returned `userId` string; stored into `*.user_id` (text).
+- **Tasks 11, 12, 15 (extension bearer API):** UNAFFECTED by Clerk — they authenticate via `extension_tokens` bearer lookup. Only the column type (`user_id text`) changes.
+- **Tasks 2, 3, 4 (pure logic):** UNAFFECTED.
+
+**Profile & account = Clerk (no local user table).** Clerk is the single source of truth for the user record (email, name, avatar). We never store or sync a copy.
+- Server-side, when we need the user's email/name (e.g. for display or to label a connection), read it from `currentUser()` (`@clerk/nextjs/server`) — not from any DB row.
+- Account management UI (avatar menu, manage account, sign out) uses Clerk's `<UserButton />`; client components read `useUser()` (`@clerk/nextjs`).
+- **Task 16 (dashboard):** add `<UserButton />` in the header for account/sign-out, and greet the user via `currentUser()`. Our tables hold only the Clerk `userId` string as a foreign reference — no email/name columns.
+
+When dispatching the affected tasks, the controller feeds the Clerk-correct code directly.
+
+---
+
+## REVISION 2 — Max Clerk for connections (Linear via Clerk, not our routes)
+
+**Decision (2026-06-09):** Clerk is also the **connection vault**. The Linear connection is a Clerk **social connection** (preset); the OAuth flow, token storage, and refresh-on-fetch all live in Clerk. Our agent fetches the token from Clerk's Backend API at processing time. Verified against Clerk docs: presets exist for Linear, Slack, GitHub, GitLab, Notion, Atlassian/Jira; others (ClickUp, Asana, Azure DevOps) are addable as custom OAuth. Token retrieval: `clerkClient.users.getUserOauthAccessToken(userId, 'oauth_linear')` (custom providers use a `custom_` prefix). Clerk refreshes the token when requested.
+
+Deltas vs. the tasks below:
+- **Task 2 (`crypto.ts`):** built + committed, but **currently unused** under Max Clerk (we no longer store the Linear token ourselves). Keep as a util; revisit if we ever store a secret.
+- **Task 5 (schema):** **DROP the `connections` table entirely** — Clerk holds the connection. Keep only `extension_tokens` and `briefs`, both with `user_id text`. No `profiles`, no RLS (server-side scoping via Clerk `userId`).
+- **Task 8 (Linear OAuth routes):** **DELETED.** Replaced by:
+  1. Dashboard config (no code): enable **Linear** social connection in the Clerk dashboard with scopes `read,write`; allow users to connect it as an additional connected account.
+  2. A connect entry point in our UI that opens Clerk's connect-account flow (Clerk `<UserProfile/>` "Connected accounts", or `user.createExternalAccount({ strategy: 'oauth_linear', ... })`).
+  3. A server helper `web/lib/linear.ts` → `getLinearToken(userId)`:
+     ```ts
+     import { clerkClient } from "@clerk/nextjs/server";
+     export async function getLinearToken(userId: string): Promise<string | null> {
+       const client = await clerkClient();
+       const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
+       return res.data?.[0]?.token ?? null;
+     }
+     ```
+- **Task 15 (process route):** replace the `connections` lookup + `decryptToken(...)` with `const linearToken = await getLinearToken(userId)` (where `userId` is resolved from the extension bearer token). If null → 409 "linear not connected".
+- **Task 16 (dashboard):** connection status comes from Clerk — check whether the user has an `oauth_linear` external account (via `currentUser()` `externalAccounts`, or by attempting `getLinearToken`). "Connect Linear" triggers Clerk's connect flow. No `connections` table reads.
+
+Net effect: removes our OAuth callback route, the `connections` table, and per-provider token crypto. Adding Jira/GitHub/etc. later = enable the provider in Clerk + a one-line token fetch.
+
+---
+
+## REVISION 3 — OpenAI agent, direct Linear GraphQL, record-time upload
+
+**Decisions (2026-06-10):**
+- **Agent runs on OpenAI (gpt-4o), not the Claude Agent SDK.** Implemented as an OpenAI chat tool-call loop in `web/lib/agent/process-brief.ts` (system prompt = `SYSTEM_PROMPT` + a tooling override). Verified end-to-end with the real key (clean, banned-word-free ticket copy).
+- **Linear access via direct GraphQL tools, not `mcp.linear.app`.** `web/lib/linear.ts` exposes `list_linear_teams` + `create_linear_issue` as injectable tools (`makeLinearApi(tok)`). Rationale: OpenAI + remote MCP still needs a valid Linear OAuth token, and the productized Clerk connection (custom credentials) isn't live yet; direct GraphQL works with **either** a Clerk-vended OAuth token (`Bearer`) **or** a Linear personal API key (raw `Authorization`). Swappable to remote MCP later without changing the agent loop.
+- **`getLinearToken(userId)`** tries Clerk `oauth_linear` first, falls back to `LINEAR_API_KEY` (testing).
+- **Recording briefs upload at record-time** from `bar.js` (when a cloud token is present); local zip remains the not-connected/upload-failure fallback. (Task 20's popup "Create ticket" covers screenshot/text inbox briefs.)
+- **Next 16 notes:** middleware file is `proxy.ts` (not `middleware.ts`); route `params` are async (`Promise<{id}>`).
+
+**Remaining to finish/verify v1:**
+1. A real **Linear token** — a personal API key (`LINEAR_API_KEY`) for immediate live verification, or the **Clerk custom-OAuth** Linear connection for the productized path — to confirm a real ticket gets filed.
+2. **Image payload size:** keyframes are inlined as base64 data URLs; downscale / JPEG / `detail:"low"` before production.
+3. A **final code review** pass over the whole branch (auth scoping, error paths, the extension diff).
+4. Manual Chrome run-through of the extension (pair → record → upload → ticket).
 
 ---
 

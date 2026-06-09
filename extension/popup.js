@@ -8,6 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
+import { getCloudToken, openConnectPage, uploadAndProcess } from './cloud.js';
 
 const settingsBtn = document.getElementById('settingsBtn');
 const briefList = document.getElementById('briefList');
@@ -21,6 +22,8 @@ const recCount = document.getElementById('recCount');
 const exportBtn = document.getElementById('exportBtn');
 const exportCount = document.getElementById('exportCount');
 const exportDone = document.getElementById('exportDone');
+const bcCreateTicket = document.getElementById('bc-create-ticket');
+const bcStatus = document.getElementById('bc-status');
 
 // Storage key for cached mic grant. Cache is good for the extension's
 // session — Chrome invalidates the underlying grant if the user revokes it.
@@ -768,3 +771,103 @@ exportBtn.addEventListener('click', async () => {
     setTimeout(() => window.close(), 1700);
   }, totalSwipe);
 });
+
+// ---------- Brief Cloud: "Create ticket" (upload to cloud) ----------
+// Additive to the local Export flow above — Export keeps working in all cases.
+//
+// What we can assemble from chrome.storage.local here in the popup:
+//   - brief.json: built from the stored inbox entry (same fields the local
+//     export's brief.json carries), since the recording webm/keyframes/
+//     transcript only ever lived in the on-disk zip written by bar.js and are
+//     not available in the popup context.
+//   - screenshot.png: the annotated screenshot dataURL, when present.
+function bcBuildFilesAndMeta(b) {
+  const briefJson = {
+    id: b.id,
+    name: b.name || '',
+    createdAt: b.addedAt || Date.now(),
+    source: (b.hasRecording || b.recorded) ? 'recording' : (b.screenshot ? 'screenshot' : 'text'),
+    description: b.description || '',
+    hasRecording: !!(b.hasRecording || b.recorded),
+    hasScreenshot: !!b.screenshot,
+    screenshotAnnotated: !!b.screenshotAnnotated,
+    includeVideo: !!b.includeVideo,
+    extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
+  };
+
+  const files = [
+    {
+      name: 'brief.json',
+      blob: new Blob([JSON.stringify(briefJson, null, 2)], { type: 'application/json' }),
+      contentType: 'application/json',
+    },
+  ];
+
+  if (b.screenshot) {
+    files.push({
+      name: 'screenshot.png',
+      blob: new Blob([dataUrlToBytes(b.screenshot)], { type: 'image/png' }),
+      contentType: 'image/png',
+    });
+  }
+
+  const meta = {
+    description: b.description || '',
+    hasScreenshot: !!b.screenshot,
+    keyframeCount: 0,
+    transcript: undefined,
+  };
+
+  return { files, meta };
+}
+
+function bcSetStatus(html) {
+  if (bcStatus) bcStatus.innerHTML = html;
+}
+
+async function bcRefresh() {
+  let token = null;
+  try { token = await getCloudToken(); } catch {}
+  if (token) {
+    if (bcCreateTicket) bcCreateTicket.hidden = false;
+    bcSetStatus('');
+  } else {
+    if (bcCreateTicket) bcCreateTicket.hidden = true;
+    bcSetStatus('<a href="#" id="bc-connect">Connect to Brief Cloud</a>');
+    const link = document.getElementById('bc-connect');
+    link?.addEventListener('click', (e) => {
+      e.preventDefault();
+      openConnectPage();
+      window.close();
+    });
+  }
+}
+
+bcCreateTicket?.addEventListener('click', async () => {
+  const items = await getInbox();
+  const ready = items.filter(isReady);
+  if (ready.length === 0) return;
+  // Cloud upload targets a single brief; use the first ready one.
+  const b = ready[0];
+
+  bcCreateTicket.disabled = true;
+  bcSetStatus('Creating ticket…');
+  try {
+    const { files, meta } = bcBuildFilesAndMeta(b);
+    const result = await uploadAndProcess(files, meta);
+    if (result.ticketUrl) {
+      const id = result.identifier || result.ticketIdentifier || 'ticket';
+      bcSetStatus(`Ticket created → <a href="${result.ticketUrl}" target="_blank" rel="noopener">${id}</a>`);
+    } else {
+      // The /process endpoint may not exist yet. A non-OK process step (e.g.
+      // 404/500) still means the bytes uploaded fine — report that honestly.
+      bcSetStatus('Uploaded ✓ (ticket filing not enabled yet)');
+    }
+  } catch (err) {
+    bcSetStatus(`Couldn’t create ticket: ${err?.message || err}`);
+  } finally {
+    bcCreateTicket.disabled = false;
+  }
+});
+
+bcRefresh();

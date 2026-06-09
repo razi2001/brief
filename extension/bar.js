@@ -5,6 +5,7 @@
 // background.js and receives transcript updates + the final blob back.
 
 import { makeZip } from './lib/zip.js';
+import { getCloudToken, uploadAndProcess } from './cloud.js';
 
 const SAVED_AUTODISMISS_MS = 5000;
 
@@ -91,6 +92,12 @@ function showError(message) {
   errTextEl.textContent = message;
   setView('error');
   setTimeout(closeParent, 6000);
+}
+
+// Update the text shown in the "saving" pill (used for cloud upload progress).
+function setSavingText(message) {
+  const el = document.querySelector('[data-state="saving"] .state-text');
+  if (el) el.textContent = message;
 }
 
 // ---------- Offscreen control ----------
@@ -499,6 +506,68 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       entries.push({ name: 'screenshot.png', data: arr });
     } catch {}
   }
+
+  // ---- Cloud-or-local branch ----------------------------------------------
+  // When connected to Brief Cloud, upload the brief straight to the cloud
+  // (which files the ticket) instead of downloading a local zip. The upload
+  // reuses the SAME in-memory bytes assembled above. If the upload throws, we
+  // fall back to the original local-download flow so the brief is never lost.
+  let cloudToken = null;
+  try {
+    cloudToken = await getCloudToken();
+  } catch (err) {
+    console.warn('[brief/bar] getCloudToken failed:', err);
+  }
+
+  if (cloudToken) {
+    try {
+      setSavingText('Uploading…');
+      const files = [
+        { name: 'brief.json', blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }), contentType: 'application/json' },
+        ...keyframeEntries.map((k) => ({
+          name: k.name, // already "keyframes/keyframe-NNN.png"
+          blob: new Blob([k.data], { type: 'image/png' }),
+          contentType: 'image/png',
+        })),
+      ];
+      // Only include the recording if one actually exists.
+      if (recordingArr && recordingArr.length) {
+        files.push({ name: 'recording.webm', blob: recordingBlob, contentType: 'video/webm' });
+      }
+
+      const cloudMeta = {
+        transcript: transcriptFinal || '',
+        keyframeCount: keyframeEntries.length,
+        hasScreenshot: false,
+        description: userDescription || '',
+      };
+
+      const res = await uploadAndProcess(files, cloudMeta);
+
+      if (res?.ticketUrl) {
+        const label = res.ticketIdentifier || res.ticketUrl;
+        setSavingText(`Ticket created → ${label}`);
+      } else if (res?.ok) {
+        setSavingText('Uploaded ✓ (filing not enabled yet)');
+      } else {
+        setSavingText(`Uploaded, processing failed (${res?.status || 'error'})`);
+      }
+
+      if (mode === 'inbox') {
+        await finishToInbox(briefId, intent);
+      } else {
+        await finishWithCopy(briefId, intent);
+      }
+      return;
+    } catch (err) {
+      // Upload failed — fall through to the original local download so the
+      // brief is preserved.
+      console.warn('[brief/bar] cloud upload failed, falling back to zip:', err);
+      setSavingText('Cloud upload failed — saving locally…');
+    }
+  }
+
+  // ---- Original local-download flow (not connected, or cloud fallback) -----
   const zipBytes = makeZip(entries);
   const zipBlob = new Blob([zipBytes], { type: 'application/zip' });
   const blobUrl = URL.createObjectURL(zipBlob);
