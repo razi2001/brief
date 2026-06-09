@@ -42,7 +42,38 @@
 - **Tasks 11, 12, 15 (extension bearer API):** UNAFFECTED by Clerk — they authenticate via `extension_tokens` bearer lookup. Only the column type (`user_id text`) changes.
 - **Tasks 2, 3, 4 (pure logic):** UNAFFECTED.
 
+**Profile & account = Clerk (no local user table).** Clerk is the single source of truth for the user record (email, name, avatar). We never store or sync a copy.
+- Server-side, when we need the user's email/name (e.g. for display or to label a connection), read it from `currentUser()` (`@clerk/nextjs/server`) — not from any DB row.
+- Account management UI (avatar menu, manage account, sign out) uses Clerk's `<UserButton />`; client components read `useUser()` (`@clerk/nextjs`).
+- **Task 16 (dashboard):** add `<UserButton />` in the header for account/sign-out, and greet the user via `currentUser()`. Our tables hold only the Clerk `userId` string as a foreign reference — no email/name columns.
+
 When dispatching the affected tasks, the controller feeds the Clerk-correct code directly.
+
+---
+
+## REVISION 2 — Max Clerk for connections (Linear via Clerk, not our routes)
+
+**Decision (2026-06-09):** Clerk is also the **connection vault**. The Linear connection is a Clerk **social connection** (preset); the OAuth flow, token storage, and refresh-on-fetch all live in Clerk. Our agent fetches the token from Clerk's Backend API at processing time. Verified against Clerk docs: presets exist for Linear, Slack, GitHub, GitLab, Notion, Atlassian/Jira; others (ClickUp, Asana, Azure DevOps) are addable as custom OAuth. Token retrieval: `clerkClient.users.getUserOauthAccessToken(userId, 'oauth_linear')` (custom providers use a `custom_` prefix). Clerk refreshes the token when requested.
+
+Deltas vs. the tasks below:
+- **Task 2 (`crypto.ts`):** built + committed, but **currently unused** under Max Clerk (we no longer store the Linear token ourselves). Keep as a util; revisit if we ever store a secret.
+- **Task 5 (schema):** **DROP the `connections` table entirely** — Clerk holds the connection. Keep only `extension_tokens` and `briefs`, both with `user_id text`. No `profiles`, no RLS (server-side scoping via Clerk `userId`).
+- **Task 8 (Linear OAuth routes):** **DELETED.** Replaced by:
+  1. Dashboard config (no code): enable **Linear** social connection in the Clerk dashboard with scopes `read,write`; allow users to connect it as an additional connected account.
+  2. A connect entry point in our UI that opens Clerk's connect-account flow (Clerk `<UserProfile/>` "Connected accounts", or `user.createExternalAccount({ strategy: 'oauth_linear', ... })`).
+  3. A server helper `web/lib/linear.ts` → `getLinearToken(userId)`:
+     ```ts
+     import { clerkClient } from "@clerk/nextjs/server";
+     export async function getLinearToken(userId: string): Promise<string | null> {
+       const client = await clerkClient();
+       const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
+       return res.data?.[0]?.token ?? null;
+     }
+     ```
+- **Task 15 (process route):** replace the `connections` lookup + `decryptToken(...)` with `const linearToken = await getLinearToken(userId)` (where `userId` is resolved from the extension bearer token). If null → 409 "linear not connected".
+- **Task 16 (dashboard):** connection status comes from Clerk — check whether the user has an `oauth_linear` external account (via `currentUser()` `externalAccounts`, or by attempting `getLinearToken`). "Connect Linear" triggers Clerk's connect flow. No `connections` table reads.
+
+Net effect: removes our OAuth callback route, the `connections` table, and per-provider token crypto. Adding Jira/GitHub/etc. later = enable the provider in Clerk + a one-line token fetch.
 
 ---
 
