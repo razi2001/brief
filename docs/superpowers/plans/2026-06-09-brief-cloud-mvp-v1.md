@@ -77,6 +77,23 @@ Net effect: removes our OAuth callback route, the `connections` table, and per-p
 
 ---
 
+## REVISION 3 — OpenAI agent, direct Linear GraphQL, record-time upload
+
+**Decisions (2026-06-10):**
+- **Agent runs on OpenAI (gpt-4o), not the Claude Agent SDK.** Implemented as an OpenAI chat tool-call loop in `web/lib/agent/process-brief.ts` (system prompt = `SYSTEM_PROMPT` + a tooling override). Verified end-to-end with the real key (clean, banned-word-free ticket copy).
+- **Linear access via direct GraphQL tools, not `mcp.linear.app`.** `web/lib/linear.ts` exposes `list_linear_teams` + `create_linear_issue` as injectable tools (`makeLinearApi(tok)`). Rationale: OpenAI + remote MCP still needs a valid Linear OAuth token, and the productized Clerk connection (custom credentials) isn't live yet; direct GraphQL works with **either** a Clerk-vended OAuth token (`Bearer`) **or** a Linear personal API key (raw `Authorization`). Swappable to remote MCP later without changing the agent loop.
+- **`getLinearToken(userId)`** tries Clerk `oauth_linear` first, falls back to `LINEAR_API_KEY` (testing).
+- **Recording briefs upload at record-time** from `bar.js` (when a cloud token is present); local zip remains the not-connected/upload-failure fallback. (Task 20's popup "Create ticket" covers screenshot/text inbox briefs.)
+- **Next 16 notes:** middleware file is `proxy.ts` (not `middleware.ts`); route `params` are async (`Promise<{id}>`).
+
+**Remaining to finish/verify v1:**
+1. A real **Linear token** — a personal API key (`LINEAR_API_KEY`) for immediate live verification, or the **Clerk custom-OAuth** Linear connection for the productized path — to confirm a real ticket gets filed.
+2. **Image payload size:** keyframes are inlined as base64 data URLs; downscale / JPEG / `detail:"low"` before production.
+3. A **final code review** pass over the whole branch (auth scoping, error paths, the extension diff).
+4. Manual Chrome run-through of the extension (pair → record → upload → ticket).
+
+---
+
 ## Prerequisites (one-time, before Task 1)
 
 The implementing engineer needs these ready. They are inputs, not build steps.
