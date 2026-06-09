@@ -100,6 +100,28 @@ function setSavingText(message) {
   if (el) el.textContent = message;
 }
 
+// Show a filed-ticket success in the "saving" pill with a clickable identifier.
+// The bar is a content script with no chrome.tabs access, so the link click is
+// routed to the background service worker, which opens the ticket in a new tab.
+function setSavingTicketLink(identifier, url) {
+  const el = document.querySelector('[data-state="saving"] .state-text');
+  if (!el) return;
+  el.textContent = '';
+  const ok = document.createElement('strong');
+  ok.textContent = '✓';
+  const link = document.createElement('a');
+  link.href = url;
+  link.textContent = `${identifier} created`;
+  link.className = 'ticket-link';
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.runtime.sendMessage({ type: 'open-url', url }).catch(() => {});
+  });
+  el.appendChild(ok);
+  el.appendChild(document.createTextNode(' '));
+  el.appendChild(link);
+}
+
 // ---------- Offscreen control ----------
 async function sendToOffscreen(type, extra = {}) {
   return chrome.runtime.sendMessage({ target: 'offscreen', type, ...extra });
@@ -521,7 +543,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
 
   if (cloudToken) {
     try {
-      setSavingText('Uploading…');
+      setSavingText('Filing ticket…');
       const files = [
         { name: 'brief.json', blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }), contentType: 'application/json' },
         ...keyframeEntries.map((k) => ({
@@ -545,12 +567,12 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       const res = await uploadAndProcess(files, cloudMeta);
 
       if (res?.ticketUrl) {
-        const label = res.ticketIdentifier || res.ticketUrl;
-        setSavingText(`Ticket created → ${label}`);
+        const id = res.ticketIdentifier || res.identifier || 'ticket';
+        setSavingTicketLink(id, res.ticketUrl);
       } else if (res?.ok) {
-        setSavingText('Uploaded ✓ (filing not enabled yet)');
+        setSavingText('uploaded ✓ — filing not enabled yet');
       } else {
-        setSavingText(`Uploaded, processing failed (${res?.status || 'error'})`);
+        setSavingText(`uploaded, processing failed (${res?.status || 'error'})`);
       }
 
       if (mode === 'inbox') {
@@ -563,7 +585,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       // Upload failed — fall through to the original local download so the
       // brief is preserved.
       console.warn('[brief/bar] cloud upload failed, falling back to zip:', err);
-      setSavingText('Cloud upload failed — saving locally…');
+      setSavingText('cloud filing failed — saving locally…');
     }
   }
 

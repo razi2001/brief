@@ -5,6 +5,7 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import BrandMark from "@/components/BrandMark";
+import AutoRefresh from "@/components/AutoRefresh";
 
 function relativeTime(iso?: string | null): string {
   if (!iso) return "";
@@ -58,6 +59,10 @@ export default async function Dashboard() {
     .order("created_at", { ascending: false })
     .limit(20);
 
+  const isProcessing = (briefs ?? []).some(
+    (b) => b.status === "uploaded" || b.status === "processing",
+  );
+
   const connections = [
     { key: "linear", name: "Linear", connected: hasLinear },
     { key: "jira", name: "Jira", connected: hasJira },
@@ -106,7 +111,10 @@ export default async function Dashboard() {
 
       {/* Recent briefs */}
       <section className="mt-12">
-        <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Recent briefs</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Recent briefs</h2>
+          <AutoRefresh active={isProcessing} />
+        </div>
 
         {briefs && briefs.length > 0 ? (
           <div className="mt-3 flex flex-col gap-3">

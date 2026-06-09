@@ -292,6 +292,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
 
+        case 'open-url':
+          // The bar runs as a content script and has no chrome.tabs access, so
+          // it asks us to open a filed ticket in a new tab on click.
+          if (typeof message.url === 'string' && /^https?:\/\//i.test(message.url)) {
+            chrome.tabs.create({ url: message.url }).catch(() => {});
+            sendResponse({ ok: true });
+          } else {
+            sendResponse({ ok: false, error: 'invalid_url' });
+          }
+          break;
+
         default:
           sendResponse({ ok: false, error: 'unknown_message' });
       }

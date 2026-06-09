@@ -859,20 +859,20 @@ bcCreateTicket?.addEventListener('click', async () => {
   const b = ready[0];
 
   bcCreateTicket.disabled = true;
-  bcSetStatus('Creating ticket…');
+  bcSetStatus('Filing ticket…');
   try {
     const { files, meta } = bcBuildFilesAndMeta(b);
     const result = await uploadAndProcess(files, meta);
     if (result.ticketUrl) {
-      const id = result.identifier || result.ticketIdentifier || 'ticket';
-      bcSetStatus(`Ticket created → <a href="${result.ticketUrl}" target="_blank" rel="noopener">${id}</a>`);
+      const id = result.ticketIdentifier || result.identifier || 'ticket';
+      bcSetStatus(`✓ <a href="${result.ticketUrl}" target="_blank" rel="noopener">${id}</a> created`);
     } else {
       // The /process endpoint may not exist yet. A non-OK process step (e.g.
       // 404/500) still means the bytes uploaded fine — report that honestly.
-      bcSetStatus('Uploaded ✓ (ticket filing not enabled yet)');
+      bcSetStatus('uploaded ✓ — filing not enabled yet');
     }
   } catch (err) {
-    bcSetStatus(`Couldn’t create ticket: ${err?.message || err}`);
+    bcSetStatus(`couldn’t file ticket: ${err?.message || err}`);
   } finally {
     bcCreateTicket.disabled = false;
   }
