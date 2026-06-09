@@ -24,6 +24,7 @@ const exportCount = document.getElementById('exportCount');
 const exportDone = document.getElementById('exportDone');
 const bcCreateTicket = document.getElementById('bc-create-ticket');
 const bcStatus = document.getElementById('bc-status');
+let bcConnected = false;
 
 // Storage key for cached mic grant. Cache is good for the extension's
 // session — Chrome invalidates the underlying grant if the user revokes it.
@@ -501,11 +502,17 @@ function updateChrome(items) {
     recBadge.hidden = true;
   }
 
-  if (ready > 0) {
+  // When connected to Brief Cloud, "Create ticket" replaces "Export".
+  if (ready > 0 && bcConnected) {
+    if (bcCreateTicket) bcCreateTicket.classList.add('is-on');
+    exportBtn.classList.remove('is-on');
+  } else if (ready > 0) {
     exportBtn.classList.add('is-on');
     exportCount.textContent = String(ready);
+    if (bcCreateTicket) bcCreateTicket.classList.remove('is-on');
   } else {
     exportBtn.classList.remove('is-on');
+    if (bcCreateTicket) bcCreateTicket.classList.remove('is-on');
   }
 }
 
@@ -828,11 +835,10 @@ function bcSetStatus(html) {
 async function bcRefresh() {
   let token = null;
   try { token = await getCloudToken(); } catch {}
-  if (token) {
-    if (bcCreateTicket) bcCreateTicket.hidden = false;
+  bcConnected = !!token;
+  if (bcConnected) {
     bcSetStatus('');
   } else {
-    if (bcCreateTicket) bcCreateTicket.hidden = true;
     bcSetStatus('<a href="#" id="bc-connect">Connect to Brief Cloud</a>');
     const link = document.getElementById('bc-connect');
     link?.addEventListener('click', (e) => {
@@ -841,6 +847,8 @@ async function bcRefresh() {
       window.close();
     });
   }
+  // Re-evaluate which primary action (Create ticket vs Export) to show.
+  try { updateChrome(await getInbox()); } catch {}
 }
 
 bcCreateTicket?.addEventListener('click', async () => {
