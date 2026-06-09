@@ -65,7 +65,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (rec) {
       try {
         const assetUrl = await api.uploadAsset({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
-        evidenceParts.push(`[Recording](${assetUrl})`);
+        // Bare asset URL on its own line — Linear auto-embeds an inline player; keep a labelled link too.
+        evidenceParts.push(`**Screen recording:**\n\n${assetUrl}\n\n[Open recording](${assetUrl})`);
       } catch (e) { console.warn("[process] recording -> Linear upload failed:", e); }
     }
 

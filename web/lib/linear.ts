@@ -4,12 +4,14 @@ export type LinearTok = { token: string; kind: "oauth" | "apikey" };
 
 export async function getLinearToken(userId: string): Promise<LinearTok | null> {
   // Productized path: Clerk-vended OAuth token for the Linear connected account.
-  try {
-    const client = await clerkClient();
-    const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
-    const t = res.data?.[0]?.token;
-    if (t) return { token: t, kind: "oauth" };
-  } catch { /* not connected / shared creds — fall through */ }
+  const client = await clerkClient().catch(() => null);
+  if (client) {
+    try {
+      const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
+      const t = res.data?.[0]?.token;
+      if (t) return { token: t, kind: "oauth" };
+    } catch { /* not connected / shared creds — fall through */ }
+  }
   // Testing fallback: personal API key.
   const key = process.env.LINEAR_API_KEY;
   if (key) return { token: key, kind: "apikey" };
