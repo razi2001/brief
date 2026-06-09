@@ -50,6 +50,9 @@
   "host_permissions": [
     "<all_urls>"
   ],
+  "externally_connectable": {
+    "matches": ["http://localhost:3000/*", "https://app.get-brief.app/*"]
+  },
   "web_accessible_resources": [
     {
       "resources": [

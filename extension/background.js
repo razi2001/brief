@@ -488,3 +488,11 @@ function installConsoleCapture() {
     }
   } catch {}
 }
+
+// Brief Cloud pairing: receive the token from the web app (externally_connectable).
+chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
+  if (msg && msg.type === "brief-cloud-token" && typeof msg.token === "string") {
+    chrome.storage.local.set({ briefCloudToken: msg.token }, () => sendResponse({ ok: true }));
+    return true; // async sendResponse
+  }
+});
