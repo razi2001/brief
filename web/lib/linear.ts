@@ -1,0 +1,55 @@
+import { clerkClient } from "@clerk/nextjs/server";
+
+export type LinearTok = { token: string; kind: "oauth" | "apikey" };
+
+export async function getLinearToken(userId: string): Promise<LinearTok | null> {
+  // Productized path: Clerk-vended OAuth token for the Linear connected account.
+  try {
+    const client = await clerkClient();
+    const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
+    const t = res.data?.[0]?.token;
+    if (t) return { token: t, kind: "oauth" };
+  } catch { /* not connected / shared creds — fall through */ }
+  // Testing fallback: personal API key.
+  const key = process.env.LINEAR_API_KEY;
+  if (key) return { token: key, kind: "apikey" };
+  return null;
+}
+
+function authHeader(tok: LinearTok): string {
+  return tok.kind === "oauth" ? `Bearer ${tok.token}` : tok.token;
+}
+
+export async function linearGraphQL<T = any>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
+  const r = await fetch("https://api.linear.app/graphql", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: authHeader(tok) },
+    body: JSON.stringify({ query, variables }),
+  });
+  const j = await r.json();
+  if (j.errors) throw new Error("Linear GraphQL: " + JSON.stringify(j.errors));
+  return j.data as T;
+}
+
+export interface LinearApi {
+  listTeams(): Promise<Array<{ id: string; name: string; key: string }>>;
+  createIssue(input: { teamId: string; title: string; description: string }): Promise<{ id: string; identifier: string; url: string; title: string }>;
+}
+
+export function makeLinearApi(tok: LinearTok): LinearApi {
+  return {
+    async listTeams() {
+      const d = await linearGraphQL<{ teams: { nodes: any[] } }>(tok, `query { teams { nodes { id name key } } }`, {});
+      return d.teams.nodes;
+    },
+    async createIssue(input) {
+      const d = await linearGraphQL<{ issueCreate: { success: boolean; issue: any } }>(
+        tok,
+        `mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url title } } }`,
+        { input }
+      );
+      if (!d.issueCreate?.success) throw new Error("Linear issueCreate returned success=false");
+      return d.issueCreate.issue;
+    },
+  };
+}
