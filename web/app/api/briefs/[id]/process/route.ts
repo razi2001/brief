@@ -35,18 +35,46 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const briefJsonBuf = await dl(`${prefix}/brief.json`);
     const json = briefJsonBuf ? JSON.parse(briefJsonBuf.toString("utf8")) : {};
 
+    const api = makeLinearApi(tok);
     const images: BriefInput["images"] = [];
+    const evidenceParts: string[] = [];
+
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
     const pick = names.length ? [names[0], names[Math.floor(names.length / 2)], names[names.length - 1]] : [];
     for (const n of [...new Set(pick)]) {
       const b = await dl(`${prefix}/keyframes/${n}`);
-      if (b) images.push({ name: n, dataUrl: `data:image/png;base64,${b.toString("base64")}` });
+      if (!b) continue;
+      images.push({ name: n, dataUrl: `data:image/png;base64,${b.toString("base64")}` });
+      try {
+        const assetUrl = await api.uploadAsset({ filename: n.split("/").pop() || n, contentType: "image/png", bytes: b });
+        evidenceParts.push(`![${n}](${assetUrl})`);
+      } catch (e) { console.warn("[process] keyframe -> Linear upload failed:", n, e); }
     }
-    const shot = await dl(`${prefix}/screenshot.png`);
-    if (shot) images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
 
-    const result = await processBrief({ json, images }, makeLinearApi(tok));
+    const shot = await dl(`${prefix}/screenshot.png`);
+    if (shot) {
+      images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
+      try {
+        const assetUrl = await api.uploadAsset({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
+        evidenceParts.push(`![screenshot](${assetUrl})`);
+      } catch (e) { console.warn("[process] screenshot -> Linear upload failed:", e); }
+    }
+
+    const rec = await dl(`${prefix}/recording.webm`);
+    if (rec) {
+      try {
+        const assetUrl = await api.uploadAsset({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
+        evidenceParts.push(`[Recording](${assetUrl})`);
+      } catch (e) { console.warn("[process] recording -> Linear upload failed:", e); }
+    }
+
+    console.log(
+      `[process] brief ${id}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} evidenceUploaded=${evidenceParts.length}`
+    );
+
+    const evidenceMarkdown = evidenceParts.length ? evidenceParts.join("\n\n") : undefined;
+    const result = await processBrief({ json, images, evidenceMarkdown }, api);
 
     await admin.from("briefs").update({ status: "filed", ticket_url: result.ticketUrl, ticket_identifier: result.ticketIdentifier, updated_at: new Date().toISOString() }).eq("id", id);
 

@@ -34,6 +34,8 @@ export async function linearGraphQL<T = any>(tok: LinearTok, query: string, vari
 export interface LinearApi {
   listTeams(): Promise<Array<{ id: string; name: string; key: string }>>;
   createIssue(input: { teamId: string; title: string; description: string }): Promise<{ id: string; identifier: string; url: string; title: string }>;
+  // Upload a file to Linear's asset storage and return its public asset URL.
+  uploadAsset(input: { filename: string; contentType: string; bytes: Buffer }): Promise<string>;
 }
 
 export function makeLinearApi(tok: LinearTok): LinearApi {
@@ -50,6 +52,28 @@ export function makeLinearApi(tok: LinearTok): LinearApi {
       );
       if (!d.issueCreate?.success) throw new Error("Linear issueCreate returned success=false");
       return d.issueCreate.issue;
+    },
+    async uploadAsset({ filename, contentType, bytes }) {
+      const size = bytes.length;
+      const d = await linearGraphQL<{
+        fileUpload: { success: boolean; uploadFile: { uploadUrl: string; assetUrl: string; headers: Array<{ key: string; value: string }> } };
+      }>(
+        tok,
+        `mutation FileUpload($filename: String!, $contentType: String!, $size: Int!) {
+          fileUpload(filename: $filename, contentType: $contentType, size: $size) {
+            success
+            uploadFile { uploadUrl assetUrl headers { key value } }
+          }
+        }`,
+        { filename, contentType, size }
+      );
+      const uf = d.fileUpload?.uploadFile;
+      if (!d.fileUpload?.success || !uf) throw new Error("Linear fileUpload init failed");
+      const headers: Record<string, string> = { "Content-Type": contentType };
+      for (const h of uf.headers ?? []) headers[h.key] = h.value;
+      const put = await fetch(uf.uploadUrl, { method: "PUT", headers, body: new Uint8Array(bytes) });
+      if (!put.ok) throw new Error(`Linear asset PUT failed: ${put.status}`);
+      return uf.assetUrl;
     },
   };
 }
