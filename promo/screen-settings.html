@@ -1,0 +1,184 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face {
+        font-family: 'Instrument Serif';
+        font-style: normal;
+        font-weight: 400;
+        src: url('../extension/fonts/InstrumentSerif-Regular-latin.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'Instrument Serif';
+        font-style: italic;
+        font-weight: 400;
+        src: url('../extension/fonts/InstrumentSerif-Italic-latin.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 400;
+        src: url('../extension/fonts/JetBrainsMono-latin.woff2') format('woff2');
+      }
+      @font-face {
+        font-family: 'JetBrains Mono';
+        font-style: normal;
+        font-weight: 500;
+        src: url('../extension/fonts/JetBrainsMono-latin.woff2') format('woff2');
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1280px;
+        height: 800px;
+        overflow: hidden;
+        background: #f5f1e8;
+      }
+      body {
+        position: relative;
+        display: grid;
+        grid-template-columns: 540px 1fr;
+        align-items: center;
+        padding: 60px 80px;
+        gap: 64px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        color: #1a1612;
+        -webkit-font-smoothing: antialiased;
+      }
+      body::before {
+        content: '';
+        position: absolute;
+        left: -260px;
+        bottom: -260px;
+        width: 760px;
+        height: 760px;
+        background: radial-gradient(circle, rgba(221, 105, 54, 0.10), transparent 65%);
+        pointer-events: none;
+      }
+      .right {
+        display: flex;
+        flex-direction: column;
+        gap: 28px;
+        position: relative;
+        z-index: 1;
+        max-width: 540px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .mark {
+        width: 52px;
+        height: 52px;
+        filter: drop-shadow(0 4px 10px rgba(189, 79, 28, 0.25));
+      }
+      .wordmark {
+        font-family: 'Instrument Serif', Georgia, serif;
+        font-size: 38px;
+        line-height: 1;
+        letter-spacing: -0.02em;
+      }
+      .eyebrow {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #dd6936;
+        font-weight: 500;
+      }
+      h1 {
+        font-family: 'Instrument Serif', Georgia, serif;
+        font-weight: 400;
+        font-size: 64px;
+        line-height: 1.05;
+        letter-spacing: -0.02em;
+        color: #1a1612;
+      }
+      h1 em {
+        font-style: italic;
+        color: #dd6936;
+      }
+      .lede {
+        font-family: 'Instrument Serif', Georgia, serif;
+        font-style: italic;
+        font-size: 22px;
+        line-height: 1.4;
+        color: #5a5249;
+        max-width: 480px;
+      }
+      .bullets {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        color: #3a3530;
+      }
+      .bullets .row { display: flex; align-items: baseline; gap: 10px; }
+      .bullets .dot {
+        flex-shrink: 0;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: #dd6936;
+        transform: translateY(-2px);
+      }
+      .left {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        position: relative;
+        z-index: 1;
+      }
+      .device {
+        max-width: 100%;
+        max-height: 680px;
+        filter: drop-shadow(0 24px 50px rgba(26, 22, 18, 0.18))
+                drop-shadow(0 6px 14px rgba(26, 22, 18, 0.10));
+        border-radius: 16px;
+        background: #efe9dc;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="left">
+      <img class="device" src="sources/settings.png" alt="" />
+    </div>
+    <div class="right">
+      <div class="brand">
+        <svg class="mark" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="tile" x1="20" y1="6" x2="112" y2="124" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#f08147"/>
+              <stop offset="0.52" stop-color="#dd6936"/>
+              <stop offset="1" stop-color="#bd4f1c"/>
+            </linearGradient>
+            <linearGradient id="sheen" x1="64" y1="0" x2="64" y2="70" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#ffffff" stop-opacity="0.30"/>
+              <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#tile)"/>
+          <rect x="0" y="0" width="128" height="66" rx="28" fill="url(#sheen)"/>
+          <path d="M30 2.5 H98" stroke="#ffffff" stroke-opacity="0.45" stroke-width="2" stroke-linecap="round"/>
+          <path d="M22 125.5 H106" stroke="#000000" stroke-opacity="0.12" stroke-width="2" stroke-linecap="round"/>
+          <g fill="#f7f3ea">
+            <path d="M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z"/>
+            <path d="M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88 C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z"/>
+          </g>
+        </svg>
+        <div class="wordmark">Brief</div>
+      </div>
+      <div class="eyebrow">Plain-English rules</div>
+      <h1>Teach it <em>once</em>.<br />It files them all.</h1>
+      <div class="lede">Tell the agent which tracker to use, what status to set, who to assign. It travels with every export.</div>
+      <div class="bullets">
+        <div class="row"><span class="dot"></span><span>Saved as you type &mdash; no syntax, no schema</span></div>
+        <div class="row"><span class="dot"></span><span>Works with Linear, GitHub, Notion, Jira&hellip;</span></div>
+        <div class="row"><span class="dot"></span><span>Tweak the rules anytime, takes effect next export</span></div>
+      </div>
+    </div>
+  </body>
+</html>

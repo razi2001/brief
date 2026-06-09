@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="fonts.css" />
+    <link rel="stylesheet" href="shot.css" />
+  </head>
+  <body>
+    <div id="stage">
+      <!-- frozen screenshot is drawn into this canvas; drawing happens on top -->
+      <canvas id="shot" class="layer"></canvas>
+      <canvas id="draw" class="layer"></canvas>
+    </div>
+
+    <div id="bar" class="shot-bar">
+      <span class="hint" id="hint">Draw in red to point at the issue</span>
+      <span class="spacer"></span>
+      <button id="undoBtn" class="tool" title="Undo last stroke" disabled>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/></svg>
+        Undo
+      </button>
+      <button id="clearBtn" class="tool" title="Clear drawing" disabled>Clear</button>
+      <button id="cancelBtn" class="tool ghost" title="Cancel">Cancel</button>
+      <button id="saveBtn" class="tool primary" title="Save screenshot to this brief">Save</button>
+    </div>
+  </body>
+  <script src="shot.js"></script>
+</html>

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Brief — Settings</title>
+    <link rel="stylesheet" href="fonts.css" />
+    <style>
+      :root {
+        --cream: #f5f1e8;
+        --cream-2: #efe9dc;
+        --ink: #1a1612;
+        --muted: #8a8378;
+        --accent: #dd6936;
+        --success: #16a34a;
+        --hairline: rgba(26, 22, 18, 0.12);
+        --display: 'Instrument Serif', Georgia, serif;
+        --mono: 'JetBrains Mono', ui-monospace, monospace;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        background: var(--cream);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 14px;
+        line-height: 1.5;
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 480px; margin: 0 auto; padding: 44px 28px 80px; }
+
+      /* Header — logo on the left, info icon on the right */
+      header {
+        display: flex; align-items: center; gap: 12px;
+        padding-bottom: 18px; margin-bottom: 28px;
+        border-bottom: 1px solid var(--hairline);
+      }
+      .mark { flex-shrink: 0; display: block; filter: drop-shadow(0 2px 6px rgba(26,22,18,0.18)); }
+      .wordmark {
+        flex: 1;
+        font-family: var(--display); font-size: 24px;
+        letter-spacing: -0.02em; line-height: 1;
+      }
+      .info-link {
+        flex-shrink: 0;
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 32px; height: 32px;
+        border-radius: 8px;
+        color: var(--muted);
+        background: transparent;
+        border: 1px solid transparent;
+        text-decoration: none;
+        transition: color 0.13s, background 0.13s, border-color 0.13s, transform 0.08s;
+      }
+      .info-link:hover {
+        color: var(--accent);
+        background: rgba(255, 255, 255, 0.6);
+        border-color: var(--hairline);
+      }
+      .info-link:active { transform: translateY(1px); }
+
+      /* Title block */
+      .title-row {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 12px; margin-bottom: 6px;
+      }
+      h1 {
+        font-family: var(--display); font-weight: 400;
+        font-size: 28px; line-height: 1.12; letter-spacing: -0.02em;
+      }
+      h1 em { font-style: italic; color: var(--accent); }
+      .status {
+        font-family: var(--mono); font-size: 11px;
+        color: var(--muted); opacity: 0; transition: opacity 0.2s;
+      }
+      .status.show { opacity: 1; }
+      .status.saved { color: var(--success); }
+      .lede {
+        font-family: var(--display); font-style: italic;
+        font-size: 13.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.55;
+      }
+
+      /* Textarea */
+      .guidance-input {
+        display: block;
+        width: 100%; min-height: 180px; padding: 14px 16px;
+        background: rgba(255,255,255,0.6);
+        border: 1px solid var(--hairline);
+        border-radius: 11px;
+        font-family: var(--mono); font-size: 13px; line-height: 1.6;
+        color: var(--ink);
+        resize: vertical;
+        transition: border-color 0.13s, background 0.13s;
+      }
+      .guidance-input::placeholder {
+        color: var(--muted); opacity: 0.6;
+        font-size: 12px; line-height: 1.55;
+        white-space: pre-line;
+      }
+      .guidance-input:focus {
+        outline: none; border-color: var(--accent);
+        background: #fff;
+      }
+
+      .hint {
+        margin-top: 12px; font-size: 12px; color: var(--muted); line-height: 1.55;
+      }
+      .hint code {
+        font-family: var(--mono); font-size: 11.5px;
+        background: rgba(26,22,18,0.06); padding: 1px 5px; border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <header>
+        <svg class="mark" viewBox="0 0 128 128" width="36" height="36" aria-hidden="true">
+          <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
+          <path fill="#f5f1e8" d="
+            M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
+            M102 38 Q102 26 90 26 L76 26 L76 34 L88 34 Q94 34 94 40 L94 52 L102 52 Z
+            M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
+            M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
+          "/>
+          <path fill="#f5f1e8" d="
+            M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88
+            C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z
+          "/>
+        </svg>
+        <span class="wordmark">Brief</span>
+        <a
+          href="https://get-brief.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="info-link"
+          title="How Brief works"
+          aria-label="How Brief works — opens get-brief.app"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12" y2="12"/>
+            <line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+        </a>
+      </header>
+
+      <section>
+        <div class="title-row">
+          <h1>Ticket <em>guidance</em></h1>
+          <span class="status" id="guidanceStatus" aria-live="polite"></span>
+        </div>
+        <p class="lede">Plain-English rules the agent follows when filing every ticket.</p>
+        <textarea
+          id="ticketGuidance"
+          class="guidance-input"
+          spellcheck="false"
+          placeholder="e.g. Status: Backlog. Priority: Medium.
+Label every ticket &quot;inbound&quot;.
+Bugs → Engineering, features → Product.
+Assign to me if it's mine to take on."
+        ></textarea>
+        <p class="hint">Saved as you type. Travels with the next <code>Export</code>.</p>
+      </section>
+    </main>
+    <script src="settings.js"></script>
+  </body>
+</html>
