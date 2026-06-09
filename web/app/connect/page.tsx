@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import BrandMark from "@/components/BrandMark";
 
 export default function Connect() {
   const [state, setState] = useState<"idle" | "ok" | "err">("idle");
@@ -22,11 +23,28 @@ export default function Connect() {
     })();
   }, []);
   return (
-    <main style={{ maxWidth: 420, margin: "12vh auto", fontFamily: "system-ui", textAlign: "center" }}>
-      <h1>✦ Connecting Brief</h1>
-      {state === "idle" && <p>Pairing…</p>}
-      {state === "ok" && <p>Connected. You can close this tab and return to the extension.</p>}
-      {state === "err" && <p>Couldn’t reach the extension. Make sure Brief is installed, then try again from the extension.</p>}
+    <main className="min-h-screen bg-cream text-ink flex flex-col items-center justify-center px-4 py-16">
+      <div className="flex flex-col items-center text-center max-w-md">
+        <BrandMark size={48} />
+        <h1 className="font-display mt-6 text-4xl sm:text-5xl leading-tight text-ink">
+          connecting <em className="italic text-accent">Brief</em>
+        </h1>
+        {state === "idle" && (
+          <p className="mt-4 text-sm tracking-wide text-muted">Pairing…</p>
+        )}
+        {state === "ok" && (
+          <p className="mt-4 text-sm tracking-wide text-ink-2">
+            <span className="text-accent">Connected ✓</span> — close this tab and head
+            back to the extension.
+          </p>
+        )}
+        {state === "err" && (
+          <p className="mt-4 text-sm tracking-wide text-ink-2">
+            Couldn&apos;t reach the extension. Make sure Brief is installed, then try
+            again from the extension.
+          </p>
+        )}
+      </div>
     </main>
   );
 }
