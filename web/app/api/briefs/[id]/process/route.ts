@@ -1,7 +1,9 @@
 import { NextRequest } from "next/server";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import { getLinearToken, makeLinearApi } from "@/lib/linear";
+import { getLinearToken, makeLinearTracker } from "@/lib/linear";
+import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
+import type { Tracker } from "@/lib/tracker";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 
@@ -21,8 +23,20 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { data: brief } = await admin.from("briefs").select("*").eq("id", id).eq("user_id", userId).maybeSingle();
   if (!brief) return jsonCors({ error: "not found" }, { status: 404 });
 
-  const tok = await getLinearToken(userId);
-  if (!tok) return jsonCors({ error: "linear not connected" }, { status: 409 });
+  // Resolve the tracker provider. Linear is the default/preferred provider; fall
+  // back to Jira only if Linear isn't connected.
+  let tracker: Tracker | null = null;
+  const linearTok = await getLinearToken(userId);
+  if (linearTok) {
+    tracker = makeLinearTracker(linearTok);
+  } else {
+    const jiraTok = await getJiraAuth(userId);
+    if (jiraTok) {
+      const cloud = await getJiraCloud(jiraTok);
+      if (cloud) tracker = makeJiraTracker(jiraTok, cloud);
+    }
+  }
+  if (!tracker) return jsonCors({ error: "no tracker connected" }, { status: 409 });
 
   await admin.from("briefs").update({ status: "processing" }).eq("id", id);
   try {
@@ -35,9 +49,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const briefJsonBuf = await dl(`${prefix}/brief.json`);
     const json = briefJsonBuf ? JSON.parse(briefJsonBuf.toString("utf8")) : {};
 
-    const api = makeLinearApi(tok);
     const images: BriefInput["images"] = [];
-    const evidenceParts: string[] = [];
+    const evidence: BriefInput["evidence"] = [];
 
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
@@ -45,37 +58,27 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     for (const n of [...new Set(pick)]) {
       const b = await dl(`${prefix}/keyframes/${n}`);
       if (!b) continue;
+      const filename = n.split("/").pop() || n;
       images.push({ name: n, dataUrl: `data:image/png;base64,${b.toString("base64")}` });
-      try {
-        const assetUrl = await api.uploadAsset({ filename: n.split("/").pop() || n, contentType: "image/png", bytes: b });
-        evidenceParts.push(`![${n}](${assetUrl})`);
-      } catch (e) { console.warn("[process] keyframe -> Linear upload failed:", n, e); }
+      evidence.push({ filename, contentType: "image/png", bytes: b });
     }
 
     const shot = await dl(`${prefix}/screenshot.png`);
     if (shot) {
       images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
-      try {
-        const assetUrl = await api.uploadAsset({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
-        evidenceParts.push(`![screenshot](${assetUrl})`);
-      } catch (e) { console.warn("[process] screenshot -> Linear upload failed:", e); }
+      evidence.push({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
     }
 
     const rec = await dl(`${prefix}/recording.webm`);
     if (rec) {
-      try {
-        const assetUrl = await api.uploadAsset({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
-        // Bare asset URL on its own line — Linear auto-embeds an inline player; keep a labelled link too.
-        evidenceParts.push(`**Screen recording:**\n\n${assetUrl}\n\n[Open recording](${assetUrl})`);
-      } catch (e) { console.warn("[process] recording -> Linear upload failed:", e); }
+      evidence.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
     }
 
     console.log(
-      `[process] brief ${id}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} evidenceUploaded=${evidenceParts.length}`
+      `[process] brief ${id} via ${tracker.kind}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} evidence=${evidence.length}`
     );
 
-    const evidenceMarkdown = evidenceParts.length ? evidenceParts.join("\n\n") : undefined;
-    const result = await processBrief({ json, images, evidenceMarkdown }, api);
+    const result = await processBrief({ json, images, evidence }, tracker);
 
     await admin.from("briefs").update({ status: "filed", ticket_url: result.ticketUrl, ticket_identifier: result.ticketIdentifier, updated_at: new Date().toISOString() }).eq("id", id);
 

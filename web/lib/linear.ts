@@ -1,4 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
+import type { Tracker } from "./tracker";
 
 export type LinearTok = { token: string; kind: "oauth" | "apikey" };
 
@@ -76,6 +77,44 @@ export function makeLinearApi(tok: LinearTok): LinearApi {
       const put = await fetch(uf.uploadUrl, { method: "PUT", headers, body: new Uint8Array(bytes) });
       if (!put.ok) throw new Error(`Linear asset PUT failed: ${put.status}`);
       return uf.assetUrl;
+    },
+  };
+}
+
+// Provider-agnostic adapter. Reuses makeLinearApi's upload+embed behaviour so
+// Linear tickets keep their inline images.
+export function makeLinearTracker(tok: LinearTok): Tracker {
+  const api = makeLinearApi(tok);
+  return {
+    kind: "linear",
+    targetNoun: "team",
+    async listTargets() {
+      const teams = await api.listTeams();
+      return teams.map((t) => ({ id: t.id, key: t.key, name: t.name }));
+    },
+    async fileIssue({ targetId, title, descriptionMarkdown, evidence }) {
+      let description = descriptionMarkdown;
+      // Upload each evidence file and embed it inline (Linear-hosted asset URL).
+      const embeds: string[] = [];
+      for (const e of evidence) {
+        try {
+          const assetUrl = await api.uploadAsset({ filename: e.filename, contentType: e.contentType, bytes: e.bytes });
+          if (e.contentType.startsWith("image/")) {
+            embeds.push(`![${e.filename}](${assetUrl})`);
+          } else {
+            // Non-image (e.g. recording): bare URL auto-embeds an inline player + labelled link.
+            embeds.push(`**${e.filename}:**\n\n${assetUrl}\n\n[Open ${e.filename}](${assetUrl})`);
+          }
+        } catch (err) {
+          console.warn("[linear-tracker] evidence upload failed:", e.filename, err);
+        }
+      }
+      // Append the Evidence section only if the description doesn't already carry hosted assets.
+      if (embeds.length && !description.includes("uploads.linear.app")) {
+        description += "\n\n## Evidence\n\n" + embeds.join("\n\n");
+      }
+      const issue = await api.createIssue({ teamId: targetId, title, description });
+      return { id: issue.id, identifier: issue.identifier, url: issue.url, title: issue.title };
     },
   };
 }

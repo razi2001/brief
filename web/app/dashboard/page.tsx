@@ -48,6 +48,7 @@ export default async function Dashboard() {
   const userId = await requireUserId();
   const user = await currentUser();
   const hasLinear = !!user?.externalAccounts?.some((a) => (a.provider ?? "").toLowerCase().includes("linear"));
+  const hasJira = !!user?.externalAccounts?.some((a) => (a.provider ?? "").toLowerCase().includes("atlassian"));
 
   const admin = createAdminSupabase();
   const { data: briefs } = await admin
@@ -59,6 +60,7 @@ export default async function Dashboard() {
 
   const connections = [
     { key: "linear", name: "Linear", connected: hasLinear },
+    { key: "jira", name: "Jira", connected: hasJira },
   ];
 
   const greetingName =
@@ -94,7 +96,7 @@ export default async function Dashboard() {
                   href="/account"
                   className="text-xs tracking-wide text-accent no-underline hover:underline"
                 >
-                  Connect →
+                  Connect {c.name} →
                 </Link>
               )}
             </div>
