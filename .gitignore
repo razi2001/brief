@@ -1,0 +1,7 @@
+# Claude Code session data + worktrees (worktrees contain local .env.local secrets)
+.claude/
+
+# Local env (belt-and-suspenders; web/.gitignore also covers this)
+.env
+.env.local
+.env.*.local
