@@ -48,13 +48,6 @@ function relativeTime(iso?: string | null): string {
   return `${Math.round(mo / 12)}y ago`;
 }
 
-function shortDate(iso?: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 function truncate(text: string, max = 140): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
@@ -132,16 +125,19 @@ function StatusBadge({
 }
 
 /**
- * A rich brief TILE for the dynamic card grid. Filed tiles become a whole-card
- * link to the ticket (opens in a new tab) with an explicit "Open in Linear/Jira
- * →" pill pinned bottom-right and the tracker logomark next to the identifier —
- * so the tile is obviously interactive. Processing tiles pulse + shimmer; failed
- * tiles are NOT links and get a red accent + a quiet ghost Retry. Titles render
- * in Instrument Serif (clamped to two lines); mono is reserved for
- * status/source/meta/identifiers.
+ * A clean, professional brief card for the 2-column feed grid. Structure is
+ * top→bottom: a single muted meta line (status chip · source · relative time),
+ * a serif title clamped to two lines, then a footer pinned to the bottom with
+ * the tracker logo + identifier on the left and a subtle "Open →" affordance on
+ * the right. Filed cards are a whole-card link to the ticket; failed cards are a
+ * plain div with a quiet ghost Retry in the footer.
  *
- * The tile is a `flex flex-col`; the meta/action row uses `mt-auto` so it sits
- * at the bottom and tiles in a row stay visually even.
+ * The footer is pure flex (`justify-between`, no absolute positioning); the
+ * identifier gets `min-w-0` + `truncate` so it can never collide with the
+ * affordance. Archive is an absolutely-positioned SIBLING of the card element,
+ * never a descendant of the <a>, so it stays valid HTML and captures its own
+ * click. The card is `flex h-full flex-col` with a min-height so a row stays
+ * even. Processing cards pulse + shimmer; entrance is a staggered rise.
  */
 export default function BriefCard({
   brief: b,
@@ -162,7 +158,9 @@ export default function BriefCard({
       ? "Couldn't file this one"
       : isProcessing
         ? "Writing the ticket…"
-        : "Brief");
+        : b.source_kind
+          ? `${b.source_kind} brief`
+          : "Untitled brief");
 
   const href = ti?.url || b.ticket_url || undefined;
   const identifier = b.ticket_identifier ?? undefined;
@@ -180,7 +178,7 @@ export default function BriefCard({
         ? { color: "#dd6936", label: "in progress", pulse: true }
         : { color: "#8a8378", label: b.status, pulse: false };
 
-  const className = `card brief-card animate-rise relative flex h-full flex-col overflow-hidden px-[18px] py-[18px] ${
+  const className = `card brief-card animate-rise relative flex h-full min-h-[160px] flex-col overflow-hidden p-5 ${
     asLink ? "brief-card-link" : ""
   } ${
     asLink
@@ -200,25 +198,28 @@ export default function BriefCard({
         />
       )}
 
-      {/* Top row: status badge · source · relative time */}
-      <div className="relative flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <StatusBadge color={badge.color} label={badge.label} pulse={badge.pulse} />
-          <span className="flex items-center gap-1.5 text-xs lowercase tracking-wide text-muted">
-            <SourceIcon kind={b.source_kind} className="opacity-70" />
-            {b.source_kind ?? "brief"}
-          </span>
-        </div>
-
-        <span className="shrink-0 text-xs text-muted" title={b.created_at ?? ""}>
-          {relativeTime(b.created_at)}
+      {/* Meta row: status chip (left) · source + relative time (right).
+          One tidy line, no wrapping. */}
+      <div className="relative flex items-center justify-between gap-2 pr-6">
+        <StatusBadge color={badge.color} label={badge.label} pulse={badge.pulse} />
+        <span className="flex min-w-0 shrink items-center gap-1.5 truncate font-mono text-[0.6875rem] tracking-wide text-muted">
+          <SourceIcon kind={b.source_kind} size={12} className="shrink-0 opacity-70" />
+          <span className="truncate lowercase">{b.source_kind ?? "brief"}</span>
+          {b.created_at && (
+            <>
+              <span className="text-hairline">·</span>
+              <span className="shrink-0" title={b.created_at}>
+                {relativeTime(b.created_at)}
+              </span>
+            </>
+          )}
         </span>
       </div>
 
       {/* Title — Instrument Serif, clamped to two lines */}
       <div className="relative mt-3 flex items-start justify-between gap-3">
         <p
-          className={`line-clamp-2 min-w-0 flex-1 font-display text-[19px] leading-snug ${
+          className={`line-clamp-2 min-w-0 flex-1 font-display text-[18px] leading-snug ${
             isFailed ? "text-[#c62828]" : "text-ink"
           }`}
         >
@@ -227,37 +228,37 @@ export default function BriefCard({
         {ti?.assignee && <Assignee a={ti.assignee} />}
       </div>
 
-      {/* Failed error — clamped, sits between title and the pinned bottom row */}
+      {/* Failed error — clamped, sits between title and the pinned footer */}
       {isFailed && b.error && (
         <p className="relative mt-2.5 line-clamp-2 text-xs text-muted">
           {truncate(b.error)}
         </p>
       )}
 
-      {/* Bottom row, pinned to the tile bottom: identifier (+ logo) + filed
-          date on the left · open / retry on the right. */}
-      <div className="relative mt-auto flex items-center justify-between gap-3 pt-3.5 text-xs">
-        <div className="flex min-w-0 items-center gap-2 text-muted">
+      {/* Footer, pinned to the bottom. Pure flex, no absolute positioning:
+          tracker logo + identifier on the left (min-w-0 + truncate so it can
+          never collide), a subtle "Open →" / ghost Retry on the right. */}
+      <div className="relative mt-auto flex items-center justify-between gap-3 pt-4 text-xs">
+        <div className="flex min-w-0 items-center gap-2">
           {identifier ? (
-            <span className="inline-flex items-center gap-1.5">
-              {asLink && <TrackerLogo kind={tracker.kind} size={14} />}
-              <span className={`font-mono ${asLink ? "text-ink-2" : ""}`}>
+            <>
+              <TrackerLogo kind={tracker.kind} size={16} />
+              <span className="min-w-0 truncate font-mono text-accent">
                 {identifier}
               </span>
-            </span>
-          ) : null}
-          {ti?.createdAt && (
-            <>
-              {identifier && <span className="text-hairline">·</span>}
-              <span title={ti.createdAt}>filed {shortDate(ti.createdAt)}</span>
             </>
+          ) : (
+            !isFailed && (
+              <span className="truncate font-mono text-[0.6875rem] tracking-wide text-muted">
+                {badge.label}
+              </span>
+            )
           )}
         </div>
 
         {asLink ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[rgba(221,105,54,.3)] bg-[rgba(221,105,54,.08)] px-2.5 py-1 font-mono text-[0.6875rem] tracking-wide text-accent">
-            <TrackerLogo kind={tracker.kind} size={13} />
-            Open in {tracker.name}
+          <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[0.75rem] tracking-wide text-accent">
+            Open
             <span className="open-arrow inline-block">→</span>
           </span>
         ) : (
