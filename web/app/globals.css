@@ -193,122 +193,46 @@ a {
 
 /* ── Ambient cloud background ───────────────────────────────────────── */
 
-.cloud-bg {
+/* Ported faithfully from get-brief.app: soft SVG cloud shapes drifting in
+   parallax layers (back/mid/front), tinted warm-white over the cream base. */
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
   background: var(--color-cream);
 }
-
-.cloud {
+.sky .cloud {
   position: absolute;
-  border-radius: 50%;
+  color: #fffdf6;
   will-change: transform;
 }
+.sky .cloud svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+/* back layer — large, faded, slow */
+.sky .bg-1 { top: 8%;  left: -4%;  width: 320px; opacity: 0.32; animation: drift-r 180s linear infinite; }
+.sky .bg-2 { top: 54%; right: -6%; width: 360px; opacity: 0.28; animation: drift-l 210s -40s linear infinite; }
+/* mid layer */
+.sky .mid-1 { top: 22%; left: 36%; width: 220px; opacity: 0.55; animation: drift-r 120s -20s linear infinite; }
+.sky .mid-2 { top: 68%; left: 14%; width: 200px; opacity: 0.5;  animation: drift-l 140s -60s linear infinite; }
+.sky .mid-3 { top: 40%; right: 8%; width: 240px; opacity: 0.55; animation: drift-r 130s -90s linear infinite; }
+/* front layer — small, more opaque, faster */
+.sky .fg-1 { top: 12%; right: 22%; width: 130px; opacity: 0.85; animation: drift-l 80s linear infinite; }
+.sky .fg-2 { top: 80%; left: 46%; width: 120px; opacity: 0.8;  animation: drift-r 70s -25s linear infinite; }
 
-/* warm-white, top-left */
-.cloud-1 {
-  top: -18vh;
-  left: -12vw;
-  width: 58vw;
-  height: 58vw;
-  background: radial-gradient(
-    circle at center,
-    rgba(255, 253, 248, 0.9) 0%,
-    rgba(255, 253, 248, 0) 70%
-  );
-  filter: blur(90px);
-  animation: cloud-drift-a 34s ease-in-out infinite alternate;
+@keyframes drift-r {
+  0%   { transform: translate3d(0, 0, 0); }
+  50%  { transform: translate3d(40px, -4px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
 }
-
-/* cream-2, top-right */
-.cloud-2 {
-  top: -10vh;
-  right: -14vw;
-  width: 50vw;
-  height: 50vw;
-  background: radial-gradient(
-    circle at center,
-    #ece6d6 0%,
-    rgba(236, 230, 214, 0) 68%
-  );
-  filter: blur(80px);
-  animation: cloud-drift-b 42s ease-in-out infinite alternate;
-}
-
-/* faint peach accent, bottom-right */
-.cloud-3 {
-  bottom: -22vh;
-  right: -10vw;
-  width: 52vw;
-  height: 52vw;
-  background: radial-gradient(
-    circle at center,
-    rgba(221, 105, 54, 0.1) 0%,
-    rgba(221, 105, 54, 0) 65%
-  );
-  filter: blur(100px);
-  animation: cloud-drift-c 38s ease-in-out infinite alternate;
-}
-
-/* bright highlight, bottom-left */
-.cloud-4 {
-  bottom: -16vh;
-  left: -10vw;
-  width: 44vw;
-  height: 44vw;
-  background: radial-gradient(
-    circle at center,
-    rgba(255, 255, 255, 0.7) 0%,
-    rgba(255, 255, 255, 0) 70%
-  );
-  filter: blur(85px);
-  animation: cloud-drift-d 44s ease-in-out infinite alternate;
-}
-
-/* soft warm-white, center drift */
-.cloud-5 {
-  top: 30vh;
-  left: 28vw;
-  width: 40vw;
-  height: 40vw;
-  background: radial-gradient(
-    circle at center,
-    rgba(255, 253, 248, 0.6) 0%,
-    rgba(255, 253, 248, 0) 70%
-  );
-  filter: blur(75px);
-  animation: cloud-drift-b 30s ease-in-out infinite alternate;
-}
-
-@keyframes cloud-drift-a {
-  from {
-    transform: translate(0, 0) scale(1);
-  }
-  to {
-    transform: translate(4vw, 3vh) scale(1.08);
-  }
-}
-@keyframes cloud-drift-b {
-  from {
-    transform: translate(0, 0) scale(1.05);
-  }
-  to {
-    transform: translate(-3vw, 4vh) scale(1);
-  }
-}
-@keyframes cloud-drift-c {
-  from {
-    transform: translate(0, 0) scale(1);
-  }
-  to {
-    transform: translate(-4vw, -3vh) scale(1.1);
-  }
-}
-@keyframes cloud-drift-d {
-  from {
-    transform: translate(0, 0) scale(1.02);
-  }
-  to {
-    transform: translate(3vw, -4vh) scale(1.08);
-  }
+@keyframes drift-l {
+  0%   { transform: translate3d(0, 0, 0); }
+  50%  { transform: translate3d(-40px, 3px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -322,7 +246,7 @@ a {
   .brief-card-link:hover {
     transform: none;
   }
-  .cloud {
+  .sky .cloud {
     animation: none !important;
   }
 }
