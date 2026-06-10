@@ -232,6 +232,91 @@ async function jiraFetch(
 }
 
 // ---------------------------------------------------------------------------
+// Live issue enrichment (titles + status) for the dashboard
+// ---------------------------------------------------------------------------
+
+export interface JiraIssueInfo {
+  title: string;
+  url: string;
+  stateName: string;
+  stateColor: string;
+  createdAt: string;
+}
+
+/** Map Jira's statusCategory.colorName to one of our brand status colors. */
+function jiraStatusColor(colorName?: string): string {
+  switch ((colorName ?? "").toLowerCase()) {
+    case "blue-gray":
+      return "#8a8378";
+    case "yellow":
+      return "#dd6936";
+    case "green":
+      return "#2e7d32";
+    default:
+      return "#8a8378";
+  }
+}
+
+/**
+ * Fetch live Jira issue info (summary + status) for a set of issue keys via a
+ * single JQL search. Tries the newer `/search/jql` endpoint first and falls back
+ * to the legacy `/search` if that 404s. De-dupes and caps at ~25 keys.
+ *
+ * Defensive by design: any failure returns {} so a Jira outage or token problem
+ * never breaks the dashboard render.
+ */
+export async function getJiraIssues(
+  tok: JiraTok,
+  cloud: { cloudId: string; siteUrl: string },
+  keys: string[],
+): Promise<Record<string, JiraIssueInfo>> {
+  try {
+    const ids = Array.from(new Set(keys.filter(Boolean))).slice(0, 25);
+    if (ids.length === 0) return {};
+
+    const base = jiraBase(tok, cloud.cloudId, cloud.siteUrl);
+    const jql = `key in (${ids.join(",")})`;
+    const fields = "summary,status,created";
+    const qs = `?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${ids.length}`;
+
+    // Try the newer /search/jql first, fall back to legacy /search on 404.
+    let r = await jiraFetch(tok, base, `/search/jql${qs}`);
+    if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
+    if (!r.ok) return {};
+
+    const j = (await r.json()) as {
+      issues?: Array<{
+        key: string;
+        fields?: {
+          summary?: string;
+          created?: string;
+          status?: {
+            name?: string;
+            statusCategory?: { colorName?: string };
+          };
+        };
+      }>;
+    };
+
+    const out: Record<string, JiraIssueInfo> = {};
+    for (const issue of j.issues ?? []) {
+      if (!issue.key) continue;
+      const f = issue.fields ?? {};
+      out[issue.key] = {
+        title: f.summary ?? "",
+        url: `${cloud.siteUrl}/browse/${issue.key}`,
+        stateName: f.status?.name ?? "",
+        stateColor: jiraStatusColor(f.status?.statusCategory?.colorName),
+        createdAt: f.created ?? "",
+      };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Tracker implementation
 // ---------------------------------------------------------------------------
 

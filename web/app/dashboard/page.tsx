@@ -3,10 +3,17 @@ import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { getLinearToken, getIssuesByIdentifiers } from "@/lib/linear";
+import { getJiraAuth, getJiraCloud, getJiraIssues } from "@/lib/jira";
 import AppShell from "@/components/AppShell";
 import GettingStarted from "@/components/GettingStarted";
 import DashboardTabs from "@/components/DashboardTabs";
-import type { DashboardBrief } from "@/components/BriefCard";
+import type { DashboardBrief, TicketInfo } from "@/components/BriefCard";
+
+/** Infer the tracker a filed brief went to, from its ticket URL. */
+function providerOf(url?: string | null): "linear" | "jira" {
+  const u = (url ?? "").toLowerCase();
+  return u.includes("atlassian") || u.includes("jira") ? "jira" : "linear";
+}
 
 export default async function Dashboard() {
   const userId = await requireUserId();
@@ -59,33 +66,75 @@ export default async function Dashboard() {
     (b) => b.status === "uploaded" || b.status === "processing",
   );
 
-  // Live Linear status sync. Best-effort and fully contained: if Linear isn't
-  // connected, there are no filed identifiers, or the token/fetch fails, we
-  // simply render without live info — never break the dashboard.
-  let linearMap: Awaited<ReturnType<typeof getIssuesByIdentifiers>> = {};
-  const filedIdentifiers = list
-    .filter((b) => b.status === "filed" && b.ticket_identifier)
+  // Live status sync per provider. Best-effort and fully contained: if a tracker
+  // isn't connected, there are no filed identifiers, or the token/fetch fails,
+  // we simply render without live info — never break the dashboard.
+  //
+  // Classify each filed brief by provider (from its ticket_url) and fetch live
+  // titles + status from Linear (getIssuesByIdentifiers) and Jira
+  // (getJiraIssues) independently, then merge both into a provider-agnostic
+  // `ticket` field on each brief.
+  const filed = list.filter((b) => b.status === "filed" && b.ticket_identifier);
+  const linearIdentifiers = filed
+    .filter((b) => providerOf(b.ticket_url) === "linear")
     .map((b) => b.ticket_identifier as string);
-  if (hasLinear && filedIdentifiers.length > 0) {
+  const jiraKeys = filed
+    .filter((b) => providerOf(b.ticket_url) === "jira")
+    .map((b) => b.ticket_identifier as string);
+
+  let linearMap: Awaited<ReturnType<typeof getIssuesByIdentifiers>> = {};
+  if (hasLinear && linearIdentifiers.length > 0) {
     try {
       const tok = await getLinearToken(userId);
-      if (tok) linearMap = await getIssuesByIdentifiers(tok, filedIdentifiers);
+      if (tok) linearMap = await getIssuesByIdentifiers(tok, linearIdentifiers);
     } catch {
       linearMap = {};
     }
   }
 
-  // Serializable briefs with their Linear info merged in where available.
-  const dashboardBriefs: DashboardBrief[] = list.map((b) => ({
-    id: b.id,
-    status: b.status,
-    source_kind: b.source_kind ?? null,
-    created_at: b.created_at ?? null,
-    ticket_url: b.ticket_url ?? null,
-    ticket_identifier: b.ticket_identifier ?? null,
-    error: b.error ?? null,
-    linear: b.ticket_identifier ? (linearMap[b.ticket_identifier] ?? null) : null,
-  }));
+  let jiraMap: Awaited<ReturnType<typeof getJiraIssues>> = {};
+  if (hasJira && jiraKeys.length > 0) {
+    try {
+      const tok = await getJiraAuth(userId);
+      const cloud = tok ? await getJiraCloud(tok) : null;
+      if (tok && cloud) jiraMap = await getJiraIssues(tok, cloud, jiraKeys);
+    } catch {
+      jiraMap = {};
+    }
+  }
+
+  // Serializable briefs with their live ticket info merged in where available.
+  const dashboardBriefs: DashboardBrief[] = list.map((b) => {
+    const provider = providerOf(b.ticket_url);
+    const key = b.ticket_identifier ?? undefined;
+    let ticket: TicketInfo | null = null;
+    if (key) {
+      if (provider === "linear" && linearMap[key]) {
+        const li = linearMap[key];
+        ticket = {
+          title: li.title,
+          url: li.url,
+          stateName: li.stateName,
+          stateColor: li.stateColor,
+          createdAt: li.createdAt,
+          assignee: li.assignee,
+        };
+      } else if (provider === "jira" && jiraMap[key]) {
+        ticket = jiraMap[key];
+      }
+    }
+    return {
+      id: b.id,
+      status: b.status,
+      source_kind: b.source_kind ?? null,
+      created_at: b.created_at ?? null,
+      ticket_url: b.ticket_url ?? null,
+      ticket_identifier: b.ticket_identifier ?? null,
+      error: b.error ?? null,
+      provider,
+      ticket,
+    };
+  });
 
   const counts = {
     filed: list.filter((b) => b.status === "filed").length,

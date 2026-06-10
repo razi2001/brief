@@ -25,7 +25,7 @@ function filterKeyOf(b: DashboardBrief): string {
   if (b.status === "failed") return KEY_FAILED;
   if (b.status === "processing" || b.status === "uploaded") return KEY_PROCESSING;
   if (b.status === "filed") {
-    return b.linear?.stateName ? `state:${b.linear.stateName}` : KEY_FILED;
+    return b.ticket?.stateName ? `state:${b.ticket.stateName}` : KEY_FILED;
   }
   return KEY_PROCESSING;
 }
@@ -46,13 +46,13 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
     else if (b.status === "processing" || b.status === "uploaded")
       hasProcessing = true;
     else if (b.status === "filed") {
-      if (b.linear?.stateName) {
-        const key = `state:${b.linear.stateName}`;
+      if (b.ticket?.stateName) {
+        const key = `state:${b.ticket.stateName}`;
         if (!states.has(key)) {
           states.set(key, {
             key,
-            label: b.linear.stateName,
-            color: b.linear.stateColor || "#8a8378",
+            label: b.ticket.stateName,
+            color: b.ticket.stateColor || "#8a8378",
           });
         }
       } else {
@@ -273,7 +273,7 @@ export default function DashboardTabs({
           )}
 
           {visible.length > 0 ? (
-            <div className="mt-4 flex flex-col gap-3">
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {visible.map((b, i) => (
                 <BriefCard key={b.id} brief={b} index={i} />
               ))}

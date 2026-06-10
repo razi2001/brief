@@ -4,7 +4,17 @@ import RetryButton from "./RetryButton";
 import ArchiveButton from "./ArchiveButton";
 import SourceIcon from "./SourceIcon";
 import { TrackerLogo } from "./TrackerLogo";
-import type { LinearIssueInfo } from "@/lib/linear";
+
+/** Provider-agnostic live ticket info, merged server-side when synced. Covers
+ *  both Linear (which can also carry an assignee) and Jira. */
+export type TicketInfo = {
+  title: string;
+  url: string;
+  stateName: string;
+  stateColor: string;
+  createdAt: string;
+  assignee?: { name: string; avatarUrl?: string };
+};
 
 export type DashboardBrief = {
   id: string;
@@ -14,8 +24,10 @@ export type DashboardBrief = {
   ticket_url?: string | null;
   ticket_identifier?: string | null;
   error?: string | null;
-  /** Live Linear info, merged server-side when the ticket is synced. */
-  linear?: LinearIssueInfo | null;
+  /** Which tracker this brief was filed to (inferred from ticket_url). */
+  provider?: "linear" | "jira";
+  /** Live ticket info (Linear or Jira), merged server-side when synced. */
+  ticket?: TicketInfo | null;
 };
 
 function relativeTime(iso?: string | null): string {
@@ -60,7 +72,15 @@ function trackerOf(url?: string): { kind: "linear" | "jira"; name: string } {
   return { kind: "linear", name: "Linear" };
 }
 
-function Assignee({ a }: { a: NonNullable<LinearIssueInfo["assignee"]> }) {
+/** Resolve the provider for a brief: prefer the server-inferred field, else
+ *  fall back to parsing the ticket URL. */
+function providerOf(b: DashboardBrief): { kind: "linear" | "jira"; name: string } {
+  if (b.provider === "jira") return { kind: "jira", name: "Jira" };
+  if (b.provider === "linear") return { kind: "linear", name: "Linear" };
+  return trackerOf(b.ticket_url ?? b.ticket?.url);
+}
+
+function Assignee({ a }: { a: NonNullable<TicketInfo["assignee"]> }) {
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted"
@@ -112,12 +132,16 @@ function StatusBadge({
 }
 
 /**
- * A rich brief row. Filed briefs become a whole-card link to the ticket (opens
- * in a new tab) with an explicit "Open in Linear/Jira →" pill bottom-right and
- * the tracker logomark next to the identifier — so the card is obviously
- * interactive. Processing rows pulse + shimmer; failed rows are NOT links and
- * get a thin red left accent + a quiet ghost Retry. Titles render in Instrument
- * Serif; mono is reserved for status/source/meta/identifiers.
+ * A rich brief TILE for the dynamic card grid. Filed tiles become a whole-card
+ * link to the ticket (opens in a new tab) with an explicit "Open in Linear/Jira
+ * →" pill pinned bottom-right and the tracker logomark next to the identifier —
+ * so the tile is obviously interactive. Processing tiles pulse + shimmer; failed
+ * tiles are NOT links and get a red accent + a quiet ghost Retry. Titles render
+ * in Instrument Serif (clamped to two lines); mono is reserved for
+ * status/source/meta/identifiers.
+ *
+ * The tile is a `flex flex-col`; the meta/action row uses `mt-auto` so it sits
+ * at the bottom and tiles in a row stay visually even.
  */
 export default function BriefCard({
   brief: b,
@@ -126,39 +150,45 @@ export default function BriefCard({
   brief: DashboardBrief;
   index?: number;
 }) {
-  const li = b.linear ?? null;
+  const ti = b.ticket ?? null;
   const isFiled = b.status === "filed";
   const isFailed = b.status === "failed";
   const isProcessing = b.status === "processing" || b.status === "uploaded";
-  const synced = isFiled && !!li;
+  const synced = isFiled && !!ti;
 
   const title =
-    li?.title ||
+    ti?.title ||
     (isFailed
       ? "Couldn't file this one"
       : isProcessing
         ? "Writing the ticket…"
         : "Brief");
 
-  const href = li?.url || b.ticket_url || undefined;
-  const identifier = b.ticket_identifier || li?.identifier;
-  const tracker = trackerOf(href);
+  const href = ti?.url || b.ticket_url || undefined;
+  const identifier = b.ticket_identifier ?? undefined;
+  const tracker = providerOf(b);
 
-  // The whole card is a link only when it's filed AND we have a destination.
+  // The whole tile is a link only when it's filed AND we have a destination.
   const asLink = isFiled && !!href;
 
   // Status badge inputs.
   const badge = synced
-    ? { color: li!.stateColor, label: li!.stateName, pulse: false }
+    ? { color: ti!.stateColor || "#8a8378", label: ti!.stateName || "filed", pulse: false }
     : isFailed
       ? { color: "#c62828", label: "couldn't file", pulse: false }
       : isProcessing
         ? { color: "#dd6936", label: "in progress", pulse: true }
         : { color: "#8a8378", label: b.status, pulse: false };
 
-  const className = `card brief-card animate-rise relative overflow-hidden px-[18px] py-[18px] ${
-    asLink ? "brief-card-link block" : ""
-  } ${isFailed ? "border-l-2 border-l-[rgba(198,40,40,.55)]" : ""}`;
+  const className = `card brief-card animate-rise relative flex h-full flex-col overflow-hidden px-[18px] py-[18px] ${
+    asLink ? "brief-card-link" : ""
+  } ${
+    asLink
+      ? "ring-1 ring-[rgba(221,105,54,.18)]"
+      : isFailed
+        ? "border-l-2 border-l-[rgba(198,40,40,.55)]"
+        : ""
+  }`;
   const style = { animationDelay: `${Math.min(index, 12) * 45}ms` };
 
   const inner = (
@@ -185,20 +215,28 @@ export default function BriefCard({
         </span>
       </div>
 
-      {/* Title — Instrument Serif */}
-      <div className="relative mt-2.5 flex items-start justify-between gap-3">
+      {/* Title — Instrument Serif, clamped to two lines */}
+      <div className="relative mt-3 flex items-start justify-between gap-3">
         <p
-          className={`min-w-0 flex-1 font-display text-[18px] leading-snug ${
+          className={`line-clamp-2 min-w-0 flex-1 font-display text-[19px] leading-snug ${
             isFailed ? "text-[#c62828]" : "text-ink"
           }`}
         >
           {title}
         </p>
-        {li?.assignee && <Assignee a={li.assignee} />}
+        {ti?.assignee && <Assignee a={ti.assignee} />}
       </div>
 
-      {/* Bottom row: identifier (+ tracker logo) + filed date · open / retry */}
-      <div className="relative mt-3 flex items-center justify-between gap-3 text-xs">
+      {/* Failed error — clamped, sits between title and the pinned bottom row */}
+      {isFailed && b.error && (
+        <p className="relative mt-2.5 line-clamp-2 text-xs text-muted">
+          {truncate(b.error)}
+        </p>
+      )}
+
+      {/* Bottom row, pinned to the tile bottom: identifier (+ logo) + filed
+          date on the left · open / retry on the right. */}
+      <div className="relative mt-auto flex items-center justify-between gap-3 pt-3.5 text-xs">
         <div className="flex min-w-0 items-center gap-2 text-muted">
           {identifier ? (
             <span className="inline-flex items-center gap-1.5">
@@ -208,10 +246,10 @@ export default function BriefCard({
               </span>
             </span>
           ) : null}
-          {li?.createdAt && (
+          {ti?.createdAt && (
             <>
               {identifier && <span className="text-hairline">·</span>}
-              <span title={li.createdAt}>filed {shortDate(li.createdAt)}</span>
+              <span title={ti.createdAt}>filed {shortDate(ti.createdAt)}</span>
             </>
           )}
         </div>
@@ -230,19 +268,13 @@ export default function BriefCard({
           )
         )}
       </div>
-
-      {isFailed && b.error && (
-        <p className="relative mt-2.5 border-t hairline pt-2.5 text-xs text-muted">
-          {truncate(b.error)}
-        </p>
-      )}
     </>
   );
 
   // The archive control is always rendered as a SIBLING of the card element
   // (never a descendant of the <a>), absolutely positioned in the top-right.
-  // Filed cards render the whole card as an <a>; nesting an interactive button
-  // inside an anchor is invalid HTML and would also let the card link swallow
+  // Filed tiles render the whole tile as an <a>; nesting an interactive button
+  // inside an anchor is invalid HTML and would also let the tile link swallow
   // the click. Keeping it a sibling avoids both problems. It's faint by default
   // and lifts on hover/focus-within of the group.
   const archiveControl = (
@@ -253,7 +285,7 @@ export default function BriefCard({
 
   if (asLink) {
     return (
-      <div className="group relative">
+      <div className="group relative h-full">
         <a
           href={href}
           target="_blank"
@@ -270,7 +302,7 @@ export default function BriefCard({
   }
 
   return (
-    <div className="group relative">
+    <div className="group relative h-full">
       <div className={className} style={style}>
         {inner}
       </div>
