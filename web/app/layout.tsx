@@ -17,7 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Brief Cloud",
+  title: "Brief",
   description: "Talk through a bug. Your agent writes the ticket.",
 };
 
