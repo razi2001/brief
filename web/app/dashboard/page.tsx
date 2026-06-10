@@ -2,48 +2,12 @@ import { UserButton } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import BrandMark from "@/components/BrandMark";
 import AutoRefresh from "@/components/AutoRefresh";
-
-function relativeTime(iso?: string | null): string {
-  if (!iso) return "";
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const diff = Date.now() - then;
-  const s = Math.round(diff / 1000);
-  if (s < 60) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  if (d < 30) return `${d}d ago`;
-  const mo = Math.round(d / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.round(mo / 12)}y ago`;
-}
-
-type BriefStatus = "uploaded" | "processing" | "filed" | "failed";
-
-function StatusPill({ status }: { status: string }) {
-  const s = status as BriefStatus;
-  const styles: Record<string, string> = {
-    filed: "border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] text-[#2e7d32]",
-    failed: "border-[rgba(198,40,40,.35)] bg-[rgba(198,40,40,.1)] text-[#c62828]",
-    processing: "border-hairline bg-cream-2 text-muted",
-    uploaded: "border-hairline bg-cream-2 text-ink-2",
-  };
-  return (
-    <span className={`pill ${styles[s] ?? styles.uploaded}`}>
-      {s === "processing" && (
-        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-muted" />
-      )}
-      {status}
-    </span>
-  );
-}
+import GettingStarted from "@/components/GettingStarted";
+import Connections from "@/components/Connections";
+import BriefRow from "@/components/BriefRow";
 
 export default async function Dashboard() {
   const userId = await requireUserId();
@@ -73,6 +37,15 @@ export default async function Dashboard() {
     user?.primaryEmailAddress?.emailAddress?.split("@")[0] ??
     "there";
 
+  // Getting-started state, derived purely from existing data.
+  const trackerConnected = hasLinear || hasJira;
+  const hasBriefs = (briefs?.length ?? 0) > 0;
+  const hasFiled = (briefs ?? []).some((b) => b.status === "filed");
+  // Show the checklist until the user is fully set up: a tracker is connected
+  // AND at least one brief has been filed. Otherwise (no tracker, or no briefs)
+  // we keep guiding them.
+  const showGettingStarted = !trackerConnected || !hasBriefs || !hasFiled;
+
   return (
     <AppShell headerRight={<UserButton />}>
       <h1 className="font-display text-4xl sm:text-5xl leading-tight text-ink">
@@ -82,32 +55,16 @@ export default async function Dashboard() {
         <em className="italic text-accent">brief</em>.
       </h1>
 
+      {showGettingStarted && (
+        <GettingStarted
+          trackerConnected={trackerConnected}
+          hasBriefs={hasBriefs}
+          hasFiled={hasFiled}
+        />
+      )}
+
       {/* Connections */}
-      <section className="mt-12">
-        <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Connections</h2>
-        <div className="mt-3 flex flex-col gap-3">
-          {connections.map((c) => (
-            <div
-              key={c.key}
-              className="card flex items-center justify-between px-4 py-3.5"
-            >
-              <span className="text-sm text-ink">{c.name}</span>
-              {c.connected ? (
-                <span className="pill border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] text-[#2e7d32]">
-                  Connected ✓
-                </span>
-              ) : (
-                <Link
-                  href="/account"
-                  className="text-xs tracking-wide text-accent no-underline hover:underline"
-                >
-                  Connect {c.name} →
-                </Link>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
+      <Connections connections={connections} />
 
       {/* Recent briefs */}
       <section className="mt-12">
@@ -119,42 +76,35 @@ export default async function Dashboard() {
         {briefs && briefs.length > 0 ? (
           <div className="mt-3 flex flex-col gap-3">
             {briefs.map((b) => (
-              <div key={b.id} className="card px-4 py-3.5">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <StatusPill status={b.status} />
-                    <span className="text-xs text-muted">{b.source_kind ?? "—"}</span>
-                  </div>
-                  <span className="text-xs text-muted">{relativeTime(b.created_at)}</span>
-                </div>
-                <div className="mt-2 text-sm text-ink-2">
-                  {b.status === "filed" && b.ticket_url ? (
-                    <a
-                      href={b.ticket_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent no-underline hover:underline"
-                    >
-                      {b.ticket_identifier ?? "view ticket"} →
-                    </a>
-                  ) : b.status === "failed" && b.error ? (
-                    <span className="text-[#c62828]">{b.error}</span>
-                  ) : (
-                    <span className="text-muted">—</span>
-                  )}
-                </div>
-              </div>
+              <BriefRow key={b.id} brief={b} />
             ))}
           </div>
         ) : (
           <div className="card mt-3 flex flex-col items-center gap-3 px-4 py-12 text-center">
             <BrandMark size={36} />
-            <p className="text-sm text-muted">
-              No briefs yet — record one with the extension.
+            <p className="font-display text-xl text-ink">no briefs yet.</p>
+            <p className="max-w-xs text-sm text-muted">
+              hit ✦ in the extension, talk through a bug, and it lands here —
+              written up and filed.
             </p>
           </div>
         )}
       </section>
+
+      {/* Footer */}
+      <footer className="mt-16 border-t hairline pt-6 text-center">
+        <p className="text-xs text-muted">
+          <a
+            href="https://get-brief.app"
+            target="_blank"
+            rel="noreferrer"
+            className="text-muted no-underline hover:text-accent hover:underline"
+          >
+            get-brief.app
+          </a>{" "}
+          · what&apos;s the brief?
+        </p>
+      </footer>
     </AppShell>
   );
 }
