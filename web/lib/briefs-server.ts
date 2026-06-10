@@ -2,7 +2,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLinearToken, getIssuesByIdentifiers } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, getJiraIssues } from "@/lib/jira";
-import type { DashboardBrief, TicketInfo } from "@/components/BriefCard";
+import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
 
 /**
  * Server-side helpers shared by the Dashboard (/dashboard) and Briefs (/briefs)
@@ -16,13 +16,14 @@ export type BriefRow = {
   status: string;
   source_kind: string | null;
   created_at: string | null;
+  updated_at: string | null;
   ticket_url: string | null;
   ticket_identifier: string | null;
   error: string | null;
 };
 
 export const BRIEF_COLUMNS =
-  "id, status, source_kind, created_at, ticket_url, ticket_identifier, error";
+  "id, status, source_kind, created_at, updated_at, ticket_url, ticket_identifier, error";
 
 /**
  * How long a brief may sit in a non-terminal state before we treat it as
@@ -188,6 +189,7 @@ export async function attachTicketInfo(
       status: b.status,
       source_kind: b.source_kind ?? null,
       created_at: b.created_at ?? null,
+      updated_at: b.updated_at ?? null,
       ticket_url: b.ticket_url ?? null,
       ticket_identifier: b.ticket_identifier ?? null,
       error: b.error ?? null,

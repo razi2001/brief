@@ -4,7 +4,8 @@ import { useMemo, useState } from "react";
 import AutoRefresh from "./AutoRefresh";
 import BrandMark from "./BrandMark";
 import FilterPopover, { type FilterOption } from "./FilterPopover";
-import BriefCard, { type DashboardBrief } from "./BriefCard";
+import BriefListRow from "./BriefListRow";
+import type { DashboardBrief } from "@/lib/brief-types";
 
 export type Counts = { filed: number; processing: number; failed: number };
 
@@ -223,17 +224,16 @@ export default function BriefsFeed({
       )}
 
       {visible.length > 0 ? (
-        <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-          {visible.map((b, i) => (
-            <BriefCard
+        <ul className="card mt-5 divide-y divide-hairline overflow-hidden">
+          {visible.map((b) => (
+            <BriefListRow
               key={b.id}
               brief={b}
-              index={i}
               onArchive={onArchive}
               leaving={leaving.has(b.id)}
             />
           ))}
-        </div>
+        </ul>
       ) : (
         <EmptyState filtered={liveBriefs.length > 0 && filteredOut > 0} />
       )}

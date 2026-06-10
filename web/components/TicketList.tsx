@@ -1,5 +1,5 @@
 import { TrackerLogo } from "./TrackerLogo";
-import type { DashboardBrief } from "./BriefCard";
+import type { DashboardBrief } from "@/lib/brief-types";
 
 function relativeTime(iso?: string | null): string {
   if (!iso) return "";
