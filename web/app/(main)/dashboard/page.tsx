@@ -55,7 +55,6 @@ export default async function Dashboard() {
 
   const filed = list.filter((b) => b.status === "filed");
   const processing = list.filter((b) => b.status === "processing" || b.status === "uploaded");
-  const failed = list.filter((b) => b.status === "failed");
 
   const weekAgo = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
   const thisWeek = filed.filter(
@@ -96,7 +95,6 @@ export default async function Dashboard() {
       color: "#dd6936",
       pulse: processing.length > 0,
     },
-    { label: "Didn't file", value: failed.length, color: "#c62828" },
   ];
 
   const hasBriefs = list.length > 0;
@@ -124,10 +122,10 @@ export default async function Dashboard() {
               <div className="mb-3 flex items-baseline justify-between">
                 <h2 className="font-display text-2xl text-ink">Recent tickets</h2>
                 <Link
-                  href="/briefs"
+                  href="/tickets"
                   className="font-mono text-xs tracking-wide text-accent no-underline hover:underline"
                 >
-                  All briefs →
+                  All tickets →
                 </Link>
               </div>
               <TicketList briefs={recent} />

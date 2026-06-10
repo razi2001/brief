@@ -9,13 +9,12 @@ import type { DashboardBrief } from "@/lib/brief-types";
 
 export type Counts = { filed: number; processing: number; failed: number };
 
-// Synthetic (non-tracker-state) filter keys.
+// Synthetic (non-tracker-state) filter keys. Failed/"didn't file" briefs are not
+// shown at all (see liveBriefs), so there's no failed key.
 const KEY_PROCESSING = "__processing";
-const KEY_FAILED = "__failed";
 const KEY_FILED = "__filed"; // filed briefs with no live tracker state
 
 function filterKeyOf(b: DashboardBrief): string {
-  if (b.status === "failed") return KEY_FAILED;
   if (b.status === "processing" || b.status === "uploaded") return KEY_PROCESSING;
   if (b.status === "filed") {
     return b.ticket?.stateName ? `state:${b.ticket.stateName}` : KEY_FILED;
@@ -27,11 +26,9 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   const states = new Map<string, FilterOption>();
   let hasBareFiled = false;
   let hasProcessing = false;
-  let hasFailed = false;
 
   for (const b of briefs) {
-    if (b.status === "failed") hasFailed = true;
-    else if (b.status === "processing" || b.status === "uploaded") hasProcessing = true;
+    if (b.status === "processing" || b.status === "uploaded") hasProcessing = true;
     else if (b.status === "filed") {
       if (b.ticket?.stateName) {
         const key = `state:${b.ticket.stateName}`;
@@ -52,7 +49,6 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   if (hasBareFiled) opts.push({ key: KEY_FILED, label: "Filed", color: "#2e7d32" });
   if (hasProcessing)
     opts.push({ key: KEY_PROCESSING, label: "In progress", color: "#dd6936" });
-  if (hasFailed) opts.push({ key: KEY_FAILED, label: "Failed", color: "#c62828" });
 
   return opts;
 }
@@ -62,7 +58,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
     <div className="card brief-card animate-rise mt-4 flex flex-col items-center gap-3 px-4 py-14 text-center">
       <BrandMark size={36} />
       <p className="font-display text-xl text-ink">
-        {filtered ? "nothing matches." : "no briefs yet."}
+        {filtered ? "nothing matches." : "no tickets yet."}
       </p>
       <p className="max-w-xs text-sm text-muted">
         {filtered
@@ -78,7 +74,6 @@ function SummaryLine({ counts }: { counts: Counts }) {
   if (counts.filed > 0) parts.push({ color: "#2e7d32", text: `${counts.filed} filed` });
   if (counts.processing > 0)
     parts.push({ color: "#dd6936", text: `${counts.processing} in progress`, pulse: true });
-  if (counts.failed > 0) parts.push({ color: "#c62828", text: `${counts.failed} didn't file` });
 
   if (parts.length === 0)
     return <p className="mt-1.5 font-mono text-xs text-muted">nothing yet</p>;
@@ -105,7 +100,7 @@ function SummaryLine({ counts }: { counts: Counts }) {
  * fire-and-forget POST) and AutoRefresh while anything is processing. Failed
  * briefs are hidden by default and surfaced via a quiet "didn't file — show".
  *
- * Extracted from the old DashboardTabs so it can live on its own /briefs route.
+ * Extracted from the old DashboardTabs so it can live on its own /tickets route.
  */
 export default function BriefsFeed({
   briefs,
@@ -158,15 +153,17 @@ export default function BriefsFeed({
     });
   };
 
+  // Failed / "didn't file" briefs are never shown — they just drop out of the
+  // feed (the system retries for up to 10 min, then quietly gives up).
   const liveBriefs = useMemo(
-    () => briefs.filter((b) => !archivedIds.has(b.id)),
+    () => briefs.filter((b) => !archivedIds.has(b.id) && b.status !== "failed"),
     [briefs, archivedIds],
   );
 
   const options = useMemo(() => deriveOptions(liveBriefs), [liveBriefs]);
 
   const defaultSelected = useMemo(
-    () => new Set(options.filter((o) => o.key !== KEY_FAILED).map((o) => o.key)),
+    () => new Set(options.map((o) => o.key)),
     [options],
   );
 
@@ -195,31 +192,25 @@ export default function BriefsFeed({
 
   const reset = () => setSelected(new Set(defaultSelected));
 
-  const enableFailed = () =>
-    setSelected(() => new Set(reconciled).add(KEY_FAILED));
-
   const visible = liveBriefs.filter((b) => reconciled.has(filterKeyOf(b)));
   const filteredOut = liveBriefs.length - visible.length;
 
   const liveCounts = useMemo<Counts>(() => {
-    const next = { ...counts };
+    const next = { ...counts, failed: 0 };
     for (const b of briefs) {
       if (!archivedIds.has(b.id)) continue;
       const k = filterKeyOf(b);
-      if (k === KEY_FAILED) next.failed = Math.max(0, next.failed - 1);
-      else if (k === KEY_PROCESSING) next.processing = Math.max(0, next.processing - 1);
+      if (k === KEY_PROCESSING) next.processing = Math.max(0, next.processing - 1);
       else next.filed = Math.max(0, next.filed - 1);
     }
     return next;
   }, [counts, briefs, archivedIds]);
 
-  const hiddenFailed = !reconciled.has(KEY_FAILED) ? liveCounts.failed : 0;
-
   return (
     <section>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-display text-3xl leading-none text-ink">Briefs</h1>
+          <h1 className="font-display text-3xl leading-none text-ink">Tickets</h1>
           <SummaryLine counts={liveCounts} />
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -235,19 +226,6 @@ export default function BriefsFeed({
           />
         </div>
       </div>
-
-      {hiddenFailed > 0 && (
-        <p className="mt-3 font-mono text-xs text-muted">
-          {hiddenFailed} didn&apos;t file —{" "}
-          <button
-            type="button"
-            onClick={enableFailed}
-            className="text-muted underline decoration-hairline underline-offset-2 transition-colors hover:text-accent"
-          >
-            show
-          </button>
-        </p>
-      )}
 
       {visible.length > 0 ? (
         <ul className="card mt-5 divide-y divide-hairline overflow-hidden">

@@ -26,14 +26,14 @@ export const BRIEF_COLUMNS =
   "id, status, source_kind, created_at, updated_at, ticket_url, ticket_identifier, error";
 
 /**
- * How long a brief may sit in a non-terminal state before we treat it as
- * orphaned and flip it to "failed" (retryable). A brief flips to "processing"
- * when filing starts and back to filed/failed when it finishes; if the worker
- * is interrupted (dev restart, serverless timeout, hang) it would otherwise
- * spin forever. Fail-fast: 90s — long enough for a normal agent run, short
- * enough that nothing appears stuck.
+ * How long a brief may keep trying before we give up on it. A brief flips to
+ * "processing" when filing starts and back to filed when it finishes; if the
+ * worker is interrupted (dev restart, serverless timeout, hang) it would
+ * otherwise spin forever. We give it up to 10 minutes to land, then quietly
+ * mark it failed. Failed briefs are hidden from the UI (no nagging "didn't
+ * file" — see the feed/dashboard), so this is just the retry ceiling.
  */
-export const ORPHAN_TIMEOUT_MS = 90_000;
+export const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000;
 
 /** Infer the tracker a filed brief went to, from its ticket URL. */
 export function providerOf(url?: string | null): "linear" | "jira" {

@@ -609,9 +609,9 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       // instant the upload resolves — don't wait for a ticket to be filed —
       // then send the user straight to their briefs page (new tab, routed via
       // background since the bar is a content script) and close the bar.
-      const { briefsUrl } = await submitBrief(files, cloudMeta);
-      setSavingSent('Sent — opening your briefs…');
-      chrome.runtime.sendMessage({ type: 'open-url', url: briefsUrl }).catch(() => {});
+      const { ticketsUrl } = await submitBrief(files, cloudMeta);
+      setSavingSent('Sent — opening your tickets…');
+      chrome.runtime.sendMessage({ type: 'open-url', url: ticketsUrl }).catch(() => {});
       await clearInboxDraft(briefId);
       setTimeout(closeParent, 1000);
       return;

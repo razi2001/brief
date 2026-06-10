@@ -13,7 +13,11 @@ export default function Connect() {
         const { token } = await res.json();
         const w = window as unknown as { chrome?: { runtime?: { sendMessage?: (id: string, msg: unknown, cb?: () => void) => void } } };
         if (extId && w.chrome?.runtime?.sendMessage) {
-          w.chrome.runtime.sendMessage(extId, { type: "brief-cloud-token", token }, () => setState("ok"));
+          w.chrome.runtime.sendMessage(extId, { type: "brief-cloud-token", token }, () => {
+            setState("ok");
+            // Paired — drop them on their tickets instead of a dead-end tab.
+            setTimeout(() => window.location.replace("/tickets"), 900);
+          });
         } else {
           setState("err");
         }
@@ -34,8 +38,7 @@ export default function Connect() {
         )}
         {state === "ok" && (
           <p className="mt-4 text-sm tracking-wide text-ink-2">
-            <span className="text-accent">Connected ✓</span> — close this tab and head
-            back to the extension.
+            <span className="text-accent">Connected ✓</span> — taking you to your tickets…
           </p>
         )}
         {state === "err" && (

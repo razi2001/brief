@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 const ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/briefs", label: "Briefs" },
+  { href: "/tickets", label: "Tickets" },
   { href: "/connections", label: "Connections" },
 ] as const;
 
@@ -13,7 +13,7 @@ const ITEMS = [
  * Top-level navigation: a segmented pill of real links (Dashboard / Briefs /
  * Connections). Reuses the segmented-control styling from the old in-page tabs,
  * but as routed <Link>s so each view has its own URL (and the extension can
- * deep-link to /briefs). Active state is derived from the pathname.
+ * deep-link to /tickets). Active state is derived from the pathname.
  */
 export default function Nav() {
   const pathname = usePathname();

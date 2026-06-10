@@ -70,7 +70,7 @@ export async function submitBrief(files, meta) {
   fetch(`${APP_URL}/api/briefs/${briefId}/process`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
   return {
     briefId,
-    briefsUrl: `${APP_URL}/briefs`,
+    ticketsUrl: `${APP_URL}/tickets`,
     dashboardUrl: `${APP_URL}/dashboard`,
   };
 }
