@@ -71,6 +71,9 @@ export default function Integrations() {
   // Per-tracker busy + error state, keyed by tracker key.
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Set when Clerk refuses the inline disconnect (403 — sensitive action needs
+  // its own reverification flow), so we point the user to account settings.
+  const [needsAccount, setNeedsAccount] = useState<Record<string, boolean>>({});
 
   if (!isLoaded || !user) {
     return (
@@ -143,12 +146,15 @@ export default function Integrations() {
     const account = connectedAccount(t.providerMatch) ?? pendingAccount(t.providerMatch);
     if (!account) return;
     setTrackerError(t.key, "");
+    setNeedsAccount((m) => ({ ...m, [t.key]: false }));
     setTrackerBusy(t.key, true);
     try {
       await account.destroy();
       await user!.reload();
     } catch {
-      setTrackerError(t.key, "Couldn't disconnect — please try again.");
+      // Clerk blocks the inline removal (403). Its own account UI runs the
+      // proper (reverification-aware) flow, so route the user there.
+      setNeedsAccount((m) => ({ ...m, [t.key]: true }));
     } finally {
       setTrackerBusy(t.key, false);
     }
@@ -165,6 +171,7 @@ export default function Integrations() {
           const pending = !isConnected && !!pendingAccount(t.providerMatch);
           const isBusy = !!busy[t.key];
           const error = errors[t.key];
+          const showAccount = !!needsAccount[t.key];
 
           return (
             <div key={t.key} className="card px-4 py-3.5">
@@ -205,10 +212,23 @@ export default function Integrations() {
                 )}
               </div>
 
-              {(error || pending) && (
+              {showAccount ? (
                 <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
-                  {error || "Last connection didn’t finish — click Connect to try again."}
+                  Couldn&apos;t remove it here —{" "}
+                  <a
+                    href="/account"
+                    className="text-accent no-underline hover:underline"
+                  >
+                    manage connections in account settings
+                  </a>
+                  .
                 </p>
+              ) : (
+                (error || pending) && (
+                  <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
+                    {error || "Last connection didn’t finish — click Connect to try again."}
+                  </p>
+                )
               )}
             </div>
           );
