@@ -2,6 +2,7 @@ import { UserButton } from "@clerk/nextjs";
 import { requireUserId } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import Integrations from "@/components/Integrations";
+import McpSection from "@/components/McpSection";
 import TicketPreferences from "@/components/TicketPreferences";
 import { getTrackerContext } from "@/lib/briefs-server";
 
@@ -16,11 +17,10 @@ export default async function ConnectionsPage() {
         Connect a tracker so Brief can file your bugs, and tune how the agent writes them.
       </p>
 
-      <div className="mt-2">
+      <div className="mt-7 flex flex-col gap-8">
         <Integrations />
-        <div className="mt-8">
-          <TicketPreferences initialValue={ctx.ticketGuidance} />
-        </div>
+        <McpSection />
+        <TicketPreferences initialValue={ctx.ticketGuidance} />
       </div>
     </AppShell>
   );

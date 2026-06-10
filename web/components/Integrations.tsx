@@ -74,11 +74,8 @@ export default function Integrations() {
 
   if (!isLoaded || !user) {
     return (
-      <section id="integrations" className="mt-12 scroll-mt-8">
-        <h2 className="font-display text-2xl text-ink">Integrations</h2>
-        <p className="mt-1 text-xs text-muted">
-          Connect a tracker so Brief can file your bugs.
-        </p>
+      <section id="integrations" className="scroll-mt-8">
+        <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers</h2>
         <div className="mt-3 flex flex-col gap-3">
           <SkeletonCard />
           <SkeletonCard />
@@ -158,11 +155,8 @@ export default function Integrations() {
   }
 
   return (
-    <section id="integrations" className="mt-12 scroll-mt-8">
-      <h2 className="font-display text-2xl text-ink">Integrations</h2>
-      <p className="mt-1 text-xs text-muted">
-        Connect a tracker so Brief can file your bugs.
-      </p>
+    <section id="integrations" className="scroll-mt-8">
+      <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers</h2>
 
       <div className="mt-3 flex flex-col gap-3">
         {TRACKERS.map((t) => {

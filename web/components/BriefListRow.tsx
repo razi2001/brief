@@ -39,10 +39,12 @@ function initial(name?: string): string {
 export default function BriefListRow({
   brief: b,
   onArchive,
+  onArchiveFailed,
   leaving = false,
 }: {
   brief: DashboardBrief;
   onArchive?: (id: string) => void;
+  onArchiveFailed?: (id: string) => void;
   leaving?: boolean;
 }) {
   const ti = b.ticket ?? null;
@@ -123,7 +125,7 @@ export default function BriefListRow({
 
   const archiveControl = (
     <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-cream/85 px-1.5 py-0.5 opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100">
-      <ArchiveButton briefId={b.id} onArchive={onArchive} />
+      <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
     </div>
   );
 

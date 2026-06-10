@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import AutoRefresh from "./AutoRefresh";
 import BrandMark from "./BrandMark";
 import FilterPopover, { type FilterOption } from "./FilterPopover";
@@ -119,17 +119,43 @@ export default function BriefsFeed({
   const [filterOpen, setFilterOpen] = useState(false);
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  // Pending exit-animation timers, so a failed archive can cancel the
+  // "commit to archivedIds" step and restore the card cleanly.
+  const exitTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const onArchive = (id: string) => {
     setLeaving((prev) => new Set(prev).add(id));
-    setTimeout(() => {
+    const t = setTimeout(() => {
       setArchivedIds((prev) => new Set(prev).add(id));
       setLeaving((prev) => {
         const next = new Set(prev);
         next.delete(id);
         return next;
       });
+      exitTimers.current.delete(id);
     }, 280);
+    exitTimers.current.set(id, t);
+  };
+
+  // The server write failed for good — undo the optimistic removal so the card
+  // reappears immediately (honest feedback) instead of vanishing then coming
+  // back on a later load.
+  const onArchiveFailed = (id: string) => {
+    const t = exitTimers.current.get(id);
+    if (t) {
+      clearTimeout(t);
+      exitTimers.current.delete(id);
+    }
+    setLeaving((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setArchivedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
   const liveBriefs = useMemo(
@@ -230,6 +256,7 @@ export default function BriefsFeed({
               key={b.id}
               brief={b}
               onArchive={onArchive}
+              onArchiveFailed={onArchiveFailed}
               leaving={leaving.has(b.id)}
             />
           ))}

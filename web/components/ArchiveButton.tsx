@@ -3,38 +3,62 @@
 import { useState } from "react";
 
 /**
- * Subtle "archive" action for a brief row. OPTIMISTIC: clicking removes the
- * card instantly via the parent's `onArchive(id)` (which drops it from the
- * rendered list), then fires the archive POST in the background — we don't
- * await it and we don't refresh. The archive route is best-effort; the next
- * real load reflects the true server state. If the POST fails, the card simply
- * reappears on the next load, which is fine.
+ * Subtle "archive" action for a brief. OPTIMISTIC + RELIABLE: clicking removes
+ * the card instantly via `onArchive(id)`, then writes archived_at to the server.
  *
- * Rendered as a SIBLING of the card link (never nested inside the <a>) and
- * absolutely positioned by the card, so its own click is captured here and
- * never navigates the card. stopPropagation/preventDefault keep it isolated.
+ * The write is NOT fire-and-forget — a plain dropped fetch was the archive bug:
+ * if the page unloaded/navigated before it committed, or auth() hit a transient
+ * Clerk error, the write was silently lost and the brief reappeared on the next
+ * load. So we:
+ *   - send with `keepalive: true` (survives an unload, like the extension's
+ *     submitBrief), and
+ *   - await the response and retry once on failure, and
+ *   - if it still fails, call `onArchiveFailed(id)` to bring the card back —
+ *     honest, immediate feedback instead of a silent loss that resurfaces later.
+ *
+ * Rendered as a SIBLING of the card link (never nested inside the <a>), so its
+ * own click is captured here; stopPropagation/preventDefault keep it isolated.
  */
 export default function ArchiveButton({
   briefId,
   onArchive,
+  onArchiveFailed,
 }: {
   briefId: string;
   onArchive?: (id: string) => void;
+  onArchiveFailed?: (id: string) => void;
 }) {
   const [done, setDone] = useState(false);
 
-  function archive(e: React.MouseEvent) {
+  async function postArchive(): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(`/api/briefs/${briefId}/archive`, {
+          method: "POST",
+          credentials: "same-origin",
+          keepalive: true,
+        });
+        if (res.ok) return true;
+      } catch {
+        // network blip — fall through to retry
+      }
+    }
+    return false;
+  }
+
+  async function archive(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (done) return;
     setDone(true);
     // Instant: remove the card from the parent's view right now.
     onArchive?.(briefId);
-    // Fire-and-forget the server write — no await, no refresh.
-    fetch(`/api/briefs/${briefId}/archive`, {
-      method: "POST",
-      credentials: "same-origin",
-    }).catch(() => {});
+    // Reliable write. On definitive failure, restore the card and re-enable.
+    const ok = await postArchive();
+    if (!ok) {
+      onArchiveFailed?.(briefId);
+      setDone(false);
+    }
   }
 
   return (
