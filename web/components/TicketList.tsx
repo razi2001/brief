@@ -51,36 +51,48 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
                 style={{ backgroundColor: dot }}
                 title={stateName}
               />
-              <span className="min-w-0 flex-1 truncate text-sm text-ink">{title}</span>
-              {isProcessing && (
-                <span className="shrink-0 font-mono text-[0.6875rem] text-accent">creating…</span>
-              )}
-              {!isProcessing && b.ticket_identifier && (
-                <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[0.6875rem] text-accent sm:inline-flex">
-                  <TrackerLogo kind={b.provider ?? "linear"} size={13} />
-                  {b.ticket_identifier}
-                </span>
-              )}
-              <span className="shrink-0 font-mono text-[0.625rem] text-muted">
-                {relativeTime(b.created_at)}
+              {/* Title — smaller, capped so it crops before the status column. */}
+              <span className="min-w-0 max-w-[60%] flex-1 truncate text-[0.8125rem] text-ink">
+                {title}
               </span>
-              {ti?.assignee &&
-                (ti.assignee.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={ti.assignee.avatarUrl}
-                    alt=""
-                    title={ti.assignee.name}
-                    className="h-5 w-5 shrink-0 rounded-full border border-hairline object-cover"
-                  />
-                ) : (
-                  <span
-                    title={ti.assignee.name}
-                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-hairline bg-cream-2 text-[0.625rem] text-ink-2"
-                  >
-                    {initial(ti.assignee.name)}
+
+              {/* Right meta (matches the Tickets feed) */}
+              <div className="ml-auto flex shrink-0 items-center gap-3">
+                {/* Status column */}
+                <span
+                  className="w-[5.5rem] truncate text-right font-mono text-[0.625rem]"
+                  style={{ color: dot }}
+                  title={stateName}
+                >
+                  {isProcessing ? "creating…" : stateName}
+                </span>
+                {!isProcessing && b.ticket_identifier && (
+                  <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[0.6875rem] text-accent sm:inline-flex">
+                    <TrackerLogo kind={b.provider ?? "linear"} size={13} />
+                    {b.ticket_identifier}
                   </span>
-                ))}
+                )}
+                <span className="shrink-0 font-mono text-[0.625rem] text-muted">
+                  {relativeTime(b.created_at)}
+                </span>
+                {ti?.assignee &&
+                  (ti.assignee.avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={ti.assignee.avatarUrl}
+                      alt=""
+                      title={ti.assignee.name}
+                      className="h-5 w-5 shrink-0 rounded-full border border-hairline object-cover"
+                    />
+                  ) : (
+                    <span
+                      title={ti.assignee.name}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-hairline bg-cream-2 text-[0.625rem] text-ink-2"
+                    >
+                      {initial(ti.assignee.name)}
+                    </span>
+                  ))}
+              </div>
             </div>
           );
           return (
