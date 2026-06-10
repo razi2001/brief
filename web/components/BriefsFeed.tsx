@@ -62,7 +62,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
       </p>
       <p className="max-w-xs text-sm text-muted">
         {filtered
-          ? "no briefs in the selected statuses — adjust the filter to see more."
+          ? "no tickets in the selected statuses — adjust the filter to see more."
           : "hit ✦ in the extension, talk through a bug, and it lands here — written up and filed."}
       </p>
     </div>
@@ -162,35 +162,33 @@ export default function BriefsFeed({
 
   const options = useMemo(() => deriveOptions(liveBriefs), [liveBriefs]);
 
-  const defaultSelected = useMemo(
-    () => new Set(options.map((o) => o.key)),
-    [options],
+  // Track only the statuses the user EXPLICITLY hid — not the ones they keep.
+  // Everything else is shown, so the default is "all" and a brand-new status
+  // (e.g. a just-filed ticket's tracker state) appears automatically instead of
+  // being filtered out. The user opts a status out by toggling it off.
+  const [deselected, setDeselected] = useState<Set<string>>(new Set());
+
+  // The currently-shown keys = every present option minus the ones hidden.
+  const reconciled = useMemo(
+    () => new Set(options.filter((o) => !deselected.has(o.key)).map((o) => o.key)),
+    [options, deselected],
   );
 
-  const [selected, setSelected] = useState<Set<string>>(defaultSelected);
-
-  const reconciled = useMemo(() => {
-    const next = new Set<string>();
-    const known = new Set(options.map((o) => o.key));
-    for (const k of selected) if (known.has(k)) next.add(k);
-    return next;
-  }, [selected, options]);
-
-  const isDefault = useMemo(() => {
-    if (reconciled.size !== defaultSelected.size) return false;
-    for (const k of reconciled) if (!defaultSelected.has(k)) return false;
-    return true;
-  }, [reconciled, defaultSelected]);
+  // Default view = nothing hidden (all statuses shown).
+  const isDefault = useMemo(
+    () => options.every((o) => !deselected.has(o.key)),
+    [options, deselected],
+  );
 
   const toggle = (key: string) =>
-    setSelected(() => {
-      const next = new Set(reconciled);
+    setDeselected((prev) => {
+      const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
 
-  const reset = () => setSelected(new Set(defaultSelected));
+  const reset = () => setDeselected(new Set());
 
   const visible = liveBriefs.filter((b) => reconciled.has(filterKeyOf(b)));
   const filteredOut = liveBriefs.length - visible.length;
