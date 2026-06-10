@@ -114,6 +114,9 @@ export default function BriefsFeed({
   const [filterOpen, setFilterOpen] = useState(false);
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  // Show archived tickets? Off by default — and because it's local state it
+  // resets to off every time the page is (re)loaded.
+  const [showArchived, setShowArchived] = useState(false);
   // Pending exit-animation timers, so a failed archive can cancel the
   // "commit to archivedIds" step and restore the card cleanly.
   const exitTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -157,12 +160,17 @@ export default function BriefsFeed({
   //  - failed: the system retries for up to 10 min, then quietly gives up.
   //  - uploaded: a not-yet-filed draft (e.g. a recording uploaded on stop) that
   //    the user files from the extension — it isn't a real ticket yet.
+  //  - archived: only shown when the "Show archived" toggle is on.
   const liveBriefs = useMemo(
     () =>
       briefs.filter(
-        (b) => !archivedIds.has(b.id) && b.status !== "failed" && b.status !== "uploaded",
+        (b) =>
+          !archivedIds.has(b.id) &&
+          b.status !== "failed" &&
+          b.status !== "uploaded" &&
+          (showArchived || !b.archived),
       ),
-    [briefs, archivedIds],
+    [briefs, archivedIds, showArchived],
   );
 
   const options = useMemo(() => deriveOptions(liveBriefs), [liveBriefs]);
@@ -179,10 +187,10 @@ export default function BriefsFeed({
     [options, deselected],
   );
 
-  // Default view = nothing hidden (all statuses shown).
+  // Default view = nothing hidden (all statuses shown) and archived not shown.
   const isDefault = useMemo(
-    () => options.every((o) => !deselected.has(o.key)),
-    [options, deselected],
+    () => !showArchived && options.every((o) => !deselected.has(o.key)),
+    [options, deselected, showArchived],
   );
 
   const toggle = (key: string) =>
@@ -193,7 +201,10 @@ export default function BriefsFeed({
       return next;
     });
 
-  const reset = () => setDeselected(new Set());
+  const reset = () => {
+    setDeselected(new Set());
+    setShowArchived(false);
+  };
 
   const visible = liveBriefs.filter((b) => reconciled.has(filterKeyOf(b)));
   const filteredOut = liveBriefs.length - visible.length;
@@ -226,6 +237,8 @@ export default function BriefsFeed({
             isDefault={isDefault}
             open={filterOpen}
             onOpenChange={setFilterOpen}
+            showArchived={showArchived}
+            onToggleArchived={() => setShowArchived((v) => !v)}
           />
         </div>
       </div>

@@ -21,10 +21,11 @@ export type BriefRow = {
   ticket_url: string | null;
   ticket_identifier: string | null;
   error: string | null;
+  archived_at: string | null;
 };
 
 export const BRIEF_COLUMNS =
-  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, error";
+  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, error, archived_at";
 
 /**
  * How long a brief may keep trying before we give up on it. A brief flips to
@@ -192,6 +193,7 @@ export async function attachTicketInfo(
       id: b.id,
       status: b.status,
       title: b.title ?? null,
+      archived: !!b.archived_at,
       source_kind: b.source_kind ?? null,
       created_at: b.created_at ?? null,
       updated_at: b.updated_at ?? null,

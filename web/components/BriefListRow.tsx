@@ -155,7 +155,13 @@ export default function BriefListRow({
         <div className={contentClass}>{inner}</div>
       )}
       <div className="flex shrink-0 items-center pl-1 pr-2.5">
-        <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+        {b.archived ? (
+          <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
+            archived
+          </span>
+        ) : (
+          <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+        )}
       </div>
     </li>
   );

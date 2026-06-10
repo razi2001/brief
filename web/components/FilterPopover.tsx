@@ -28,6 +28,8 @@ export default function FilterPopover({
   isDefault,
   open,
   onOpenChange,
+  showArchived,
+  onToggleArchived,
 }: {
   options: FilterOption[];
   selected: Set<string>;
@@ -37,6 +39,9 @@ export default function FilterPopover({
   isDefault: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Whether archived tickets are currently shown. */
+  showArchived: boolean;
+  onToggleArchived: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
@@ -158,6 +163,42 @@ export default function FilterPopover({
               );
             })}
           </ul>
+
+          {/* Archived toggle — separate from status; off by default each visit. */}
+          <div className="mt-1.5 border-t hairline pt-1.5">
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={showArchived}
+              onClick={onToggleArchived}
+              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-cream-2/60"
+            >
+              <span
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                  showArchived
+                    ? "border-accent bg-accent text-cream"
+                    : "border-hairline bg-transparent text-transparent"
+                }`}
+              >
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M5 12l5 5L20 6" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink-2">
+                Show archived
+              </span>
+            </button>
+          </div>
         </div>
       )}
     </div>

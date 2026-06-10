@@ -16,6 +16,8 @@ export type DashboardBrief = {
   status: string;
   /** User-given brief name, shown while the ticket is still filing. */
   title?: string | null;
+  /** True when the brief has been archived (hidden unless "Show archived"). */
+  archived?: boolean;
   source_kind?: string | null;
   created_at?: string | null;
   /** When the brief last changed state — used to time "filing…" elapsed. */
