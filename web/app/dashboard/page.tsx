@@ -6,7 +6,7 @@ import AppShell from "@/components/AppShell";
 import BrandMark from "@/components/BrandMark";
 import AutoRefresh from "@/components/AutoRefresh";
 import GettingStarted from "@/components/GettingStarted";
-import Connections from "@/components/Connections";
+import Integrations from "@/components/Integrations";
 import BriefRow from "@/components/BriefRow";
 
 export default async function Dashboard() {
@@ -26,11 +26,6 @@ export default async function Dashboard() {
   const isProcessing = (briefs ?? []).some(
     (b) => b.status === "uploaded" || b.status === "processing",
   );
-
-  const connections = [
-    { key: "linear", name: "Linear", connected: hasLinear },
-    { key: "jira", name: "Jira", connected: hasJira },
-  ];
 
   const greetingName =
     user?.firstName ??
@@ -63,8 +58,8 @@ export default async function Dashboard() {
         />
       )}
 
-      {/* Connections */}
-      <Connections connections={connections} />
+      {/* Integrations */}
+      <Integrations />
 
       {/* Recent briefs */}
       <section className="mt-12">
