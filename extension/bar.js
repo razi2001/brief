@@ -5,7 +5,7 @@
 // background.js and receives transcript updates + the final blob back.
 
 import { makeZip } from './lib/zip.js';
-import { getCloudToken, submitBrief } from './cloud.js';
+import { getCloudToken, uploadDraft } from './cloud.js';
 
 const SAVED_AUTODISMISS_MS = 5000;
 
@@ -122,45 +122,6 @@ function setSavingTicketLink(identifier, url) {
   el.appendChild(link);
 }
 
-// Instant green "sent" confirmation for the fire-and-forget cloud submit. The
-// agent run is NOT awaited, so we show success the moment the upload resolves.
-// Swaps the spinner for a green check pill and shows a short message — no link,
-// because we immediately open the user's briefs page in a new tab and close the
-// bar (see the cloud branch below).
-function setSavingSent(message) {
-  const inner = document.querySelector('[data-state="saving"]');
-  if (!inner) return;
-  const spinner = inner.querySelector('.spinner');
-  if (spinner) {
-    const pill = document.createElement('span');
-    pill.className = 'check-pill';
-    pill.innerHTML =
-      '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-    spinner.replaceWith(pill);
-  }
-  const el = inner.querySelector('.state-text');
-  if (!el) return;
-  el.textContent = '';
-  el.classList.add('sent');
-  const title = document.createElement('span');
-  title.className = 'sent-title';
-  title.textContent = message;
-  el.appendChild(title);
-}
-
-// The brief now lives in the cloud — drop its local inbox draft (if any) so the
-// extension doesn't keep showing it.
-async function clearInboxDraft(id) {
-  try {
-    const { inbox } = await chrome.storage.local.get('inbox');
-    const list = Array.isArray(inbox) ? inbox : [];
-    const next = list.filter((b) => b.id !== id);
-    if (next.length !== list.length) {
-      await chrome.storage.local.set({ inbox: next });
-      chrome.runtime.sendMessage({ type: 'INBOX_CHANGED' }).catch(() => {});
-    }
-  } catch {}
-}
 
 // ---------- Offscreen control ----------
 async function sendToOffscreen(type, extra = {}) {
@@ -583,7 +544,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
 
   if (cloudToken) {
     try {
-      setSavingText('Sending to Brief Cloud…');
+      setSavingText('Saving…');
       const files = [
         { name: 'brief.json', blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }), contentType: 'application/json' },
         ...keyframeEntries.map((k) => ({
@@ -604,22 +565,19 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
         description: userDescription || '',
       };
 
-      // Fire-and-forget: submitBrief awaits only the upload, then kicks off
-      // the agent run (keepalive) WITHOUT waiting for it. Show success the
-      // instant the upload resolves — don't wait for a ticket to be filed —
-      // then send the user straight to their briefs page (new tab, routed via
-      // background since the bar is a content script) and close the bar.
-      const { ticketsUrl } = await submitBrief(files, cloudMeta);
-      setSavingSent('Sent — opening your tickets…');
-      chrome.runtime.sendMessage({ type: 'open-url', url: ticketsUrl }).catch(() => {});
-      await clearInboxDraft(briefId);
-      setTimeout(closeParent, 1000);
+      // Upload the recording to the cloud as a DRAFT (no filing). The video only
+      // exists here in the bar at this moment, so we upload it now to preserve
+      // it — but we do NOT file the ticket. The brief lands in the inbox as
+      // "recorded"; the user files it explicitly with "Create ticket", which
+      // just kicks off processing on this already-uploaded draft.
+      const cloudBriefId = await uploadDraft(files, cloudMeta);
+      await finishToInbox(briefId, intent, cloudBriefId);
       return;
     } catch (err) {
       // Upload failed — fall through to the original local download so the
       // brief is preserved.
       console.warn('[brief/bar] cloud upload failed, falling back to zip:', err);
-      setSavingText('cloud filing failed — saving locally…');
+      setSavingText('cloud save failed — saving locally…');
     }
   }
 
@@ -667,8 +625,11 @@ async function finishWithCopy(id, intent) {
   savedDismissTimer = setTimeout(closeParent, SAVED_AUTODISMISS_MS);
 }
 
-// ---------- Inbox: mark this ticket recorded, show confirm toast ----------
-async function finishToInbox(id, intent) {
+// ---------- Inbox: mark this ticket recorded ----------
+// `cloudBriefId` (optional): when the recording was uploaded to Brief Cloud as a
+// draft, we stash its cloud id on the entry so the popup's "Create ticket" can
+// file THIS already-uploaded brief instead of re-uploading.
+async function finishToInbox(id, intent, cloudBriefId) {
   try {
     const { inbox } = await chrome.storage.local.get('inbox');
     const list = Array.isArray(inbox) ? inbox : [];
@@ -679,10 +640,11 @@ async function finishToInbox(id, intent) {
       entry.hasRecording = true;
       entry.recordedAt = Date.now();
       entry.intent = intent;
+      if (cloudBriefId) entry.cloudBriefId = cloudBriefId;
     } else {
       // Fallback: recording started without a pre-named draft (shouldn't
       // normally happen now, but keep the brief rather than lose it).
-      list.push({ id, intent, name: '', recorded: true, hasRecording: true, addedAt: Date.now(), recordedAt: Date.now() });
+      list.push({ id, intent, name: '', recorded: true, hasRecording: true, addedAt: Date.now(), recordedAt: Date.now(), cloudBriefId });
     }
     await chrome.storage.local.set({ inbox: list });
     chrome.runtime.sendMessage({ type: 'INBOX_CHANGED' }).catch(() => {});

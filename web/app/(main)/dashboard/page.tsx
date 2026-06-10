@@ -54,7 +54,8 @@ export default async function Dashboard() {
   const list = (data ?? []) as BriefRow[];
 
   const filed = list.filter((b) => b.status === "filed");
-  const processing = list.filter((b) => b.status === "processing" || b.status === "uploaded");
+  // 'uploaded' = unfiled draft (managed in the extension) — not "in progress".
+  const processing = list.filter((b) => b.status === "processing");
 
   const weekAgo = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
   const thisWeek = filed.filter(

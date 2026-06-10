@@ -25,15 +25,14 @@ export default async function BriefsPage() {
     .limit(40);
   const list = (data ?? []) as BriefRow[];
 
-  const isProcessing = list.some(
-    (b) => b.status === "uploaded" || b.status === "processing",
-  );
+  // Only 'processing' is in-progress; 'uploaded' is an unfiled draft (hidden).
+  const isProcessing = list.some((b) => b.status === "processing");
 
   const dashboardBriefs = await attachTicketInfo(userId, list, ctx.hasLinear, ctx.hasJira);
 
   const counts: Counts = {
     filed: list.filter((b) => b.status === "filed").length,
-    processing: list.filter((b) => b.status === "processing" || b.status === "uploaded").length,
+    processing: list.filter((b) => b.status === "processing").length,
     failed: list.filter((b) => b.status === "failed").length,
   };
 

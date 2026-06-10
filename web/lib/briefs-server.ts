@@ -53,6 +53,9 @@ export async function recoverOrphans(
 ): Promise<void> {
   try {
     const cutoff = new Date(Date.now() - timeoutMs).toISOString();
+    // Only 'processing' is a live filing run that can orphan. 'uploaded' means
+    // a draft the user hasn't filed yet (e.g. a recording uploaded on stop) —
+    // leave those alone; they're managed from the extension, not auto-failed.
     await admin
       .from("briefs")
       .update({
@@ -61,7 +64,7 @@ export async function recoverOrphans(
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId)
-      .in("status", ["uploaded", "processing"])
+      .eq("status", "processing")
       .lt("updated_at", cutoff);
   } catch {
     // Recovery is opportunistic — swallow failures so the feed still renders.

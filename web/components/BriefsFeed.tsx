@@ -153,10 +153,15 @@ export default function BriefsFeed({
     });
   };
 
-  // Failed / "didn't file" briefs are never shown — they just drop out of the
-  // feed (the system retries for up to 10 min, then quietly gives up).
+  // Hidden from the feed:
+  //  - failed: the system retries for up to 10 min, then quietly gives up.
+  //  - uploaded: a not-yet-filed draft (e.g. a recording uploaded on stop) that
+  //    the user files from the extension — it isn't a real ticket yet.
   const liveBriefs = useMemo(
-    () => briefs.filter((b) => !archivedIds.has(b.id) && b.status !== "failed"),
+    () =>
+      briefs.filter(
+        (b) => !archivedIds.has(b.id) && b.status !== "failed" && b.status !== "uploaded",
+      ),
     [briefs, archivedIds],
   );
 

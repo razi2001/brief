@@ -48,9 +48,13 @@ export async function uploadAndProcess(files, meta) {
   return { briefId, ok: proc.ok, status: proc.status, ...result };
 }
 
-// Upload the brief, then kick off processing WITHOUT waiting for the agent.
-// keepalive lets the /process request survive the popup closing.
-export async function submitBrief(files, meta) {
+export const TICKETS_URL = `${APP_URL}/tickets`;
+
+// Create a brief row + upload its files. Does NOT file the ticket — the brief
+// sits as an "uploaded" draft until processBrief() is called. Returns the cloud
+// brief id. Used for recordings: we upload on stop to preserve the video, but
+// only file when the user hits "Create ticket".
+export async function uploadDraft(files, meta) {
   const token = await getCloudToken();
   if (!token) throw new Error("Not connected to Brief Cloud");
   const create = await fetch(`${APP_URL}/api/briefs`, {
@@ -66,11 +70,25 @@ export async function submitBrief(files, meta) {
     const put = await fetch(up.signedUrl, { method: "PUT", headers: { "Content-Type": f.contentType || f.blob.type || "application/octet-stream" }, body: f.blob });
     if (!put.ok) throw new Error(`upload ${f.name} failed: ${put.status}`);
   }
-  // Fire processing and DO NOT await it. keepalive keeps it alive past popup close.
-  fetch(`${APP_URL}/api/briefs/${briefId}/process`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
-  return {
-    briefId,
-    ticketsUrl: `${APP_URL}/tickets`,
-    dashboardUrl: `${APP_URL}/dashboard`,
-  };
+  return briefId;
+}
+
+// Kick off processing (file the ticket) for an already-uploaded brief. keepalive
+// lets it survive the popup/bar closing. Fire-and-forget by default.
+export async function processBrief(briefId) {
+  const token = await getCloudToken();
+  if (!token) throw new Error("Not connected to Brief Cloud");
+  await fetch(`${APP_URL}/api/briefs/${briefId}/process`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    keepalive: true,
+  }).catch(() => {});
+}
+
+// Upload the brief, then kick off processing WITHOUT waiting for the agent.
+// Used for screenshot/text briefs filed straight from the popup.
+export async function submitBrief(files, meta) {
+  const briefId = await uploadDraft(files, meta);
+  processBrief(briefId);
+  return { briefId, ticketsUrl: TICKETS_URL, dashboardUrl: `${APP_URL}/dashboard` };
 }

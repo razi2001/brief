@@ -8,7 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { APP_URL, getCloudToken, submitBrief } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, submitBrief, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -876,19 +876,24 @@ bcCreateTicket?.addEventListener('click', async () => {
   bcCreateTicket.classList.add('sending');
   bcCreateTicket.innerHTML = '<span class="btn-spin"></span> Sending…';
   try {
-    const { files, meta } = bcBuildFilesAndMeta(b);
-    // Fire-and-forget: only the small create+upload is awaited; the agent run
-    // is kicked off (keepalive) and NOT awaited, so this feels instant.
-    const { ticketsUrl } = await submitBrief(files, meta);
+    if (b.cloudBriefId) {
+      // Recording: already uploaded to the cloud as a draft on stop. Just file
+      // it — kick off processing on the existing brief, no re-upload.
+      await processBrief(b.cloudBriefId);
+    } else {
+      // Screenshot / text brief: upload + process now.
+      const { files, meta } = bcBuildFilesAndMeta(b);
+      await submitBrief(files, meta);
+    }
 
-    // Remove the submitted brief from the inbox immediately so it disappears
+    // Remove the filed brief from the inbox immediately so it disappears
     // from the extension.
     const after = await getInbox();
     await setInbox(after.filter((x) => x.id !== b.id));
     bcSetStatus('');
 
     // Confirm, then open the tickets page in a new tab and close the popup.
-    bcShowSentAndOpen(ticketsUrl);
+    bcShowSentAndOpen(TICKETS_URL);
   } catch (err) {
     showInlineError(`Couldn’t send: ${err?.message || err}`);
     bcCreateTicket.classList.remove('sending');
