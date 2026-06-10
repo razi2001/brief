@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import Link from "next/link";
+import { useUser, useReverification } from "@clerk/nextjs";
 import { TrackerLogo } from "./TrackerLogo";
 
 /**
@@ -71,9 +72,17 @@ export default function Integrations() {
   // Per-tracker busy + error state, keyed by tracker key.
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // Set when Clerk refuses the inline disconnect (403 — sensitive action needs
-  // its own reverification flow), so we point the user to account settings.
+  // Set when the inline disconnect ultimately fails (user cancels the
+  // reverification, or some other error), so we point them to account settings.
   const [needsAccount, setNeedsAccount] = useState<Record<string, boolean>>({});
+
+  // Removing a connected account is a "sensitive" action: Clerk requires
+  // step-up reverification (session_reverification_required). useReverification
+  // wraps the call so it pops Clerk's verify-code modal inline and retries the
+  // destroy on success — no leaving the page.
+  const destroyAccount = useReverification(
+    (account: { destroy: () => Promise<unknown> }) => account.destroy(),
+  );
 
   if (!isLoaded || !user) {
     return (
@@ -149,11 +158,12 @@ export default function Integrations() {
     setNeedsAccount((m) => ({ ...m, [t.key]: false }));
     setTrackerBusy(t.key, true);
     try {
-      await account.destroy();
+      // Pops Clerk's reverification modal if needed, then removes the account.
+      await destroyAccount(account);
       await user!.reload();
     } catch {
-      // Clerk blocks the inline removal (403). Its own account UI runs the
-      // proper (reverification-aware) flow, so route the user there.
+      // Reverification cancelled or some other failure — fall back to the
+      // account page, where Clerk's own UI can complete the removal.
       setNeedsAccount((m) => ({ ...m, [t.key]: true }));
     } finally {
       setTrackerBusy(t.key, false);
@@ -215,12 +225,12 @@ export default function Integrations() {
               {showAccount ? (
                 <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
                   Couldn&apos;t remove it here —{" "}
-                  <a
+                  <Link
                     href="/account"
                     className="text-accent no-underline hover:underline"
                   >
                     manage connections in account settings
-                  </a>
+                  </Link>
                   .
                 </p>
               ) : (
