@@ -11,8 +11,15 @@ import type { DashboardBrief } from "@/components/BriefCard";
 export default async function Dashboard() {
   const userId = await requireUserId();
   const user = await currentUser();
-  const hasLinear = !!user?.externalAccounts?.some((a) => (a.provider ?? "").toLowerCase().includes("linear"));
-  const hasJira = !!user?.externalAccounts?.some((a) => (a.provider ?? "").toLowerCase().includes("atlassian"));
+  // A connection only counts if it isn't a known-unverified (failed/abandoned)
+  // OAuth attempt. If the verification status isn't exposed, fall back to presence.
+  const isLive = (a: { verification?: { status?: string } | null }) => {
+    const s = a.verification?.status;
+    return s === undefined || s === "verified";
+  };
+  const matches = (a: { provider?: string }, p: string) => (a.provider ?? "").toLowerCase().includes(p);
+  const hasLinear = !!user?.externalAccounts?.some((a) => matches(a, "linear") && isLive(a));
+  const hasJira = !!user?.externalAccounts?.some((a) => matches(a, "atlassian") && isLive(a));
 
   const admin = createAdminSupabase();
   const { data: briefs } = await admin

@@ -92,15 +92,35 @@ export default function Integrations() {
   const setTrackerError = (key: string, value: string) =>
     setErrors((e) => ({ ...e, [key]: value }));
 
-  const connectedAccount = (providerMatch: string) =>
-    user.externalAccounts.find((a) =>
-      (a.provider ?? "").toLowerCase().includes(providerMatch),
+  // Only a VERIFIED external account counts as connected. Clerk creates an
+  // (unverified) record even when the OAuth flow fails or is abandoned, so
+  // checking mere existence would wrongly show "Connected".
+  const accountFor = (providerMatch: string, verified: boolean) =>
+    user.externalAccounts.find(
+      (a) =>
+        (a.provider ?? "").toLowerCase().includes(providerMatch) &&
+        (verified
+          ? a.verification?.status === "verified"
+          : a.verification?.status !== "verified"),
     );
+  const connectedAccount = (providerMatch: string) => accountFor(providerMatch, true);
+  const pendingAccount = (providerMatch: string) => accountFor(providerMatch, false);
 
   async function handleConnect(t: Tracker) {
     setTrackerError(t.key, "");
     setTrackerBusy(t.key, true);
     try {
+      // Clear out a previous failed/abandoned attempt so it can't linger and
+      // look "connected" — and so the new attempt starts clean.
+      const stale = pendingAccount(t.providerMatch);
+      if (stale) {
+        try {
+          await stale.destroy();
+          await user!.reload();
+        } catch {
+          /* ignore — proceed with a fresh attempt */
+        }
+      }
       const externalAccount = await user!.createExternalAccount({
         strategy: t.strategy,
         redirectUrl: window.location.origin + "/dashboard",
@@ -123,7 +143,7 @@ export default function Integrations() {
   }
 
   async function handleDisconnect(t: Tracker) {
-    const account = connectedAccount(t.providerMatch);
+    const account = connectedAccount(t.providerMatch) ?? pendingAccount(t.providerMatch);
     if (!account) return;
     setTrackerError(t.key, "");
     setTrackerBusy(t.key, true);
@@ -148,6 +168,7 @@ export default function Integrations() {
         {TRACKERS.map((t) => {
           const account = connectedAccount(t.providerMatch);
           const isConnected = !!account;
+          const pending = !isConnected && !!pendingAccount(t.providerMatch);
           const isBusy = !!busy[t.key];
           const error = errors[t.key];
 
@@ -190,9 +211,9 @@ export default function Integrations() {
                 )}
               </div>
 
-              {error && (
+              {(error || pending) && (
                 <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
-                  {error}
+                  {error || "Last connection didn’t finish — click Connect to try again."}
                 </p>
               )}
             </div>
