@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import AutoRefresh from "@/components/AutoRefresh";
 import GettingStarted from "@/components/GettingStarted";
 import StatStrip, { type Stat } from "@/components/StatStrip";
 import TrendChart, { type TrendDay } from "@/components/TrendChart";
@@ -103,6 +104,13 @@ export default async function Dashboard() {
 
   return (
     <>
+      {/* Live status: while anything is filing, poll so the user can watch a
+          just-queued ticket move from "in progress" to "filed" without reloading. */}
+      {processing.length > 0 && (
+        <div className="mb-3 flex justify-end">
+          <AutoRefresh active />
+        </div>
+      )}
       <StatStrip stats={stats} />
 
       {hasBriefs ? (
