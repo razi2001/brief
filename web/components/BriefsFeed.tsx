@@ -133,7 +133,7 @@ export default function BriefsFeed({
         return next;
       });
       exitTimers.current.delete(id);
-    }, 280);
+    }, 340);
     exitTimers.current.set(id, t);
   };
 

@@ -148,13 +148,44 @@ a {
 .brief-card {
   border-radius: 15px;
 }
-/* Archive exit: the card fades + scales down + lifts out over ~260ms before
-   the parent drops it from the list. */
+/* Archive exit: slide the row right + fade, then collapse its height to nothing
+   — mirrors the extension's swipe-out so web and extension archiving feel the
+   same. The parent drops it from the list once the ~340ms animation completes. */
 .brief-leaving {
-  opacity: 0;
-  transform: scale(0.96) translateY(-4px);
-  transition: opacity .26s ease, transform .26s ease;
+  animation: brief-swipe-out 0.34s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   pointer-events: none;
+  overflow: hidden;
+}
+@keyframes brief-swipe-out {
+  0%   { opacity: 1; transform: translateX(0);    max-height: 110px; }
+  45%  { opacity: 0; transform: translateX(40px); max-height: 110px; }
+  100% { opacity: 0; transform: translateX(40px); max-height: 0; border-width: 0; }
+}
+
+/* Indeterminate "in queue / filing" bar along the bottom of a processing row —
+   a clear, always-visible signal that the agent is working (the old card-wide
+   shimmer was invisible on a dense list row). */
+.queue-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
+  background: rgba(221, 105, 54, 0.12);
+}
+.queue-bar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 35%;
+  background: var(--color-accent);
+  animation: queue-slide 1.15s ease-in-out infinite;
+}
+@keyframes queue-slide {
+  0% { left: -35%; }
+  100% { left: 100%; }
 }
 .brief-card:hover {
   transform: translateY(-2px);
@@ -255,7 +286,11 @@ a {
     transform: none;
   }
   .brief-leaving {
-    transition: none;
+    animation: none;
+    opacity: 0;
+  }
+  .queue-bar::before {
+    animation: none;
   }
   .sky .cloud {
     animation: none !important;

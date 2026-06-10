@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import AppShell from "@/components/AppShell";
 import GettingStarted from "@/components/GettingStarted";
 import StatStrip, { type Stat } from "@/components/StatStrip";
 import TrendChart, { type TrendDay } from "@/components/TrendChart";
@@ -105,7 +103,7 @@ export default async function Dashboard() {
   const showGettingStarted = !ctx.trackerConnected || !hasBriefs || filed.length === 0;
 
   return (
-    <AppShell headerRight={<UserButton />}>
+    <>
       <StatStrip stats={stats} />
 
       {hasBriefs ? (
@@ -159,6 +157,6 @@ export default async function Dashboard() {
           · what&apos;s the brief?
         </p>
       </footer>
-    </AppShell>
+    </>
   );
 }

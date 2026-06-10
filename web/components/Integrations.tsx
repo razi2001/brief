@@ -76,10 +76,6 @@ export default function Integrations() {
     return (
       <section id="integrations" className="scroll-mt-8">
         <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers · MCP</h2>
-        <p className="mt-1.5 text-xs text-muted">
-          Linear &amp; Jira connect over MCP — your agent files briefs through the
-          tracker&apos;s MCP server.
-        </p>
         <div className="mt-3 flex flex-col gap-3">
           <SkeletonCard />
           <SkeletonCard />
@@ -161,10 +157,6 @@ export default function Integrations() {
   return (
     <section id="integrations" className="scroll-mt-8">
       <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers · MCP</h2>
-      <p className="mt-1.5 text-xs text-muted">
-        Linear &amp; Jira connect over MCP — your agent files briefs through the
-        tracker&apos;s MCP server.
-      </p>
 
       <div className="mt-3 flex flex-col gap-3">
         {TRACKERS.map((t) => {

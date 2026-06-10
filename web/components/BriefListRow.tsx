@@ -72,8 +72,8 @@ export default function BriefListRow({
       : "#c62828";
 
   const row = (
-    <div className="relative flex items-center gap-3 px-4 py-3 pr-9 transition-colors hover:bg-cream-2/40">
-      {isProcessing && <span aria-hidden className="shimmer pointer-events-none absolute inset-0" />}
+    <div className="animate-rise relative flex items-center gap-3 px-4 py-3 pr-9 transition-colors hover:bg-cream-2/40">
+      {isProcessing && <span aria-hidden className="queue-bar" />}
       <span
         className={`relative h-2 w-2 shrink-0 rounded-full ${isProcessing ? "dot-pulse" : ""}`}
         style={{ backgroundColor: dotColor }}

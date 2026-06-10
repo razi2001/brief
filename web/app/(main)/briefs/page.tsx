@@ -1,7 +1,5 @@
-import { UserButton } from "@clerk/nextjs";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import AppShell from "@/components/AppShell";
 import BriefsFeed, { type Counts } from "@/components/BriefsFeed";
 import {
   recoverOrphans,
@@ -40,8 +38,6 @@ export default async function BriefsPage() {
   };
 
   return (
-    <AppShell headerRight={<UserButton />}>
-      <BriefsFeed briefs={dashboardBriefs} counts={counts} isProcessing={isProcessing} />
-    </AppShell>
+    <BriefsFeed briefs={dashboardBriefs} counts={counts} isProcessing={isProcessing} />
   );
 }
