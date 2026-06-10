@@ -103,7 +103,7 @@ export default function FilterPopover({
           id={panelId}
           role="menu"
           className="card animate-rise absolute right-0 z-20 mt-2 w-[220px] p-2"
-          style={{ boxShadow: "0 12px 32px rgba(26,22,18,.14)" }}
+          style={{ background: "#fbf8f1", backdropFilter: "none", boxShadow: "0 12px 32px rgba(26,22,18,.16)" }}
         >
           <div className="flex items-center justify-between px-2 pb-1.5 pt-1">
             <span className="text-[0.625rem] uppercase tracking-[0.12em] text-muted">

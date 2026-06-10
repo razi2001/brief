@@ -220,6 +220,52 @@ export default function BriefsFeed({
     return next;
   }, [counts, briefs, archivedIds]);
 
+  // ---- Batch selection (archive / delete many) ----
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const exitSelect = () => {
+    setSelecting(false);
+    setSelected(new Set());
+    setConfirmDelete(false);
+  };
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const allVisibleSelected = visible.length > 0 && visible.every((b) => selected.has(b.id));
+  const toggleSelectAll = () =>
+    setSelected(allVisibleSelected ? new Set() : new Set(visible.map((b) => b.id)));
+
+  // Both actions optimistically swipe the rows out, then fire the writes
+  // (keepalive so they land even if the page changes).
+  const runBatch = (endpoint: "archive" | "delete") => {
+    const ids = [...selected];
+    ids.forEach((id) => onArchive(id));
+    ids.forEach((id) =>
+      fetch(`/api/briefs/${id}/${endpoint}`, {
+        method: "POST",
+        credentials: "same-origin",
+        keepalive: true,
+      }).catch(() => {}),
+    );
+    exitSelect();
+  };
+  const archiveSelected = () => runBatch("archive");
+  const deleteSelected = () => {
+    // Two-step confirm — delete is permanent.
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 4000);
+      return;
+    }
+    runBatch("delete");
+  };
+
   return (
     <section>
       <div className="flex items-start justify-between gap-3">
@@ -229,6 +275,13 @@ export default function BriefsFeed({
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <AutoRefresh active={isProcessing} />
+          <button
+            type="button"
+            onClick={() => (selecting ? exitSelect() : setSelecting(true))}
+            className="font-mono text-xs tracking-wide text-muted no-underline transition-colors hover:text-ink"
+          >
+            {selecting ? "Cancel" : "Select"}
+          </button>
           <FilterPopover
             options={options}
             selected={reconciled}
@@ -243,6 +296,46 @@ export default function BriefsFeed({
         </div>
       </div>
 
+      {/* Batch toolbar */}
+      {selecting && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-hairline bg-cream-2/60 px-4 py-2.5">
+          <button
+            type="button"
+            onClick={toggleSelectAll}
+            className="flex items-center gap-2 font-mono text-xs text-ink-2"
+          >
+            <span
+              className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                allVisibleSelected ? "border-accent bg-accent text-cream" : "border-hairline text-transparent"
+              }`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 12l5 5L20 6" />
+              </svg>
+            </span>
+            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={archiveSelected}
+              disabled={selected.size === 0}
+              className="rounded-md px-2.5 py-1 font-mono text-xs text-ink-2 transition-colors hover:bg-cream hover:text-ink disabled:opacity-40"
+            >
+              Archive
+            </button>
+            <button
+              type="button"
+              onClick={deleteSelected}
+              disabled={selected.size === 0}
+              className="rounded-md px-2.5 py-1 font-mono text-xs text-[#c62828] transition-colors hover:bg-[rgba(198,40,40,.1)] disabled:opacity-40"
+            >
+              {confirmDelete ? "Confirm delete" : "Delete"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {visible.length > 0 ? (
         <ul className="card mt-5 divide-y divide-hairline overflow-hidden">
           {visible.map((b) => (
@@ -252,6 +345,9 @@ export default function BriefsFeed({
               onArchive={onArchive}
               onArchiveFailed={onArchiveFailed}
               leaving={leaving.has(b.id)}
+              selecting={selecting}
+              selected={selected.has(b.id)}
+              onToggleSelect={toggleSelect}
             />
           ))}
         </ul>

@@ -41,11 +41,18 @@ export default function BriefListRow({
   onArchive,
   onArchiveFailed,
   leaving = false,
+  selecting = false,
+  selected = false,
+  onToggleSelect,
 }: {
   brief: DashboardBrief;
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
   leaving?: boolean;
+  /** Batch-selection mode: rows show a checkbox and clicking toggles selection. */
+  selecting?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }) {
   const ti = b.ticket ?? null;
   const isFiled = b.status === "filed";
@@ -137,32 +144,63 @@ export default function BriefListRow({
 
   const contentClass = "flex min-w-0 flex-1 items-center gap-3 px-4 py-3 no-underline";
 
-  // Archive lives in the row FLOW (a flex sibling of the link), never as an
-  // overlay — so it can't collide with the identifier. Faint until you hover the
-  // row, accent on hover; the whole row tints on hover.
+  // In select mode the whole row toggles selection (no navigation).
+  const selectRow = () => onToggleSelect?.(b.id);
+
   return (
     <li
       className={`group animate-rise relative flex items-stretch transition-colors hover:bg-cream-2/30${
         leaving ? " brief-leaving" : ""
-      }`}
+      } ${selected ? "bg-cream-2/50" : ""}`}
     >
       {isProcessing && <span aria-hidden className="queue-bar" />}
-      {asLink ? (
+
+      {/* Leading checkbox (select mode only). */}
+      {selecting && (
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={selected}
+          aria-label={selected ? "Deselect" : "Select"}
+          onClick={selectRow}
+          className="flex shrink-0 items-center pl-3"
+        >
+          <span
+            className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+              selected ? "border-accent bg-accent text-cream" : "border-hairline bg-transparent text-transparent"
+            }`}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M5 12l5 5L20 6" />
+            </svg>
+          </span>
+        </button>
+      )}
+
+      {selecting ? (
+        <div className={`${contentClass} cursor-pointer`} onClick={selectRow}>
+          {inner}
+        </div>
+      ) : asLink ? (
         <a href={href} target="_blank" rel="noreferrer" className={contentClass}>
           {inner}
         </a>
       ) : (
         <div className={contentClass}>{inner}</div>
       )}
-      <div className="flex shrink-0 items-center pl-1 pr-2.5">
-        {b.archived ? (
-          <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
-            archived
-          </span>
-        ) : (
-          <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
-        )}
-      </div>
+
+      {/* Row action (hidden in select mode — the toolbar handles batch ops). */}
+      {!selecting && (
+        <div className="flex shrink-0 items-center pl-1 pr-2.5">
+          {b.archived ? (
+            <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
+              archived
+            </span>
+          ) : (
+            <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+          )}
+        </div>
+      )}
     </li>
   );
 }
