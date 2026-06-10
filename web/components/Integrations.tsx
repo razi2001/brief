@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
+import { TrackerLogo } from "./TrackerLogo";
 
 /**
  * Dedicated Integrations section for trackers (Linear, Jira). Connections are
@@ -53,9 +54,12 @@ const TRACKERS: Tracker[] = [
 function SkeletonCard() {
   return (
     <div className="card flex items-center justify-between gap-3 px-4 py-3.5">
-      <div className="min-w-0 flex-1">
-        <div className="h-3.5 w-24 rounded bg-cream-2" />
-        <div className="mt-2 h-2.5 w-48 max-w-full rounded bg-cream-2" />
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="h-10 w-10 shrink-0 rounded-xl bg-cream-2" />
+        <div className="min-w-0 flex-1">
+          <div className="h-3.5 w-24 rounded bg-cream-2" />
+          <div className="mt-2 h-2.5 w-48 max-w-full rounded bg-cream-2" />
+        </div>
       </div>
       <div className="h-6 w-20 shrink-0 rounded-full bg-cream-2" />
     </div>
@@ -150,9 +154,14 @@ export default function Integrations() {
           return (
             <div key={t.key} className="card px-4 py-3.5">
               <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm text-ink">{t.name}</p>
-                  <p className="mt-0.5 text-xs text-muted">{t.caption}</p>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border hairline bg-[#fffdf8]">
+                    <TrackerLogo kind={t.key} size={20} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm text-ink">{t.name}</p>
+                    <p className="mt-0.5 text-xs text-muted">{t.caption}</p>
+                  </div>
                 </div>
 
                 {isConnected ? (
