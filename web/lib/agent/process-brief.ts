@@ -46,6 +46,17 @@ export async function processBrief(brief: BriefInput, tracker: Tracker): Promise
     },
   ];
 
+  // Fail fast with a clear, actionable message when there's nowhere to file
+  // (empty Jira site / no Linear teams), and seed the targets so the model
+  // doesn't have to discover them and can't pick a bogus id.
+  const targets = await tracker.listTargets();
+  if (!targets.length) {
+    throw new Error(
+      `No ${noun}s found in your ${tracker.kind === "jira" ? "Jira" : "Linear"} workspace — create a ${noun} there, then retry.`,
+    );
+  }
+  const targetList = targets.slice(0, 50).map((t) => `- ${t.name} (${t.key}) — id: ${t.id}`).join("\n");
+
   const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
   const tail: any[] = [];
   if (brief.evidence.length) {
@@ -54,6 +65,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker): Promise
       text: `${brief.evidence.length} evidence file(s) (screenshots/keyframes/recording) will be attached or embedded automatically. Write the description assuming the reader can see them inline.`,
     });
   }
+  tail.push({ type: "text", text: `Available ${noun}s (choose the most appropriate one and pass its id as targetId):\n${targetList}` });
   tail.push({ type: "text", text: `File exactly one ticket for this. Pick the best ${noun}, then create the issue.` });
 
   const withImages = [briefText, ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })), ...tail];
@@ -65,7 +77,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker): Promise
       { role: "user", content: userContent },
     ];
     let created: IssueResult | null = null;
-    for (let i = 0; i < 6 && !created; i++) {
+    for (let i = 0; i < 8 && !created; i++) {
       const resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
       const msg = resp.choices[0].message;
       messages.push(msg);
@@ -75,7 +87,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker): Promise
         const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
         let result: unknown;
         try {
-          if (tc.function.name === "list_targets") result = await tracker.listTargets();
+          if (tc.function.name === "list_targets") result = targets;
           else if (tc.function.name === "create_issue") {
             created = await tracker.fileIssue({
               targetId: args.targetId,
