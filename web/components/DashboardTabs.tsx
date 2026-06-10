@@ -148,7 +148,24 @@ export default function DashboardTabs({
   const [tab, setTab] = useState<Tab>("briefs");
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const options = useMemo(() => deriveOptions(briefs), [briefs]);
+  // Optimistically-archived briefs: hidden from the feed the instant the user
+  // clicks "archive", before the server round-trip. The actual POST is fired
+  // fire-and-forget by ArchiveButton; the next real load reflects the truth.
+  const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
+  const onArchive = (id: string) =>
+    setArchivedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+
+  // The live brief list excludes anything optimistically archived this session.
+  const liveBriefs = useMemo(
+    () => briefs.filter((b) => !archivedIds.has(b.id)),
+    [briefs, archivedIds],
+  );
+
+  const options = useMemo(() => deriveOptions(liveBriefs), [liveBriefs]);
 
   // Default selection = everything EXCEPT Failed.
   const defaultSelected = useMemo(
@@ -193,11 +210,27 @@ export default function DashboardTabs({
       return next;
     });
 
-  const visible = briefs.filter((b) => reconciled.has(filterKeyOf(b)));
-  const filteredOut = briefs.length - visible.length;
+  const visible = liveBriefs.filter((b) => reconciled.has(filterKeyOf(b)));
+  const filteredOut = liveBriefs.length - visible.length;
+
+  // Summary counts: start from the server-provided counts and subtract any
+  // briefs optimistically archived this session, so the line stays in sync
+  // with the feed without waiting for a refresh.
+  const liveCounts = useMemo<Counts>(() => {
+    const next = { ...counts };
+    for (const b of briefs) {
+      if (!archivedIds.has(b.id)) continue;
+      const k = filterKeyOf(b);
+      if (k === KEY_FAILED) next.failed = Math.max(0, next.failed - 1);
+      else if (k === KEY_PROCESSING)
+        next.processing = Math.max(0, next.processing - 1);
+      else next.filed = Math.max(0, next.filed - 1);
+    }
+    return next;
+  }, [counts, briefs, archivedIds]);
 
   // Hidden-failures notice: only when failures exist AND are currently hidden.
-  const hiddenFailed = !reconciled.has(KEY_FAILED) ? counts.failed : 0;
+  const hiddenFailed = !reconciled.has(KEY_FAILED) ? liveCounts.failed : 0;
 
   return (
     <section className="mt-10">
@@ -242,7 +275,7 @@ export default function DashboardTabs({
               <h2 className="font-display text-2xl leading-none text-ink">
                 Activity
               </h2>
-              <SummaryLine counts={counts} />
+              <SummaryLine counts={liveCounts} />
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <AutoRefresh active={isProcessing} />
@@ -275,11 +308,16 @@ export default function DashboardTabs({
           {visible.length > 0 ? (
             <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
               {visible.map((b, i) => (
-                <BriefCard key={b.id} brief={b} index={i} />
+                <BriefCard
+                  key={b.id}
+                  brief={b}
+                  index={i}
+                  onArchive={onArchive}
+                />
               ))}
             </div>
           ) : (
-            <EmptyState filtered={briefs.length > 0 && filteredOut > 0} />
+            <EmptyState filtered={liveBriefs.length > 0 && filteredOut > 0} />
           )}
         </div>
       ) : (

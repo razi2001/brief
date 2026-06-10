@@ -8,7 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { getCloudToken, openConnectPage, uploadAndProcess } from './cloud.js';
+import { getCloudToken, openConnectPage, submitBrief } from './cloud.js';
 
 const settingsBtn = document.getElementById('settingsBtn');
 const briefList = document.getElementById('briefList');
@@ -851,7 +851,35 @@ async function bcRefresh() {
   try { updateChrome(await getInbox()); } catch {}
 }
 
+// Reuse the green "Copied to clipboard" success overlay (#exportDone) to
+// confirm a cloud submit. We swap the copy to "Sent to Brief Cloud" and make
+// the sub-line a link to the dashboard. The green check reads as success, not
+// a pending state. The overlay is restored to its export wording on close so
+// a later Export still shows the right message.
+function bcShowSentSuccess(dashboardUrl) {
+  const title = exportDone.querySelector('.export-done-title');
+  const sub = exportDone.querySelector('.export-done-sub');
+  if (title) title.textContent = 'Sent to Brief Cloud';
+  if (sub) {
+    sub.textContent = '';
+    const link = document.createElement('a');
+    link.href = dashboardUrl;
+    link.textContent = 'Track it on your dashboard →';
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: dashboardUrl });
+      window.close();
+    });
+    sub.appendChild(link);
+  }
+  exportDone.hidden = false;
+  setTimeout(() => window.close(), 2200);
+}
+
 bcCreateTicket?.addEventListener('click', async () => {
+  clearInlineError();
   const items = await getInbox();
   const ready = items.filter(isReady);
   if (ready.length === 0) return;
@@ -859,21 +887,25 @@ bcCreateTicket?.addEventListener('click', async () => {
   const b = ready[0];
 
   bcCreateTicket.disabled = true;
-  bcSetStatus('Filing ticket…');
+  bcSetStatus('Sending…');
   try {
     const { files, meta } = bcBuildFilesAndMeta(b);
-    const result = await uploadAndProcess(files, meta);
-    if (result.ticketUrl) {
-      const id = result.ticketIdentifier || result.identifier || 'ticket';
-      bcSetStatus(`✓ <a href="${result.ticketUrl}" target="_blank" rel="noopener">${id}</a> created`);
-    } else {
-      // The /process endpoint may not exist yet. A non-OK process step (e.g.
-      // 404/500) still means the bytes uploaded fine — report that honestly.
-      bcSetStatus('uploaded ✓ — filing not enabled yet');
-    }
+    // Fire-and-forget: only the small create+upload is awaited; the agent run
+    // is kicked off (keepalive) and NOT awaited, so this feels instant.
+    const { dashboardUrl } = await submitBrief(files, meta);
+
+    // Remove the submitted brief from the inbox immediately so it disappears
+    // from the extension, then refresh the list.
+    const after = await getInbox();
+    await setInbox(after.filter((x) => x.id !== b.id));
+    bcSetStatus('');
+    await refreshInbox();
+
+    // Green success confirmation.
+    bcShowSentSuccess(dashboardUrl);
   } catch (err) {
-    bcSetStatus(`couldn’t file ticket: ${err?.message || err}`);
-  } finally {
+    bcSetStatus('');
+    showInlineError(`Couldn’t send: ${err?.message || err}`);
     bcCreateTicket.disabled = false;
   }
 });

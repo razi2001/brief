@@ -5,7 +5,7 @@
 // background.js and receives transcript updates + the final blob back.
 
 import { makeZip } from './lib/zip.js';
-import { getCloudToken, uploadAndProcess } from './cloud.js';
+import { getCloudToken, submitBrief } from './cloud.js';
 
 const SAVED_AUTODISMISS_MS = 5000;
 
@@ -116,6 +116,29 @@ function setSavingTicketLink(identifier, url) {
   link.addEventListener('click', (e) => {
     e.preventDefault();
     chrome.runtime.sendMessage({ type: 'open-url', url }).catch(() => {});
+  });
+  el.appendChild(ok);
+  el.appendChild(document.createTextNode(' '));
+  el.appendChild(link);
+}
+
+// Instant green "sent" confirmation for the fire-and-forget cloud submit. The
+// agent run is NOT awaited, so we show success the moment the upload resolves
+// with a link to the dashboard (routed through background since the bar is a
+// content script with no chrome.tabs access).
+function setSavingSentLink(dashboardUrl) {
+  const el = document.querySelector('[data-state="saving"] .state-text');
+  if (!el) return;
+  el.textContent = '';
+  const ok = document.createElement('strong');
+  ok.textContent = '✓';
+  const link = document.createElement('a');
+  link.href = dashboardUrl;
+  link.textContent = 'Sent — track it on your dashboard';
+  link.className = 'ticket-link';
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.runtime.sendMessage({ type: 'open-url', url: dashboardUrl }).catch(() => {});
   });
   el.appendChild(ok);
   el.appendChild(document.createTextNode(' '));
@@ -543,7 +566,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
 
   if (cloudToken) {
     try {
-      setSavingText('Filing ticket…');
+      setSavingText('Sending…');
       const files = [
         { name: 'brief.json', blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }), contentType: 'application/json' },
         ...keyframeEntries.map((k) => ({
@@ -564,16 +587,11 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
         description: userDescription || '',
       };
 
-      const res = await uploadAndProcess(files, cloudMeta);
-
-      if (res?.ticketUrl) {
-        const id = res.ticketIdentifier || res.identifier || 'ticket';
-        setSavingTicketLink(id, res.ticketUrl);
-      } else if (res?.ok) {
-        setSavingText('uploaded ✓ — filing not enabled yet');
-      } else {
-        setSavingText(`uploaded, processing failed (${res?.status || 'error'})`);
-      }
+      // Fire-and-forget: submitBrief awaits only the upload, then kicks off
+      // the agent run (keepalive) WITHOUT waiting for it. Show success the
+      // instant the upload resolves — don't wait for a ticket to be filed.
+      const { dashboardUrl } = await submitBrief(files, cloudMeta);
+      setSavingSentLink(dashboardUrl);
 
       if (mode === 'inbox') {
         await finishToInbox(briefId, intent);

@@ -142,9 +142,11 @@ function StatusBadge({
 export default function BriefCard({
   brief: b,
   index = 0,
+  onArchive,
 }: {
   brief: DashboardBrief;
   index?: number;
+  onArchive?: (id: string) => void;
 }) {
   const ti = b.ticket ?? null;
   const isFiled = b.status === "filed";
@@ -280,7 +282,7 @@ export default function BriefCard({
   // and lifts on hover/focus-within of the group.
   const archiveControl = (
     <div className="absolute right-2 top-2 z-10 rounded-full bg-cream/85 px-1.5 py-0.5 opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100">
-      <ArchiveButton briefId={b.id} />
+      <ArchiveButton briefId={b.id} onArchive={onArchive} />
     </div>
   );
 
