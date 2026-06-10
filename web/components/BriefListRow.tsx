@@ -80,18 +80,30 @@ export default function BriefListRow({
         title={ti?.stateName || b.status}
       />
 
-      <div className="min-w-0 flex-1">
-        <p className={`truncate text-sm ${isFailed ? "text-[#c62828]" : "text-ink"}`}>{title}</p>
+      {/* Title — smaller, and capped so it crops well before the status column. */}
+      <div className="min-w-0 max-w-[60%] flex-1">
+        <p className={`truncate text-[0.8125rem] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
+          {title}
+        </p>
         {isFailed && b.error && (
-          <p className="mt-0.5 truncate text-xs text-muted">{b.error}</p>
+          <p className="mt-0.5 truncate text-[0.6875rem] text-muted">{b.error}</p>
         )}
       </div>
 
       {/* Right meta */}
-      <div className="flex shrink-0 items-center gap-3">
-        {isProcessing && (
-          <span className="font-mono text-[0.6875rem] text-accent">
+      <div className="ml-auto flex shrink-0 items-center gap-3">
+        {/* Status column */}
+        {isProcessing ? (
+          <span className="w-[5.5rem] text-right font-mono text-[0.625rem] text-accent">
             filing… <Elapsed since={b.updated_at || b.created_at} />
+          </span>
+        ) : (
+          <span
+            className="w-[5.5rem] truncate text-right font-mono text-[0.625rem]"
+            style={{ color: ti?.stateColor || "#2e7d32" }}
+            title={ti?.stateName || "Filed"}
+          >
+            {ti?.stateName || "Filed"}
           </span>
         )}
         {isFailed && <RetryButton briefId={b.id} />}
