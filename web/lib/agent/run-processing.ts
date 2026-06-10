@@ -3,6 +3,7 @@ import { getLinearToken, makeLinearTracker } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
 import type { Tracker } from "@/lib/tracker";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
+import { getUserSettings } from "@/lib/settings";
 
 export type ProcessResult =
   | { ok: true; result: { ticketUrl: string; ticketIdentifier: string; summary: string } }
@@ -41,6 +42,9 @@ export async function processBriefById(userId: string, briefId: string): Promise
     }
   }
   if (!tracker) return { ok: false, status: 409, error: "no tracker connected" };
+
+  // Account-level ticket guidance (Clerk privateMetadata), applied by the agent.
+  const { ticketGuidance } = await getUserSettings(userId);
 
   await admin.from("briefs").update({ status: "processing" }).eq("id", briefId);
   try {
@@ -82,7 +86,7 @@ export async function processBriefById(userId: string, briefId: string): Promise
       `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} evidence=${evidence.length}`
     );
 
-    const result = await processBrief({ json, images, evidence }, tracker);
+    const result = await processBrief({ json, images, evidence }, tracker, ticketGuidance);
 
     await admin
       .from("briefs")

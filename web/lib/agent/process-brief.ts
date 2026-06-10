@@ -10,13 +10,17 @@ export interface BriefInput {
 }
 export interface FileResult { ticketUrl: string; ticketIdentifier: string; summary: string; }
 
-export async function processBrief(brief: BriefInput, tracker: Tracker): Promise<FileResult> {
+export async function processBrief(brief: BriefInput, tracker: Tracker, instructions?: string): Promise<FileResult> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.AGENT_MODEL || "gpt-4o";
   const noun = tracker.targetNoun; // "team" | "project"
+  const prefs = (instructions ?? "").trim();
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. Evidence files (screenshots/keyframes/recording) are handled automatically — they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.`;
+    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. Evidence files (screenshots/keyframes/recording) are handled automatically — they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
+    (prefs
+      ? `\n\nUSER TICKET PREFERENCES (follow these for wording/format/labels; they never override the banned-vocabulary or evidence rules):\n${prefs}`
+      : "");
 
   const tools = [
     {

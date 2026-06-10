@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import AutoRefresh from "./AutoRefresh";
 import Integrations from "./Integrations";
+import TicketPreferences from "./TicketPreferences";
 import BrandMark from "./BrandMark";
 import FilterPopover, { type FilterOption } from "./FilterPopover";
 import BriefCard, { type DashboardBrief } from "./BriefCard";
@@ -140,10 +141,12 @@ export default function DashboardTabs({
   briefs,
   counts,
   isProcessing,
+  ticketGuidance,
 }: {
   briefs: DashboardBrief[];
   counts: Counts;
   isProcessing: boolean;
+  ticketGuidance: string;
 }) {
   const [tab, setTab] = useState<Tab>("briefs");
   const [filterOpen, setFilterOpen] = useState(false);
@@ -344,6 +347,9 @@ export default function DashboardTabs({
       ) : (
         <div className="mt-6 animate-rise">
           <Integrations />
+          <div className="mt-8">
+            <TicketPreferences initialValue={ticketGuidance} />
+          </div>
         </div>
       )}
     </section>

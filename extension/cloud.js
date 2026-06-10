@@ -1,5 +1,5 @@
 // Brief Cloud client. Swap APP_URL for production later.
-const APP_URL = "http://localhost:3000";
+export const APP_URL = "http://localhost:3000";
 
 export async function getCloudToken() {
   const { briefCloudToken } = await chrome.storage.local.get("briefCloudToken");

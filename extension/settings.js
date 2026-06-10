@@ -1,55 +1,52 @@
-// Brief — settings / how-it-works page.
+// Brief — settings page.
 //
-// The filing skill ships inside every brief zip (see skill/ in each
-// ~/Downloads/brief/brief-<id>.zip), so there's no install step. This page is
-// mostly informational; the one bit of real state it owns is the user's
-// natural-language ticket-creation guidance, which gets appended to the
-// Export prompt so the agent applies it to every ticket it files.
+// The filing skill ships inside every brief zip, so there's no install step.
+// Account-level state (ticket preferences, connections) now lives in the Brief
+// Cloud dashboard; this page only shows the cloud connection status and links
+// out to the dashboard.
 
-const guidanceEl = document.getElementById('ticketGuidance');
-const statusEl = document.getElementById('guidanceStatus');
+import { APP_URL, getCloudToken, clearCloudToken, openConnectPage } from "./cloud.js";
 
-// ---------- Load ----------
-chrome.storage.local.get('ticketGuidance', ({ ticketGuidance }) => {
-  if (guidanceEl && typeof ticketGuidance === 'string') {
-    guidanceEl.value = ticketGuidance;
-  }
+const DASHBOARD_URL = `${APP_URL}/dashboard`;
+
+const els = {
+  badgeConnected: document.getElementById("badgeConnected"),
+  badgeDisconnected: document.getElementById("badgeDisconnected"),
+  actionsConnected: document.getElementById("actionsConnected"),
+  actionsDisconnected: document.getElementById("actionsDisconnected"),
+  connect: document.getElementById("connect"),
+  disconnect: document.getElementById("disconnect"),
+  openDashboard: document.getElementById("openDashboard"),
+  dashboardLink: document.getElementById("dashboardLink"),
+};
+
+function show(el, visible) {
+  if (el) el.classList.toggle("hidden", !visible);
+}
+
+async function render() {
+  const token = await getCloudToken();
+  const connected = !!token;
+  show(els.badgeConnected, connected);
+  show(els.badgeDisconnected, !connected);
+  show(els.actionsConnected, connected);
+  show(els.actionsDisconnected, !connected);
+}
+
+// Dashboard link target.
+if (els.dashboardLink) els.dashboardLink.href = DASHBOARD_URL;
+
+els.connect?.addEventListener("click", () => {
+  openConnectPage();
 });
 
-// ---------- Save (debounced as the user types) ----------
-let saveTimer = null;
-let lastSaved = '';
+els.disconnect?.addEventListener("click", async () => {
+  await clearCloudToken();
+  await render();
+});
 
-function setStatus(text, kind) {
-  if (!statusEl) return;
-  statusEl.textContent = text;
-  statusEl.classList.toggle('show', !!text);
-  statusEl.classList.toggle('saved', kind === 'saved');
-}
+els.openDashboard?.addEventListener("click", () => {
+  chrome.tabs.create({ url: DASHBOARD_URL });
+});
 
-function scheduleSave() {
-  if (!guidanceEl) return;
-  setStatus('Saving…', 'pending');
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(persist, 400);
-}
-
-function persist() {
-  if (!guidanceEl) return;
-  const next = guidanceEl.value;
-  if (next === lastSaved) {
-    setStatus('Saved', 'saved');
-    return;
-  }
-  chrome.storage.local.set({ ticketGuidance: next }, () => {
-    lastSaved = next;
-    setStatus('Saved', 'saved');
-    // Fade the indicator out after a beat so it doesn't linger as visual noise.
-    setTimeout(() => {
-      if (guidanceEl.value === lastSaved) setStatus('', null);
-    }, 1500);
-  });
-}
-
-guidanceEl?.addEventListener('input', scheduleSave);
-guidanceEl?.addEventListener('blur', persist);
+render();

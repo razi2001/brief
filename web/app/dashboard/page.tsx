@@ -18,6 +18,9 @@ function providerOf(url?: string | null): "linear" | "jira" {
 export default async function Dashboard() {
   const userId = await requireUserId();
   const user = await currentUser();
+  // Account-level ticket guidance (Clerk privateMetadata), edited in the
+  // Connections tab and applied by the server agent.
+  const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";
   // A connection only counts if it isn't a known-unverified (failed/abandoned)
   // OAuth attempt. If the verification status isn't exposed, fall back to presence.
   const isLive = (a: { verification?: { status?: string } | null }) => {
@@ -178,6 +181,7 @@ export default async function Dashboard() {
         briefs={dashboardBriefs}
         counts={counts}
         isProcessing={isProcessing}
+        ticketGuidance={ticketGuidance}
       />
 
       {/* Footer */}

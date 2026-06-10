@@ -61,55 +61,78 @@
       .info-link:active { transform: translateY(1px); }
 
       /* Title block */
-      .title-row {
-        display: flex; align-items: baseline; justify-content: space-between;
-        gap: 12px; margin-bottom: 6px;
-      }
       h1 {
         font-family: var(--display); font-weight: 400;
         font-size: 28px; line-height: 1.12; letter-spacing: -0.02em;
+        margin-bottom: 6px;
       }
       h1 em { font-style: italic; color: var(--accent); }
-      .status {
-        font-family: var(--mono); font-size: 11px;
-        color: var(--muted); opacity: 0; transition: opacity 0.2s;
-      }
-      .status.show { opacity: 1; }
-      .status.saved { color: var(--success); }
       .lede {
         font-family: var(--display); font-style: italic;
-        font-size: 13.5px; color: var(--muted); margin-bottom: 16px; line-height: 1.55;
+        font-size: 13.5px; color: var(--muted); margin-bottom: 20px; line-height: 1.55;
       }
 
-      /* Textarea */
-      .guidance-input {
-        display: block;
-        width: 100%; min-height: 180px; padding: 14px 16px;
+      /* Connection card */
+      .card {
         background: rgba(255,255,255,0.6);
         border: 1px solid var(--hairline);
-        border-radius: 11px;
-        font-family: var(--mono); font-size: 13px; line-height: 1.6;
-        color: var(--ink);
-        resize: vertical;
-        transition: border-color 0.13s, background 0.13s;
+        border-radius: 13px;
+        padding: 18px 18px 20px;
       }
-      .guidance-input::placeholder {
-        color: var(--muted); opacity: 0.6;
-        font-size: 12px; line-height: 1.55;
-        white-space: pre-line;
+      .conn-row {
+        display: flex; align-items: center; gap: 10px;
+        margin-bottom: 14px;
       }
-      .guidance-input:focus {
-        outline: none; border-color: var(--accent);
-        background: #fff;
+      .conn-label { font-size: 13px; color: var(--ink); }
+      .badge {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 11px; padding: 3px 10px; border-radius: 999px;
+        border: 1px solid var(--hairline);
       }
+      .badge.connected {
+        color: var(--success);
+        border-color: rgba(22,163,74,0.35);
+        background: rgba(22,163,74,0.10);
+      }
+      .badge.disconnected {
+        color: var(--muted);
+        background: rgba(26,22,18,0.04);
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+      .dot.connected { background: var(--success); }
+      .dot.disconnected { background: var(--muted); }
 
-      .hint {
-        margin-top: 12px; font-size: 12px; color: var(--muted); line-height: 1.55;
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+      button.btn, a.btn {
+        font-family: var(--mono); font-size: 12.5px;
+        padding: 9px 16px; border-radius: 9px;
+        cursor: pointer; text-decoration: none;
+        border: 1px solid var(--hairline);
+        transition: background 0.13s, border-color 0.13s, color 0.13s, transform 0.08s;
+        display: inline-flex; align-items: center; gap: 6px;
       }
-      .hint code {
-        font-family: var(--mono); font-size: 11.5px;
-        background: rgba(26,22,18,0.06); padding: 1px 5px; border-radius: 3px;
+      button.btn:active, a.btn:active { transform: translateY(1px); }
+      .btn.primary {
+        background: var(--accent); color: #fff; border-color: var(--accent);
       }
+      .btn.primary:hover { background: #c95a2b; border-color: #c95a2b; }
+      .btn.ghost {
+        background: rgba(255,255,255,0.6); color: var(--ink);
+      }
+      .btn.ghost:hover { border-color: var(--accent); color: var(--accent); }
+      .btn.danger {
+        background: transparent; color: var(--muted); border-color: transparent;
+        padding-left: 6px; padding-right: 6px;
+      }
+      .btn.danger:hover { color: var(--accent); }
+
+      .manage {
+        margin-top: 18px; font-size: 12px; color: var(--muted); line-height: 1.6;
+      }
+      .manage a { color: var(--accent); text-decoration: none; }
+      .manage a:hover { text-decoration: underline; }
+
+      .hidden { display: none !important; }
     </style>
   </head>
   <body>
@@ -146,23 +169,40 @@
       </header>
 
       <section>
-        <div class="title-row">
-          <h1>Ticket <em>guidance</em></h1>
-          <span class="status" id="guidanceStatus" aria-live="polite"></span>
+        <h1>Brief <em>Cloud</em></h1>
+        <p class="lede">Briefs are written up and filed in the cloud.</p>
+
+        <div class="card">
+          <div class="conn-row">
+            <span class="conn-label">Connection</span>
+            <!-- Connected -->
+            <span id="badgeConnected" class="badge connected hidden">
+              <span class="dot connected"></span>Connected ✓
+            </span>
+            <!-- Not connected -->
+            <span id="badgeDisconnected" class="badge disconnected hidden">
+              <span class="dot disconnected"></span>Not connected
+            </span>
+          </div>
+
+          <!-- Connected actions -->
+          <div id="actionsConnected" class="actions hidden">
+            <button id="openDashboard" type="button" class="btn primary">Open dashboard →</button>
+            <button id="disconnect" type="button" class="btn danger">Disconnect</button>
+          </div>
+
+          <!-- Disconnected actions -->
+          <div id="actionsDisconnected" class="actions hidden">
+            <button id="connect" type="button" class="btn primary">Connect to Brief Cloud</button>
+          </div>
         </div>
-        <p class="lede">Plain-English rules the agent follows when filing every ticket.</p>
-        <textarea
-          id="ticketGuidance"
-          class="guidance-input"
-          spellcheck="false"
-          placeholder="e.g. Status: Backlog. Priority: Medium.
-Label every ticket &quot;inbound&quot;.
-Bugs → Engineering, features → Product.
-Assign to me if it's mine to take on."
-        ></textarea>
-        <p class="hint">Saved as you type. Travels with the next <code>Export</code>.</p>
+
+        <p class="manage">
+          Manage your account, connections &amp; ticket preferences in the
+          <a id="dashboardLink" href="#" target="_blank" rel="noopener noreferrer">Brief Cloud dashboard</a>.
+        </p>
       </section>
     </main>
-    <script src="settings.js"></script>
+    <script type="module" src="settings.js"></script>
   </body>
 </html>
