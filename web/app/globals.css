@@ -81,3 +81,67 @@ a {
     border: 1px solid var(--color-hairline);
   }
 }
+
+/* ── Dashboard motion ───────────────────────────────────────────────── */
+
+/* Staggered fade + slide-in for feed rows / stat cards. */
+@keyframes brief-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-rise {
+  animation: brief-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Soft shimmer sweep for processing rows. */
+@keyframes brief-shimmer {
+  0% {
+    background-position: -150% 0;
+  }
+  100% {
+    background-position: 250% 0;
+  }
+}
+
+.shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(221, 105, 54, 0.08) 40%,
+    rgba(221, 105, 54, 0.14) 50%,
+    rgba(221, 105, 54, 0.08) 60%,
+    transparent 80%
+  );
+  background-size: 200% 100%;
+  animation: brief-shimmer 2.2s ease-in-out infinite;
+}
+
+/* Hover lift for cards that opt in. */
+.lift {
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+.lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -12px rgba(26, 22, 18, 0.25);
+  border-color: rgba(26, 22, 18, 0.2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .shimmer {
+    animation: none;
+  }
+  .lift:hover {
+    transform: none;
+  }
+}

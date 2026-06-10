@@ -2,12 +2,11 @@ import { UserButton } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { getLinearToken, getIssuesByIdentifiers } from "@/lib/linear";
 import AppShell from "@/components/AppShell";
-import BrandMark from "@/components/BrandMark";
-import AutoRefresh from "@/components/AutoRefresh";
 import GettingStarted from "@/components/GettingStarted";
-import Integrations from "@/components/Integrations";
-import BriefRow from "@/components/BriefRow";
+import DashboardTabs from "@/components/DashboardTabs";
+import type { DashboardBrief } from "@/components/BriefCard";
 
 export default async function Dashboard() {
   const userId = await requireUserId();
@@ -23,9 +22,45 @@ export default async function Dashboard() {
     .order("created_at", { ascending: false })
     .limit(20);
 
-  const isProcessing = (briefs ?? []).some(
+  const list = briefs ?? [];
+
+  const isProcessing = list.some(
     (b) => b.status === "uploaded" || b.status === "processing",
   );
+
+  // Live Linear status sync. Best-effort and fully contained: if Linear isn't
+  // connected, there are no filed identifiers, or the token/fetch fails, we
+  // simply render without live info — never break the dashboard.
+  let linearMap: Awaited<ReturnType<typeof getIssuesByIdentifiers>> = {};
+  const filedIdentifiers = list
+    .filter((b) => b.status === "filed" && b.ticket_identifier)
+    .map((b) => b.ticket_identifier as string);
+  if (hasLinear && filedIdentifiers.length > 0) {
+    try {
+      const tok = await getLinearToken(userId);
+      if (tok) linearMap = await getIssuesByIdentifiers(tok, filedIdentifiers);
+    } catch {
+      linearMap = {};
+    }
+  }
+
+  // Serializable briefs with their Linear info merged in where available.
+  const dashboardBriefs: DashboardBrief[] = list.map((b) => ({
+    id: b.id,
+    status: b.status,
+    source_kind: b.source_kind ?? null,
+    created_at: b.created_at ?? null,
+    ticket_url: b.ticket_url ?? null,
+    ticket_identifier: b.ticket_identifier ?? null,
+    error: b.error ?? null,
+    linear: b.ticket_identifier ? (linearMap[b.ticket_identifier] ?? null) : null,
+  }));
+
+  const counts = {
+    filed: list.filter((b) => b.status === "filed").length,
+    processing: list.filter((b) => b.status === "processing" || b.status === "uploaded").length,
+    failed: list.filter((b) => b.status === "failed").length,
+  };
 
   const greetingName =
     user?.firstName ??
@@ -34,8 +69,8 @@ export default async function Dashboard() {
 
   // Getting-started state, derived purely from existing data.
   const trackerConnected = hasLinear || hasJira;
-  const hasBriefs = (briefs?.length ?? 0) > 0;
-  const hasFiled = (briefs ?? []).some((b) => b.status === "filed");
+  const hasBriefs = list.length > 0;
+  const hasFiled = list.some((b) => b.status === "filed");
   // Show the checklist until the user is fully set up: a tracker is connected
   // AND at least one brief has been filed. Otherwise (no tracker, or no briefs)
   // we keep guiding them.
@@ -58,33 +93,12 @@ export default async function Dashboard() {
         />
       )}
 
-      {/* Integrations */}
-      <Integrations />
-
-      {/* Recent briefs */}
-      <section className="mt-12">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Recent briefs</h2>
-          <AutoRefresh active={isProcessing} />
-        </div>
-
-        {briefs && briefs.length > 0 ? (
-          <div className="mt-3 flex flex-col gap-3">
-            {briefs.map((b) => (
-              <BriefRow key={b.id} brief={b} />
-            ))}
-          </div>
-        ) : (
-          <div className="card mt-3 flex flex-col items-center gap-3 px-4 py-12 text-center">
-            <BrandMark size={36} />
-            <p className="font-display text-xl text-ink">no briefs yet.</p>
-            <p className="max-w-xs text-sm text-muted">
-              hit ✦ in the extension, talk through a bug, and it lands here —
-              written up and filed.
-            </p>
-          </div>
-        )}
-      </section>
+      {/* Tabbed experience: Briefs feed + Connections */}
+      <DashboardTabs
+        briefs={dashboardBriefs}
+        counts={counts}
+        isProcessing={isProcessing}
+      />
 
       {/* Footer */}
       <footer className="mt-16 border-t hairline pt-6 text-center">
