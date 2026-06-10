@@ -36,19 +36,26 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
       <ul className="divide-y divide-hairline">
         {briefs.map((b) => {
           const ti = b.ticket;
+          const isProcessing = b.status === "processing" || b.status === "uploaded";
           const href = ti?.url || b.ticket_url || undefined;
-          const title = ti?.title || `${b.source_kind ?? "brief"} ticket`;
-          const dot = ti?.stateColor || "#2e7d32";
-          const stateName = ti?.stateName || "Filed";
+          // While filing there's no tracker title yet — fall back to the brief's
+          // name, then a generic label.
+          const title =
+            ti?.title || b.title || (isProcessing ? "Creating ticket…" : `${b.source_kind ?? "brief"} ticket`);
+          const dot = isProcessing ? "#dd6936" : ti?.stateColor || "#2e7d32";
+          const stateName = isProcessing ? "Creating…" : ti?.stateName || "Filed";
           const Row = (
             <div className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream-2/40">
               <span
-                className="h-2 w-2 shrink-0 rounded-full"
+                className={`h-2 w-2 shrink-0 rounded-full ${isProcessing ? "dot-pulse" : ""}`}
                 style={{ backgroundColor: dot }}
                 title={stateName}
               />
               <span className="min-w-0 flex-1 truncate text-sm text-ink">{title}</span>
-              {b.ticket_identifier && (
+              {isProcessing && (
+                <span className="shrink-0 font-mono text-[0.6875rem] text-accent">creating…</span>
+              )}
+              {!isProcessing && b.ticket_identifier && (
                 <span className="hidden shrink-0 items-center gap-1.5 font-mono text-[0.6875rem] text-accent sm:inline-flex">
                   <TrackerLogo kind={b.provider ?? "linear"} size={13} />
                   {b.ticket_identifier}

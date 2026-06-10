@@ -16,10 +16,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json(); // { meta, files: string[] }
   const admin = createAdminSupabase();
   const sourceKind = detectSourceKind(body.meta ?? {});
+  // User-given brief name, shown on the dashboard while the ticket is filing.
+  const title = (body.meta?.title ?? "").toString().trim() || null;
 
   const { data: brief, error } = await admin
     .from("briefs")
-    .insert({ user_id: userId, status: "uploaded", source_kind: sourceKind, storage_prefix: "pending" })
+    .insert({ user_id: userId, status: "uploaded", source_kind: sourceKind, storage_prefix: "pending", title })
     .select("id")
     .single();
   if (error || !brief) return jsonCors({ error: error?.message }, { status: 500 });

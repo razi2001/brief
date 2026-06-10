@@ -14,6 +14,8 @@ export type TicketInfo = {
 export type DashboardBrief = {
   id: string;
   status: string;
+  /** User-given brief name, shown while the ticket is still filing. */
+  title?: string | null;
   source_kind?: string | null;
   created_at?: string | null;
   /** When the brief last changed state — used to time "filing…" elapsed. */

@@ -828,6 +828,7 @@ function bcBuildFilesAndMeta(b) {
   }
 
   const meta = {
+    title: b.name || '',
     description: b.description || '',
     hasScreenshot: !!b.screenshot,
     keyframeCount: 0,
@@ -879,8 +880,9 @@ bcCreateTicket?.addEventListener('click', async () => {
   try {
     if (b.cloudBriefId) {
       // Recording: already uploaded to the cloud as a draft on stop. Just file
-      // it — kick off processing on the existing brief, no re-upload.
-      await processBrief(b.cloudBriefId);
+      // it — kick off processing on the existing brief (passing its name so the
+      // dashboard can label it while filing), no re-upload.
+      await processBrief(b.cloudBriefId, b.name);
     } else {
       // Screenshot / text brief: upload + process now.
       const { files, meta } = bcBuildFilesAndMeta(b);

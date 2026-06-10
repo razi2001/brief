@@ -16,6 +16,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const userId = token ? await userIdForToken(token) : null;
   if (!userId) return jsonCors({ error: "unauthorized" }, { status: 401 });
 
+  // Optional brief name — recordings are uploaded as a draft without one, so the
+  // popup passes it now (at file time) for the dashboard to show while filing.
+  const body = await req.json().catch(() => ({}) as { title?: string });
+  const title = (body?.title ?? "").toString().trim();
+
   // Mark it queued (processing) right away, scoped to the caller, so the
   // dashboard shows it as "in progress" the instant the user lands there — then
   // respond immediately. The agent run (download → write → file) happens in the
@@ -23,7 +28,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const admin = createAdminSupabase();
   const { data: brief } = await admin
     .from("briefs")
-    .update({ status: "processing", updated_at: new Date().toISOString() })
+    .update({
+      status: "processing",
+      updated_at: new Date().toISOString(),
+      ...(title ? { title } : {}),
+    })
     .eq("id", id)
     .eq("user_id", userId)
     .select("id")

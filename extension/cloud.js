@@ -74,22 +74,24 @@ export async function uploadDraft(files, meta) {
   return briefId;
 }
 
-// Kick off processing (file the ticket) for an already-uploaded brief. keepalive
-// lets it survive the popup/bar closing. Fire-and-forget by default.
-export async function processBrief(briefId) {
+// Kick off processing (file the ticket) for an already-uploaded brief. The route
+// marks it queued and returns immediately (it files in the background), so this
+// resolves fast. `title` (optional) is the user-given brief name, shown on the
+// dashboard while filing.
+export async function processBrief(briefId, title) {
   const token = await getCloudToken();
   if (!token) throw new Error("Not connected to Brief Cloud");
   await fetch(`${APP_URL}/api/briefs/${briefId}/process`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    keepalive: true,
-  }).catch(() => {});
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title || "" }),
+  });
 }
 
-// Upload the brief, then kick off processing WITHOUT waiting for the agent.
-// Used for screenshot/text briefs filed straight from the popup.
+// Upload the brief, then queue processing. Used for screenshot/text briefs filed
+// straight from the popup.
 export async function submitBrief(files, meta) {
   const briefId = await uploadDraft(files, meta);
-  processBrief(briefId);
-  return { briefId, ticketsUrl: TICKETS_URL, dashboardUrl: `${APP_URL}/dashboard` };
+  await processBrief(briefId, meta?.title);
+  return { briefId, ticketsUrl: TICKETS_URL, dashboardUrl: DASHBOARD_URL };
 }

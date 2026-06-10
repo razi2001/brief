@@ -14,6 +14,7 @@ import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
 export type BriefRow = {
   id: string;
   status: string;
+  title: string | null;
   source_kind: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -23,7 +24,7 @@ export type BriefRow = {
 };
 
 export const BRIEF_COLUMNS =
-  "id, status, source_kind, created_at, updated_at, ticket_url, ticket_identifier, error";
+  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, error";
 
 /**
  * How long a brief may keep trying before we give up on it. A brief flips to
@@ -190,6 +191,7 @@ export async function attachTicketInfo(
     return {
       id: b.id,
       status: b.status,
+      title: b.title ?? null,
       source_kind: b.source_kind ?? null,
       created_at: b.created_at ?? null,
       updated_at: b.updated_at ?? null,

@@ -75,7 +75,11 @@ export default async function Dashboard() {
   // Live ticket info for the recent filed subset → recent list + status breakdown.
   const dashboardBriefs = await attachTicketInfo(userId, list, ctx.hasLinear, ctx.hasJira, 60);
   const filedBriefs = dashboardBriefs.filter((b) => b.status === "filed");
-  const recent = filedBriefs.slice(0, 8);
+  // Recent tickets includes in-progress ones (filing now) so a just-queued ticket
+  // shows up immediately with its name; drafts ('uploaded') and failed are excluded.
+  const recent = dashboardBriefs
+    .filter((b) => b.status === "filed" || b.status === "processing")
+    .slice(0, 8);
 
   // Status breakdown: group filed tickets by their live tracker state.
   const segMap = new Map<string, StatusSegment>();
