@@ -8,7 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { APP_URL, DASHBOARD_URL, getCloudToken, submitBrief, processBrief } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, submitBrief, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -859,10 +859,10 @@ function bcShowSentAndOpen() {
   const title = exportDone.querySelector('.export-done-title');
   const sub = exportDone.querySelector('.export-done-sub');
   if (title) title.textContent = 'Queued ✓';
-  if (sub) sub.textContent = 'Opening your dashboard…';
+  if (sub) sub.textContent = 'Opening your tickets…';
   exportDone.hidden = false;
-  // Once it's queued, take the user to the dashboard to watch it land.
-  chrome.tabs.create({ url: DASHBOARD_URL });
+  // Once it's queued, take the user to the tickets page to watch it land.
+  chrome.tabs.create({ url: TICKETS_URL });
   setTimeout(() => window.close(), 700);
 }
 

@@ -57,6 +57,7 @@ export default function BriefListRow({
 
   const title =
     ti?.title ||
+    b.title ||
     (isFailed
       ? "Couldn't file this one"
       : isProcessing
