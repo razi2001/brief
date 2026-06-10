@@ -68,5 +68,9 @@ export async function submitBrief(files, meta) {
   }
   // Fire processing and DO NOT await it. keepalive keeps it alive past popup close.
   fetch(`${APP_URL}/api/briefs/${briefId}/process`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
-  return { briefId, dashboardUrl: `${APP_URL}/dashboard` };
+  return {
+    briefId,
+    briefsUrl: `${APP_URL}/briefs`,
+    dashboardUrl: `${APP_URL}/dashboard`,
+  };
 }

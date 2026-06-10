@@ -124,13 +124,12 @@ function setSavingTicketLink(identifier, url) {
 
 // Instant green "sent" confirmation for the fire-and-forget cloud submit. The
 // agent run is NOT awaited, so we show success the moment the upload resolves.
-// Renders a tidy two-part line: a green check pill + "Sent" on the first row,
-// and a subtle "View on dashboard →" link below it (routed through background
-// since the bar is a content script with no chrome.tabs access). No raw URLs.
-function setSavingSentLink(dashboardUrl) {
+// Swaps the spinner for a green check pill and shows a short message — no link,
+// because we immediately open the user's briefs page in a new tab and close the
+// bar (see the cloud branch below).
+function setSavingSent(message) {
   const inner = document.querySelector('[data-state="saving"]');
   if (!inner) return;
-  // Swap the spinner for a green check pill.
   const spinner = inner.querySelector('.spinner');
   if (spinner) {
     const pill = document.createElement('span');
@@ -145,17 +144,22 @@ function setSavingSentLink(dashboardUrl) {
   el.classList.add('sent');
   const title = document.createElement('span');
   title.className = 'sent-title';
-  title.textContent = 'Sent';
-  const link = document.createElement('a');
-  link.href = dashboardUrl;
-  link.textContent = 'View on dashboard →';
-  link.className = 'ticket-link';
-  link.addEventListener('click', (e) => {
-    e.preventDefault();
-    chrome.runtime.sendMessage({ type: 'open-url', url: dashboardUrl }).catch(() => {});
-  });
+  title.textContent = message;
   el.appendChild(title);
-  el.appendChild(link);
+}
+
+// The brief now lives in the cloud — drop its local inbox draft (if any) so the
+// extension doesn't keep showing it.
+async function clearInboxDraft(id) {
+  try {
+    const { inbox } = await chrome.storage.local.get('inbox');
+    const list = Array.isArray(inbox) ? inbox : [];
+    const next = list.filter((b) => b.id !== id);
+    if (next.length !== list.length) {
+      await chrome.storage.local.set({ inbox: next });
+      chrome.runtime.sendMessage({ type: 'INBOX_CHANGED' }).catch(() => {});
+    }
+  } catch {}
 }
 
 // ---------- Offscreen control ----------
@@ -602,15 +606,14 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
 
       // Fire-and-forget: submitBrief awaits only the upload, then kicks off
       // the agent run (keepalive) WITHOUT waiting for it. Show success the
-      // instant the upload resolves — don't wait for a ticket to be filed.
-      const { dashboardUrl } = await submitBrief(files, cloudMeta);
-      setSavingSentLink(dashboardUrl);
-
-      if (mode === 'inbox') {
-        await finishToInbox(briefId, intent);
-      } else {
-        await finishWithCopy(briefId, intent);
-      }
+      // instant the upload resolves — don't wait for a ticket to be filed —
+      // then send the user straight to their briefs page (new tab, routed via
+      // background since the bar is a content script) and close the bar.
+      const { briefsUrl } = await submitBrief(files, cloudMeta);
+      setSavingSent('Sent — opening your briefs…');
+      chrome.runtime.sendMessage({ type: 'open-url', url: briefsUrl }).catch(() => {});
+      await clearInboxDraft(briefId);
+      setTimeout(closeParent, 1000);
       return;
     } catch (err) {
       // Upload failed — fall through to the original local download so the

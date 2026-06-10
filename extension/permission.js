@@ -2,8 +2,10 @@
 //
 // This page exists only to fire Chrome's native mic prompt reliably (a
 // top-level extension tab is the one context where it works). Once mic is
-// granted, we hand off to the settings page in onboarding mode, which walks
-// then hands off to the setup wizard.
+// granted, we hand off to the Brief Cloud connect page so the user can pair the
+// extension (the old settings/options page has been removed).
+
+import { APP_URL } from './cloud.js';
 
 const grantBtn = document.getElementById('grantBtn');
 const statusEl = document.getElementById('status');
@@ -25,8 +27,8 @@ async function checkMic() {
 }
 
 function goToOnboarding() {
-  // New users land directly on the Install step
-  location.href = chrome.runtime.getURL('settings.html');
+  // Mic granted — send the user to Brief Cloud to pair the extension.
+  location.href = `${APP_URL}/connect?ext=${chrome.runtime.id}`;
 }
 
 (async () => {

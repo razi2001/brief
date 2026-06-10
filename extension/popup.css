@@ -537,6 +537,18 @@ body.ready { opacity: 1; }
 }
 .export-done-sub a:hover { color: #c95c2c; text-decoration: underline; text-underline-offset: 2px; }
 
+/* ---------- Brief Cloud status line (connect / connected · disconnect) ---------- */
+#bc-status {
+  margin-top: 8px;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+#bc-status a { color: var(--accent); text-decoration: none; }
+#bc-status a:hover { text-decoration: underline; text-underline-offset: 2px; }
+.bc-conn { color: var(--muted); }
+
 /* ---------- Inline error bar (shows when start fails) ---------- */
 .err-bar {
   display: none;

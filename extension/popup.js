@@ -8,9 +8,9 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { getCloudToken, openConnectPage, submitBrief } from './cloud.js';
+import { APP_URL, getCloudToken, clearCloudToken, openConnectPage, submitBrief } from './cloud.js';
 
-const settingsBtn = document.getElementById('settingsBtn');
+const myBriefsBtn = document.getElementById('myBriefsBtn');
 const briefList = document.getElementById('briefList');
 const emptyState = document.getElementById('emptyState');
 const addForm = document.getElementById('addForm');
@@ -152,8 +152,11 @@ async function recordForItem(itemId, recBtn) {
   }
 }
 
-settingsBtn?.addEventListener('click', () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
+// "My briefs" — open the Brief Cloud briefs page (replaces the old settings/
+// options page, which is no longer needed: connect/disconnect live in the popup
+// and everything else is on the web app).
+myBriefsBtn?.addEventListener('click', () => {
+  chrome.tabs.create({ url: `${APP_URL}/briefs` });
   window.close();
 });
 
@@ -837,7 +840,15 @@ async function bcRefresh() {
   try { token = await getCloudToken(); } catch {}
   bcConnected = !!token;
   if (bcConnected) {
-    bcSetStatus('');
+    // Connected: quiet status + a disconnect affordance (this used to live on
+    // the settings page, which we removed).
+    bcSetStatus('<span class="bc-conn">Connected ✓ · <a href="#" id="bc-disconnect">disconnect</a></span>');
+    const dc = document.getElementById('bc-disconnect');
+    dc?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await clearCloudToken();
+      await bcRefresh();
+    });
   } else {
     bcSetStatus('<a href="#" id="bc-connect">Connect to Brief Cloud</a>');
     const link = document.getElementById('bc-connect');
@@ -852,30 +863,16 @@ async function bcRefresh() {
 }
 
 // Reuse the green "Copied to clipboard" success overlay (#exportDone) to
-// confirm a cloud submit. We swap the copy to "Sent to Brief Cloud" and make
-// the sub-line a link to the dashboard. The green check reads as success, not
-// a pending state. The overlay is restored to its export wording on close so
-// a later Export still shows the right message.
-function bcShowSentSuccess(dashboardUrl) {
+// confirm a cloud submit, then send the user straight to their briefs page in a
+// new tab and close the popup — no link to click, no "filling" limbo.
+function bcShowSentAndOpen(briefsUrl) {
   const title = exportDone.querySelector('.export-done-title');
   const sub = exportDone.querySelector('.export-done-sub');
-  if (title) title.textContent = 'Sent to Brief Cloud';
-  if (sub) {
-    sub.textContent = '';
-    const link = document.createElement('a');
-    link.href = dashboardUrl;
-    link.textContent = 'Track it on your dashboard →';
-    link.target = '_blank';
-    link.rel = 'noopener';
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      chrome.tabs.create({ url: dashboardUrl });
-      window.close();
-    });
-    sub.appendChild(link);
-  }
+  if (title) title.textContent = 'Sent ✓';
+  if (sub) sub.textContent = 'Opening your briefs…';
   exportDone.hidden = false;
-  setTimeout(() => window.close(), 2200);
+  chrome.tabs.create({ url: briefsUrl });
+  setTimeout(() => window.close(), 700);
 }
 
 bcCreateTicket?.addEventListener('click', async () => {
@@ -892,17 +889,16 @@ bcCreateTicket?.addEventListener('click', async () => {
     const { files, meta } = bcBuildFilesAndMeta(b);
     // Fire-and-forget: only the small create+upload is awaited; the agent run
     // is kicked off (keepalive) and NOT awaited, so this feels instant.
-    const { dashboardUrl } = await submitBrief(files, meta);
+    const { briefsUrl } = await submitBrief(files, meta);
 
     // Remove the submitted brief from the inbox immediately so it disappears
-    // from the extension, then refresh the list.
+    // from the extension.
     const after = await getInbox();
     await setInbox(after.filter((x) => x.id !== b.id));
     bcSetStatus('');
-    await refreshInbox();
 
-    // Green success confirmation.
-    bcShowSentSuccess(dashboardUrl);
+    // Confirm, then open the briefs page in a new tab and close the popup.
+    bcShowSentAndOpen(briefsUrl);
   } catch (err) {
     bcSetStatus('');
     showInlineError(`Couldn’t send: ${err?.message || err}`);
