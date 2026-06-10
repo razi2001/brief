@@ -221,12 +221,13 @@ export default function BriefsFeed({
   }, [counts, briefs, archivedIds]);
 
   // ---- Batch selection (archive / delete many) ----
-  const [selecting, setSelecting] = useState(false);
+  // No "select mode": a checkbox shows on row hover; selecting any row reveals
+  // the toolbar. `selected` drives everything.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const anySelected = selected.size > 0;
 
-  const exitSelect = () => {
-    setSelecting(false);
+  const clearSelection = () => {
     setSelected(new Set());
     setConfirmDelete(false);
   };
@@ -253,7 +254,7 @@ export default function BriefsFeed({
         keepalive: true,
       }).catch(() => {}),
     );
-    exitSelect();
+    clearSelection();
   };
   const archiveSelected = () => runBatch("archive");
   const deleteSelected = () => {
@@ -275,13 +276,6 @@ export default function BriefsFeed({
         </div>
         <div className="flex shrink-0 items-center gap-3">
           <AutoRefresh active={isProcessing} />
-          <button
-            type="button"
-            onClick={() => (selecting ? exitSelect() : setSelecting(true))}
-            className="font-mono text-xs tracking-wide text-muted no-underline transition-colors hover:text-ink"
-          >
-            {selecting ? "Cancel" : "Select"}
-          </button>
           <FilterPopover
             options={options}
             selected={reconciled}
@@ -296,13 +290,13 @@ export default function BriefsFeed({
         </div>
       </div>
 
-      {/* Batch toolbar */}
-      {selecting && (
-        <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-hairline bg-cream-2/60 px-4 py-2.5">
+      {/* Batch toolbar — appears once you select a row (hover reveals checkboxes). */}
+      {anySelected && (
+        <div className="animate-rise mt-4 flex items-center justify-between gap-3 rounded-xl border border-hairline bg-cream-2/60 px-4 py-2.5">
           <button
             type="button"
             onClick={toggleSelectAll}
-            className="flex items-center gap-2 font-mono text-xs text-ink-2"
+            className="flex items-center gap-2 font-mono text-xs text-ink-2 transition-colors hover:text-ink"
           >
             <span
               className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
@@ -313,24 +307,29 @@ export default function BriefsFeed({
                 <path d="M5 12l5 5L20 6" />
               </svg>
             </span>
-            {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+            {selected.size} selected
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={archiveSelected}
-              disabled={selected.size === 0}
-              className="rounded-md px-2.5 py-1 font-mono text-xs text-ink-2 transition-colors hover:bg-cream hover:text-ink disabled:opacity-40"
+              className="rounded-md px-2.5 py-1 font-mono text-xs text-ink-2 transition-colors hover:bg-cream hover:text-ink"
             >
               Archive
             </button>
             <button
               type="button"
               onClick={deleteSelected}
-              disabled={selected.size === 0}
-              className="rounded-md px-2.5 py-1 font-mono text-xs text-[#c62828] transition-colors hover:bg-[rgba(198,40,40,.1)] disabled:opacity-40"
+              className="rounded-md px-2.5 py-1 font-mono text-xs text-[#c62828] transition-colors hover:bg-[rgba(198,40,40,.1)]"
             >
               {confirmDelete ? "Confirm delete" : "Delete"}
+            </button>
+            <button
+              type="button"
+              onClick={clearSelection}
+              className="ml-1 rounded-md px-2.5 py-1 font-mono text-xs text-muted transition-colors hover:text-ink"
+            >
+              Cancel
             </button>
           </div>
         </div>
@@ -345,8 +344,8 @@ export default function BriefsFeed({
               onArchive={onArchive}
               onArchiveFailed={onArchiveFailed}
               leaving={leaving.has(b.id)}
-              selecting={selecting}
               selected={selected.has(b.id)}
+              anySelected={anySelected}
               onToggleSelect={toggleSelect}
             />
           ))}

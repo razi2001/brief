@@ -46,11 +46,6 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
           const stateName = isProcessing ? "Creating…" : ti?.stateName || "Filed";
           const Row = (
             <div className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream-2/40">
-              <span
-                className={`h-2 w-2 shrink-0 rounded-full ${isProcessing ? "dot-pulse" : ""}`}
-                style={{ backgroundColor: dot }}
-                title={stateName}
-              />
               {/* Title — smaller, capped so it crops before the status column. */}
               <span className="min-w-0 max-w-[60%] flex-1 truncate text-[0.8125rem] text-ink">
                 {title}

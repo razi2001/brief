@@ -41,17 +41,18 @@ export default function BriefListRow({
   onArchive,
   onArchiveFailed,
   leaving = false,
-  selecting = false,
   selected = false,
+  anySelected = false,
   onToggleSelect,
 }: {
   brief: DashboardBrief;
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
   leaving?: boolean;
-  /** Batch-selection mode: rows show a checkbox and clicking toggles selection. */
-  selecting?: boolean;
+  /** This row is selected. */
   selected?: boolean;
+  /** Any row is selected (keeps every checkbox visible while a selection is active). */
+  anySelected?: boolean;
   onToggleSelect?: (id: string) => void;
 }) {
   const ti = b.ticket ?? null;
@@ -73,20 +74,8 @@ export default function BriefListRow({
           ? `${b.source_kind} brief`
           : "Untitled brief");
 
-  const dotColor = isFiled
-    ? ti?.stateColor || "#2e7d32"
-    : isProcessing
-      ? "#dd6936"
-      : "#c62828";
-
   const inner = (
     <>
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${isProcessing ? "dot-pulse" : ""}`}
-        style={{ backgroundColor: dotColor }}
-        title={ti?.stateName || b.status}
-      />
-
       {/* Title — smaller, and capped so it crops well before the status column. */}
       <div className="min-w-0 max-w-[60%] flex-1">
         <p className={`truncate text-[0.8125rem] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
@@ -142,10 +131,11 @@ export default function BriefListRow({
     </>
   );
 
-  const contentClass = "flex min-w-0 flex-1 items-center gap-3 px-4 py-3 no-underline";
+  const contentClass = "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 no-underline";
 
-  // In select mode the whole row toggles selection (no navigation).
-  const selectRow = () => onToggleSelect?.(b.id);
+  // Checkbox is faint until you hover the row; it stays visible once it's
+  // checked or while any selection is active. Clicking it selects (never navigates).
+  const boxVisible = selected || anySelected;
 
   return (
     <li
@@ -155,33 +145,34 @@ export default function BriefListRow({
     >
       {isProcessing && <span aria-hidden className="queue-bar" />}
 
-      {/* Leading checkbox (select mode only). */}
-      {selecting && (
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={selected}
-          aria-label={selected ? "Deselect" : "Select"}
-          onClick={selectRow}
-          className="flex shrink-0 items-center pl-3"
+      {/* Leading checkbox — always occupies space (no layout shift), shown on
+          hover / when selected. */}
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={selected}
+        aria-label={selected ? "Deselect" : "Select"}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleSelect?.(b.id);
+        }}
+        className={`flex shrink-0 items-center pl-4 pr-1 transition-opacity duration-150 ${
+          boxVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        }`}
+      >
+        <span
+          className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+            selected ? "border-accent bg-accent text-cream" : "border-hairline bg-transparent text-transparent"
+          }`}
         >
-          <span
-            className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
-              selected ? "border-accent bg-accent text-cream" : "border-hairline bg-transparent text-transparent"
-            }`}
-          >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M5 12l5 5L20 6" />
-            </svg>
-          </span>
-        </button>
-      )}
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 12l5 5L20 6" />
+          </svg>
+        </span>
+      </button>
 
-      {selecting ? (
-        <div className={`${contentClass} cursor-pointer`} onClick={selectRow}>
-          {inner}
-        </div>
-      ) : asLink ? (
+      {asLink ? (
         <a href={href} target="_blank" rel="noreferrer" className={contentClass}>
           {inner}
         </a>
@@ -189,18 +180,16 @@ export default function BriefListRow({
         <div className={contentClass}>{inner}</div>
       )}
 
-      {/* Row action (hidden in select mode — the toolbar handles batch ops). */}
-      {!selecting && (
-        <div className="flex shrink-0 items-center pl-1 pr-2.5">
-          {b.archived ? (
-            <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
-              archived
-            </span>
-          ) : (
-            <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
-          )}
-        </div>
-      )}
+      {/* Row action — archive (reversible). Delete is batch-only via the toolbar. */}
+      <div className="flex shrink-0 items-center pl-1 pr-2.5">
+        {b.archived ? (
+          <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
+            archived
+          </span>
+        ) : (
+          <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+        )}
+      </div>
     </li>
   );
 }
