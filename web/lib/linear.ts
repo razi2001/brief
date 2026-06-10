@@ -96,14 +96,17 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       let description = descriptionMarkdown;
       // Upload each evidence file and embed it inline (Linear-hosted asset URL).
       const embeds: string[] = [];
+      let imgN = 0;
       for (const e of evidence) {
         try {
           const assetUrl = await api.uploadAsset({ filename: e.filename, contentType: e.contentType, bytes: e.bytes });
           if (e.contentType.startsWith("image/")) {
-            embeds.push(`![${e.filename}](${assetUrl})`);
+            imgN += 1;
+            // Human caption, never the raw filename.
+            embeds.push(`![Screenshot ${imgN}](${assetUrl})`);
           } else {
-            // Non-image (e.g. recording): bare URL auto-embeds an inline player + labelled link.
-            embeds.push(`**${e.filename}:**\n\n${assetUrl}\n\n[Open ${e.filename}](${assetUrl})`);
+            // Recording: bare URL auto-embeds an inline player + a labelled link.
+            embeds.push(`**Screen recording:**\n\n${assetUrl}\n\n[Open recording](${assetUrl})`);
           }
         } catch (err) {
           console.warn("[linear-tracker] evidence upload failed:", e.filename, err);
