@@ -46,53 +46,70 @@ export async function processBrief(brief: BriefInput, tracker: Tracker): Promise
     },
   ];
 
-  const userContent: any[] = [
-    { type: "text", text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) },
-    ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })),
-  ];
+  const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
+  const tail: any[] = [];
   if (brief.evidence.length) {
-    userContent.push({
+    tail.push({
       type: "text",
       text: `${brief.evidence.length} evidence file(s) (screenshots/keyframes/recording) will be attached or embedded automatically. Write the description assuming the reader can see them inline.`,
     });
   }
-  userContent.push({
-    type: "text",
-    text: `File exactly one ticket for this. Pick the best ${noun}, then create the issue.`,
-  });
+  tail.push({ type: "text", text: `File exactly one ticket for this. Pick the best ${noun}, then create the issue.` });
 
-  const messages: any[] = [
-    { role: "system", content: sys },
-    { role: "user", content: userContent },
-  ];
+  const withImages = [briefText, ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })), ...tail];
+  const textOnly = [briefText, ...tail];
 
-  let created: IssueResult | null = null;
-  for (let i = 0; i < 6 && !created; i++) {
-    const resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
-    const msg = resp.choices[0].message;
-    messages.push(msg);
-    if (!msg.tool_calls?.length) break;
-    for (const tc of msg.tool_calls) {
-      if (tc.type !== "function") continue;
-      const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
-      let result: unknown;
-      try {
-        if (tc.function.name === "list_targets") result = await tracker.listTargets();
-        else if (tc.function.name === "create_issue") {
-          created = await tracker.fileIssue({
-            targetId: args.targetId,
-            title: args.title,
-            descriptionMarkdown: args.description,
-            evidence: brief.evidence,
-          });
-          result = created;
-        } else result = { error: "unknown tool" };
-      } catch (e: any) {
-        result = { error: String(e?.message ?? e) };
+  const runLoop = async (userContent: any[]): Promise<IssueResult> => {
+    const messages: any[] = [
+      { role: "system", content: sys },
+      { role: "user", content: userContent },
+    ];
+    let created: IssueResult | null = null;
+    for (let i = 0; i < 6 && !created; i++) {
+      const resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
+      const msg = resp.choices[0].message;
+      messages.push(msg);
+      if (!msg.tool_calls?.length) break;
+      for (const tc of msg.tool_calls) {
+        if (tc.type !== "function") continue;
+        const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
+        let result: unknown;
+        try {
+          if (tc.function.name === "list_targets") result = await tracker.listTargets();
+          else if (tc.function.name === "create_issue") {
+            created = await tracker.fileIssue({
+              targetId: args.targetId,
+              title: args.title,
+              descriptionMarkdown: args.description,
+              evidence: brief.evidence,
+            });
+            result = created;
+          } else result = { error: "unknown tool" };
+        } catch (e: any) {
+          result = { error: String(e?.message ?? e) };
+        }
+        messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
       }
-      messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
+    }
+    if (!created) throw new Error("agent did not create an issue");
+    return created;
+  };
+
+  // The evidence is embedded/attached by the tracker regardless of vision. So if the
+  // model rejects a provided image (degenerate/oversized/unsupported frame), degrade
+  // gracefully to a text-only prompt rather than failing the whole ticket.
+  let created: IssueResult;
+  try {
+    created = await runLoop(brief.images.length ? withImages : textOnly);
+  } catch (e: any) {
+    const msg = String(e?.message ?? e);
+    if (brief.images.length && /image|vision|media/i.test(msg)) {
+      console.warn("[agent] model rejected a provided image — retrying text-only:", msg);
+      created = await runLoop(textOnly);
+    } else {
+      throw e;
     }
   }
-  if (!created) throw new Error("agent did not create an issue");
+
   return { ticketUrl: created.url, ticketIdentifier: created.identifier, summary: created.title || "filed" };
 }
