@@ -3,7 +3,7 @@ import BrandMark from "@/components/BrandMark";
 
 export default function Page() {
   return (
-    <main className="min-h-screen bg-cream text-ink flex flex-col items-center justify-center px-4 py-16">
+    <main className="min-h-screen text-ink flex flex-col items-center justify-center px-4 py-16">
       <div className="flex flex-col items-center text-center">
         <BrandMark size={56} />
         <h1 className="font-display mt-6 text-5xl sm:text-6xl leading-tight text-ink">

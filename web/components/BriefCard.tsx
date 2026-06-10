@@ -2,6 +2,7 @@
 
 import RetryButton from "./RetryButton";
 import SourceIcon from "./SourceIcon";
+import { TrackerLogo } from "./TrackerLogo";
 import type { LinearIssueInfo } from "@/lib/linear";
 
 export type DashboardBrief = {
@@ -48,6 +49,14 @@ function truncate(text: string, max = 140): string {
 function initial(name?: string): string {
   const n = (name ?? "").trim();
   return n ? n[0].toUpperCase() : "?";
+}
+
+/** Infer the tracker from a ticket URL. Defaults to Linear. */
+function trackerOf(url?: string): { kind: "linear" | "jira"; name: string } {
+  const u = (url ?? "").toLowerCase();
+  if (u.includes("atlassian") || u.includes("jira"))
+    return { kind: "jira", name: "Jira" };
+  return { kind: "linear", name: "Linear" };
 }
 
 function Assignee({ a }: { a: NonNullable<LinearIssueInfo["assignee"]> }) {
@@ -102,10 +111,12 @@ function StatusBadge({
 }
 
 /**
- * A rich brief row. Filed briefs synced to Linear lead with the live state
- * dot + workflow name; processing rows pulse; failed rows get a thin red left
- * accent + a quiet ghost Retry. Titles render in Instrument Serif (the premium
- * touch); mono is reserved for status/source/meta/identifiers.
+ * A rich brief row. Filed briefs become a whole-card link to the ticket (opens
+ * in a new tab) with an explicit "Open in Linear/Jira →" pill bottom-right and
+ * the tracker logomark next to the identifier — so the card is obviously
+ * interactive. Processing rows pulse + shimmer; failed rows are NOT links and
+ * get a thin red left accent + a quiet ghost Retry. Titles render in Instrument
+ * Serif; mono is reserved for status/source/meta/identifiers.
  */
 export default function BriefCard({
   brief: b,
@@ -130,6 +141,10 @@ export default function BriefCard({
 
   const href = li?.url || b.ticket_url || undefined;
   const identifier = b.ticket_identifier || li?.identifier;
+  const tracker = trackerOf(href);
+
+  // The whole card is a link only when it's filed AND we have a destination.
+  const asLink = isFiled && !!href;
 
   // Status badge inputs.
   const badge = synced
@@ -140,15 +155,13 @@ export default function BriefCard({
         ? { color: "#dd6936", label: "in progress", pulse: true }
         : { color: "#8a8378", label: b.status, pulse: false };
 
-  return (
-    <div
-      className={`card brief-card animate-rise relative overflow-hidden px-[18px] py-[18px] ${
-        isFailed
-          ? "border-l-2 border-l-[rgba(198,40,40,.55)]"
-          : ""
-      }`}
-      style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
-    >
+  const className = `card brief-card animate-rise relative overflow-hidden px-[18px] py-[18px] ${
+    asLink ? "brief-card-link block" : ""
+  } ${isFailed ? "border-l-2 border-l-[rgba(198,40,40,.55)]" : ""}`;
+  const style = { animationDelay: `${Math.min(index, 12) * 45}ms` };
+
+  const inner = (
+    <>
       {isProcessing && (
         <span
           aria-hidden="true"
@@ -183,23 +196,16 @@ export default function BriefCard({
         {li?.assignee && <Assignee a={li.assignee} />}
       </div>
 
-      {/* Bottom row: identifier link + filed date · retry */}
+      {/* Bottom row: identifier (+ tracker logo) + filed date · open / retry */}
       <div className="relative mt-3 flex items-center justify-between gap-3 text-xs">
         <div className="flex min-w-0 items-center gap-2 text-muted">
-          {identifier && href ? (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="group/id inline-flex items-center gap-1 font-mono text-accent no-underline hover:underline"
-            >
-              {identifier}
-              <span className="inline-block transition-transform duration-200 group-hover/id:translate-x-0.5">
-                →
+          {identifier ? (
+            <span className="inline-flex items-center gap-1.5">
+              {asLink && <TrackerLogo kind={tracker.kind} size={14} />}
+              <span className={`font-mono ${asLink ? "text-ink-2" : ""}`}>
+                {identifier}
               </span>
-            </a>
-          ) : identifier ? (
-            <span className="font-mono">{identifier}</span>
+            </span>
           ) : null}
           {li?.createdAt && (
             <>
@@ -209,10 +215,18 @@ export default function BriefCard({
           )}
         </div>
 
-        {isFailed && (
-          <div className="flex shrink-0 items-center">
-            <RetryButton briefId={b.id} />
-          </div>
+        {asLink ? (
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[rgba(221,105,54,.3)] bg-[rgba(221,105,54,.08)] px-2.5 py-1 font-mono text-[0.6875rem] tracking-wide text-accent">
+            <TrackerLogo kind={tracker.kind} size={13} />
+            Open in {tracker.name}
+            <span className="open-arrow inline-block">→</span>
+          </span>
+        ) : (
+          isFailed && (
+            <div className="flex shrink-0 items-center">
+              <RetryButton briefId={b.id} />
+            </div>
+          )
         )}
       </div>
 
@@ -221,6 +235,27 @@ export default function BriefCard({
           {truncate(b.error)}
         </p>
       )}
+    </>
+  );
+
+  if (asLink) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className={className}
+        style={style}
+        aria-label={`Open ${identifier ?? "ticket"} in ${tracker.name}`}
+      >
+        {inner}
+      </a>
+    );
+  }
+
+  return (
+    <div className={className} style={style}>
+      {inner}
     </div>
   );
 }

@@ -46,9 +46,17 @@ a {
   }
 
   .card {
-    background: #fffdf8;
+    /* Translucent warm-white so the drifting clouds glow faintly through. */
+    background: rgba(255, 253, 248, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     border: 1px solid var(--color-hairline);
     border-radius: var(--radius-brief);
+    box-shadow: 0 1px 2px rgba(26, 22, 18, 0.05);
+    transition:
+      transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 0.2s ease;
   }
 
   .btn-accent {
@@ -139,15 +147,32 @@ a {
 /* Premium brief card: more radius + air, resting depth, lift on hover. */
 .brief-card {
   border-radius: 15px;
-  box-shadow: 0 1px 2px rgba(26, 22, 18, 0.05);
-  transition:
-    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 0.2s ease;
 }
 .brief-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 24px rgba(26, 22, 18, 0.09);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(26, 22, 18, 0.1);
+}
+
+/* Filed (clickable) brief card: same lift, plus a soft accent ring so it reads
+   as obviously interactive. */
+.brief-card-link {
+  cursor: pointer;
+  text-decoration: none;
+}
+.brief-card-link:hover {
+  transform: translateY(-2px);
+  border-color: rgba(221, 105, 54, 0.4);
+  box-shadow:
+    0 10px 30px rgba(26, 22, 18, 0.1),
+    0 0 0 1px rgba(221, 105, 54, 0.25);
+}
+
+/* The open-ticket affordance: arrow slides right on hover of the whole card. */
+.open-arrow {
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.brief-card-link:hover .open-arrow {
+  transform: translateX(3px);
 }
 
 /* Soft pulse for a processing status dot (no layout shift). */
@@ -166,6 +191,126 @@ a {
   animation: brief-dot-pulse 1.8s ease-in-out infinite;
 }
 
+/* ── Ambient cloud background ───────────────────────────────────────── */
+
+.cloud-bg {
+  background: var(--color-cream);
+}
+
+.cloud {
+  position: absolute;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+/* warm-white, top-left */
+.cloud-1 {
+  top: -18vh;
+  left: -12vw;
+  width: 58vw;
+  height: 58vw;
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 253, 248, 0.9) 0%,
+    rgba(255, 253, 248, 0) 70%
+  );
+  filter: blur(90px);
+  animation: cloud-drift-a 34s ease-in-out infinite alternate;
+}
+
+/* cream-2, top-right */
+.cloud-2 {
+  top: -10vh;
+  right: -14vw;
+  width: 50vw;
+  height: 50vw;
+  background: radial-gradient(
+    circle at center,
+    #ece6d6 0%,
+    rgba(236, 230, 214, 0) 68%
+  );
+  filter: blur(80px);
+  animation: cloud-drift-b 42s ease-in-out infinite alternate;
+}
+
+/* faint peach accent, bottom-right */
+.cloud-3 {
+  bottom: -22vh;
+  right: -10vw;
+  width: 52vw;
+  height: 52vw;
+  background: radial-gradient(
+    circle at center,
+    rgba(221, 105, 54, 0.1) 0%,
+    rgba(221, 105, 54, 0) 65%
+  );
+  filter: blur(100px);
+  animation: cloud-drift-c 38s ease-in-out infinite alternate;
+}
+
+/* bright highlight, bottom-left */
+.cloud-4 {
+  bottom: -16vh;
+  left: -10vw;
+  width: 44vw;
+  height: 44vw;
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.7) 0%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  filter: blur(85px);
+  animation: cloud-drift-d 44s ease-in-out infinite alternate;
+}
+
+/* soft warm-white, center drift */
+.cloud-5 {
+  top: 30vh;
+  left: 28vw;
+  width: 40vw;
+  height: 40vw;
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 253, 248, 0.6) 0%,
+    rgba(255, 253, 248, 0) 70%
+  );
+  filter: blur(75px);
+  animation: cloud-drift-b 30s ease-in-out infinite alternate;
+}
+
+@keyframes cloud-drift-a {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(4vw, 3vh) scale(1.08);
+  }
+}
+@keyframes cloud-drift-b {
+  from {
+    transform: translate(0, 0) scale(1.05);
+  }
+  to {
+    transform: translate(-3vw, 4vh) scale(1);
+  }
+}
+@keyframes cloud-drift-c {
+  from {
+    transform: translate(0, 0) scale(1);
+  }
+  to {
+    transform: translate(-4vw, -3vh) scale(1.1);
+  }
+}
+@keyframes cloud-drift-d {
+  from {
+    transform: translate(0, 0) scale(1.02);
+  }
+  to {
+    transform: translate(3vw, -4vh) scale(1.08);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
   .shimmer,
@@ -173,7 +318,11 @@ a {
     animation: none;
   }
   .lift:hover,
-  .brief-card:hover {
+  .brief-card:hover,
+  .brief-card-link:hover {
     transform: none;
+  }
+  .cloud {
+    animation: none !important;
   }
 }

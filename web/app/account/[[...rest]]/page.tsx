@@ -4,7 +4,7 @@ import BrandMark from "@/components/BrandMark";
 
 export default function Account() {
   return (
-    <div className="min-h-full bg-cream text-ink">
+    <div className="min-h-full text-ink">
       <header className="border-b hairline">
         <div className="mx-auto flex w-full max-w-[760px] items-center justify-between px-4 py-4">
           <Link href="/dashboard" className="flex items-center gap-2.5 no-underline">

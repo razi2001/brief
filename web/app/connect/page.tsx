@@ -23,7 +23,7 @@ export default function Connect() {
     })();
   }, []);
   return (
-    <main className="min-h-screen bg-cream text-ink flex flex-col items-center justify-center px-4 py-16">
+    <main className="min-h-screen text-ink flex flex-col items-center justify-center px-4 py-16">
       <div className="flex flex-col items-center text-center max-w-md">
         <BrandMark size={48} />
         <h1 className="font-display mt-6 text-4xl sm:text-5xl leading-tight text-ink">
