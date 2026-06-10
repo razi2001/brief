@@ -175,8 +175,10 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
             // Human caption, never the raw filename.
             embeds.push(`![Screenshot ${imgN}](${assetUrl})`);
           } else {
-            // Recording: bare URL auto-embeds an inline player + a labelled link.
-            embeds.push(`**Screen recording:**\n\n${assetUrl}\n\n[Open recording](${assetUrl})`);
+            // Recording: a bare URL on its own line is enough — Linear renders it
+            // as an inline player with its own link. Don't add a second link (that
+            // made the recording show up "twice").
+            embeds.push(`**Screen recording:**\n\n${assetUrl}`);
           }
         } catch (err) {
           console.warn("[linear-tracker] evidence upload failed:", e.filename, err);

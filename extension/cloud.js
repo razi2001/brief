@@ -49,6 +49,7 @@ export async function uploadAndProcess(files, meta) {
 }
 
 export const TICKETS_URL = `${APP_URL}/tickets`;
+export const DASHBOARD_URL = `${APP_URL}/dashboard`;
 
 // Create a brief row + upload its files. Does NOT file the ticket — the brief
 // sits as an "uploaded" draft until processBrief() is called. Returns the cloud

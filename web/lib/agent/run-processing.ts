@@ -60,6 +60,11 @@ export async function processBriefById(userId: string, briefId: string): Promise
     const images: BriefInput["images"] = [];
     const evidence: BriefInput["evidence"] = [];
 
+    // Collect picked keyframes. They always go to `images` (so the model can SEE
+    // them and write an accurate description), but we only EMBED them in the
+    // ticket when there's no recording — otherwise the keyframe stills just
+    // duplicate frames of the video that's already embedded.
+    const keyframeEvidence: BriefInput["evidence"] = [];
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
     const pick = names.length ? [names[0], names[Math.floor(names.length / 2)], names[names.length - 1]] : [];
@@ -68,9 +73,10 @@ export async function processBriefById(userId: string, briefId: string): Promise
       if (!b) continue;
       const filename = n.split("/").pop() || n;
       images.push({ name: n, dataUrl: `data:image/png;base64,${b.toString("base64")}` });
-      evidence.push({ filename, contentType: "image/png", bytes: b });
+      keyframeEvidence.push({ filename, contentType: "image/png", bytes: b });
     }
 
+    // A user-annotated screenshot is intentional markup — always embed it.
     const shot = await dl(`${prefix}/screenshot.png`);
     if (shot) {
       images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
@@ -79,7 +85,11 @@ export async function processBriefById(userId: string, briefId: string): Promise
 
     const rec = await dl(`${prefix}/recording.webm`);
     if (rec) {
+      // The video covers the keyframes, so embed it INSTEAD of the stills.
       evidence.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
+    } else {
+      // No video — the keyframe stills are the visual evidence.
+      evidence.push(...keyframeEvidence);
     }
 
     console.log(

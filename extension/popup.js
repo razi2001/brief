@@ -8,7 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { APP_URL, TICKETS_URL, getCloudToken, submitBrief, processBrief } from './cloud.js';
+import { APP_URL, DASHBOARD_URL, getCloudToken, submitBrief, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -854,13 +854,14 @@ async function bcRefresh() {
 // Reuse the green "Copied to clipboard" success overlay (#exportDone) to
 // confirm a cloud submit, then send the user straight to their briefs page in a
 // new tab and close the popup — no link to click, no "filling" limbo.
-function bcShowSentAndOpen(ticketsUrl) {
+function bcShowSentAndOpen() {
   const title = exportDone.querySelector('.export-done-title');
   const sub = exportDone.querySelector('.export-done-sub');
-  if (title) title.textContent = 'Sent ✓';
-  if (sub) sub.textContent = 'Opening your tickets…';
+  if (title) title.textContent = 'Queued ✓';
+  if (sub) sub.textContent = 'Opening your dashboard…';
   exportDone.hidden = false;
-  chrome.tabs.create({ url: ticketsUrl });
+  // Once it's queued, take the user to the dashboard to watch it land.
+  chrome.tabs.create({ url: DASHBOARD_URL });
   setTimeout(() => window.close(), 700);
 }
 
@@ -892,8 +893,8 @@ bcCreateTicket?.addEventListener('click', async () => {
     await setInbox(after.filter((x) => x.id !== b.id));
     bcSetStatus('');
 
-    // Confirm, then open the tickets page in a new tab and close the popup.
-    bcShowSentAndOpen(TICKETS_URL);
+    // Confirm, then open the dashboard in a new tab and close the popup.
+    bcShowSentAndOpen();
   } catch (err) {
     showInlineError(`Couldn’t send: ${err?.message || err}`);
     bcCreateTicket.classList.remove('sending');
