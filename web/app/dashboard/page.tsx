@@ -17,7 +17,15 @@ function providerOf(url?: string | null): "linear" | "jira" {
 
 export default async function Dashboard() {
   const userId = await requireUserId();
-  const user = await currentUser();
+  // currentUser() calls Clerk's backend API; a transient error (rate limit,
+  // network blip) must NOT crash the whole dashboard. Degrade to a null user
+  // and recover on the next refresh.
+  let user: Awaited<ReturnType<typeof currentUser>> = null;
+  try {
+    user = await currentUser();
+  } catch {
+    /* render in a degraded state rather than throwing out of the server render */
+  }
   // Account-level ticket guidance (Clerk privateMetadata), edited in the
   // Connections tab and applied by the server agent.
   const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";

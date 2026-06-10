@@ -9,7 +9,7 @@ import { useRouter } from "next/navigation";
  */
 export default function AutoRefresh({
   active,
-  intervalMs = 4000,
+  intervalMs = 7000,
 }: {
   active: boolean;
   intervalMs?: number;
