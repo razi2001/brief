@@ -22,10 +22,34 @@ export default async function Dashboard() {
   const hasJira = !!user?.externalAccounts?.some((a) => matches(a, "atlassian") && isLive(a));
 
   const admin = createAdminSupabase();
+
+  // Auto-recover orphaned briefs: a brief flips to 'processing' when filing
+  // starts and back to filed/failed when it finishes. If the worker is
+  // interrupted (dev restart, serverless timeout, hang) it stays 'processing'
+  // forever. Anything stuck in 'processing' with no update for >4 minutes is
+  // almost certainly orphaned, so we flip it to 'failed' (which the UI renders
+  // with a Retry affordance). Best-effort: never throw out of the dashboard.
+  try {
+    const cutoff = new Date(Date.now() - 4 * 60 * 1000).toISOString();
+    await admin
+      .from("briefs")
+      .update({
+        status: "failed",
+        error: "Processing timed out — retry.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("status", "processing")
+      .lt("updated_at", cutoff);
+  } catch {
+    // Recovery is opportunistic — swallow failures so the feed still renders.
+  }
+
   const { data: briefs } = await admin
     .from("briefs")
     .select("*")
     .eq("user_id", userId)
+    .is("archived_at", null)
     .order("created_at", { ascending: false })
     .limit(20);
 

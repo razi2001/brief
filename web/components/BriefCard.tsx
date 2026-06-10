@@ -1,6 +1,7 @@
 "use client";
 
 import RetryButton from "./RetryButton";
+import ArchiveButton from "./ArchiveButton";
 import SourceIcon from "./SourceIcon";
 import { TrackerLogo } from "./TrackerLogo";
 import type { LinearIssueInfo } from "@/lib/linear";
@@ -238,24 +239,42 @@ export default function BriefCard({
     </>
   );
 
+  // The archive control is always rendered as a SIBLING of the card element
+  // (never a descendant of the <a>), absolutely positioned in the top-right.
+  // Filed cards render the whole card as an <a>; nesting an interactive button
+  // inside an anchor is invalid HTML and would also let the card link swallow
+  // the click. Keeping it a sibling avoids both problems. It's faint by default
+  // and lifts on hover/focus-within of the group.
+  const archiveControl = (
+    <div className="absolute right-2 top-2 z-10 rounded-full bg-cream/85 px-1.5 py-0.5 opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100">
+      <ArchiveButton briefId={b.id} />
+    </div>
+  );
+
   if (asLink) {
     return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className={className}
-        style={style}
-        aria-label={`Open ${identifier ?? "ticket"} in ${tracker.name}`}
-      >
-        {inner}
-      </a>
+      <div className="group relative">
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className={className}
+          style={style}
+          aria-label={`Open ${identifier ?? "ticket"} in ${tracker.name}`}
+        >
+          {inner}
+        </a>
+        {archiveControl}
+      </div>
     );
   }
 
   return (
-    <div className={className} style={style}>
-      {inner}
+    <div className="group relative">
+      <div className={className} style={style}>
+        {inner}
+      </div>
+      {archiveControl}
     </div>
   );
 }
