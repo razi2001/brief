@@ -1,198 +1,151 @@
+import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
-import { currentUser } from "@clerk/nextjs/server";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import { getLinearToken, getIssuesByIdentifiers } from "@/lib/linear";
-import { getJiraAuth, getJiraCloud, getJiraIssues } from "@/lib/jira";
 import AppShell from "@/components/AppShell";
 import GettingStarted from "@/components/GettingStarted";
-import DashboardTabs from "@/components/DashboardTabs";
-import type { DashboardBrief, TicketInfo } from "@/components/BriefCard";
+import StatStrip, { type Stat } from "@/components/StatStrip";
+import TrendChart, { type TrendDay } from "@/components/TrendChart";
+import StatusBreakdown, { type StatusSegment } from "@/components/StatusBreakdown";
+import TicketList from "@/components/TicketList";
+import {
+  recoverOrphans,
+  getTrackerContext,
+  attachTicketInfo,
+  BRIEF_COLUMNS,
+  type BriefRow,
+} from "@/lib/briefs-server";
 
-/** Infer the tracker a filed brief went to, from its ticket URL. */
-function providerOf(url?: string | null): "linear" | "jira" {
-  const u = (url ?? "").toLowerCase();
-  return u.includes("atlassian") || u.includes("jira") ? "jira" : "linear";
+/** Local YYYY-MM-DD key for a timestamp (day bucketing for the trend chart). */
+function dayKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = `${d.getMonth() + 1}`.padStart(2, "0");
+  const day = `${d.getDate()}`.padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** The last `n` calendar days (oldest → newest), each zero-initialized. */
+function buildDays(n: number): TrendDay[] {
+  const out: TrendDay[] = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    out.push({ date: dayKey(d), count: 0 });
+  }
+  return out;
 }
 
 export default async function Dashboard() {
   const userId = await requireUserId();
-  // currentUser() calls Clerk's backend API; a transient error (rate limit,
-  // network blip) must NOT crash the whole dashboard. Degrade to a null user
-  // and recover on the next refresh.
-  let user: Awaited<ReturnType<typeof currentUser>> = null;
-  try {
-    user = await currentUser();
-  } catch {
-    /* render in a degraded state rather than throwing out of the server render */
-  }
-  // Account-level ticket guidance (Clerk privateMetadata), edited in the
-  // Connections tab and applied by the server agent.
-  const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";
-  // A connection only counts if it isn't a known-unverified (failed/abandoned)
-  // OAuth attempt. If the verification status isn't exposed, fall back to presence.
-  const isLive = (a: { verification?: { status?: string } | null }) => {
-    const s = a.verification?.status;
-    return s === undefined || s === "verified";
-  };
-  const matches = (a: { provider?: string }, p: string) => (a.provider ?? "").toLowerCase().includes(p);
-  const hasLinear = !!user?.externalAccounts?.some((a) => matches(a, "linear") && isLive(a));
-  const hasJira = !!user?.externalAccounts?.some((a) => matches(a, "atlassian") && isLive(a));
+  const ctx = await getTrackerContext();
 
   const admin = createAdminSupabase();
+  await recoverOrphans(admin, userId);
 
-  // Auto-recover orphaned briefs: a brief flips to 'processing' when filing
-  // starts and back to filed/failed when it finishes. If the worker is
-  // interrupted (dev restart, serverless timeout, hang) it stays 'processing'
-  // forever. Anything stuck in 'processing' with no update for >4 minutes is
-  // almost certainly orphaned, so we flip it to 'failed' (which the UI renders
-  // with a Retry affordance). Best-effort: never throw out of the dashboard.
-  try {
-    const cutoff = new Date(Date.now() - 4 * 60 * 1000).toISOString();
-    await admin
-      .from("briefs")
-      .update({
-        status: "failed",
-        error: "Processing timed out — retry.",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId)
-      .eq("status", "processing")
-      .lt("updated_at", cutoff);
-  } catch {
-    // Recovery is opportunistic — swallow failures so the feed still renders.
-  }
-
-  const { data: briefs } = await admin
+  // All of the user's (non-archived) briefs — cheap, single user. Used for
+  // counts and the trend; live tracker state is fetched only for the recent
+  // filed subset inside attachTicketInfo.
+  const { data } = await admin
     .from("briefs")
-    .select("*")
+    .select(BRIEF_COLUMNS)
     .eq("user_id", userId)
     .is("archived_at", null)
     .order("created_at", { ascending: false })
-    .limit(20);
+    .limit(500);
+  const list = (data ?? []) as BriefRow[];
 
-  const list = briefs ?? [];
+  const filed = list.filter((b) => b.status === "filed");
+  const processing = list.filter((b) => b.status === "processing" || b.status === "uploaded");
+  const failed = list.filter((b) => b.status === "failed");
 
-  const isProcessing = list.some(
-    (b) => b.status === "uploaded" || b.status === "processing",
-  );
+  const weekAgo = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
+  const thisWeek = filed.filter(
+    (b) => b.created_at && new Date(b.created_at).getTime() >= weekAgo,
+  ).length;
 
-  // Live status sync per provider. Best-effort and fully contained: if a tracker
-  // isn't connected, there are no filed identifiers, or the token/fetch fails,
-  // we simply render without live info — never break the dashboard.
-  //
-  // Classify each filed brief by provider (from its ticket_url) and fetch live
-  // titles + status from Linear (getIssuesByIdentifiers) and Jira
-  // (getJiraIssues) independently, then merge both into a provider-agnostic
-  // `ticket` field on each brief.
-  const filed = list.filter((b) => b.status === "filed" && b.ticket_identifier);
-  const linearIdentifiers = filed
-    .filter((b) => providerOf(b.ticket_url) === "linear")
-    .map((b) => b.ticket_identifier as string);
-  const jiraKeys = filed
-    .filter((b) => providerOf(b.ticket_url) === "jira")
-    .map((b) => b.ticket_identifier as string);
-
-  let linearMap: Awaited<ReturnType<typeof getIssuesByIdentifiers>> = {};
-  if (hasLinear && linearIdentifiers.length > 0) {
-    try {
-      const tok = await getLinearToken(userId);
-      if (tok) linearMap = await getIssuesByIdentifiers(tok, linearIdentifiers);
-    } catch {
-      linearMap = {};
-    }
+  // Trend: filed per day over the last 14 days.
+  const days = buildDays(14);
+  const dayIndex = new Map(days.map((d, i) => [d.date, i]));
+  for (const b of filed) {
+    if (!b.created_at) continue;
+    const idx = dayIndex.get(dayKey(new Date(b.created_at)));
+    if (idx !== undefined) days[idx].count++;
   }
 
-  let jiraMap: Awaited<ReturnType<typeof getJiraIssues>> = {};
-  if (hasJira && jiraKeys.length > 0) {
-    try {
-      const tok = await getJiraAuth(userId);
-      const cloud = tok ? await getJiraCloud(tok) : null;
-      if (tok && cloud) jiraMap = await getJiraIssues(tok, cloud, jiraKeys);
-    } catch {
-      jiraMap = {};
-    }
+  // Live ticket info for the recent filed subset → recent list + status breakdown.
+  const dashboardBriefs = await attachTicketInfo(userId, list, ctx.hasLinear, ctx.hasJira, 60);
+  const filedBriefs = dashboardBriefs.filter((b) => b.status === "filed");
+  const recent = filedBriefs.slice(0, 8);
+
+  // Status breakdown: group filed tickets by their live tracker state.
+  const segMap = new Map<string, StatusSegment>();
+  for (const b of filedBriefs) {
+    const label = b.ticket?.stateName ?? "Filed";
+    const color = b.ticket?.stateColor || "#2e7d32";
+    const seg = segMap.get(label);
+    if (seg) seg.count++;
+    else segMap.set(label, { label, count: 1, color });
   }
+  const segments = [...segMap.values()].sort((a, b) => b.count - a.count);
 
-  // Serializable briefs with their live ticket info merged in where available.
-  const dashboardBriefs: DashboardBrief[] = list.map((b) => {
-    const provider = providerOf(b.ticket_url);
-    const key = b.ticket_identifier ?? undefined;
-    let ticket: TicketInfo | null = null;
-    if (key) {
-      if (provider === "linear" && linearMap[key]) {
-        const li = linearMap[key];
-        ticket = {
-          title: li.title,
-          url: li.url,
-          stateName: li.stateName,
-          stateColor: li.stateColor,
-          createdAt: li.createdAt,
-          assignee: li.assignee,
-        };
-      } else if (provider === "jira" && jiraMap[key]) {
-        ticket = jiraMap[key];
-      }
-    }
-    return {
-      id: b.id,
-      status: b.status,
-      source_kind: b.source_kind ?? null,
-      created_at: b.created_at ?? null,
-      ticket_url: b.ticket_url ?? null,
-      ticket_identifier: b.ticket_identifier ?? null,
-      error: b.error ?? null,
-      provider,
-      ticket,
-    };
-  });
+  const stats: Stat[] = [
+    { label: "Tickets filed", value: filed.length, color: "#2e7d32" },
+    { label: "This week", value: thisWeek, color: "#dd6936" },
+    {
+      label: "In progress",
+      value: processing.length,
+      color: "#dd6936",
+      pulse: processing.length > 0,
+    },
+    { label: "Didn't file", value: failed.length, color: "#c62828" },
+  ];
 
-  const counts = {
-    filed: list.filter((b) => b.status === "filed").length,
-    processing: list.filter((b) => b.status === "processing" || b.status === "uploaded").length,
-    failed: list.filter((b) => b.status === "failed").length,
-  };
-
-  const greetingName =
-    user?.firstName ??
-    user?.primaryEmailAddress?.emailAddress?.split("@")[0] ??
-    "there";
-
-  // Getting-started state, derived purely from existing data.
-  const trackerConnected = hasLinear || hasJira;
   const hasBriefs = list.length > 0;
-  const hasFiled = list.some((b) => b.status === "filed");
-  // Show the checklist until the user is fully set up: a tracker is connected
-  // AND at least one brief has been filed. Otherwise (no tracker, or no briefs)
-  // we keep guiding them.
-  const showGettingStarted = !trackerConnected || !hasBriefs || !hasFiled;
+  const showGettingStarted = !ctx.trackerConnected || !hasBriefs || filed.length === 0;
 
   return (
     <AppShell headerRight={<UserButton />}>
-      <h1 className="font-display text-4xl sm:text-5xl leading-tight text-ink">
-        hey {greetingName},
-        <br />
-        <span className="text-ink-2">here&apos;s the </span>
-        <em className="italic text-accent">brief</em>.
-      </h1>
+      <StatStrip stats={stats} />
+
+      {hasBriefs ? (
+        <>
+          <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+            <TrendChart days={days} />
+            {segments.length > 0 ? (
+              <StatusBreakdown segments={segments} />
+            ) : (
+              <div className="card flex items-center justify-center px-4 py-4 text-center text-sm text-muted">
+                Connect a tracker to see live ticket status.
+              </div>
+            )}
+          </div>
+
+          {recent.length > 0 && (
+            <section className="mt-8">
+              <div className="mb-3 flex items-baseline justify-between">
+                <h2 className="font-display text-2xl text-ink">Recent tickets</h2>
+                <Link
+                  href="/briefs"
+                  className="font-mono text-xs tracking-wide text-accent no-underline hover:underline"
+                >
+                  All briefs →
+                </Link>
+              </div>
+              <TicketList briefs={recent} />
+            </section>
+          )}
+        </>
+      ) : null}
 
       {showGettingStarted && (
         <GettingStarted
-          trackerConnected={trackerConnected}
+          trackerConnected={ctx.trackerConnected}
           hasBriefs={hasBriefs}
-          hasFiled={hasFiled}
+          hasFiled={filed.length > 0}
         />
       )}
 
-      {/* Tabbed experience: Briefs feed + Connections */}
-      <DashboardTabs
-        briefs={dashboardBriefs}
-        counts={counts}
-        isProcessing={isProcessing}
-        ticketGuidance={ticketGuidance}
-      />
-
-      {/* Footer */}
       <footer className="mt-16 border-t hairline pt-6 text-center">
         <p className="text-xs text-muted">
           <a

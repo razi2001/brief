@@ -78,10 +78,10 @@ export default function GettingStarted({
           <Step n={1} done={trackerConnected} title="Connect your tracker">
             Link Linear (filing live today) or Jira from{" "}
             <Link
-              href="#integrations"
+              href="/connections"
               className="text-accent no-underline hover:underline"
             >
-              Integrations
+              Connections
             </Link>
             . Brief writes the ticket straight into your tracker.
           </Step>
