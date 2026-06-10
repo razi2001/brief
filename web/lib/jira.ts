@@ -7,49 +7,141 @@ export type JiraTok = { token: string; kind: "oauth" | "basic" };
 // ADF (Atlassian Document Format) builder — pure, unit-tested in jira.test.ts.
 // ---------------------------------------------------------------------------
 
+export interface AdfMark {
+  type: string;
+  attrs?: Record<string, unknown>;
+}
 export interface AdfNode {
   type: string;
   version?: number;
   text?: string;
   content?: AdfNode[];
-  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+  marks?: AdfMark[];
+  attrs?: Record<string, unknown>;
 }
 
-const IMAGE_MD = /!\[([^\]]*)\]\(([^)]+)\)/g;
+// Inline markdown → ADF text nodes: **bold**, `code`, [label](url), ![alt](url).
+// (Jira attaches evidence separately, so an image renders as a link to its URL.)
+const INLINE_RE = /(!\[[^\]]*\]\([^)]+\))|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(`[^`]+`)/g;
+
+function parseInline(input: string): AdfNode[] {
+  const text = input.trim();
+  const out: AdfNode[] = [];
+  const push = (t: string, marks?: AdfMark[]) => {
+    if (!t) return;
+    out.push(marks && marks.length ? { type: "text", text: t, marks } : { type: "text", text: t });
+  };
+  let last = 0;
+  let m: RegExpExecArray | null;
+  INLINE_RE.lastIndex = 0;
+  while ((m = INLINE_RE.exec(text))) {
+    if (m.index > last) push(text.slice(last, m.index));
+    const tok = m[0];
+    if (m[1]) {
+      const im = /!\[([^\]]*)\]\(([^)]+)\)/.exec(tok)!;
+      push(im[1] || "image", [{ type: "link", attrs: { href: im[2] } }]);
+    } else if (m[2]) {
+      const lm = /\[([^\]]+)\]\(([^)]+)\)/.exec(tok)!;
+      push(lm[1], [{ type: "link", attrs: { href: lm[2] } }]);
+    } else if (m[3]) {
+      push(tok.slice(2, -2), [{ type: "strong" }]);
+    } else if (m[4]) {
+      push(tok.slice(1, -1), [{ type: "code" }]);
+    }
+    last = INLINE_RE.lastIndex;
+  }
+  if (last < text.length) push(text.slice(last));
+  if (!out.length) out.push({ type: "text", text: text || " " });
+  return out;
+}
 
 /**
- * Convert a markdown string into a MINIMAL ADF doc.
- * - Splits on blank lines into paragraphs.
- * - Inline image markdown (`![alt](url)`) cannot reference attachments by id at
- *   build time, so each image line is rendered as a plain-text note instead.
+ * Convert a markdown description into proper ADF so Jira renders it nicely
+ * (headings, bold, numbered/bullet lists, code blocks) instead of literal
+ * markdown. Supports the structure our agent emits.
  */
 export function markdownToAdf(markdown: string): AdfNode {
-  const blocks = (markdown ?? "")
-    .replace(/\r\n/g, "\n")
-    .split(/\n{2,}/)
-    .map((b) => b.trim())
-    .filter((b) => b.length > 0);
-
+  const lines = (markdown ?? "").replace(/\r\n/g, "\n").split("\n");
   const content: AdfNode[] = [];
-  for (const block of blocks) {
-    // If the whole block (or its lines) are images, emit a note paragraph.
-    const imageMatches = [...block.matchAll(IMAGE_MD)];
-    if (imageMatches.length && block.replace(IMAGE_MD, "").trim().length === 0) {
-      for (const m of imageMatches) {
-        const alt = m[1] || "image";
-        content.push({
-          type: "paragraph",
-          content: [{ type: "text", text: `[image: ${alt}] (see Attachments)` }],
-        });
-      }
+  const isOrdered = (l: string) => /^\s*\d+\.\s+/.test(l);
+  const isBullet = (l: string) => /^\s*[-*]\s+/.test(l);
+  const isWholeBold = (l: string) => /^\*\*(.+)\*\*$/.test(l.trim());
+  const isHeading = (l: string) => /^#{1,6}\s+/.test(l);
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+
+    // Fenced code block ```
+    if (/^```/.test(line.trim())) {
+      const lang = line.trim().slice(3).trim();
+      const code: string[] = [];
+      i++;
+      while (i < lines.length && !/^```/.test(lines[i].trim())) { code.push(lines[i]); i++; }
+      i++; // closing fence
+      content.push({
+        type: "codeBlock",
+        attrs: lang ? { language: lang } : {},
+        content: [{ type: "text", text: code.join("\n") || " " }],
+      });
       continue;
     }
-    // Otherwise emit the block as a paragraph, replacing any inline images with a note.
-    const text = block.replace(IMAGE_MD, (_full, alt) => `[image: ${alt || "image"}]`);
-    content.push({
-      type: "paragraph",
-      content: [{ type: "text", text }],
-    });
+
+    // Markdown heading (## Title)
+    const h = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (h) {
+      content.push({ type: "heading", attrs: { level: Math.min(h[1].length, 6) }, content: parseInline(h[2]) });
+      i++; continue;
+    }
+
+    // A whole line wrapped in ** ** is a section label → heading level 3.
+    const wb = /^\*\*(.+)\*\*$/.exec(line.trim());
+    if (wb) {
+      content.push({ type: "heading", attrs: { level: 3 }, content: [{ type: "text", text: wb[1].trim() }] });
+      i++; continue;
+    }
+
+    // Ordered list
+    if (isOrdered(line)) {
+      const items: AdfNode[] = [];
+      while (i < lines.length && isOrdered(lines[i])) {
+        const t = lines[i].replace(/^\s*\d+\.\s+/, "");
+        items.push({ type: "listItem", content: [{ type: "paragraph", content: parseInline(t) }] });
+        i++;
+      }
+      content.push({ type: "orderedList", attrs: { order: 1 }, content: items });
+      continue;
+    }
+
+    // Bullet list
+    if (isBullet(line)) {
+      const items: AdfNode[] = [];
+      while (i < lines.length && isBullet(lines[i])) {
+        const t = lines[i].replace(/^\s*[-*]\s+/, "");
+        items.push({ type: "listItem", content: [{ type: "paragraph", content: parseInline(t) }] });
+        i++;
+      }
+      content.push({ type: "bulletList", content: items });
+      continue;
+    }
+
+    // Paragraph — gather consecutive plain lines until a blank or a special block.
+    const para: string[] = [line];
+    i++;
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !/^```/.test(lines[i].trim()) &&
+      !isHeading(lines[i]) &&
+      !isWholeBold(lines[i]) &&
+      !isOrdered(lines[i]) &&
+      !isBullet(lines[i])
+    ) {
+      para.push(lines[i]);
+      i++;
+    }
+    content.push({ type: "paragraph", content: parseInline(para.join(" ")) });
   }
 
   if (content.length === 0) {
