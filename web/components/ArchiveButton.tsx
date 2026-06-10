@@ -62,17 +62,28 @@ export default function ArchiveButton({
   }
 
   return (
-    <span className="inline-flex items-center gap-2">
-      <button
-        type="button"
-        onClick={archive}
-        disabled={done}
-        title="Archive this brief"
-        aria-label="Archive this brief"
-        className="font-mono text-[0.6875rem] tracking-wide text-muted no-underline transition-opacity hover:text-ink-2 hover:underline disabled:opacity-60"
+    <button
+      type="button"
+      onClick={archive}
+      disabled={done}
+      title="Archive"
+      aria-label="Archive this ticket"
+      className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-ink-2 focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="15"
+        height="15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
       >
-        archive
-      </button>
-    </span>
+        <rect x="3" y="4" width="18" height="4" rx="1" />
+        <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+      </svg>
+    </button>
   );
 }

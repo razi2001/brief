@@ -71,16 +71,15 @@ export default function BriefListRow({
       ? "#dd6936"
       : "#c62828";
 
-  const row = (
-    <div className="animate-rise relative flex items-center gap-3 px-4 py-3 pr-9 transition-colors hover:bg-cream-2/40">
-      {isProcessing && <span aria-hidden className="queue-bar" />}
+  const inner = (
+    <>
       <span
-        className={`relative h-2 w-2 shrink-0 rounded-full ${isProcessing ? "dot-pulse" : ""}`}
+        className={`h-2 w-2 shrink-0 rounded-full ${isProcessing ? "dot-pulse" : ""}`}
         style={{ backgroundColor: dotColor }}
         title={ti?.stateName || b.status}
       />
 
-      <div className="relative min-w-0 flex-1">
+      <div className="min-w-0 flex-1">
         <p className={`truncate text-sm ${isFailed ? "text-[#c62828]" : "text-ink"}`}>{title}</p>
         {isFailed && b.error && (
           <p className="mt-0.5 truncate text-xs text-muted">{b.error}</p>
@@ -88,7 +87,7 @@ export default function BriefListRow({
       </div>
 
       {/* Right meta */}
-      <div className="relative flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         {isProcessing && (
           <span className="font-mono text-[0.6875rem] text-accent">
             filing… <Elapsed since={b.updated_at || b.created_at} />
@@ -120,25 +119,31 @@ export default function BriefListRow({
             </span>
           ))}
       </div>
-    </div>
+    </>
   );
 
-  const archiveControl = (
-    <div className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-cream/85 px-1.5 py-0.5 opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover:opacity-100 focus-within:opacity-100">
-      <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
-    </div>
-  );
+  const contentClass = "flex min-w-0 flex-1 items-center gap-3 px-4 py-3 no-underline";
 
+  // Archive lives in the row FLOW (a flex sibling of the link), never as an
+  // overlay — so it can't collide with the identifier. Faint until you hover the
+  // row, accent on hover; the whole row tints on hover.
   return (
-    <li className={`group relative${leaving ? " brief-leaving" : ""}`}>
+    <li
+      className={`group animate-rise relative flex items-stretch transition-colors hover:bg-cream-2/30${
+        leaving ? " brief-leaving" : ""
+      }`}
+    >
+      {isProcessing && <span aria-hidden className="queue-bar" />}
       {asLink ? (
-        <a href={href} target="_blank" rel="noreferrer" className="block no-underline">
-          {row}
+        <a href={href} target="_blank" rel="noreferrer" className={contentClass}>
+          {inner}
         </a>
       ) : (
-        row
+        <div className={contentClass}>{inner}</div>
       )}
-      {archiveControl}
+      <div className="flex shrink-0 items-center pl-1 pr-2.5">
+        <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+      </div>
     </li>
   );
 }
