@@ -1,4 +1,5 @@
 import StatusPill from "./StatusPill";
+import RetryButton from "./RetryButton";
 
 function relativeTime(iso?: string | null): string {
   if (!iso) return "";
@@ -58,8 +59,15 @@ export default function BriefRow({ brief: b }: { brief: Brief }) {
           >
             {b.ticket_identifier ?? "view ticket"} →
           </a>
-        ) : b.status === "failed" && b.error ? (
-          <span className="text-[#c62828]">{truncate(b.error)}</span>
+        ) : b.status === "failed" ? (
+          <span className="flex items-center justify-between gap-3">
+            {b.error ? (
+              <span className="text-[#c62828]">{truncate(b.error)}</span>
+            ) : (
+              <span className="text-[#c62828]">failed</span>
+            )}
+            <RetryButton briefId={b.id} />
+          </span>
         ) : b.status === "processing" ? (
           <span className="text-muted">writing the ticket…</span>
         ) : (
