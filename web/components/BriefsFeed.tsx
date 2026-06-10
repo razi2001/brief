@@ -242,10 +242,9 @@ export default function BriefsFeed({
   const toggleSelectAll = () =>
     setSelected(allVisibleSelected ? new Set() : new Set(visible.map((b) => b.id)));
 
-  // Both actions optimistically swipe the rows out, then fire the writes
-  // (keepalive so they land even if the page changes).
-  const runBatch = (endpoint: "archive" | "delete") => {
-    const ids = [...selected];
+  // Fire a write for a set of ids, optimistically swiping the rows out first
+  // (keepalive so it lands even if the page changes).
+  const runIds = (ids: string[], endpoint: "archive" | "delete") => {
     ids.forEach((id) => onArchive(id));
     ids.forEach((id) =>
       fetch(`/api/briefs/${id}/${endpoint}`, {
@@ -254,17 +253,24 @@ export default function BriefsFeed({
         keepalive: true,
       }).catch(() => {}),
     );
+  };
+
+  // Per-row single delete (one click, like archive).
+  const deleteOne = (id: string) => runIds([id], "delete");
+
+  const archiveSelected = () => {
+    runIds([...selected], "archive");
     clearSelection();
   };
-  const archiveSelected = () => runBatch("archive");
   const deleteSelected = () => {
-    // Two-step confirm — delete is permanent.
+    // Deleting many at once is permanent — one light confirm (the icon turns red).
     if (!confirmDelete) {
       setConfirmDelete(true);
       setTimeout(() => setConfirmDelete(false), 4000);
       return;
     }
-    runBatch("delete");
+    runIds([...selected], "delete");
+    clearSelection();
   };
 
   return (
@@ -274,7 +280,60 @@ export default function BriefsFeed({
           <h1 className="font-display text-3xl leading-none text-ink">Tickets</h1>
           <SummaryLine counts={liveCounts} />
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2">
+          {/* Batch action icons — appear next to the filter once you select rows. */}
+          {anySelected && (
+            <div className="animate-rise flex items-center gap-1.5 pr-1">
+              <button
+                type="button"
+                onClick={toggleSelectAll}
+                title={allVisibleSelected ? "Deselect all" : "Select all"}
+                className="font-mono text-xs text-muted transition-colors hover:text-ink"
+              >
+                {selected.size}
+              </button>
+              <button
+                type="button"
+                onClick={archiveSelected}
+                title="Archive selected"
+                aria-label="Archive selected"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-hairline text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="4" rx="1" />
+                  <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={deleteSelected}
+                title={confirmDelete ? `Delete ${selected.size} — click again to confirm` : "Delete selected"}
+                aria-label="Delete selected"
+                className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
+                  confirmDelete
+                    ? "border-[rgba(198,40,40,.5)] bg-[rgba(198,40,40,.12)] text-[#c62828]"
+                    : "border-hairline text-muted hover:bg-[rgba(198,40,40,.1)] hover:text-[#c62828]"
+                }`}
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={clearSelection}
+                title="Clear selection"
+                aria-label="Clear selection"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:text-ink"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+          )}
           <AutoRefresh active={isProcessing} />
           <FilterPopover
             options={options}
@@ -290,51 +349,6 @@ export default function BriefsFeed({
         </div>
       </div>
 
-      {/* Batch toolbar — appears once you select a row (hover reveals checkboxes). */}
-      {anySelected && (
-        <div className="animate-rise mt-4 flex items-center justify-between gap-3 rounded-xl border border-hairline bg-cream-2/60 px-4 py-2.5">
-          <button
-            type="button"
-            onClick={toggleSelectAll}
-            className="flex items-center gap-2 font-mono text-xs text-ink-2 transition-colors hover:text-ink"
-          >
-            <span
-              className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
-                allVisibleSelected ? "border-accent bg-accent text-cream" : "border-hairline text-transparent"
-              }`}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M5 12l5 5L20 6" />
-              </svg>
-            </span>
-            {selected.size} selected
-          </button>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={archiveSelected}
-              className="rounded-md px-2.5 py-1 font-mono text-xs text-ink-2 transition-colors hover:bg-cream hover:text-ink"
-            >
-              Archive
-            </button>
-            <button
-              type="button"
-              onClick={deleteSelected}
-              className="rounded-md px-2.5 py-1 font-mono text-xs text-[#c62828] transition-colors hover:bg-[rgba(198,40,40,.1)]"
-            >
-              {confirmDelete ? "Confirm delete" : "Delete"}
-            </button>
-            <button
-              type="button"
-              onClick={clearSelection}
-              className="ml-1 rounded-md px-2.5 py-1 font-mono text-xs text-muted transition-colors hover:text-ink"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
       {visible.length > 0 ? (
         <ul className="card mt-5 divide-y divide-hairline overflow-hidden">
           {visible.map((b) => (
@@ -343,6 +357,7 @@ export default function BriefsFeed({
               brief={b}
               onArchive={onArchive}
               onArchiveFailed={onArchiveFailed}
+              onDelete={deleteOne}
               leaving={leaving.has(b.id)}
               selected={selected.has(b.id)}
               anySelected={anySelected}

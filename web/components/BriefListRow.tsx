@@ -40,6 +40,7 @@ export default function BriefListRow({
   brief: b,
   onArchive,
   onArchiveFailed,
+  onDelete,
   leaving = false,
   selected = false,
   anySelected = false,
@@ -48,6 +49,7 @@ export default function BriefListRow({
   brief: DashboardBrief;
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
+  onDelete?: (id: string) => void;
   leaving?: boolean;
   /** This row is selected. */
   selected?: boolean;
@@ -180,16 +182,36 @@ export default function BriefListRow({
         <div className={contentClass}>{inner}</div>
       )}
 
-      {/* Row action — archive (reversible). Delete is batch-only via the toolbar. */}
-      <div className="flex shrink-0 items-center pl-1 pr-2.5">
-        {b.archived ? (
-          <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
-            archived
-          </span>
-        ) : (
-          <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
-        )}
-      </div>
+      {/* Row actions — archive + delete, faint until hover. Hidden while a batch
+          selection is active (the header icons handle batch ops then). */}
+      {!anySelected && (
+        <div className="flex shrink-0 items-center gap-0.5 pl-1 pr-2.5">
+          {b.archived ? (
+            <span className="mr-1 font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
+              archived
+            </span>
+          ) : (
+            <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete?.(b.id);
+            }}
+            title="Delete"
+            aria-label="Delete this ticket"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-[rgba(198,40,40,.1)] hover:text-[#c62828] focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+          </button>
+        </div>
+      )}
     </li>
   );
 }
