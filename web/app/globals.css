@@ -136,12 +136,44 @@ a {
   border-color: rgba(26, 22, 18, 0.2);
 }
 
+/* Premium brief card: more radius + air, resting depth, lift on hover. */
+.brief-card {
+  border-radius: 15px;
+  box-shadow: 0 1px 2px rgba(26, 22, 18, 0.05);
+  transition:
+    transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.2s ease;
+}
+.brief-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(26, 22, 18, 0.09);
+}
+
+/* Soft pulse for a processing status dot (no layout shift). */
+@keyframes brief-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(221, 105, 54, 0.35);
+  }
+  50% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 4px rgba(221, 105, 54, 0);
+  }
+}
+.dot-pulse {
+  animation: brief-dot-pulse 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
-  .shimmer {
+  .shimmer,
+  .dot-pulse {
     animation: none;
   }
-  .lift:hover {
+  .lift:hover,
+  .brief-card:hover {
     transform: none;
   }
 }

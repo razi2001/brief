@@ -1,6 +1,5 @@
 "use client";
 
-import StatusPill from "./StatusPill";
 import RetryButton from "./RetryButton";
 import SourceIcon from "./SourceIcon";
 import type { LinearIssueInfo } from "@/lib/linear";
@@ -54,7 +53,7 @@ function initial(name?: string): string {
 function Assignee({ a }: { a: NonNullable<LinearIssueInfo["assignee"]> }) {
   return (
     <span
-      className="inline-flex items-center gap-1.5 text-xs text-muted"
+      className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted"
       title={a.name}
     >
       {a.avatarUrl ? (
@@ -69,16 +68,44 @@ function Assignee({ a }: { a: NonNullable<LinearIssueInfo["assignee"]> }) {
           {initial(a.name)}
         </span>
       )}
-      <span className="hidden sm:inline">{a.name}</span>
+    </span>
+  );
+}
+
+/** Soft status dot + small mono label. Used for both Linear states and the
+ *  synthetic processing/failed states. */
+function StatusBadge({
+  color,
+  label,
+  pulse = false,
+}: {
+  color: string;
+  label: string;
+  pulse?: boolean;
+}) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1.5"
+      title={label}
+    >
+      <span className="relative flex h-2 w-2 items-center justify-center">
+        <span
+          className={`inline-block h-2 w-2 rounded-full ${pulse ? "dot-pulse" : ""}`}
+          style={{ backgroundColor: color }}
+        />
+      </span>
+      <span className="font-mono text-[0.6875rem] tracking-wide text-ink-2">
+        {label}
+      </span>
     </span>
   );
 }
 
 /**
- * A rich brief row. When a filed brief is synced to Linear we lead with the
- * live state-color dot + Linear title + workflow state; otherwise we fall back
- * to the brief's own status pill and source description. Processing rows
- * shimmer; failed rows get a red treatment + retry + truncated error.
+ * A rich brief row. Filed briefs synced to Linear lead with the live state
+ * dot + workflow name; processing rows pulse; failed rows get a thin red left
+ * accent + a quiet ghost Retry. Titles render in Instrument Serif (the premium
+ * touch); mono is reserved for status/source/meta/identifiers.
  */
 export default function BriefCard({
   brief: b,
@@ -104,10 +131,21 @@ export default function BriefCard({
   const href = li?.url || b.ticket_url || undefined;
   const identifier = b.ticket_identifier || li?.identifier;
 
+  // Status badge inputs.
+  const badge = synced
+    ? { color: li!.stateColor, label: li!.stateName, pulse: false }
+    : isFailed
+      ? { color: "#c62828", label: "couldn't file", pulse: false }
+      : isProcessing
+        ? { color: "#dd6936", label: "in progress", pulse: true }
+        : { color: "#8a8378", label: b.status, pulse: false };
+
   return (
     <div
-      className={`card lift animate-rise relative overflow-hidden px-4 py-3.5 ${
-        isFailed ? "border-[rgba(198,40,40,.3)]" : ""
+      className={`card brief-card animate-rise relative overflow-hidden px-[18px] py-[18px] ${
+        isFailed
+          ? "border-l-2 border-l-[rgba(198,40,40,.55)]"
+          : ""
       }`}
       style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
     >
@@ -118,28 +156,10 @@ export default function BriefCard({
         />
       )}
 
+      {/* Top row: status badge · source · relative time */}
       <div className="relative flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          {synced ? (
-            <span
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[0.625rem] uppercase tracking-[0.04em]"
-              style={{
-                color: li!.stateColor,
-                borderColor: li!.stateColor + "59",
-                backgroundColor: li!.stateColor + "1a",
-              }}
-              title={li!.stateName}
-            >
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: li!.stateColor }}
-              />
-              {li!.stateName}
-            </span>
-          ) : (
-            <StatusPill status={b.status} />
-          )}
-
+        <div className="flex min-w-0 items-center gap-3">
+          <StatusBadge color={badge.color} label={badge.label} pulse={badge.pulse} />
           <span className="flex items-center gap-1.5 text-xs lowercase tracking-wide text-muted">
             <SourceIcon kind={b.source_kind} className="opacity-70" />
             {b.source_kind ?? "brief"}
@@ -151,9 +171,10 @@ export default function BriefCard({
         </span>
       </div>
 
-      <div className="relative mt-2 flex items-start justify-between gap-3">
+      {/* Title — Instrument Serif */}
+      <div className="relative mt-2.5 flex items-start justify-between gap-3">
         <p
-          className={`min-w-0 flex-1 text-sm leading-snug ${
+          className={`min-w-0 flex-1 font-display text-[18px] leading-snug ${
             isFailed ? "text-[#c62828]" : "text-ink"
           }`}
         >
@@ -162,16 +183,20 @@ export default function BriefCard({
         {li?.assignee && <Assignee a={li.assignee} />}
       </div>
 
-      <div className="relative mt-2 flex items-center justify-between gap-3 text-xs">
+      {/* Bottom row: identifier link + filed date · retry */}
+      <div className="relative mt-3 flex items-center justify-between gap-3 text-xs">
         <div className="flex min-w-0 items-center gap-2 text-muted">
           {identifier && href ? (
             <a
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-accent no-underline hover:underline"
+              className="group/id inline-flex items-center gap-1 font-mono text-accent no-underline hover:underline"
             >
-              {identifier} →
+              {identifier}
+              <span className="inline-block transition-transform duration-200 group-hover/id:translate-x-0.5">
+                →
+              </span>
             </a>
           ) : identifier ? (
             <span className="font-mono">{identifier}</span>
@@ -192,7 +217,7 @@ export default function BriefCard({
       </div>
 
       {isFailed && b.error && (
-        <p className="relative mt-2 border-t hairline pt-2 text-xs text-[#c62828]/80">
+        <p className="relative mt-2.5 border-t hairline pt-2.5 text-xs text-muted">
           {truncate(b.error)}
         </p>
       )}
