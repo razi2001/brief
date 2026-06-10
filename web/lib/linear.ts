@@ -23,14 +23,25 @@ function authHeader(tok: LinearTok): string {
   return tok.kind === "oauth" ? `Bearer ${tok.token}` : tok.token;
 }
 
+const AUTH_EXPIRED =
+  "Your Linear connection has expired — reconnect Linear under Connections, then retry.";
+
 export async function linearGraphQL<T = any>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
   const r = await fetch("https://api.linear.app/graphql", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: authHeader(tok) },
     body: JSON.stringify({ query, variables }),
   });
-  const j = await r.json();
-  if (j.errors) throw new Error("Linear GraphQL: " + JSON.stringify(j.errors));
+  // Expired / revoked OAuth token → tell the user to reconnect, not a raw 401/403.
+  if (r.status === 401 || r.status === 403) throw new Error(AUTH_EXPIRED);
+  const j = await r.json().catch(() => ({}) as any);
+  if (j.errors) {
+    const msg = JSON.stringify(j.errors);
+    if (/authentication|unauthenticated|unauthorized|forbidden|access token|invalid token/i.test(msg)) {
+      throw new Error(AUTH_EXPIRED);
+    }
+    throw new Error("Linear GraphQL: " + msg);
+  }
   return j.data as T;
 }
 
