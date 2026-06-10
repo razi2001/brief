@@ -445,6 +445,18 @@ body.ready { opacity: 1; }
 .export-btn:hover { background: #c95e2c; }
 .export-btn:active { transform: translateY(1px); }
 
+/* Sending state: spinner + label inside the button (no floating status text). */
+.export-btn.sending { pointer-events: none; }
+.export-btn.sending:hover { background: var(--accent); }
+.btn-spin {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+
 /* ---------- Empty state ---------- */
 .empty-state {
   text-align: center;

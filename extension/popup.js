@@ -873,7 +873,8 @@ bcCreateTicket?.addEventListener('click', async () => {
   const b = ready[0];
 
   bcCreateTicket.disabled = true;
-  bcSetStatus('Sending…');
+  bcCreateTicket.classList.add('sending');
+  bcCreateTicket.innerHTML = '<span class="btn-spin"></span> Sending…';
   try {
     const { files, meta } = bcBuildFilesAndMeta(b);
     // Fire-and-forget: only the small create+upload is awaited; the agent run
@@ -889,8 +890,9 @@ bcCreateTicket?.addEventListener('click', async () => {
     // Confirm, then open the tickets page in a new tab and close the popup.
     bcShowSentAndOpen(ticketsUrl);
   } catch (err) {
-    bcSetStatus('');
     showInlineError(`Couldn’t send: ${err?.message || err}`);
+    bcCreateTicket.classList.remove('sending');
+    bcCreateTicket.textContent = 'Create ticket';
     bcCreateTicket.disabled = false;
   }
 });
