@@ -152,12 +152,32 @@ export default function DashboardTabs({
   // clicks "archive", before the server round-trip. The actual POST is fired
   // fire-and-forget by ArchiveButton; the next real load reflects the truth.
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
-  const onArchive = (id: string) =>
-    setArchivedIds((prev) => {
+  // Briefs mid exit-animation: still rendered (so the card can fade/scale/lift
+  // out) but flagged with `brief-leaving`. After the ~260ms animation we move
+  // the id into `archivedIds` (which drops it from the list) and clear it here.
+  const [leaving, setLeaving] = useState<Set<string>>(new Set());
+  const onArchive = (id: string) => {
+    // (a) start the exit animation immediately. ArchiveButton already fired the
+    // archive POST fire-and-forget; here we only own the leaving→archived timing.
+    setLeaving((prev) => {
       const next = new Set(prev);
       next.add(id);
       return next;
     });
+    // (c) once the animation has played, actually remove the card.
+    setTimeout(() => {
+      setArchivedIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
+      setLeaving((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 280);
+  };
 
   // The live brief list excludes anything optimistically archived this session.
   const liveBriefs = useMemo(
@@ -313,6 +333,7 @@ export default function DashboardTabs({
                   brief={b}
                   index={i}
                   onArchive={onArchive}
+                  leaving={leaving.has(b.id)}
                 />
               ))}
             </div>

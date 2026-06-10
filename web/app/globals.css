@@ -148,6 +148,14 @@ a {
 .brief-card {
   border-radius: 15px;
 }
+/* Archive exit: the card fades + scales down + lifts out over ~260ms before
+   the parent drops it from the list. */
+.brief-leaving {
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
+  transition: opacity .26s ease, transform .26s ease;
+  pointer-events: none;
+}
 .brief-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 30px rgba(26, 22, 18, 0.1);
@@ -245,6 +253,9 @@ a {
   .brief-card:hover,
   .brief-card-link:hover {
     transform: none;
+  }
+  .brief-leaving {
+    transition: none;
   }
   .sky .cloud {
     animation: none !important;

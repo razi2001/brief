@@ -412,6 +412,36 @@ body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
   color: var(--success);
 }
 
+/* Clean "Sent" confirmation: a bold title row + a subtle dashboard link
+   beneath it, sitting to the right of the green check pill. */
+.state-text.sent {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1.25;
+}
+.state-text.sent .sent-title {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--cream);
+}
+.state-text.sent .ticket-link {
+  font-size: 11.5px;
+  color: var(--muted-cream-2);
+  text-decoration: none;
+}
+.state-text.sent .ticket-link:hover {
+  color: var(--success);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* The saving pill lays the check + text block in a tidy row. */
+[data-state='saving'] { gap: 10px; }
+
 .check-pill {
   width: 26px; height: 26px; flex-shrink: 0;
   border-radius: 50%;

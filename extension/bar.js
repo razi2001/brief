@@ -123,25 +123,38 @@ function setSavingTicketLink(identifier, url) {
 }
 
 // Instant green "sent" confirmation for the fire-and-forget cloud submit. The
-// agent run is NOT awaited, so we show success the moment the upload resolves
-// with a link to the dashboard (routed through background since the bar is a
-// content script with no chrome.tabs access).
+// agent run is NOT awaited, so we show success the moment the upload resolves.
+// Renders a tidy two-part line: a green check pill + "Sent" on the first row,
+// and a subtle "View on dashboard →" link below it (routed through background
+// since the bar is a content script with no chrome.tabs access). No raw URLs.
 function setSavingSentLink(dashboardUrl) {
-  const el = document.querySelector('[data-state="saving"] .state-text');
+  const inner = document.querySelector('[data-state="saving"]');
+  if (!inner) return;
+  // Swap the spinner for a green check pill.
+  const spinner = inner.querySelector('.spinner');
+  if (spinner) {
+    const pill = document.createElement('span');
+    pill.className = 'check-pill';
+    pill.innerHTML =
+      '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+    spinner.replaceWith(pill);
+  }
+  const el = inner.querySelector('.state-text');
   if (!el) return;
   el.textContent = '';
-  const ok = document.createElement('strong');
-  ok.textContent = '✓';
+  el.classList.add('sent');
+  const title = document.createElement('span');
+  title.className = 'sent-title';
+  title.textContent = 'Sent';
   const link = document.createElement('a');
   link.href = dashboardUrl;
-  link.textContent = 'Sent — track it on your dashboard';
+  link.textContent = 'View on dashboard →';
   link.className = 'ticket-link';
   link.addEventListener('click', (e) => {
     e.preventDefault();
     chrome.runtime.sendMessage({ type: 'open-url', url: dashboardUrl }).catch(() => {});
   });
-  el.appendChild(ok);
-  el.appendChild(document.createTextNode(' '));
+  el.appendChild(title);
   el.appendChild(link);
 }
 
@@ -566,7 +579,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
 
   if (cloudToken) {
     try {
-      setSavingText('Sending…');
+      setSavingText('Sending to Brief Cloud…');
       const files = [
         { name: 'brief.json', blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }), contentType: 'application/json' },
         ...keyframeEntries.map((k) => ({

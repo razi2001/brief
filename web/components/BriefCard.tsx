@@ -143,10 +143,14 @@ export default function BriefCard({
   brief: b,
   index = 0,
   onArchive,
+  leaving = false,
 }: {
   brief: DashboardBrief;
   index?: number;
   onArchive?: (id: string) => void;
+  /** When true the card plays its exit animation (fade + scale + lift) just
+   *  before the parent removes it from the list. */
+  leaving?: boolean;
 }) {
   const ti = b.ticket ?? null;
   const isFiled = b.status === "filed";
@@ -190,6 +194,10 @@ export default function BriefCard({
         : ""
   }`;
   const style = { animationDelay: `${Math.min(index, 12) * 45}ms` };
+
+  // Outer wrapper class — the exit animation lives here so the whole tile
+  // (card + archive control) fades/scales/lifts out together.
+  const wrapperClass = `group relative h-full${leaving ? " brief-leaving" : ""}`;
 
   const inner = (
     <>
@@ -288,7 +296,7 @@ export default function BriefCard({
 
   if (asLink) {
     return (
-      <div className="group relative h-full">
+      <div className={wrapperClass}>
         <a
           href={href}
           target="_blank"
@@ -305,7 +313,7 @@ export default function BriefCard({
   }
 
   return (
-    <div className="group relative h-full">
+    <div className={wrapperClass}>
       <div className={className} style={style}>
         {inner}
       </div>
