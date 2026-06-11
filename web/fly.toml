@@ -1,10 +1,15 @@
-# Brief Cloud — Fly.io app config. Deploy from web/: `fly deploy`.
+# fly.toml app configuration file generated for brief-cloud on 2026-06-11T14:18:15Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = "brief-cloud"
 # Pick the region closest to your Supabase project (e.g. cdg, fra, iad, sjc).
 primary_region = "cdg"
 
 [build]
   dockerfile = "Dockerfile"
+
   [build.args]
     # NEXT_PUBLIC_* are inlined at build time. The publishable key + Supabase URL
     # are PUBLIC values, safe to commit here — fill them in (or pass via
@@ -19,9 +24,11 @@ primary_region = "cdg"
   force_https = true
   # Always-on: the /process route files in the background via after(); an
   # auto-stopped machine could cut that off. Also removes cold starts.
-  auto_stop_machines = false
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
+  checks = [{ grace_period = '10s', interval = '15s', method = 'get', path = '/sign-in', timeout = '3s' }]
+  concurrency = { hard_limit = 100, soft_limit = 80, type = 'requests' }
 
   [http_service.concurrency]
     type = "requests"
@@ -37,5 +44,5 @@ primary_region = "cdg"
     path = "/sign-in"
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "1gb"
+  size = 'shared-cpu-1x'
+  memory = '1gb'
