@@ -1,0 +1,41 @@
+# Brief Cloud — Fly.io app config. Deploy from web/: `fly deploy`.
+app = "brief-cloud"
+# Pick the region closest to your Supabase project (e.g. cdg, fra, iad, sjc).
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile"
+  [build.args]
+    # NEXT_PUBLIC_* are inlined at build time. The publishable key + Supabase URL
+    # are PUBLIC values, safe to commit here — fill them in (or pass via
+    # `fly deploy --build-arg NEXT_PUBLIC_...=...`).
+    NEXT_PUBLIC_CLERK_SIGN_IN_URL = "/sign-in"
+    NEXT_PUBLIC_CLERK_SIGN_UP_URL = "/sign-in"
+    # NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_test_xxx"
+    # NEXT_PUBLIC_SUPABASE_URL = "https://xxxx.supabase.co"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # Always-on: the /process route files in the background via after(); an
+  # auto-stopped machine could cut that off. Also removes cold starts.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 80
+    hard_limit = 100
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+    method = "get"
+    # Public route that returns 200 without auth (the agent needs no warmup).
+    path = "/sign-in"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

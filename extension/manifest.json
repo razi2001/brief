@@ -50,7 +50,11 @@
     "<all_urls>"
   ],
   "externally_connectable": {
-    "matches": ["http://localhost:3000/*", "https://app.get-brief.app/*"]
+    "matches": [
+      "http://localhost:3000/*",
+      "https://cloud.get-brief.app/*",
+      "https://app.get-brief.app/*"
+    ]
   },
   "web_accessible_resources": [
     {

@@ -1,5 +1,9 @@
-// Brief Cloud client. Swap APP_URL for production later.
+// Brief Cloud client.
+// Flip APP_URL after the Fly deploy is live (and reload the extension):
+//   prod  → "https://cloud.get-brief.app"
+//   local → "http://localhost:3000"
 export const APP_URL = "http://localhost:3000";
+// export const APP_URL = "https://cloud.get-brief.app";
 
 export async function getCloudToken() {
   const { briefCloudToken } = await chrome.storage.local.get("briefCloudToken");
