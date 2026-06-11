@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Brief",
+  "name": "Brief Cloud",
   "version": "1.0.0",
-  "description": "Record what you want, hit stop. Your coding agent reads the brief and files the ticket. Local-first voice + tab capture.",
+  "description": "Record a bug, hit stop. Brief Cloud writes the ticket and files it to your connected Linear or Jira automatically — no local agent needed.",
   "author": "razi2001",
   "homepage_url": "https://get-brief.app",
   "permissions": [

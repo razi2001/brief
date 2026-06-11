@@ -17,8 +17,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Brief",
-  description: "Talk through a bug. Your agent writes the ticket.",
+  title: "Brief Cloud",
+  description: "Talk through a bug. Brief Cloud writes the ticket and files it.",
 };
 
 export default function RootLayout({
