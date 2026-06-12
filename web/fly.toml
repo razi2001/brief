@@ -30,19 +30,6 @@ primary_region = "cdg"
   checks = [{ grace_period = '10s', interval = '15s', method = 'get', path = '/sign-in', timeout = '3s' }]
   concurrency = { hard_limit = 100, soft_limit = 80, type = 'requests' }
 
-  [http_service.concurrency]
-    type = "requests"
-    soft_limit = 80
-    hard_limit = 100
-
-  [[http_service.checks]]
-    interval = "15s"
-    timeout = "3s"
-    grace_period = "10s"
-    method = "get"
-    # Public route that returns 200 without auth (the agent needs no warmup).
-    path = "/sign-in"
-
 [[vm]]
   size = 'shared-cpu-1x'
   memory = '1gb'
