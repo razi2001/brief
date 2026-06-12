@@ -7,7 +7,6 @@
 //   2. Slow path (no cache): probe getUserMedia synchronously. If granted,
 //      reveal and cache. If not, redirect to permission page.
 
-import { makeZip } from './lib/zip.js';
 import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
@@ -124,6 +123,18 @@ function clearInlineError() {
 
 async function recordForItem(itemId, recBtn) {
   clearInlineError();
+
+  // Cloud-only: a recording is uploaded straight to Brief Cloud when it
+  // stops - there is no local fallback anymore, so recording without a
+  // pairing would lose the video. Pair first, then record.
+  let cloudToken = null;
+  try { cloudToken = await getCloudToken(); } catch {}
+  if (!cloudToken) {
+    await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
+    window.close();
+    return;
+  }
+
   if (recBtn) { recBtn.disabled = true; recBtn.classList.add('loading'); }
 
   try {
@@ -571,8 +582,11 @@ function updateChrome(items) {
     recBadge.hidden = true;
   }
 
-  // When connected to Brief Cloud, "Create ticket" replaces "Export".
-  if (ready > 0 && bcConnected) {
+  // "Create ticket" is THE primary action whenever briefs are ready - never
+  // silently swapped for the local Export. Not paired (or the pairing died)?
+  // The click opens the pair page and the user tries again - tickets are the
+  // product, a zip download is not an acceptable stand-in.
+  if (ready > 0) {
     if (bcCreateTicket) {
       bcCreateTicket.classList.add('is-on');
       // Reflect how many briefs will be filed (never while a send is running -
@@ -588,10 +602,6 @@ function updateChrome(items) {
       }
     }
     exportBtn.classList.remove('is-on');
-  } else if (ready > 0) {
-    exportBtn.classList.add('is-on');
-    exportCount.textContent = String(ready);
-    if (bcCreateTicket) bcCreateTicket.classList.remove('is-on');
   } else {
     exportBtn.classList.remove('is-on');
     if (bcCreateTicket) bcCreateTicket.classList.remove('is-on');
@@ -674,18 +684,9 @@ addForm.addEventListener('submit', async (e) => {
   last?.querySelector('.cap-btn')?.focus();
 });
 
-// Helpers to bundle the skill + write a zip for non-recording briefs ----------
-const SKILL_FILES = ['skill/SKILL.md', 'skill/playbooks/ticket.md', 'skill/playbooks/inbox.md'];
-async function loadSkillEntries() {
-  const out = [];
-  for (const rel of SKILL_FILES) {
-    try {
-      const res = await fetch(chrome.runtime.getURL(rel));
-      out.push({ name: rel, data: new TextEncoder().encode(await res.text()) });
-    } catch {}
-  }
-  return out;
-}
+// Cloud-only: the local zip Export flow is gone. Briefs file as tickets via
+// Brief Cloud, full stop - when the pairing is missing the Create ticket
+// button opens the pair page instead of degrading to a download.
 function dataUrlToBytes(dataUrl) {
   const b64 = dataUrl.split(',')[1] || '';
   const bin = atob(b64);
@@ -693,176 +694,8 @@ function dataUrlToBytes(dataUrl) {
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return arr;
 }
-function briefReadme(b) {
-  const parts = [];
-  parts.push('# Brief\n');
-  parts.push('A brief captured with the Brief extension. Read skill/SKILL.md and follow it to file a tracker ticket.\n');
-  parts.push('## Contents');
-  if (b.description && b.description.trim()) parts.push('- `brief.json` → `description`: the user\u2019s typed description of the issue.');
-  if (b.screenshot) parts.push('- `screenshot.png`: a screenshot of the page. **Any red markings are drawn by the user to point at where the issue is** - treat them as the focus, not part of the UI.');
-  parts.push('- `skill/`: the playbook for turning this into a ticket.');
-  parts.push('\n## How to act on it');
-  parts.push('Read `skill/SKILL.md` and follow it. File ONE ticket in the connected tracker. Don\u2019t mention the brief or these files in the ticket itself.');
-  return parts.join('\n') + '\n';
-}
 
-// Build + download a zip for a brief that has NO recording (screenshot/text).
-// Recording briefs already wrote their own zip on disk via the bar.
-async function writeBriefZip(b) {
-  const skillEntries = await loadSkillEntries();
-  const briefJson = {
-    id: b.id,
-    name: b.name || '',
-    createdAt: b.addedAt || Date.now(),
-    source: b.screenshot ? 'screenshot' : 'text',
-    description: b.description || '',
-    hasScreenshot: !!b.screenshot,
-    screenshotAnnotated: !!b.screenshotAnnotated,
-    extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
-  };
-  const entries = [
-    { name: 'README.md', data: new TextEncoder().encode(briefReadme(b)) },
-    { name: 'brief.json', data: new TextEncoder().encode(JSON.stringify(briefJson, null, 2)) },
-    ...skillEntries,
-  ];
-  if (b.screenshot) entries.push({ name: 'screenshot.png', data: dataUrlToBytes(b.screenshot) });
-
-  const zipBytes = makeZip(entries);
-  const blob = new Blob([zipBytes], { type: 'application/zip' });
-  const blobUrl = URL.createObjectURL(blob);
-  const res = await chrome.runtime.sendMessage({
-    type: 'DOWNLOAD_ZIP',
-    payload: { blobUrl, filename: `brief/brief-${b.id}.zip` },
-  });
-  URL.revokeObjectURL(blobUrl);
-  if (!res?.ok) throw new Error(res?.error || 'zip_write_failed');
-}
-
-// For a RECORDING brief, the recording's on-disk zip is finalized when
-// recording stops - it predates any post-record additions (description,
-// screenshot, extra key/values, or the user toggling "attach recording").
-// We can't rewrite the recording zip (we don't have the video bytes anymore),
-// so we drop a small companion zip alongside it carrying every post-record
-// field. The skill merges this on top of the recording's brief.json.
-async function writeCompanionZip(b) {
-  const briefJson = {
-    id: b.id,
-    name: b.name || '',
-    companionFor: `brief-${b.id}.zip`,
-    note: 'Extra context added after the recording was saved.',
-    description: b.description || '',
-    hasScreenshot: !!b.screenshot,
-    screenshotAnnotated: !!b.screenshotAnnotated,
-    extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
-    // `includeVideo: true` is the user's explicit "attach the recording to this
-    // ticket" signal (toggle in the popup). The skill treats this as an
-    // absolute rule - when true, always attach the recording regardless of
-    // its own attach/skip heuristics.
-    includeVideo: !!b.includeVideo,
-  };
-  const entries = [
-    { name: 'brief.json', data: new TextEncoder().encode(JSON.stringify(briefJson, null, 2)) },
-  ];
-  if (b.screenshot) entries.push({ name: 'screenshot.png', data: dataUrlToBytes(b.screenshot) });
-  const blob = new Blob([makeZip(entries)], { type: 'application/zip' });
-  const blobUrl = URL.createObjectURL(blob);
-  const res = await chrome.runtime.sendMessage({
-    type: 'DOWNLOAD_ZIP',
-    payload: { blobUrl, filename: `brief/brief-${b.id}-extra.zip` },
-  });
-  URL.revokeObjectURL(blobUrl);
-  if (!res?.ok) throw new Error(res?.error || 'companion_write_failed');
-}
-
-// ---------- Export (all ready briefs) ----------
-exportBtn.addEventListener('click', async () => {
-  const items = await getInbox();
-  const ready = items.filter(isReady);
-  const notReady = items.filter((b) => !isReady(b));
-  if (ready.length === 0) return;
-
-  exportBtn.disabled = true;
-
-  // 1) Make sure every ready brief has a zip on disk. Recording briefs already
-  //    do (written when recording stopped). Screenshot/text-only briefs are
-  //    written here, now. A recording brief with ANY post-record state - a
-  //    screenshot, description, extras, or the user toggling "attach the
-  //    recording" - gets a small companion zip so those fields aren't lost
-  //    (the recording's own brief.json was frozen at record time).
-  function hasPostRecordState(b) {
-    return !!(
-      b.screenshot ||
-      (b.description && b.description.trim()) ||
-      (Array.isArray(b.extra) && b.extra.some((p) => (p.key || '').trim() || (p.value || '').trim())) ||
-      b.includeVideo
-    );
-  }
-  try {
-    for (const b of ready) {
-      if (b.hasRecording || b.recorded) {
-        if (hasPostRecordState(b)) await writeCompanionZip(b);
-      } else {
-        await writeBriefZip(b);
-      }
-    }
-  } catch (err) {
-    exportBtn.disabled = false;
-    showInlineError(`Couldn\u2019t prepare a brief: ${err?.message || err}`);
-    return;
-  }
-
-  // 2) Build the prompt. Skill reads everything else from brief.json (and the
-  //    companion -extra.zip's brief.json, when one exists) - only carry the
-  //    user-given name as a quick title hint. The "attach recording" toggle
-  //    rides in the companion zip's brief.json as `includeVideo: true`, not
-  //    in the prompt. Companion -extra.zip presence is discoverable by `ls`.
-  function describe(b) {
-    let s = b.id;
-    if (b.name && b.name.trim()) s += ` ("${b.name.trim()}")`;
-    return s;
-  }
-  const named = ready.map(describe).join(', ');
-  const firstId = ready[0].id;
-  const prompt =
-    `Process briefs from ~/Downloads/brief/: ${named}. ` +
-    `Unzip brief-${firstId}.zip and follow its skill/SKILL.md.`;
-
-  // Drop the user's natural-language ticket-creation guidance as a sidecar
-  // file next to the briefs. The skill picks it up during discovery without
-  // bloating the copied prompt. Only written when non-empty; gets wiped
-  // along with the rest of brief/ on successful cleanup, so next export
-  // re-creates it from the latest settings value.
-  try {
-    const { ticketGuidance } = await chrome.storage.local.get('ticketGuidance');
-    const guidance = (ticketGuidance || '').trim();
-    if (guidance) {
-      const blob = new Blob([guidance + '\n'], { type: 'text/plain' });
-      const blobUrl = URL.createObjectURL(blob);
-      await chrome.runtime.sendMessage({
-        type: 'DOWNLOAD_ZIP',
-        payload: { blobUrl, filename: 'brief/guidance.txt' },
-      });
-      URL.revokeObjectURL(blobUrl);
-    }
-  } catch {}
-  try { await navigator.clipboard.writeText(prompt); } catch {}
-
-  // 3) Animate ready rows out, keep not-ready drafts.
-  exportBtn.classList.remove('is-on');
-  const readyIds = new Set(ready.map((b) => b.id));
-  const rows = Array.from(briefList.children).filter((row) => readyIds.has(row.dataset.id));
-  rows.forEach((row, i) => setTimeout(() => row.classList.add('swipe-out'), i * 90));
-
-  const totalSwipe = rows.length * 90 + 360;
-  setTimeout(async () => {
-    await setInbox(notReady);
-    exportDone.hidden = false;
-    setTimeout(() => window.close(), 1700);
-  }, totalSwipe);
-});
-
-// ---------- Brief Cloud: "Create ticket" (upload to cloud) ----------
-// Additive to the local Export flow above - Export keeps working in all cases.
+// ---------- Brief Cloud: "Create ticket" ----------
 //
 // What we can assemble from chrome.storage.local here in the popup:
 //   - brief.json: built from the stored inbox entry (same fields the local
@@ -980,6 +813,17 @@ bcCreateTicket?.addEventListener('click', async () => {
   const ready = items.filter((b) => isReady(b) && !b.uploading);
   if (ready.length === 0) return;
 
+  // Not paired (or the pairing died and was cleared)? Open the pair page -
+  // it pushes a token for the signed-in account back to the extension; then
+  // Create ticket just works. NEVER fall back to a local export.
+  let token = null;
+  try { token = await getCloudToken(); } catch {}
+  if (!token) {
+    await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
+    window.close();
+    return;
+  }
+
   // Pre-flight: the paired account has NO tracker connected - every filing
   // would 409. Say so (with the fix) BEFORE uploading anything.
   if (bcTracker === null) {
@@ -1022,6 +866,26 @@ bcCreateTicket?.addEventListener('click', async () => {
       await processBrief(b.cloudBriefId, b.name, !!b.includeVideo);
       sentIds.push(b.id);
     } catch (err) {
+      // 404 = the stored draft belongs to a PREVIOUS account pairing (the
+      // user switched web accounts). Self-heal: re-upload the brief under the
+      // current account and retry once. (A recording uploaded under the old
+      // account can't be recovered - the ticket files from the popup's data.)
+      if (err?.status === 404 && b.cloudBriefId) {
+        try {
+          b.cloudBriefId = null;
+          const page = await activePageContext();
+          const { files, meta } = bcBuildFilesAndMeta(b, page);
+          b.cloudBriefId = await uploadDraft(files, meta);
+          const list = await getInbox();
+          const entry = list.find((x) => x.id === b.id);
+          if (entry) { entry.cloudBriefId = b.cloudBriefId; await setInbox(list); }
+          await processBrief(b.cloudBriefId, b.name, !!b.includeVideo);
+          sentIds.push(b.id);
+          continue;
+        } catch (err2) {
+          err = err2;
+        }
+      }
       failure = failure || err;
       // No tracker connected → every remaining brief would fail identically.
       if (err?.code === 'no_tracker') break;

@@ -1,5 +1,6 @@
 import { UserButton } from "@clerk/nextjs";
 import AppShell from "@/components/AppShell";
+import ExtensionTokenSync from "@/components/ExtensionTokenSync";
 
 /**
  * Shared shell for the authed app (Dashboard / Briefs / Connections). Rendering
@@ -10,5 +11,11 @@ import AppShell from "@/components/AppShell";
  * in after.
  */
 export default function MainLayout({ children }: { children: React.ReactNode }) {
-  return <AppShell headerRight={<UserButton />}>{children}</AppShell>;
+  return (
+    <AppShell headerRight={<UserButton />}>
+      {/* Re-pairs the extension whenever the signed-in account changes. */}
+      <ExtensionTokenSync />
+      {children}
+    </AppShell>
+  );
 }

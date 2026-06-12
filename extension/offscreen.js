@@ -12,8 +12,7 @@
 // the bar shows "saved" right away and the upload runs in the background.
 // Background keeps this document alive until it reports OFFSCREEN_DONE.
 
-import { getCloudToken, uploadDraft } from './cloud.js';
-import { buildBriefZipBytes } from './brief-bundle.js';
+import { uploadDraft } from './cloud.js';
 
 let micStream = null;
 let tabStream = null;
@@ -55,28 +54,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case 'STOP': {
-          // Stop + collect synchronously, then branch:
-          //  - cloud: ACK right away (mode: 'cloud') so the bar can show
-          //    "saved" and close; the upload continues here in the background.
-          //  - not connected: legacy base64 relay back to the bar, which
-          //    builds the local zip.
+          // Stop + collect synchronously, ACK right away so the bar can show
+          // "saved" and close, then upload in the background (cloud-only - no
+          // local zip; a missing pairing surfaces as uploadFailed and the
+          // popup gates recording on pairing so it shouldn't happen).
           const data = await collectRecording();
-          let token = null;
-          try { token = await getCloudToken(); } catch {}
-          if (token && message.briefId) {
-            sendResponse({ ok: true, mode: 'cloud' });
-            uploadAndFinish({
-              briefId: message.briefId,
-              intent: message.intent || 'brief',
-              transcriptFinal: (message.transcriptFinal || '').trim(),
-              transcriptChunks: message.transcriptChunks || [],
-              ...data,
-            });
-          } else {
-            sendResponse({ ok: true, mode: 'relay' });
-            await relayFinished(data, message.transcriptFinal, message.transcriptChunks);
-            chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
-          }
+          sendResponse({ ok: true });
+          uploadAndFinish({
+            briefId: message.briefId,
+            intent: message.intent || 'brief',
+            transcriptFinal: (message.transcriptFinal || '').trim(),
+            transcriptChunks: message.transcriptChunks || [],
+            ...data,
+          });
           break;
         }
         case 'CANCEL':
@@ -188,7 +178,7 @@ async function startRecording(streamId, lang) {
   // produce results in invisible contexts. The bar iframe is visible and
   // works correctly. We just record audio/video here.
 
-  // 6. Notify the bar (via background relay - see RECORDING_FINISHED for why)
+  // 6. Notify the bar (via background relay - it knows which tab the bar is in)
   chrome.runtime.sendMessage({
     target: 'relayToBar',
     payload: { target: 'bar', type: 'RECORDING_STARTED', startedAt: recordingStartMs },
@@ -216,17 +206,6 @@ function startKeyframeCapture() {
 function stopKeyframeCapture() {
   if (keyframeTimer) clearInterval(keyframeTimer);
   keyframeTimer = null;
-}
-
-async function blobToBase64(blob) {
-  const ab = await blob.arrayBuffer();
-  const bytes = new Uint8Array(ab);
-  let bin = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(bin);
 }
 
 function startSpeechRecognition(lang) {
@@ -268,37 +247,6 @@ async function collectRecording() {
   recordedChunks = [];
   keyframes = [];
   return collected;
-}
-
-// Legacy path (not connected to Brief Cloud): base64 the blob + keyframes and
-// relay them to the bar, which assembles and downloads the local zip.
-async function relayFinished(data, transcriptFinalFromBar, transcriptChunksFromBar) {
-  const recordingB64 = await blobToBase64(data.blob);
-  const keyframesB64 = [];
-  for (const k of data.keyframes) {
-    keyframesB64.push({
-      timestamp: k.timestamp,
-      base64: await blobToBase64(k.blob),
-    });
-  }
-
-  // Send via background - it knows which tab the bar lives in.
-  // Using a relay target instead of broadcast so the bar receives the
-  // message only via background's chrome.tabs.sendMessage path (no
-  // duplicate delivery from the broadcast).
-  chrome.runtime.sendMessage({
-    target: 'relayToBar',
-    payload: {
-      target: 'bar',
-      type: 'RECORDING_FINISHED',
-      recordingB64,
-      mimeType: data.mimeType,
-      durationMs: data.durationMs,
-      transcriptFinal: (transcriptFinalFromBar || '').trim(),
-      transcriptChunks: transcriptChunksFromBar || [],
-      keyframes: keyframesB64,
-    },
-  });
 }
 
 // Cloud path: assemble brief.json HERE (page meta from background, the user's
@@ -386,32 +334,25 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
       description: entry?.description || '',
     };
 
-    const cloudBriefId = await uploadDraft(files, cloudMeta);
+    // Transient network/server hiccups: retry before declaring failure -
+    // there is no local fallback anymore, so we try hard here.
+    let cloudBriefId = null;
+    let lastErr = null;
+    for (const delay of [0, 1500, 5000]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      try {
+        cloudBriefId = await uploadDraft(files, cloudMeta);
+        break;
+      } catch (err) {
+        lastErr = err;
+        log('upload attempt failed:', err?.message || err);
+      }
+    }
+    if (!cloudBriefId) throw lastErr || new Error('upload failed');
     log('background upload done', cloudBriefId);
     await chrome.runtime.sendMessage({ type: 'UPLOAD_RESULT', briefId, cloudBriefId }).catch(() => {});
   } catch (err) {
-    console.warn('[brief/offscreen] cloud upload failed, saving local zip:', err);
-    // Preserve the recording locally so nothing is lost.
-    try {
-      const recordingBytes = new Uint8Array(await blob.arrayBuffer());
-      const kfBytes = [];
-      for (const k of keyframeEntries) {
-        kfBytes.push({ name: k.name, data: new Uint8Array(await k.blob.arrayBuffer()) });
-      }
-      const zipBytes = await buildBriefZipBytes({
-        briefJson,
-        recordingBytes,
-        keyframeEntries: kfBytes,
-        screenshotDataUrl: entry?.screenshot || null,
-      });
-      const blobUrl = URL.createObjectURL(new Blob([zipBytes], { type: 'application/zip' }));
-      await chrome.runtime.sendMessage({
-        type: 'DOWNLOAD_ZIP',
-        payload: { blobUrl, filename: `brief/brief-${briefId}.zip` },
-      });
-    } catch (zipErr) {
-      console.error('[brief/offscreen] zip fallback failed too:', zipErr);
-    }
+    console.warn('[brief/offscreen] cloud upload failed:', err);
     await chrome.runtime
       .sendMessage({ type: 'UPLOAD_RESULT', briefId, error: String(err?.message || err) })
       .catch(() => {});

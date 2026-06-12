@@ -132,9 +132,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Tag the forwarded copy - offscreen ignores untagged (direct
         // broadcast) copies so each command runs exactly once.
         const res = await chrome.runtime.sendMessage({ ...message, viaBackground: true });
-        // A STOP that goes the cloud route starts a BACKGROUND upload in the
-        // offscreen document - guard it from teardown until OFFSCREEN_DONE.
-        if (message.type === 'STOP' && res?.mode === 'cloud') UPLOADS_PENDING++;
+        // A successful STOP starts a BACKGROUND upload in the offscreen
+        // document (cloud-only) - guard it from teardown until OFFSCREEN_DONE.
+        if (message.type === 'STOP' && res?.ok) UPLOADS_PENDING++;
         sendResponse(res);
       } catch (err) {
         console.error('[brief/background] offscreen relay:', err);
@@ -359,11 +359,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           break;
 
-        case 'DOWNLOAD_ZIP':
-          await downloadZip(message.payload);
-          sendResponse({ ok: true });
-          break;
-
         case 'open-url':
           // The bar runs as a content script and has no chrome.tabs access, so
           // it asks us to open a filed ticket in a new tab on click.
@@ -385,86 +380,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
   return true;
 });
-
-// Best-effort: quiet the download UI. These APIs are deprecated/variable
-// across Chrome versions, so feature-detect and never throw. This is NOT a
-// guarantee of invisibility - Chrome may still flash its download indicator.
-function setDownloadShelf(visible) {
-  try {
-    if (chrome.downloads.setUiOptions) {
-      // Newer API (replaces setShelfEnabled). enabled:false hides the bubble.
-      chrome.downloads.setUiOptions({ enabled: visible }).catch(() => {});
-      return;
-    }
-  } catch {}
-  try {
-    if (chrome.downloads.setShelfEnabled) chrome.downloads.setShelfEnabled(visible);
-  } catch {}
-}
-
-async function downloadZip({ blobUrl, filename }) {
-  // IMPORTANT: erasing a completed download's history record makes a later
-  // conflictAction:'overwrite' fail (Chrome no longer has a record to match,
-  // so it uniquifies → brief-<id> (1).zip, (2).zip…). So we do cleanup BEFORE
-  // the write, not after: remove any prior records for this same filename, and
-  // delete the stale file from disk, so the fresh write lands cleanly at the
-  // canonical path and history shows just one entry.
-  try {
-    // Match the canonical name AND any " (1)", " (2)"… duplicates a prior build
-    // may have created, so this self-heals the mess and overwrite stays clean.
-    const base = String(filename).split('/').pop();           // brief-<id>.zip
-    const stem = base.replace(/\.zip$/i, '');                  // brief-<id>
-    const re = escapeForRegex(stem) + '(?: \\(\\d+\\))?' + '\\.zip$';
-    const prior = await chrome.downloads.search({ filenameRegex: re });
-    for (const d of prior) {
-      try { await chrome.downloads.removeFile(d.id); } catch {}
-      try { await chrome.downloads.erase({ id: d.id }); } catch {}
-    }
-  } catch {}
-
-  setDownloadShelf(false);
-  const downloadId = await new Promise((resolve, reject) => {
-    chrome.downloads.download(
-      { url: blobUrl, filename, conflictAction: 'overwrite', saveAs: false },
-      (id) => {
-        if (chrome.runtime.lastError || !id) {
-          reject(new Error(chrome.runtime.lastError?.message || 'download_failed'));
-        } else {
-          resolve(id);
-        }
-      },
-    );
-  });
-
-  try {
-    await new Promise((resolve, reject) => {
-      const listener = (delta) => {
-        if (delta.id !== downloadId) return;
-        if (delta.state?.current === 'complete') {
-          chrome.downloads.onChanged.removeListener(listener);
-          resolve();
-        } else if (delta.state?.current === 'interrupted') {
-          chrome.downloads.onChanged.removeListener(listener);
-          reject(new Error('download_interrupted'));
-        }
-      };
-      chrome.downloads.onChanged.addListener(listener);
-      setTimeout(() => {
-        chrome.downloads.onChanged.removeListener(listener);
-        resolve();
-      }, 60_000);
-    });
-  } finally {
-    // Do NOT erase this download's record here - a future overwrite needs it.
-    // Just restore the shelf.
-    setDownloadShelf(true);
-  }
-}
-
-// Escape a string so it can be used safely inside a RegExp (for filename match).
-function escapeForRegex(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 // ---------- Page-world console capture (injected via executeScript world:'MAIN') ----------
 // Patches console.error and window error handlers. Each captured event posts a

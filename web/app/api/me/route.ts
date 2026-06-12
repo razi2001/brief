@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { clerkClient } from "@clerk/nextjs/server";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { getLinearToken } from "@/lib/linear";
 import { getJiraAuth } from "@/lib/jira";
@@ -19,6 +20,16 @@ export async function GET(req: NextRequest) {
   const token = bearerFromHeader(req.headers.get("authorization"));
   const userId = token ? await userIdForToken(token) : null;
   if (!userId) return jsonCors({ error: "unauthorized" }, { status: 401 });
+
+  // The token row can outlive the Clerk account (account deleted/recreated).
+  // A pairing to a dead user is dead: 401 so the extension drops it and
+  // re-pairs with whoever is signed in now.
+  try {
+    const client = await clerkClient();
+    await client.users.getUser(userId);
+  } catch {
+    return jsonCors({ error: "unauthorized" }, { status: 401 });
+  }
 
   let tracker: "linear" | "jira" | null = null;
   try {
