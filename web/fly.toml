@@ -16,8 +16,8 @@ primary_region = "cdg"
     # `fly deploy --build-arg NEXT_PUBLIC_...=...`).
     NEXT_PUBLIC_CLERK_SIGN_IN_URL = "/sign-in"
     NEXT_PUBLIC_CLERK_SIGN_UP_URL = "/sign-in"
-    # NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_test_xxx"
-    # NEXT_PUBLIC_SUPABASE_URL = "https://xxxx.supabase.co"
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = "pk_test_c21hcnQtZWxlcGhhbnQtMzMuY2xlcmsuYWNjb3VudHMuZGV2JA"
+    NEXT_PUBLIC_SUPABASE_URL = "https://zoztsincbmaozuulcfez.supabase.co"
 
 [http_service]
   internal_port = 3000
