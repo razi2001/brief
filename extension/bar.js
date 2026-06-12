@@ -557,11 +557,25 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       if (recordingArr && recordingArr.length) {
         files.push({ name: 'recording.webm', blob: recordingBlob, contentType: 'video/webm' });
       }
+      // Include the user's annotated screenshot so the agent can correlate the
+      // marked-up still with the recording frames (it was previously only in
+      // the local zip, never uploaded).
+      if (userScreenshot) {
+        try {
+          const b64 = userScreenshot.split(',')[1] || '';
+          const bin = atob(b64);
+          const arr = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          files.push({ name: 'screenshot.png', blob: new Blob([arr], { type: 'image/png' }), contentType: 'image/png' });
+        } catch {}
+      }
 
       const cloudMeta = {
         transcript: transcriptFinal || '',
         keyframeCount: keyframeEntries.length,
-        hasScreenshot: false,
+        hasScreenshot: !!userScreenshot,
+        pageUrl: meta.pageUrl,
+        pageTitle: meta.pageTitle,
         description: userDescription || '',
       };
 

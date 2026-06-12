@@ -818,13 +818,20 @@ exportBtn.addEventListener('click', async () => {
 //     transcript only ever lived in the on-disk zip written by bar.js and are
 //     not available in the popup context.
 //   - screenshot.png: the annotated screenshot dataURL, when present.
-function bcBuildFilesAndMeta(b) {
+function bcBuildFilesAndMeta(b, page) {
+  // Page context: the URL/title pinned when the screenshot was taken, else the
+  // tab the user is on now (passed in). A ticket should always carry where the
+  // issue happened.
+  const pageUrl = b.pageUrl || page?.url || null;
+  const pageTitle = b.pageTitle || page?.title || null;
   const briefJson = {
     id: b.id,
     name: b.name || '',
     createdAt: b.addedAt || Date.now(),
     source: (b.hasRecording || b.recorded) ? 'recording' : (b.screenshot ? 'screenshot' : 'text'),
     description: b.description || '',
+    pageUrl,
+    pageTitle,
     hasRecording: !!(b.hasRecording || b.recorded),
     hasScreenshot: !!b.screenshot,
     screenshotAnnotated: !!b.screenshotAnnotated,
@@ -851,12 +858,26 @@ function bcBuildFilesAndMeta(b) {
   const meta = {
     title: b.name || '',
     description: b.description || '',
+    pageUrl,
+    pageTitle,
     hasScreenshot: !!b.screenshot,
     keyframeCount: 0,
     transcript: undefined,
   };
 
   return { files, meta };
+}
+
+// The page the user is currently on — used as a fallback URL for text briefs
+// that were never tied to a screenshot. Null on extension/internal pages.
+async function activePageContext() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return null;
+    return { url: tab.url, title: tab.title || null };
+  } catch {
+    return null;
+  }
 }
 
 async function bcRefresh() {
@@ -906,7 +927,8 @@ bcCreateTicket?.addEventListener('click', async () => {
       // entry so a failed filing (e.g. no tracker yet) retries the SAME draft
       // instead of uploading a duplicate.
       if (!b.cloudBriefId) {
-        const { files, meta } = bcBuildFilesAndMeta(b);
+        const page = await activePageContext();
+        const { files, meta } = bcBuildFilesAndMeta(b, page);
         b.cloudBriefId = await uploadDraft(files, meta);
         const list = await getInbox();
         const entry = list.find((x) => x.id === b.id);

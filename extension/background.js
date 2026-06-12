@@ -212,6 +212,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               break;
             }
             const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+            // Capture the page URL/title now (the screenshot's source page) and
+            // pin it to the brief entry, so the ticket always has that context
+            // even if the user navigates away before filing.
+            try {
+              const { inbox } = await chrome.storage.local.get('inbox');
+              const list = Array.isArray(inbox) ? inbox : [];
+              const entry = list.find((b) => b.id === message.itemId);
+              if (entry) {
+                entry.pageUrl = tab.url || null;
+                entry.pageTitle = tab.title || null;
+                await chrome.storage.local.set({ inbox: list });
+              }
+            } catch {}
             // Make sure the content script is present, then inject the overlay.
             try {
               await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });

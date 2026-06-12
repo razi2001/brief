@@ -10,6 +10,42 @@ export interface BriefInput {
 }
 export interface FileResult { ticketUrl: string; ticketIdentifier: string; summary: string; }
 
+/**
+ * Extract the high-signal context (page URL/title, browser, console errors) out
+ * of brief.json into a compact, prominent text block. The whole brief.json is
+ * still sent, but key facts buried in it — especially the URL and console
+ * errors — get surfaced here so the agent reliably uses them.
+ */
+function buildContextBlock(json: unknown): string {
+  if (!json || typeof json !== "object") return "";
+  const j = json as Record<string, any>;
+  const lines: string[] = [];
+  if (j.pageUrl) lines.push(`- Page URL: ${j.pageUrl}`);
+  if (j.pageTitle) lines.push(`- Page title: ${j.pageTitle}`);
+  if (j.userAgent) lines.push(`- Browser (user agent): ${j.userAgent}`);
+
+  // Console errors come through as events of type "console-error" (args[]),
+  // plus window "error"/"unhandledrejection". Surface them verbatim.
+  const events: any[] = Array.isArray(j.events) ? j.events : [];
+  const errs: string[] = [];
+  for (const e of events) {
+    const type = e?.type ?? e?.__brief ?? "";
+    if (/error|rejection|console-error/i.test(String(type))) {
+      const msg = Array.isArray(e?.args)
+        ? e.args.join(" ")
+        : e?.message || e?.reason || (typeof e?.payload === "string" ? e.payload : JSON.stringify(e));
+      if (msg && msg.trim()) errs.push(msg.trim().slice(0, 500));
+    }
+  }
+  let block = "";
+  if (lines.length) block += "PAGE CONTEXT (ground truth — put the URL in the ticket):\n" + lines.join("\n");
+  if (errs.length) {
+    const unique = [...new Set(errs)].slice(0, 8);
+    block += (block ? "\n\n" : "") + "CONSOLE / RUNTIME ERRORS (verbatim — include the relevant ones in a code block):\n" + unique.map((m) => `- ${m}`).join("\n");
+  }
+  return block;
+}
+
 export async function processBrief(brief: BriefInput, tracker: Tracker, instructions?: string): Promise<FileResult> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.AGENT_MODEL || "gpt-4o";
@@ -100,6 +136,26 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
 
   const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
   const tail: any[] = [];
+
+  // Pull the high-signal context out of brief.json and put it FRONT AND CENTER,
+  // so the model reliably includes the page URL and reasons over the console
+  // errors instead of leaving them buried in the JSON blob.
+  const ctxBlock = buildContextBlock(brief.json);
+  if (ctxBlock) tail.push({ type: "text", text: ctxBlock });
+
+  // How many sampled video frames the images contain (so the model knows the
+  // stills are a time-ordered sequence to correlate, not unrelated pictures).
+  const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
+  tail.push({
+    type: "text",
+    text:
+      "CORRELATE EVERYTHING before writing. Cross-reference every signal you have — " +
+      (frameCount ? `the ${frameCount} time-ordered screen frames, ` : "") +
+      "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the console errors, and the URL. " +
+      "Build a single coherent account of what the user did, what they expected, and what actually happened; resolve disagreements in favor of the screenshots/console/events over the narration. " +
+      "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present.",
+  });
+
   if (brief.evidence.length) {
     tail.push({
       type: "text",

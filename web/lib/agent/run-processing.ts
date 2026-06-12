@@ -88,7 +88,16 @@ export async function processBriefById(userId: string, briefId: string): Promise
     const keyframeEvidence: BriefInput["evidence"] = [];
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
-    const pick = names.length ? [names[0], names[Math.floor(names.length / 2)], names[names.length - 1]] : [];
+    // Sample up to 6 evenly-spaced frames (not just first/mid/last) so the model
+    // can follow the sequence and correlate it with the transcript/events —
+    // three frames was too sparse to reconstruct what happened.
+    const SAMPLE = 6;
+    const pick =
+      names.length <= SAMPLE
+        ? names
+        : Array.from({ length: SAMPLE }, (_, i) =>
+            names[Math.round((i * (names.length - 1)) / (SAMPLE - 1))],
+          );
     for (const n of [...new Set(pick)]) {
       const b = await dl(`${prefix}/keyframes/${n}`);
       if (!b) continue;
