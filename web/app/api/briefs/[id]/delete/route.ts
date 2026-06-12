@@ -35,7 +35,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
       await admin.storage.from("briefs").remove(paths);
     }
   } catch {
-    // ignore — deleting the row is what matters
+    // ignore - deleting the row is what matters
   }
 
   const { error } = await admin.from("briefs").delete().eq("id", id).eq("user_id", userId);

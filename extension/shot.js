@@ -1,4 +1,4 @@
-// Brief — screenshot annotator overlay.
+// Brief - screenshot annotator overlay.
 // Receives a captured screenshot dataURL from the content script, lets the user
 // draw in red to point at the issue, then flattens the result and sends it back.
 

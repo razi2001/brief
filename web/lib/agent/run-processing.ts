@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { getLinearToken, makeLinearTracker } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
@@ -18,7 +19,11 @@ export type ProcessResult =
  * (POST /api/briefs/[id]/process) and the Clerk-authed dashboard retry route.
  * Behavior must remain identical to the original process route.
  */
-export async function processBriefById(userId: string, briefId: string): Promise<ProcessResult> {
+export async function processBriefById(
+  userId: string,
+  briefId: string,
+  opts: { includeVideo?: boolean } = {},
+): Promise<ProcessResult> {
   const admin = createAdminSupabase();
   const { data: brief } = await admin
     .from("briefs")
@@ -41,10 +46,31 @@ export async function processBriefById(userId: string, briefId: string): Promise
       if (cloud) tracker = makeJiraTracker(jiraTok, cloud);
     }
   }
-  if (!tracker) return { ok: false, status: 409, error: "no tracker connected" };
+  if (!tracker) {
+    // Don't leave the row stuck in 'processing' (the process route flips it
+    // before queueing this run) - fail it honestly with an actionable message
+    // so the dashboard can show it with a Retry instead of a silent stall.
+    await admin
+      .from("briefs")
+      .update({
+        status: "failed",
+        error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", briefId);
+    return {
+      ok: false,
+      status: 409,
+      error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
+    };
+  }
 
-  // Account-level ticket guidance (Clerk privateMetadata), applied by the agent.
-  const { ticketGuidance } = await getUserSettings(userId);
+  // Account-level ticket guidance (Clerk privateMetadata), applied by the
+  // agent. The reporter's role (from onboarding) rides along as light context.
+  const { ticketGuidance, role } = await getUserSettings(userId);
+  const guidance = [role ? `The reporter's role: ${role}.` : "", ticketGuidance]
+    .filter(Boolean)
+    .join("\n");
 
   await admin.from("briefs").update({ status: "processing" }).eq("id", briefId);
   try {
@@ -60,43 +86,69 @@ export async function processBriefById(userId: string, briefId: string): Promise
     const images: BriefInput["images"] = [];
     const evidence: BriefInput["evidence"] = [];
 
-    // Collect picked keyframes. They always go to `images` (so the model can SEE
-    // them and write an accurate description), but we only EMBED them in the
-    // ticket when there's no recording — otherwise the keyframe stills just
-    // duplicate frames of the video that's already embedded.
-    const keyframeEvidence: BriefInput["evidence"] = [];
+    // Whether to attach the actual video. This is the user's explicit "Attach
+    // the recording to the ticket" toggle - OFF by default. The popup passes the
+    // current value at file time; fall back to the (frozen) brief.json value,
+    // then to false. When off, we still extract keyframe stills from the video
+    // as the visual evidence so the ticket isn't left blind.
+    const includeVideo = opts.includeVideo ?? !!json.includeVideo;
+
+    // Collect keyframes. Sample up to 6 evenly-spaced frames, then DROP exact
+    // duplicates (a screen recording barely changes between samples, so naive
+    // sampling yields near-identical stills). The deduped frames go to `images`
+    // so the model can follow the sequence; only a lean subset is EMBEDDED.
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
-    const pick = names.length ? [names[0], names[Math.floor(names.length / 2)], names[names.length - 1]] : [];
+    const SAMPLE = 6;
+    const pick =
+      names.length <= SAMPLE
+        ? names
+        : Array.from({ length: SAMPLE }, (_, i) =>
+            names[Math.round((i * (names.length - 1)) / (SAMPLE - 1))],
+          );
+    const frames: Array<{ name: string; filename: string; bytes: Buffer }> = [];
+    const seenFrame = new Set<string>();
     for (const n of [...new Set(pick)]) {
       const b = await dl(`${prefix}/keyframes/${n}`);
       if (!b) continue;
-      const filename = n.split("/").pop() || n;
-      images.push({ name: n, dataUrl: `data:image/png;base64,${b.toString("base64")}` });
-      keyframeEvidence.push({ filename, contentType: "image/png", bytes: b });
+      const hash = createHash("md5").update(b).digest("hex");
+      if (seenFrame.has(hash)) continue; // identical frame - skip
+      seenFrame.add(hash);
+      frames.push({ name: n, filename: n.split("/").pop() || n, bytes: b });
+    }
+    // The model sees up to 5 distinct frames for its analysis.
+    for (const f of frames.slice(0, 5)) {
+      images.push({ name: f.name, dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}` });
     }
 
-    // A user-annotated screenshot is intentional markup — always embed it.
+    // A user-annotated screenshot is intentional, focused markup - always show
+    // it to the model and embed it.
     const shot = await dl(`${prefix}/screenshot.png`);
     if (shot) {
       images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
       evidence.push({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
     }
 
+    // Embedded visual evidence - keep it lean and meaningful, never a wall of
+    // near-identical stills:
+    //   - video attached  -> embed the recording (it shows everything).
+    //   - annotated shot   -> that IS the evidence; don't also dump keyframes.
+    //   - otherwise        -> at most a before/after pair of distinct frames.
     const rec = await dl(`${prefix}/recording.webm`);
-    if (rec) {
-      // The video covers the keyframes, so embed it INSTEAD of the stills.
+    if (rec && includeVideo) {
       evidence.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
-    } else {
-      // No video — the keyframe stills are the visual evidence.
-      evidence.push(...keyframeEvidence);
+    } else if (!shot && frames.length) {
+      const lean = frames.length <= 2 ? frames : [frames[0], frames[frames.length - 1]];
+      for (const f of lean) {
+        evidence.push({ filename: f.filename, contentType: "image/png", bytes: f.bytes });
+      }
     }
 
     console.log(
-      `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} evidence=${evidence.length}`
+      `[process] brief ${briefId} via ${tracker.kind}: frames=${names.length} distinct=${frames.length} screenshot=${!!shot} recording=${!!rec} includeVideo=${includeVideo} evidence=${evidence.length}`
     );
 
-    const result = await processBrief({ json, images, evidence }, tracker, ticketGuidance);
+    const result = await processBrief({ json, images, evidence }, tracker, guidance);
 
     await admin
       .from("briefs")

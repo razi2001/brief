@@ -27,7 +27,7 @@ export default function SourceIcon({
   };
 
   if (k.includes("record") || k.includes("video") || k.includes("recording")) {
-    // recording — camcorder
+    // recording - camcorder
     return (
       <svg {...common}>
         <rect x="2.5" y="6.5" width="13" height="11" rx="2" />
@@ -36,7 +36,7 @@ export default function SourceIcon({
     );
   }
   if (k.includes("screenshot") || k.includes("image") || k.includes("shot")) {
-    // screenshot — picture frame
+    // screenshot - picture frame
     return (
       <svg {...common}>
         <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -46,7 +46,7 @@ export default function SourceIcon({
     );
   }
   if (k.includes("text") || k.includes("note") || k.includes("write")) {
-    // text — pen / write
+    // text - pen / write
     return (
       <svg {...common}>
         <path d="M12 20h9" />
@@ -54,7 +54,7 @@ export default function SourceIcon({
       </svg>
     );
   }
-  // mix / fallback — ✦ four-point star
+  // mix / fallback - ✦ four-point star
   return (
     <svg {...common}>
       <path d="M12 3c.7 3.6 2.7 5.6 6.3 6.3-3.6.7-5.6 2.7-6.3 6.3-.7-3.6-2.7-5.6-6.3-6.3C9.3 8.6 11.3 6.6 12 3Z" />

@@ -31,7 +31,7 @@ export default function TicketPreferences({
       setTimeout(() => setState((s) => (s === "saved" ? "idle" : s)), 1800);
     } catch (e: any) {
       setState("idle");
-      setError(e?.message || "Couldn't save — please try again.");
+      setError(e?.message || "Couldn't save - please try again.");
     }
   }
 
@@ -39,7 +39,7 @@ export default function TicketPreferences({
     <section id="ticket-preferences" className="card px-4 py-4 scroll-mt-8">
       <h2 className="font-display text-2xl text-ink">Ticket preferences</h2>
       <p className="mt-1 text-xs text-muted">
-        Guidance the agent follows when writing your tickets — tone, labels, what
+        Guidance the agent follows when writing your tickets - tone, labels, what
         to include.
       </p>
 

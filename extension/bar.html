@@ -10,7 +10,7 @@
   </head>
   <body class="state-loading">
     <div id="root">
-      <!-- The dark pill — single container, content swaps per state -->
+      <!-- The dark pill - single container, content swaps per state -->
       <div class="bar">
         <!-- LOADING -->
         <div data-state="loading" class="state-inner">
@@ -60,7 +60,7 @@
           <span class="state-text">Building brief…</span>
         </div>
 
-        <!-- SAVED — auto-dismiss after 5s -->
+        <!-- SAVED - auto-dismiss after 5s -->
         <div data-state="saved" class="state-inner">
           <span class="check-pill">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
@@ -77,7 +77,7 @@
           </button>
         </div>
 
-        <!-- INBOXED — added to inbox, no Claude prompt yet -->
+        <!-- INBOXED - added to inbox, no Claude prompt yet -->
         <div data-state="inboxed" class="state-inner">
           <span class="check-pill">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -94,7 +94,7 @@
           </button>
         </div>
 
-        <!-- CANCELLED — auto-dismiss after 2s -->
+        <!-- CANCELLED - auto-dismiss after 2s -->
         <div data-state="cancelled" class="state-inner">
           <span class="cancel-pill">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
@@ -109,7 +109,7 @@
         <!-- ERROR -->
         <div data-state="error" class="state-inner">
           <span class="alert-pill">!</span>
-          <span class="state-text err" id="errText">—</span>
+          <span class="state-text err" id="errText">-</span>
           <span class="spacer"></span>
           <button id="errCloseBtn" class="icon-btn" title="Dismiss">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">

@@ -30,7 +30,7 @@ function initial(name?: string): string {
 
 /**
  * One Linear-like row in the Briefs feed. Replaces the big 2-col card: a single
- * dense line — status dot, title, then right-aligned meta (tracker id, time,
+ * dense line - status dot, title, then right-aligned meta (tracker id, time,
  * assignee). Processing rows show a live "filing… m:ss" elapsed so nothing looks
  * frozen; failed rows show a Retry; filed rows link to the ticket. Archive is an
  * absolutely-positioned SIBLING of the row link (never nested in the <a>), faint
@@ -40,6 +40,7 @@ export default function BriefListRow({
   brief: b,
   onArchive,
   onArchiveFailed,
+  onUnarchive,
   onDelete,
   leaving = false,
   selected = false,
@@ -49,6 +50,7 @@ export default function BriefListRow({
   brief: DashboardBrief;
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
   onDelete?: (id: string) => void;
   leaving?: boolean;
   /** This row is selected. */
@@ -78,7 +80,7 @@ export default function BriefListRow({
 
   const inner = (
     <>
-      {/* Title — smaller, and capped so it crops well before the status column. */}
+      {/* Title - smaller, and capped so it crops well before the status column. */}
       <div className="min-w-0 max-w-[60%] flex-1">
         <p className={`truncate text-[0.8125rem] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
           {title}
@@ -90,10 +92,32 @@ export default function BriefListRow({
 
       {/* Right meta */}
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        {/* Status column */}
+        {/* Archived marker - a quiet tag, paired with the row's dimmed look.
+            The action (restore) lives in the hover icons, not here as text. */}
+        {b.archived && (
+          <span
+            className="hidden items-center gap-1 rounded-full bg-cream-2/70 px-2 py-0.5 font-mono text-[0.5625rem] tracking-wide text-muted sm:inline-flex"
+            title="Archived"
+          >
+            <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="4" rx="1" />
+              <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+            </svg>
+            archived
+          </span>
+        )}
+        {/* Status column - three distinct states. Failed must NOT borrow the
+            green "Filed" look; it gets a red "didn't file" with the Retry. */}
         {isProcessing ? (
           <span className="w-[5.5rem] text-right font-mono text-[0.625rem] text-accent">
             filing… <Elapsed since={b.updated_at || b.created_at} />
+          </span>
+        ) : isFailed ? (
+          <span
+            className="w-[5.5rem] truncate text-right font-mono text-[0.625rem] text-[#c62828]"
+            title="Didn't file"
+          >
+            didn&apos;t file
           </span>
         ) : (
           <span
@@ -104,8 +128,10 @@ export default function BriefListRow({
             {ti?.stateName || "Filed"}
           </span>
         )}
-        {isFailed && <RetryButton briefId={b.id} />}
-        {b.ticket_identifier && (
+        {/* Retry only makes sense on a live (non-archived) failed brief -
+            an archived one should be restored first. */}
+        {isFailed && !b.archived && <RetryButton briefId={b.id} />}
+        {!isFailed && b.ticket_identifier && (
           <span className="hidden items-center gap-1.5 font-mono text-[0.6875rem] text-accent sm:inline-flex">
             <TrackerLogo kind={b.provider ?? "linear"} size={13} />
             {b.ticket_identifier}
@@ -133,7 +159,11 @@ export default function BriefListRow({
     </>
   );
 
-  const contentClass = "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 no-underline";
+  // Archived rows recede - dim the content so they read as "put away" at a
+  // glance (the strongest cue), with the small tag + restore icon for detail.
+  const contentClass =
+    "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 no-underline" +
+    (b.archived ? " opacity-55" : "");
 
   // Checkbox is faint until you hover the row; it stays visible once it's
   // checked or while any selection is active. Clicking it selects (never navigates).
@@ -147,7 +177,7 @@ export default function BriefListRow({
     >
       {isProcessing && <span aria-hidden className="queue-bar" />}
 
-      {/* Leading checkbox — always occupies space (no layout shift), shown on
+      {/* Leading checkbox - always occupies space (no layout shift), shown on
           hover / when selected. */}
       <button
         type="button"
@@ -182,14 +212,32 @@ export default function BriefListRow({
         <div className={contentClass}>{inner}</div>
       )}
 
-      {/* Row actions — archive + delete, faint until hover. Hidden while a batch
-          selection is active (the header icons handle batch ops then). */}
+      {/* Row actions - faint until hover. Archived rows swap the archive action
+          for a restore one; both share the same icon-button language as delete.
+          Hidden while a batch selection is active (header icons handle that). */}
       {!anySelected && (
         <div className="flex shrink-0 items-center gap-0.5 pl-1 pr-2.5">
           {b.archived ? (
-            <span className="mr-1 font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
-              archived
-            </span>
+            onUnarchive && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onUnarchive(b.id);
+                }}
+                title="Restore"
+                aria-label="Restore this ticket"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="4" rx="1" />
+                  <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+                  <path d="M12 18v-6" />
+                  <path d="M9.5 14.5 12 12l2.5 2.5" />
+                </svg>
+              </button>
+            )
           ) : (
             <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
           )}

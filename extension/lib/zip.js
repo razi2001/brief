@@ -1,5 +1,5 @@
 // Tiny store-only ZIP writer.
-// Works in MV3 service workers — uses only ArrayBuffer/DataView/TextEncoder/Blob.
+// Works in MV3 service workers - uses only ArrayBuffer/DataView/TextEncoder/Blob.
 // Files are stored uncompressed (method 0). Good for media that's already compressed
 // (webm, png) and gives us a single download instead of N.
 

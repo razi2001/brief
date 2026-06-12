@@ -4,7 +4,7 @@ import type { Tracker, TrackerTarget } from "./tracker";
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
 
 // ---------------------------------------------------------------------------
-// ADF (Atlassian Document Format) builder — pure, unit-tested in jira.test.ts.
+// ADF (Atlassian Document Format) builder - pure, unit-tested in jira.test.ts.
 // ---------------------------------------------------------------------------
 
 export interface AdfMark {
@@ -126,7 +126,7 @@ export function markdownToAdf(markdown: string): AdfNode {
       continue;
     }
 
-    // Paragraph — gather consecutive plain lines until a blank or a special block.
+    // Paragraph - gather consecutive plain lines until a blank or a special block.
     const para: string[] = [line];
     i++;
     while (
@@ -162,7 +162,7 @@ export async function getJiraAuth(userId: string): Promise<JiraTok | null> {
       const res = await client.users.getUserOauthAccessToken(userId, "oauth_atlassian");
       const t = res.data?.[0]?.token;
       if (t) return { token: t, kind: "oauth" };
-    } catch { /* not connected — fall through */ }
+    } catch { /* not connected - fall through */ }
   }
   // Testing fallback: API token + email (basic auth) against a single site.
   const apiToken = process.env.JIRA_API_TOKEN;
@@ -363,12 +363,29 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
       }
       return out;
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, evidence }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, assignee, comment, evidence }) {
       // We need the project key to look up issue types and build the browse url.
       const targets = await this.listTargets();
       const project = targets.find((t) => t.id === targetId || t.key === targetId);
       if (!project) throw new Error(`Jira: project ${targetId} not found`);
       const issueTypeId = await pickIssueType(project.key);
+
+      // Resolve the assignee to a Jira accountId (best-effort, never fatal).
+      async function resolveAssigneeAccountId(want: string): Promise<string | undefined> {
+        try {
+          const r = await jiraFetch(
+            tok,
+            base,
+            `/user/assignable/search?project=${encodeURIComponent(project!.key)}&query=${encodeURIComponent(want)}&maxResults=1`,
+          );
+          if (!r.ok) return undefined;
+          const users = (await r.json()) as Array<{ accountId: string }>;
+          return users?.[0]?.accountId;
+        } catch {
+          return undefined;
+        }
+      }
+      const assigneeAccountId = assignee ? await resolveAssigneeAccountId(assignee) : undefined;
 
       let body = descriptionMarkdown;
       if (evidence.length) {
@@ -376,18 +393,45 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         body += `\n\nEvidence attached: ${names} (see the Attachments panel).`;
       }
 
-      const createRes = await jiraFetch(tok, base, `/issue`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fields: {
-            project: { id: project.id },
-            summary: title,
-            issuetype: { id: issueTypeId },
-            description: markdownToAdf(body),
-          },
-        }),
-      });
+      const baseFields: Record<string, unknown> = {
+        project: { id: project.id },
+        summary: title,
+        issuetype: { id: issueTypeId },
+        description: markdownToAdf(body),
+      };
+      // Preference-driven extras. Jira labels can't contain spaces; priority is
+      // by standard name. Both are best-effort: if the project's create screen
+      // rejects them (400), retry without so the filing never fails over them.
+      const extraFields: Record<string, unknown> = {};
+      if (labels?.length) {
+        extraFields.labels = labels.map((l) => l.trim().replace(/\s+/g, "-")).filter(Boolean);
+      }
+      if (priority) {
+        const JIRA_PRIORITY: Record<string, string> = {
+          urgent: "Highest",
+          high: "High",
+          medium: "Medium",
+          low: "Low",
+        };
+        if (JIRA_PRIORITY[priority]) extraFields.priority = { name: JIRA_PRIORITY[priority] };
+      }
+      if (assigneeAccountId) extraFields.assignee = { accountId: assigneeAccountId };
+
+      const createIssue = (fields: Record<string, unknown>) =>
+        jiraFetch(tok, base, `/issue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fields }),
+        });
+
+      const hasExtras = Object.keys(extraFields).length > 0;
+      let createRes = await createIssue({ ...baseFields, ...extraFields });
+      if (!createRes.ok && hasExtras && createRes.status === 400) {
+        console.warn(
+          `[jira-tracker] create with labels/priority rejected (400) - retrying without: ${await createRes.text()}`,
+        );
+        createRes = await createIssue(baseFields);
+      }
       if (!createRes.ok) throw new Error(`Jira issue create failed: ${createRes.status} ${await createRes.text()}`);
       const created = (await createRes.json()) as { id: string; key: string };
 
@@ -408,6 +452,20 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           if (!att.ok) console.warn(`[jira-tracker] attachment ${e.filename} failed: ${att.status}`);
         } catch (err) {
           console.warn("[jira-tracker] attachment error:", e.filename, err);
+        }
+      }
+
+      // Post the requested comment after the issue exists (best-effort).
+      if (comment?.trim()) {
+        try {
+          const c = await jiraFetch(tok, base, `/issue/${created.key}/comment`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ body: markdownToAdf(comment.trim()) }),
+          });
+          if (!c.ok) console.warn(`[jira-tracker] comment failed: ${c.status}`);
+        } catch (err) {
+          console.warn("[jira-tracker] comment error:", err);
         }
       }
 

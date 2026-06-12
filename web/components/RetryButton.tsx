@@ -27,15 +27,15 @@ export default function RetryButton({ briefId }: { briefId: string }) {
         throw new Error(body?.error || `retry failed (${res.status})`);
       }
       router.refresh();
-    } catch (e: any) {
-      setError(String(e?.message ?? e));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setPending(false);
     }
   }
 
   return (
-    <span className="inline-flex items-center gap-2">
+    <span className="inline-flex items-center gap-1.5 font-mono text-[0.625rem]">
       <button
         type="button"
         onClick={retry}
@@ -44,7 +44,7 @@ export default function RetryButton({ briefId }: { briefId: string }) {
       >
         {pending ? "retrying…" : "retry"}
       </button>
-      {error && <span className="text-[#c62828]">{error}</span>}
+      {error && <span className="max-w-[8rem] truncate text-[#c62828]" title={error}>{error}</span>}
     </span>
   );
 }

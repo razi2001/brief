@@ -1,4 +1,4 @@
-// Brief — bar (UI only)
+// Brief - bar (UI only)
 //
 // All recording happens in the offscreen document (chrome-extension origin,
 // immune to page Permissions-Policy). The bar sends control messages via
@@ -139,7 +139,7 @@ async function sendToOffscreen(type, extra = {}) {
       if (/NotAllowedError|not allowed|permission/i.test(err)) {
         // Mic denied at the extension origin level. Open the permission
         // page in a new tab so the user can grant it there (Jam-style),
-        // and close the bar — no point keeping it on screen.
+        // and close the bar - no point keeping it on screen.
         chrome.runtime.sendMessage({ type: 'OPEN_PERMISSION_PAGE' }).catch(() => {});
         closeParent();
         return;
@@ -166,7 +166,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.runtime.sendMessage({ type: 'BRIEF_START', briefId, startedAt: recordingStartMs }).catch(() => {});
     setView('recording');
     startTimer();
-    // Start speech recognition here in the bar — it doesn't work in offscreen
+    // Start speech recognition here in the bar - it doesn't work in offscreen
     // documents (they're invisible and SR silently fails to produce results).
     startSpeechRecognition();
   } else if (message.type === 'TRANSCRIPT_UPDATE') {
@@ -246,7 +246,7 @@ function startSpeechRecognition() {
 
   recognizer.onerror = (e) => {
     // 'not-allowed' on some pages (Permissions-Policy blocks SR in iframes
-    // on certain sites). Don't spam logs and don't restart — recording
+    // on certain sites). Don't spam logs and don't restart - recording
     // continues fine without live transcription; Whisper can transcribe
     // from the audio later if needed.
     if (e.error === 'not-allowed') {
@@ -255,7 +255,7 @@ function startSpeechRecognition() {
       return;
     }
     if (e.error === 'no-speech' || e.error === 'audio-capture') {
-      // Recoverable — let onend restart
+      // Recoverable - let onend restart
       return;
     }
     console.warn('[brief/bar] SR error:', e.error);
@@ -272,7 +272,7 @@ function startSpeechRecognition() {
   }
 }
 
-// Resolves once the recognizer has finished processing buffered audio —
+// Resolves once the recognizer has finished processing buffered audio -
 // recognizer.stop() is async and the FINAL onresult events fire AFTER it
 // returns. Without waiting, the last spoken words get truncated. A 2s
 // safety net guards against onend never firing on flaky engines.
@@ -320,7 +320,7 @@ function renderTranscript(finalText, interimText, placeholder) {
   const sep = finalTrim && interimTrim ? ' ' : '';
   const interimPart = interimTrim ? `<span class="interim">${escapeHtml(interimTrim)}</span>` : '';
   ticker.innerHTML = `${finalPart}${sep}${interimPart}`;
-  // Pin right edge of growing text to viewport edge — older text scrolls left
+  // Pin right edge of growing text to viewport edge - older text scrolls left
   requestAnimationFrame(() => {
     const viewport = transcriptText.offsetWidth;
     const lineW = ticker.scrollWidth;
@@ -422,18 +422,18 @@ This folder is a voice+screen "brief" recorded with the Brief browser extension.
 It contains everything needed to file a tracker ticket from it.
 
 ## What's here
-- \`brief.json\` — transcript, screen keyframes (with timestamps), page URL/title,
+- \`brief.json\` - transcript, screen keyframes (with timestamps), page URL/title,
   the click/scroll/keypress event log, and recording metadata.
-- \`recording.webm\` — the raw screen recording with mic audio.
-- \`keyframes/\` — PNG snapshots referenced by brief.json.
-- \`skill/\` — the playbook for turning this brief into a high-quality ticket.
+- \`recording.webm\` - the raw screen recording with mic audio.
+- \`keyframes/\` - PNG snapshots referenced by brief.json.
+- \`skill/\` - the playbook for turning this brief into a high-quality ticket.
 
 ## How to act on it (for the AI agent reading this)
 Read \`skill/SKILL.md\` and follow it. In short: read brief.json, scan the
 keyframes (binary-search the timestamps around the moment described in the
 transcript), then file ONE ticket in the user's connected tracker (Linear /
 Jira / GitHub / Notion) with the screenshots embedded inline. Don't ask
-clarifying questions about team/project — infer from the workspace.
+clarifying questions about team/project - infer from the workspace.
 
 When multiple briefs are processed together, see \`skill/playbooks/inbox.md\`.
 `;
@@ -470,6 +470,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
   let userScreenshot = '';
   let userScreenshotAnnotated = false;
   let userExtra = [];
+  let userIncludeVideo = false;
   try {
     const { inbox } = await chrome.storage.local.get('inbox');
     const entry = (Array.isArray(inbox) ? inbox : []).find((b) => b.id === briefId);
@@ -478,6 +479,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       userScreenshot = entry.screenshot || '';
       userScreenshotAnnotated = !!entry.screenshotAnnotated;
       userExtra = Array.isArray(entry.extra) ? entry.extra.filter((p) => p.key.trim() || p.value.trim()) : [];
+      userIncludeVideo = !!entry.includeVideo;
     }
   } catch {}
 
@@ -498,6 +500,10 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
     description: userDescription,
     hasScreenshot: !!userScreenshot,
     screenshotAnnotated: userScreenshotAnnotated,
+    // The "attach the recording" toggle is OFF by default and may be flipped in
+    // the popup after this point; the authoritative value is sent at file time.
+    // This is just a frozen fallback for retries.
+    includeVideo: userIncludeVideo,
     extra: userExtra,
     recording: { file: 'recording.webm', mimeType: mimeType || 'video/webm', durationMs },
   };
@@ -506,7 +512,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
   const recordingArr = new Uint8Array(await recordingBlob.arrayBuffer());
 
   // Bundle the skill into every brief so it's self-contained: any agent with
-  // local file access can read skill/SKILL.md and file the ticket — no install.
+  // local file access can read skill/SKILL.md and file the ticket - no install.
   const skillEntries = await loadSkillEntries();
 
   // A short, agent-agnostic pointer so whoever opens the folder knows what to do.
@@ -544,7 +550,8 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
 
   if (cloudToken) {
     try {
-      setSavingText('Saving…');
+      // The recording is the slow part; name it so the wait isn't a mystery.
+      setSavingText(recordingArr && recordingArr.length ? 'Uploading recording…' : 'Uploading…');
       const files = [
         { name: 'brief.json', blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }), contentType: 'application/json' },
         ...keyframeEntries.map((k) => ({
@@ -557,27 +564,41 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       if (recordingArr && recordingArr.length) {
         files.push({ name: 'recording.webm', blob: recordingBlob, contentType: 'video/webm' });
       }
+      // Include the user's annotated screenshot so the agent can correlate the
+      // marked-up still with the recording frames (it was previously only in
+      // the local zip, never uploaded).
+      if (userScreenshot) {
+        try {
+          const b64 = userScreenshot.split(',')[1] || '';
+          const bin = atob(b64);
+          const arr = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          files.push({ name: 'screenshot.png', blob: new Blob([arr], { type: 'image/png' }), contentType: 'image/png' });
+        } catch {}
+      }
 
       const cloudMeta = {
         transcript: transcriptFinal || '',
         keyframeCount: keyframeEntries.length,
-        hasScreenshot: false,
+        hasScreenshot: !!userScreenshot,
+        pageUrl: meta.pageUrl,
+        pageTitle: meta.pageTitle,
         description: userDescription || '',
       };
 
       // Upload the recording to the cloud as a DRAFT (no filing). The video only
       // exists here in the bar at this moment, so we upload it now to preserve
-      // it — but we do NOT file the ticket. The brief lands in the inbox as
+      // it - but we do NOT file the ticket. The brief lands in the inbox as
       // "recorded"; the user files it explicitly with "Create ticket", which
       // just kicks off processing on this already-uploaded draft.
       const cloudBriefId = await uploadDraft(files, cloudMeta);
       await finishToInbox(briefId, intent, cloudBriefId);
       return;
     } catch (err) {
-      // Upload failed — fall through to the original local download so the
+      // Upload failed - fall through to the original local download so the
       // brief is preserved.
       console.warn('[brief/bar] cloud upload failed, falling back to zip:', err);
-      setSavingText('cloud save failed — saving locally…');
+      setSavingText('cloud save failed - saving locally…');
     }
   }
 
@@ -635,7 +656,7 @@ async function finishToInbox(id, intent, cloudBriefId) {
     const list = Array.isArray(inbox) ? inbox : [];
     const entry = list.find((b) => b.id === id);
     if (entry) {
-      // Was added as a draft from the popup — flip it to recorded/ready.
+      // Was added as a draft from the popup - flip it to recorded/ready.
       entry.recorded = true;
       entry.hasRecording = true;
       entry.recordedAt = Date.now();
@@ -652,12 +673,12 @@ async function finishToInbox(id, intent, cloudBriefId) {
     // only allows openPopup in some versions/contexts; it silently no-ops
     // otherwise (the toolbar badge still nudges).
     // Carry the brief id along so background can tag this open as
-    // "post-capture" — popup uses it to auto-expand the right brief.
+    // "post-capture" - popup uses it to auto-expand the right brief.
     chrome.runtime.sendMessage({ type: 'REOPEN_POPUP', briefId: id }).catch(() => {});
   } catch (err) {
     console.warn('[brief/bar] inbox write failed:', err);
   }
-  // No confirmation toast — just close the bar. The badge updates and (where
+  // No confirmation toast - just close the bar. The badge updates and (where
   // allowed) the popup reopens, so the user already sees the saved brief.
   closeParent();
 }

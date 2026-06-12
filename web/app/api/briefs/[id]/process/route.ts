@@ -3,6 +3,8 @@ import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { processBriefById } from "@/lib/agent/run-processing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
+import { getLinearToken } from "@/lib/linear";
+import { getJiraAuth } from "@/lib/jira";
 
 export const maxDuration = 300;
 
@@ -16,13 +18,31 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const userId = token ? await userIdForToken(token) : null;
   if (!userId) return jsonCors({ error: "unauthorized" }, { status: 401 });
 
-  // Optional brief name — recordings are uploaded as a draft without one, so the
+  // Refuse up front when no tracker is connected, BEFORE flipping the row to
+  // 'processing' - the extension gets an immediate, actionable 409 instead of a
+  // brief that silently stalls and times out. The brief stays an uploaded draft
+  // so it can be filed once a tracker is linked.
+  const hasTracker = (await getLinearToken(userId)) ?? (await getJiraAuth(userId));
+  if (!hasTracker) {
+    return jsonCors(
+      {
+        error: "no_tracker",
+        message: "No tracker connected - connect Linear or Jira in Brief Cloud first.",
+      },
+      { status: 409 },
+    );
+  }
+
+  // Optional brief name - recordings are uploaded as a draft without one, so the
   // popup passes it now (at file time) for the dashboard to show while filing.
-  const body = await req.json().catch(() => ({}) as { title?: string });
+  // `includeVideo` is the user's "attach the recording" toggle, also only known
+  // at file time (set in the popup after the draft was uploaded).
+  const body = await req.json().catch(() => ({}) as { title?: string; includeVideo?: boolean });
   const title = (body?.title ?? "").toString().trim();
+  const includeVideo = body?.includeVideo === true;
 
   // Mark it queued (processing) right away, scoped to the caller, so the
-  // dashboard shows it as "in progress" the instant the user lands there — then
+  // dashboard shows it as "in progress" the instant the user lands there - then
   // respond immediately. The agent run (download → write → file) happens in the
   // background via after(), so the extension popup never waits on it.
   const admin = createAdminSupabase();
@@ -41,7 +61,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   after(async () => {
     // Errors are handled inside processBriefById (it flips the row to 'failed').
-    await processBriefById(userId, id).catch(() => {});
+    await processBriefById(userId, id, { includeVideo }).catch(() => {});
   });
 
   return jsonCors({ queued: true });

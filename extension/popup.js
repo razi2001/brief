@@ -1,4 +1,4 @@
-// Brief — popup
+// Brief - popup
 //
 // On open:
 //   1. Fast-path: if we have a cached "mic granted" flag from a recent
@@ -8,7 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { APP_URL, TICKETS_URL, getCloudToken, submitBrief, processBrief } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, uploadDraft, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -23,11 +23,10 @@ const exportBtn = document.getElementById('exportBtn');
 const exportCount = document.getElementById('exportCount');
 const exportDone = document.getElementById('exportDone');
 const bcCreateTicket = document.getElementById('bc-create-ticket');
-const bcStatus = document.getElementById('bc-status');
 let bcConnected = false;
 
 // Storage key for cached mic grant. Cache is good for the extension's
-// session — Chrome invalidates the underlying grant if the user revokes it.
+// session - Chrome invalidates the underlying grant if the user revokes it.
 const MIC_CACHE_KEY = 'micGrantedAt';
 const MIC_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
 
@@ -41,7 +40,7 @@ exportDone.hidden = true;
   const cacheFresh = grantedAt && (Date.now() - grantedAt < MIC_CACHE_TTL_MS);
   if (cacheFresh) {
     document.body.classList.add('ready');
-    // Refresh the cache silently for next time (don't await — don't block UI)
+    // Refresh the cache silently for next time (don't await - don't block UI)
     probeMic().then((ok) => {
       if (ok) {
         chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() });
@@ -86,7 +85,9 @@ async function ensureContentScript(tabId) {
   await new Promise((r) => setTimeout(r, 50));
 }
 
-function showInlineError(msg) {
+// Inline error bar. `action` (optional) = { linkText, url } renders a tappable
+// fix-it link (e.g. "Connect a tracker →") after the message.
+function showInlineError(msg, action) {
   let bar = document.getElementById('errBar');
   if (!bar) {
     bar = document.createElement('div');
@@ -95,6 +96,19 @@ function showInlineError(msg) {
     document.getElementById('app').appendChild(bar);
   }
   bar.textContent = msg;
+  if (action?.linkText && action?.url) {
+    bar.appendChild(document.createTextNode(' '));
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'err-link';
+    a.textContent = action.linkText;
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: action.url });
+      window.close();
+    });
+    bar.appendChild(a);
+  }
   bar.classList.add('show');
 }
 
@@ -152,7 +166,7 @@ async function recordForItem(itemId, recBtn) {
   }
 }
 
-// "Brief Cloud" — open the web app. Pairing is automatic: if we don't have a
+// "Brief Cloud" - open the web app. Pairing is automatic: if we don't have a
 // token yet, open the connect page (which mints + pushes a token when you're
 // signed in, then lands you on your tickets); if we already have one, go
 // straight to the tickets page. No manual "connect" step, no settings page.
@@ -380,7 +394,7 @@ function buildDetailPanel(b) {
   desc.addEventListener('blur', () => { clearTimeout(descTimer); persistDesc(); });
   descWrap.appendChild(desc);
 
-  // Attach-recording — only shown when a recording exists for this brief.
+  // Attach-recording - only shown when a recording exists for this brief.
   let attachWrap = null;
   if (b.hasRecording || b.recorded) {
     attachWrap = document.createElement('label');
@@ -482,7 +496,7 @@ async function archiveItem(id, li) {
   const list = await getInbox();
   const next = list.filter((x) => x.id !== id);
   await setInbox(next);
-  // Remove ONLY this row when its exit animation ends — don't rebuild the whole
+  // Remove ONLY this row when its exit animation ends - don't rebuild the whole
   // list (a rebuild re-runs the entry animation on every remaining row, which
   // is the flash/glitch). Update the header/export counts in place.
   const done = () => {
@@ -513,7 +527,14 @@ function updateChrome(items) {
 
   // When connected to Brief Cloud, "Create ticket" replaces "Export".
   if (ready > 0 && bcConnected) {
-    if (bcCreateTicket) bcCreateTicket.classList.add('is-on');
+    if (bcCreateTicket) {
+      bcCreateTicket.classList.add('is-on');
+      // Reflect how many briefs will be filed (never while a send is running -
+      // the in-flight progress label owns the button then).
+      if (!bcCreateTicket.classList.contains('sending')) {
+        bcCreateTicket.textContent = ready > 1 ? `Create ${ready} tickets` : 'Create ticket';
+      }
+    }
     exportBtn.classList.remove('is-on');
   } else if (ready > 0) {
     exportBtn.classList.add('is-on');
@@ -553,7 +574,7 @@ async function refreshInbox({ expandBriefId = null } = {}) {
 // On open: render whatever's stored, and consume the post-capture signal if
 // background set one. The signal is a brief id stashed in chrome.storage by
 // `tryOpenPopup(briefId)` after a screenshot or recording finishes. We treat
-// it as fresh only when stashed in the last 30 seconds — defensive against
+// it as fresh only when stashed in the last 30 seconds - defensive against
 // stale flags from a denied openPopup() that the user revisits hours later.
 (async function bootstrapInbox() {
   let expandBriefId = null;
@@ -565,7 +586,7 @@ async function refreshInbox({ expandBriefId = null } = {}) {
       expandBriefId = pendingExpandBriefId;
     }
   } catch {}
-  // Always clear the flag — even if stale or missing — so a later manual
+  // Always clear the flag - even if stale or missing - so a later manual
   // open doesn't accidentally expand something.
   try {
     await chrome.storage.local.remove(['pendingExpandBriefId', 'pendingExpandAt']);
@@ -626,7 +647,7 @@ function briefReadme(b) {
   parts.push('A brief captured with the Brief extension. Read skill/SKILL.md and follow it to file a tracker ticket.\n');
   parts.push('## Contents');
   if (b.description && b.description.trim()) parts.push('- `brief.json` → `description`: the user\u2019s typed description of the issue.');
-  if (b.screenshot) parts.push('- `screenshot.png`: a screenshot of the page. **Any red markings are drawn by the user to point at where the issue is** — treat them as the focus, not part of the UI.');
+  if (b.screenshot) parts.push('- `screenshot.png`: a screenshot of the page. **Any red markings are drawn by the user to point at where the issue is** - treat them as the focus, not part of the UI.');
   parts.push('- `skill/`: the playbook for turning this into a ticket.');
   parts.push('\n## How to act on it');
   parts.push('Read `skill/SKILL.md` and follow it. File ONE ticket in the connected tracker. Don\u2019t mention the brief or these files in the ticket itself.');
@@ -666,7 +687,7 @@ async function writeBriefZip(b) {
 }
 
 // For a RECORDING brief, the recording's on-disk zip is finalized when
-// recording stops — it predates any post-record additions (description,
+// recording stops - it predates any post-record additions (description,
 // screenshot, extra key/values, or the user toggling "attach recording").
 // We can't rewrite the recording zip (we don't have the video bytes anymore),
 // so we drop a small companion zip alongside it carrying every post-record
@@ -683,7 +704,7 @@ async function writeCompanionZip(b) {
     extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
     // `includeVideo: true` is the user's explicit "attach the recording to this
     // ticket" signal (toggle in the popup). The skill treats this as an
-    // absolute rule — when true, always attach the recording regardless of
+    // absolute rule - when true, always attach the recording regardless of
     // its own attach/skip heuristics.
     includeVideo: !!b.includeVideo,
   };
@@ -712,9 +733,9 @@ exportBtn.addEventListener('click', async () => {
 
   // 1) Make sure every ready brief has a zip on disk. Recording briefs already
   //    do (written when recording stopped). Screenshot/text-only briefs are
-  //    written here, now. A recording brief with ANY post-record state — a
+  //    written here, now. A recording brief with ANY post-record state - a
   //    screenshot, description, extras, or the user toggling "attach the
-  //    recording" — gets a small companion zip so those fields aren't lost
+  //    recording" - gets a small companion zip so those fields aren't lost
   //    (the recording's own brief.json was frozen at record time).
   function hasPostRecordState(b) {
     return !!(
@@ -739,7 +760,7 @@ exportBtn.addEventListener('click', async () => {
   }
 
   // 2) Build the prompt. Skill reads everything else from brief.json (and the
-  //    companion -extra.zip's brief.json, when one exists) — only carry the
+  //    companion -extra.zip's brief.json, when one exists) - only carry the
   //    user-given name as a quick title hint. The "attach recording" toggle
   //    rides in the companion zip's brief.json as `includeVideo: true`, not
   //    in the prompt. Companion -extra.zip presence is discoverable by `ls`.
@@ -789,7 +810,7 @@ exportBtn.addEventListener('click', async () => {
 });
 
 // ---------- Brief Cloud: "Create ticket" (upload to cloud) ----------
-// Additive to the local Export flow above — Export keeps working in all cases.
+// Additive to the local Export flow above - Export keeps working in all cases.
 //
 // What we can assemble from chrome.storage.local here in the popup:
 //   - brief.json: built from the stored inbox entry (same fields the local
@@ -797,13 +818,20 @@ exportBtn.addEventListener('click', async () => {
 //     transcript only ever lived in the on-disk zip written by bar.js and are
 //     not available in the popup context.
 //   - screenshot.png: the annotated screenshot dataURL, when present.
-function bcBuildFilesAndMeta(b) {
+function bcBuildFilesAndMeta(b, page) {
+  // Page context: the URL/title pinned when the screenshot was taken, else the
+  // tab the user is on now (passed in). A ticket should always carry where the
+  // issue happened.
+  const pageUrl = b.pageUrl || page?.url || null;
+  const pageTitle = b.pageTitle || page?.title || null;
   const briefJson = {
     id: b.id,
     name: b.name || '',
     createdAt: b.addedAt || Date.now(),
     source: (b.hasRecording || b.recorded) ? 'recording' : (b.screenshot ? 'screenshot' : 'text'),
     description: b.description || '',
+    pageUrl,
+    pageTitle,
     hasRecording: !!(b.hasRecording || b.recorded),
     hasScreenshot: !!b.screenshot,
     screenshotAnnotated: !!b.screenshotAnnotated,
@@ -830,6 +858,8 @@ function bcBuildFilesAndMeta(b) {
   const meta = {
     title: b.name || '',
     description: b.description || '',
+    pageUrl,
+    pageTitle,
     hasScreenshot: !!b.screenshot,
     keyframeCount: 0,
     transcript: undefined,
@@ -838,27 +868,34 @@ function bcBuildFilesAndMeta(b) {
   return { files, meta };
 }
 
-function bcSetStatus(html) {
-  if (bcStatus) bcStatus.innerHTML = html;
+// The page the user is currently on - used as a fallback URL for text briefs
+// that were never tied to a screenshot. Null on extension/internal pages.
+async function activePageContext() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return null;
+    return { url: tab.url, title: tab.title || null };
+  } catch {
+    return null;
+  }
 }
 
 async function bcRefresh() {
   let token = null;
   try { token = await getCloudToken(); } catch {}
   bcConnected = !!token;
-  // No connect/disconnect UI — pairing is automatic via the Brief Cloud button.
-  bcSetStatus('');
+  // No connect/disconnect UI - pairing is automatic via the Brief Cloud button.
   // Re-evaluate which primary action (Create ticket vs Export) to show.
   try { updateChrome(await getInbox()); } catch {}
 }
 
 // Reuse the green "Copied to clipboard" success overlay (#exportDone) to
 // confirm a cloud submit, then send the user straight to their briefs page in a
-// new tab and close the popup — no link to click, no "filling" limbo.
-function bcShowSentAndOpen() {
+// new tab and close the popup - no link to click, no "filling" limbo.
+function bcShowSentAndOpen(count) {
   const title = exportDone.querySelector('.export-done-title');
   const sub = exportDone.querySelector('.export-done-sub');
-  if (title) title.textContent = 'Queued ✓';
+  if (title) title.textContent = count > 1 ? `${count} tickets queued ✓` : 'Queued ✓';
   if (sub) sub.textContent = 'Opening your tickets…';
   exportDone.hidden = false;
   // Once it's queued, take the user to the tickets page to watch it land.
@@ -866,42 +903,73 @@ function bcShowSentAndOpen() {
   setTimeout(() => window.close(), 700);
 }
 
+// File EVERY ready brief (the button says how many). Sends run sequentially so
+// the button can show honest progress; briefs that fail stay in the inbox.
 bcCreateTicket?.addEventListener('click', async () => {
   clearInlineError();
   const items = await getInbox();
   const ready = items.filter(isReady);
   if (ready.length === 0) return;
-  // Cloud upload targets a single brief; use the first ready one.
-  const b = ready[0];
 
   bcCreateTicket.disabled = true;
   bcCreateTicket.classList.add('sending');
-  bcCreateTicket.innerHTML = '<span class="btn-spin"></span> Sending…';
-  try {
-    if (b.cloudBriefId) {
-      // Recording: already uploaded to the cloud as a draft on stop. Just file
-      // it — kick off processing on the existing brief (passing its name so the
-      // dashboard can label it while filing), no re-upload.
-      await processBrief(b.cloudBriefId, b.name);
-    } else {
-      // Screenshot / text brief: upload + process now.
-      const { files, meta } = bcBuildFilesAndMeta(b);
-      await submitBrief(files, meta);
+
+  const sentIds = [];
+  let failure = null; // first error - shown after the loop
+  for (let i = 0; i < ready.length; i++) {
+    const b = ready[i];
+    bcCreateTicket.innerHTML =
+      '<span class="btn-spin"></span> ' +
+      (ready.length > 1 ? `Filing ${i + 1} of ${ready.length}…` : 'Filing…');
+    try {
+      // Recordings were already uploaded as a cloud draft on stop. Screenshot/
+      // text briefs upload here, once - the draft id is persisted on the inbox
+      // entry so a failed filing (e.g. no tracker yet) retries the SAME draft
+      // instead of uploading a duplicate.
+      if (!b.cloudBriefId) {
+        const page = await activePageContext();
+        const { files, meta } = bcBuildFilesAndMeta(b, page);
+        b.cloudBriefId = await uploadDraft(files, meta);
+        const list = await getInbox();
+        const entry = list.find((x) => x.id === b.id);
+        if (entry) {
+          entry.cloudBriefId = b.cloudBriefId;
+          await setInbox(list);
+        }
+      }
+      // File it - kick off processing on the uploaded brief (passing its name
+      // so the dashboard can label it while filing, and the user's "attach the
+      // recording" toggle so the video is embedded only when they asked).
+      await processBrief(b.cloudBriefId, b.name, !!b.includeVideo);
+      sentIds.push(b.id);
+    } catch (err) {
+      failure = failure || err;
+      // No tracker connected → every remaining brief would fail identically.
+      if (err?.code === 'no_tracker') break;
     }
+  }
 
-    // Remove the filed brief from the inbox immediately so it disappears
-    // from the extension.
+  // Queued briefs leave the inbox; failed ones stay so nothing is lost.
+  if (sentIds.length) {
     const after = await getInbox();
-    await setInbox(after.filter((x) => x.id !== b.id));
-    bcSetStatus('');
+    await setInbox(after.filter((x) => !sentIds.includes(x.id)));
+  }
 
-    // Confirm, then open the dashboard in a new tab and close the popup.
-    bcShowSentAndOpen();
-  } catch (err) {
-    showInlineError(`Couldn’t send: ${err?.message || err}`);
-    bcCreateTicket.classList.remove('sending');
-    bcCreateTicket.textContent = 'Create ticket';
-    bcCreateTicket.disabled = false;
+  if (!failure) {
+    bcShowSentAndOpen(sentIds.length);
+    return;
+  }
+
+  bcCreateTicket.classList.remove('sending');
+  bcCreateTicket.disabled = false;
+  await refreshInbox(); // re-render what's left + restore the button label
+  if (failure?.code === 'no_tracker') {
+    showInlineError('No tracker connected yet - link Linear or Jira, then try again.', {
+      linkText: 'Connect a tracker →',
+      url: `${APP_URL}/connections`,
+    });
+  } else {
+    showInlineError(`Couldn’t send: ${failure?.message || failure}`);
   }
 });
 

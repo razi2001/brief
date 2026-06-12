@@ -5,7 +5,16 @@ export interface TrackerTarget {
   id: string;
   key: string;
   name: string;
+  /** Label names usable when filing into this target (Linear: workspace + team labels). */
+  labels?: string[];
+  /** Workflow state names available in this target (Linear teams only). */
+  states?: string[];
+  /** Assignable member names (so the agent can resolve "assign to X" preferences). */
+  assignees?: string[];
 }
+
+/** Normalized priority the agent can set; adapters map it to provider values. */
+export type TrackerPriority = "urgent" | "high" | "medium" | "low";
 
 export interface IssueResult {
   id: string;
@@ -22,10 +31,21 @@ export interface Tracker {
   // File one issue. The tracker handles evidence its own way:
   //  - Linear: uploads images, embeds ![](assetUrl) inline in description.
   //  - Jira: creates the issue, then attaches the files (Attachments panel), and notes them in the body.
+  // labels/priority/state are optional and best-effort: unknown names are
+  // resolved (or created) where the provider allows, and silently skipped
+  // otherwise - they must never fail the filing itself.
   fileIssue(input: {
     targetId: string;
     title: string;
     descriptionMarkdown: string;
+    labels?: string[];
+    priority?: TrackerPriority;
+    /** Workflow state name (e.g. "Backlog", "Todo", "Triage") - Linear only. */
+    state?: string;
+    /** Member name/email to assign (e.g. "Devin") - best-effort, resolved by the adapter. */
+    assignee?: string;
+    /** A comment to post on the issue right after it's created (e.g. "In progress"). */
+    comment?: string;
     evidence: Array<{ filename: string; contentType: string; bytes: Buffer }>;
   }): Promise<IssueResult>;
 }
