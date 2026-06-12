@@ -123,6 +123,9 @@ async function startRecording(streamId, lang) {
     const ctx = new AudioContext();
     ctx.createMediaStreamSource(new MediaStream(tabStream.getAudioTracks()))
       .connect(ctx.destination);
+    // AudioContexts can start suspended (autoplay policy); a suspended
+    // context silently drops audio until it spins up.
+    await ctx.resume().catch(() => {});
   } catch (err) {
     log('tab audio routing failed:', err);
   }
@@ -142,6 +145,10 @@ async function startRecording(streamId, lang) {
   for (const t of micStream.getAudioTracks()) {
     audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
   }
+  // CRITICAL for the first seconds of voice: a suspended mixing context
+  // records silence until it starts. Make sure it's actually running BEFORE
+  // the recorder starts pulling from its destination stream.
+  await audioCtx.resume().catch(() => {});
   for (const t of dest.stream.getAudioTracks()) tracks.push(t);
   const combinedStream = new MediaStream(tracks);
 

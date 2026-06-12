@@ -133,9 +133,14 @@ async function sendToOffscreen(type, extra = {}) {
 (async function init() {
   if (!streamId) { showError('Missing stream ID.'); return; }
   setView('loading');
+  // Warm up speech recognition NOW, in parallel with stream acquisition in
+  // the offscreen document. The SR engine takes ~1s to start accepting audio;
+  // starting it only after RECORDING_STARTED used to eat the first words.
+  startSpeechRecognition();
   try {
     const res = await sendToOffscreen('START', { streamId, lang: currentLang });
     if (!res?.ok) {
+      stopSpeechRecognition();
       const err = res?.error || 'unknown_error';
       if (/NotAllowedError|not allowed|permission/i.test(err)) {
         // Mic denied at the extension origin level. Open the permission
@@ -167,9 +172,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.runtime.sendMessage({ type: 'BRIEF_START', briefId, startedAt: recordingStartMs }).catch(() => {});
     setView('recording');
     startTimer();
-    // Start speech recognition here in the bar - it doesn't work in offscreen
+    // Speech recognition runs here in the bar - it doesn't work in offscreen
     // documents (they're invisible and SR silently fails to produce results).
-    startSpeechRecognition();
+    // It was already warmed up during init (before the streams were acquired)
+    // so the first words aren't lost; this is just a safety net in case that
+    // start failed.
+    if (!recognitionShouldRun) startSpeechRecognition();
   } else if (message.type === 'TRANSCRIPT_UPDATE') {
     // Legacy path from offscreen, kept for safety
     transcriptFinalCache = message.final || '';
@@ -232,7 +240,9 @@ function startSpeechRecognition() {
         const trimmed = text.trim();
         if (trimmed) {
           transcriptChunksCache.push({
-            tMs: Date.now() - recordingStartMs,
+            // SR starts BEFORE the recording clock now - clamp anything said
+            // during warm-up to t=0 instead of a bogus epoch-sized offset.
+            tMs: recordingStartMs ? Math.max(0, Date.now() - recordingStartMs) : 0,
             text: trimmed,
           });
         }
