@@ -87,7 +87,7 @@ export default function Integrations() {
 
   return (
     <section id="integrations" className="scroll-mt-8">
-      <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers · MCP</h2>
+      <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Issue tracker</h2>
 
       {/* Brief files into a single tracker, so only one can be connected. */}
       <p className="mt-1 text-xs text-muted">Connect one — Brief files into a single tracker.</p>
