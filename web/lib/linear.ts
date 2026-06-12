@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import type { Tracker, TrackerPriority } from "./tracker";
+import { chunk } from "./ticket-sync";
 
 export type LinearTok = { token: string };
 
@@ -59,49 +60,51 @@ export interface LinearIssueInfo {
 
 /**
  * Fetch live Linear issue info for a set of issue identifiers (e.g. "RAZ-153").
- * Builds ONE aliased GraphQL query (i0/i1/…) for up to ~20 ids in a single
- * round-trip and parses the result into a map keyed by identifier.
+ * Builds aliased GraphQL queries (i0/i1/…) of up to 20 ids per round-trip -
+ * larger sets are CHUNKED into several queries instead of silently dropped.
  *
- * Defensive by design: de-dupes ids, caps at 20, and wraps the whole thing in
- * try/catch returning {} on ANY failure - a Linear outage or token problem must
+ * Defensive by design: de-dupes ids and wraps the whole thing in try/catch
+ * returning what it has on ANY failure - a Linear outage or token problem must
  * never break the dashboard render.
  */
 export async function getIssuesByIdentifiers(
   tok: LinearTok,
   identifiers: string[],
 ): Promise<Record<string, LinearIssueInfo>> {
+  const out: Record<string, LinearIssueInfo> = {};
   try {
-    const ids = Array.from(new Set(identifiers.filter(Boolean))).slice(0, 20);
-    if (ids.length === 0) return {};
+    const ids = Array.from(new Set(identifiers.filter(Boolean)));
+    if (ids.length === 0) return out;
 
     const fields =
       "identifier title url createdAt state { name color type } assignee { name avatarUrl }";
-    const aliases = ids
-      .map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { ${fields} }`)
-      .join("\n");
-    const query = `query IssuesByIdentifier {\n${aliases}\n}`;
+    for (const batch of chunk(ids, 20)) {
+      const aliases = batch
+        .map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { ${fields} }`)
+        .join("\n");
+      const query = `query IssuesByIdentifier {\n${aliases}\n}`;
 
-    const data = await linearGraphQL<Record<string, any>>(tok, query, {});
-    const out: Record<string, LinearIssueInfo> = {};
-    for (let i = 0; i < ids.length; i++) {
-      const node = data?.[`i${i}`];
-      if (!node?.identifier) continue;
-      out[node.identifier] = {
-        identifier: node.identifier,
-        title: node.title ?? "",
-        url: node.url ?? "",
-        stateName: node.state?.name ?? "",
-        stateColor: node.state?.color ?? "#8a8378",
-        stateType: node.state?.type ?? "",
-        createdAt: node.createdAt ?? "",
-        assignee: node.assignee
-          ? { name: node.assignee.name, avatarUrl: node.assignee.avatarUrl ?? undefined }
-          : undefined,
-      };
+      const data = await linearGraphQL<Record<string, any>>(tok, query, {});
+      for (let i = 0; i < batch.length; i++) {
+        const node = data?.[`i${i}`];
+        if (!node?.identifier) continue;
+        out[node.identifier] = {
+          identifier: node.identifier,
+          title: node.title ?? "",
+          url: node.url ?? "",
+          stateName: node.state?.name ?? "",
+          stateColor: node.state?.color ?? "#8a8378",
+          stateType: node.state?.type ?? "",
+          createdAt: node.createdAt ?? "",
+          assignee: node.assignee
+            ? { name: node.assignee.name, avatarUrl: node.assignee.avatarUrl ?? undefined }
+            : undefined,
+        };
+      }
     }
     return out;
   } catch {
-    return {};
+    return out;
   }
 }
 

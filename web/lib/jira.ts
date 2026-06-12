@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import type { Tracker, TrackerTarget } from "./tracker";
+import { chunk } from "./ticket-sync";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
 
@@ -258,61 +259,64 @@ function jiraStatusColor(colorName?: string): string {
 }
 
 /**
- * Fetch live Jira issue info (summary + status) for a set of issue keys via a
- * single JQL search. Tries the newer `/search/jql` endpoint first and falls back
- * to the legacy `/search` if that 404s. De-dupes and caps at ~25 keys.
+ * Fetch live Jira issue info (summary + status) for a set of issue keys via
+ * JQL search, 25 keys per request - larger sets are CHUNKED into several
+ * requests instead of silently dropped. Tries the newer `/search/jql` endpoint
+ * first and falls back to the legacy `/search` if that 404s.
  *
- * Defensive by design: any failure returns {} so a Jira outage or token problem
- * never breaks the dashboard render.
+ * Defensive by design: any failure returns what it has so a Jira outage or
+ * token problem never breaks the dashboard render.
  */
 export async function getJiraIssues(
   tok: JiraTok,
   cloud: { cloudId: string; siteUrl: string },
   keys: string[],
 ): Promise<Record<string, JiraIssueInfo>> {
+  const out: Record<string, JiraIssueInfo> = {};
   try {
-    const ids = Array.from(new Set(keys.filter(Boolean))).slice(0, 25);
-    if (ids.length === 0) return {};
+    const ids = Array.from(new Set(keys.filter(Boolean)));
+    if (ids.length === 0) return out;
 
     const base = jiraBase(tok, cloud.cloudId, cloud.siteUrl);
-    const jql = `key in (${ids.join(",")})`;
-    const fields = "summary,status,created";
-    const qs = `?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${ids.length}`;
+    for (const batch of chunk(ids, 25)) {
+      const jql = `key in (${batch.join(",")})`;
+      const fields = "summary,status,created";
+      const qs = `?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${batch.length}`;
 
-    // Try the newer /search/jql first, fall back to legacy /search on 404.
-    let r = await jiraFetch(tok, base, `/search/jql${qs}`);
-    if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
-    if (!r.ok) return {};
+      // Try the newer /search/jql first, fall back to legacy /search on 404.
+      let r = await jiraFetch(tok, base, `/search/jql${qs}`);
+      if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
+      if (!r.ok) continue;
 
-    const j = (await r.json()) as {
-      issues?: Array<{
-        key: string;
-        fields?: {
-          summary?: string;
-          created?: string;
-          status?: {
-            name?: string;
-            statusCategory?: { colorName?: string };
+      const j = (await r.json()) as {
+        issues?: Array<{
+          key: string;
+          fields?: {
+            summary?: string;
+            created?: string;
+            status?: {
+              name?: string;
+              statusCategory?: { colorName?: string };
+            };
           };
-        };
-      }>;
-    };
-
-    const out: Record<string, JiraIssueInfo> = {};
-    for (const issue of j.issues ?? []) {
-      if (!issue.key) continue;
-      const f = issue.fields ?? {};
-      out[issue.key] = {
-        title: f.summary ?? "",
-        url: `${cloud.siteUrl}/browse/${issue.key}`,
-        stateName: f.status?.name ?? "",
-        stateColor: jiraStatusColor(f.status?.statusCategory?.colorName),
-        createdAt: f.created ?? "",
+        }>;
       };
+
+      for (const issue of j.issues ?? []) {
+        if (!issue.key) continue;
+        const f = issue.fields ?? {};
+        out[issue.key] = {
+          title: f.summary ?? "",
+          url: `${cloud.siteUrl}/browse/${issue.key}`,
+          stateName: f.status?.name ?? "",
+          stateColor: jiraStatusColor(f.status?.statusCategory?.colorName),
+          createdAt: f.created ?? "",
+        };
+      }
     }
     return out;
   } catch {
-    return {};
+    return out;
   }
 }
 

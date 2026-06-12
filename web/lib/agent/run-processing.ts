@@ -150,10 +150,20 @@ export async function processBriefById(
 
     const result = await processBrief({ json, images, evidence }, tracker, guidance);
 
-    await admin
+    const filedPatch = {
+      status: "filed",
+      ticket_url: result.ticketUrl,
+      ticket_identifier: result.ticketIdentifier,
+      updated_at: new Date().toISOString(),
+    };
+    // Persist the real ticket title so the feed shows it even when the live
+    // tracker sync can't run. Retry without the snapshot column if the DB
+    // predates migration 0004 - filing must never fail over display data.
+    const { error: updErr } = await admin
       .from("briefs")
-      .update({ status: "filed", ticket_url: result.ticketUrl, ticket_identifier: result.ticketIdentifier, updated_at: new Date().toISOString() })
+      .update({ ...filedPatch, ticket_title: result.ticketTitle || null })
       .eq("id", briefId);
+    if (updErr) await admin.from("briefs").update(filedPatch).eq("id", briefId);
 
     // delete media on success (keep the row)
     const toDelete: string[] = [`${prefix}/brief.json`, `${prefix}/recording.webm`, `${prefix}/screenshot.png`, ...names.map((n) => `${prefix}/keyframes/${n}`)];

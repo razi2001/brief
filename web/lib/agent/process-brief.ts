@@ -8,7 +8,7 @@ export interface BriefInput {
   // Raw evidence files handed to the tracker, which embeds (Linear) or attaches (Jira) them.
   evidence: Array<{ filename: string; contentType: string; bytes: Buffer }>;
 }
-export interface FileResult { ticketUrl: string; ticketIdentifier: string; summary: string; }
+export interface FileResult { ticketUrl: string; ticketIdentifier: string; ticketTitle: string; summary: string; }
 
 /**
  * Extract the high-signal context (page URL/title, browser, console errors) out
@@ -231,5 +231,10 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
     }
   }
 
-  return { ticketUrl: created.url, ticketIdentifier: created.identifier, summary: created.title || "filed" };
+  return {
+    ticketUrl: created.url,
+    ticketIdentifier: created.identifier,
+    ticketTitle: created.title || "",
+    summary: created.title || "filed",
+  };
 }

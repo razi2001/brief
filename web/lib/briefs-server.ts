@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLinearToken, getIssuesByIdentifiers } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, getJiraIssues } from "@/lib/jira";
 import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
+import { ticketSnapshotPatch } from "@/lib/ticket-sync";
 
 /**
  * Server-side helpers shared by the Dashboard (/dashboard) and Briefs (/briefs)
@@ -20,12 +21,16 @@ export type BriefRow = {
   updated_at: string | null;
   ticket_url: string | null;
   ticket_identifier: string | null;
+  /** Last-known snapshot of the filed ticket (see 0004_ticket_snapshot.sql). */
+  ticket_title: string | null;
+  ticket_state_name: string | null;
+  ticket_state_color: string | null;
   error: string | null;
   archived_at: string | null;
 };
 
 export const BRIEF_COLUMNS =
-  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, error, archived_at";
+  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, error, archived_at";
 
 /**
  * How long a brief may keep trying before we give up on it. A brief flips to
@@ -140,6 +145,12 @@ export async function getTrackerContext(): Promise<TrackerContext> {
  * connected, there are no filed identifiers, or the token/fetch fails, the
  * brief renders without live info - never breaks the page.
  *
+ * Briefs the live sync can't cover (outside `syncLimit`, tracker down, token
+ * expired) fall back to the PERSISTED snapshot (ticket_title/state columns),
+ * so a filed ticket keeps showing its real title and last-known status across
+ * reloads instead of degrading to the brief name + "Filed". Whenever the live
+ * fetch succeeds, changed snapshots are written back (fire-and-forget).
+ *
  * `syncLimit` caps how many filed identifiers we fetch live state for (the
  * Dashboard may pass hundreds of historical briefs but only needs live state
  * for the recent ones).
@@ -150,6 +161,7 @@ export async function attachTicketInfo(
   hasLinear: boolean,
   hasJira: boolean,
   syncLimit = 60,
+  admin?: SupabaseClient,
 ): Promise<DashboardBrief[]> {
   const filed = list
     .filter((b) => b.status === "filed" && b.ticket_identifier)
@@ -182,7 +194,12 @@ export async function attachTicketInfo(
     }
   }
 
-  return list.map((b) => {
+  // Write back snapshots that the live sync moved (title edited, status
+  // changed). Best-effort and non-blocking for the render path: failures are
+  // swallowed; the next successful load retries naturally.
+  const writeBacks: Array<PromiseLike<unknown>> = [];
+
+  const out = list.map((b) => {
     const provider = providerOf(b.ticket_url);
     const key = b.ticket_identifier ?? undefined;
     let ticket: TicketInfo | null = null;
@@ -200,6 +217,29 @@ export async function attachTicketInfo(
       } else if (provider === "jira" && jiraMap[key]) {
         ticket = jiraMap[key];
       }
+      if (ticket && admin) {
+        const patch = ticketSnapshotPatch(b, ticket);
+        if (patch) {
+          writeBacks.push(
+            admin.from("briefs").update(patch).eq("id", b.id).then(
+              () => {},
+              () => {},
+            ),
+          );
+        }
+      }
+      // Live sync miss - synthesize from the persisted snapshot so the real
+      // title and last-known status still render. Empty strings fall through
+      // the components' display fallbacks ("Filed", brief name).
+      if (!ticket && b.status === "filed" && (b.ticket_title || b.ticket_state_name)) {
+        ticket = {
+          title: b.ticket_title ?? "",
+          url: b.ticket_url ?? "",
+          stateName: b.ticket_state_name ?? "",
+          stateColor: b.ticket_state_color ?? "#8a8378",
+          createdAt: b.created_at ?? "",
+        };
+      }
     }
     return {
       id: b.id,
@@ -216,4 +256,7 @@ export async function attachTicketInfo(
       ticket,
     };
   });
+
+  if (writeBacks.length) await Promise.allSettled(writeBacks);
+  return out;
 }
