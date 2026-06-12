@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Service-role client — bypasses RLS. Use ONLY in server code after auth checks.
+// Service-role client - bypasses RLS. Use ONLY in server code after auth checks.
 export function createAdminSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -1,4 +1,4 @@
-// Brief Cloud client. The backend URL lives in config.js — change ENV there to
+// Brief Cloud client. The backend URL lives in config.js - change ENV there to
 // switch between local / fly / prod, then reload the extension.
 import { APP_URL } from "./config.js";
 export { APP_URL };
@@ -19,7 +19,7 @@ export function openConnectPage() {
 
 export const TICKETS_URL = `${APP_URL}/tickets`;
 
-// Create a brief row + upload its files. Does NOT file the ticket — the brief
+// Create a brief row + upload its files. Does NOT file the ticket - the brief
 // sits as an "uploaded" draft until processBrief() is called. Returns the cloud
 // brief id. Used for recordings: we upload on stop to preserve the video, but
 // only file when the user hits "Create ticket".
@@ -47,7 +47,7 @@ export async function uploadDraft(files, meta) {
 // resolves fast. `title` (optional) is the user-given brief name, shown on the
 // dashboard while filing.
 //
-// Throws on any non-OK response. A 409 means no tracker is connected — the
+// Throws on any non-OK response. A 409 means no tracker is connected - the
 // thrown error carries `code: "no_tracker"` so the popup can show an
 // actionable "connect your tracker" message instead of a generic failure.
 export async function processBrief(briefId, title, includeVideo) {

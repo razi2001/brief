@@ -1,4 +1,4 @@
-// Brief — microphone permission page
+// Brief - microphone permission page
 //
 // This page exists only to fire Chrome's native mic prompt reliably (a
 // top-level extension tab is the one context where it works). Once mic is
@@ -27,7 +27,7 @@ async function checkMic() {
 }
 
 function goToOnboarding() {
-  // Mic granted — send the user to Brief Cloud to pair the extension.
+  // Mic granted - send the user to Brief Cloud to pair the extension.
   location.href = `${APP_URL}/connect?ext=${chrome.runtime.id}`;
 }
 
@@ -36,7 +36,7 @@ function goToOnboarding() {
   if (state === 'granted') {
     grantBtn.textContent = '✓ Microphone already granted';
     grantBtn.disabled = true;
-    setStatus('ok', 'Microphone access is set up — continuing…');
+    setStatus('ok', 'Microphone access is set up - continuing…');
     setTimeout(goToOnboarding, 700);
   }
 })();
@@ -50,7 +50,7 @@ grantBtn.addEventListener('click', async () => {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach((t) => t.stop());
     grantBtn.textContent = '✓ Microphone granted';
-    setStatus('ok', 'Granted — continuing to setup…');
+    setStatus('ok', 'Granted - continuing to setup…');
     setTimeout(goToOnboarding, 800);
   } catch (err) {
     grantBtn.disabled = false;

@@ -1,4 +1,4 @@
-// Brief — content script
+// Brief - content script
 // 1. On INJECT_BAR message, creates the floating bar iframe overlay
 // 2. During recording, captures user events (click/key/scroll) on this tab
 
@@ -87,7 +87,7 @@
 
   // ---------- Iframe injection ----------
   function injectBar(streamId, lang, intent, mode, itemId) {
-    // If a bar is already on-screen, ignore — recording's in progress
+    // If a bar is already on-screen, ignore - recording's in progress
     if (iframeEl) return;
     const hashParts = [
       `streamId=${encodeURIComponent(streamId)}`,
@@ -104,7 +104,7 @@
     iframeEl.allow = 'microphone; camera; display-capture; clipboard-write';
     iframeEl.scrolling = 'no';
     // Fixed, compact size with a GENEROUS height that comfortably fits both the
-    // collapsed bar and the expanded (transcript) state. The size is constant —
+    // collapsed bar and the expanded (transcript) state. The size is constant -
     // we never recompute it from zoom-scaled measurements, which was the source
     // of the drift. The bar lays out bottom-anchored inside; extra height is
     // transparent + click-through (body is pointer-events:none, the bar is auto).

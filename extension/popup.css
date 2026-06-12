@@ -1,4 +1,4 @@
-/* Brief — popup (launcher) */
+/* Brief - popup (launcher) */
 :root {
   --cream: #f5f1e8;
   --cream-2: #ece6d6;
@@ -25,7 +25,7 @@ html, body {
 /* Cap how tall the popup can get; below that it sizes to its content. */
 html { max-height: 600px; }
 body { max-height: 600px; overflow: hidden; }
-/* Start invisible — popup.js reveals once mic-permission pre-flight passes,
+/* Start invisible - popup.js reveals once mic-permission pre-flight passes,
    so there's no flash of launcher UI when we redirect to permission page. */
 body { opacity: 0; transition: opacity 0.06s linear; }
 body.ready { opacity: 1; }
@@ -164,7 +164,7 @@ body.ready { opacity: 1; }
 /* While an accordion panel animates, lock overflow so a momentary height spike
    (old panel collapsing + new one expanding) can't flash a scrollbar. */
 .brief-list.animating { overflow-y: hidden; }
-/* WebKit scrollbar — slim, rounded, themed, appears only as a soft track. */
+/* WebKit scrollbar - slim, rounded, themed, appears only as a soft track. */
 .brief-list::-webkit-scrollbar { width: 8px; }
 .brief-list::-webkit-scrollbar-track { background: transparent; margin: 2px 0; }
 .brief-list::-webkit-scrollbar-thumb {
@@ -178,7 +178,7 @@ body.ready { opacity: 1; }
 .brief-list::-webkit-scrollbar-thumb:hover { background: var(--accent); background-clip: padding-box; }
 
 .brief-item {
-  flex: 0 0 auto;       /* never shrink — keep full height so text isn't clipped */
+  flex: 0 0 auto;       /* never shrink - keep full height so text isn't clipped */
   background: rgba(255, 255, 255, 0.5);
   border: 1px solid var(--hairline);
   border-radius: 9px;
@@ -423,7 +423,7 @@ body.ready { opacity: 1; }
   transition: background 0.15s, transform 0.08s;
   /* Smooth appear/disappear instead of a hard pop. Collapses fully when off.
      margin-top: -13px cancels the #app flex gap a zero-height child still
-     creates — without it every collapsed action button leaves a phantom
+     creates - without it every collapsed action button leaves a phantom
      13px hole under the visible one. */
   overflow: hidden;
   opacity: 0;

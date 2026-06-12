@@ -1,11 +1,11 @@
-// Brief — offscreen recorder
+// Brief - offscreen recorder
 //
 // Runs in chrome-extension://<id>/offscreen.html as an offscreen document.
 // This origin is NOT subject to any host page's Permissions-Policy, so
 // mic + tab capture work reliably regardless of the recorded page's headers.
 //
 // Talks to background.js via chrome.runtime messages. The bar iframe never
-// touches mic or MediaRecorder directly — it only sends control messages.
+// touches mic or MediaRecorder directly - it only sends control messages.
 
 let micStream = null;
 let tabStream = null;
@@ -94,7 +94,7 @@ async function startRecording(streamId, lang) {
     log('tab audio routing failed:', err);
   }
 
-  // 2. Mic stream — THIS is the one that fails inside page iframes.
+  // 2. Mic stream - THIS is the one that fails inside page iframes.
   //    Here in offscreen origin, no page policy applies.
   micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 
@@ -144,7 +144,7 @@ async function startRecording(streamId, lang) {
   // produce results in invisible contexts. The bar iframe is visible and
   // works correctly. We just record audio/video here.
 
-  // 6. Notify the bar (via background relay — see RECORDING_FINISHED for why)
+  // 6. Notify the bar (via background relay - see RECORDING_FINISHED for why)
   chrome.runtime.sendMessage({
     target: 'relayToBar',
     payload: { target: 'bar', type: 'RECORDING_STARTED', startedAt: recordingStartMs },
@@ -186,12 +186,12 @@ async function blobToBase64(blob) {
 }
 
 function startSpeechRecognition(lang) {
-  // Intentionally unused — SR runs in the bar iframe instead.
+  // Intentionally unused - SR runs in the bar iframe instead.
   // Kept as a no-op so the rest of the message handling doesn't break.
 }
 
 function stopSpeechRecognition() {
-  // No-op — see startSpeechRecognition.
+  // No-op - see startSpeechRecognition.
 }
 
 async function stopRecording(transcriptFinalFromBar, transcriptChunksFromBar) {
@@ -223,7 +223,7 @@ async function stopRecording(transcriptFinalFromBar, transcriptChunksFromBar) {
 
   const durationMs = Date.now() - recordingStartMs;
 
-  // Send via background — it knows which tab the bar lives in.
+  // Send via background - it knows which tab the bar lives in.
   // Using a relay target instead of broadcast so the bar receives the
   // message only via background's chrome.tabs.sendMessage path (no
   // duplicate delivery from the broadcast).

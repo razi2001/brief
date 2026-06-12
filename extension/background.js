@@ -1,10 +1,10 @@
-// Brief — background service worker
+// Brief - background service worker
 // Thin coordinator: collects per-tab events, manages offscreen recorder,
 // relays messages between bar (in content script) and offscreen.
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
-// rejects it otherwise. We try it and swallow any failure — the toolbar badge
+// rejects it otherwise. We try it and swallow any failure - the toolbar badge
 // already signals there are briefs to review, so a no-op degrades gracefully.
 //
 // When called with a briefId, stash a short-lived "just captured" flag in
@@ -135,9 +135,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   // ---------- Offscreen → Bar relay ----------
-  // Offscreen sends {target: 'relayToBar', payload: {...}} — we forward the
+  // Offscreen sends {target: 'relayToBar', payload: {...}} - we forward the
   // payload to the bar's tab. The bar receives ONCE (via chrome.tabs.sendMessage)
-  // — not duplicated through broadcast.
+  // - not duplicated through broadcast.
   if (message?.target === 'relayToBar') {
     (async () => {
       try {
@@ -190,7 +190,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
 
         case 'OPEN_PERMISSION_PAGE':
-          // Bar requests it when the offscreen mic call failed — we close
+          // Bar requests it when the offscreen mic call failed - we close
           // the offscreen doc and pop open the permission tab.
           closeOffscreenDocument().catch(() => {});
           chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }).catch(() => {});
@@ -329,7 +329,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // Best-effort: quiet the download UI. These APIs are deprecated/variable
 // across Chrome versions, so feature-detect and never throw. This is NOT a
-// guarantee of invisibility — Chrome may still flash its download indicator.
+// guarantee of invisibility - Chrome may still flash its download indicator.
 function setDownloadShelf(visible) {
   try {
     if (chrome.downloads.setUiOptions) {
@@ -396,7 +396,7 @@ async function downloadZip({ blobUrl, filename }) {
       }, 60_000);
     });
   } finally {
-    // Do NOT erase this download's record here — a future overwrite needs it.
+    // Do NOT erase this download's record here - a future overwrite needs it.
     // Just restore the shelf.
     setDownloadShelf(true);
   }

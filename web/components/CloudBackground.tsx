@@ -1,5 +1,5 @@
 /**
- * Ambient cloud background — a faithful port of get-brief.app's sky: soft SVG
+ * Ambient cloud background - a faithful port of get-brief.app's sky: soft SVG
  * cloud shapes (cloudA/cloudB) drifting in parallax layers over the cream base.
  * Fixed behind everything (decorative, pointer-events: none). Rendered once in
  * app/layout.tsx so every page shares the same calm, alive backdrop. Frozen

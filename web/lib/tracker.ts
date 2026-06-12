@@ -33,16 +33,16 @@ export interface Tracker {
   //  - Jira: creates the issue, then attaches the files (Attachments panel), and notes them in the body.
   // labels/priority/state are optional and best-effort: unknown names are
   // resolved (or created) where the provider allows, and silently skipped
-  // otherwise — they must never fail the filing itself.
+  // otherwise - they must never fail the filing itself.
   fileIssue(input: {
     targetId: string;
     title: string;
     descriptionMarkdown: string;
     labels?: string[];
     priority?: TrackerPriority;
-    /** Workflow state name (e.g. "Backlog", "Todo", "Triage") — Linear only. */
+    /** Workflow state name (e.g. "Backlog", "Todo", "Triage") - Linear only. */
     state?: string;
-    /** Member name/email to assign (e.g. "Devin") — best-effort, resolved by the adapter. */
+    /** Member name/email to assign (e.g. "Devin") - best-effort, resolved by the adapter. */
     assignee?: string;
     /** A comment to post on the issue right after it's created (e.g. "In progress"). */
     comment?: string;

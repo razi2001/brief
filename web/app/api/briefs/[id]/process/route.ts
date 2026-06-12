@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!userId) return jsonCors({ error: "unauthorized" }, { status: 401 });
 
   // Refuse up front when no tracker is connected, BEFORE flipping the row to
-  // 'processing' — the extension gets an immediate, actionable 409 instead of a
+  // 'processing' - the extension gets an immediate, actionable 409 instead of a
   // brief that silently stalls and times out. The brief stays an uploaded draft
   // so it can be filed once a tracker is linked.
   const hasTracker = (await getLinearToken(userId)) ?? (await getJiraAuth(userId));
@@ -27,13 +27,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return jsonCors(
       {
         error: "no_tracker",
-        message: "No tracker connected — connect Linear or Jira in Brief Cloud first.",
+        message: "No tracker connected - connect Linear or Jira in Brief Cloud first.",
       },
       { status: 409 },
     );
   }
 
-  // Optional brief name — recordings are uploaded as a draft without one, so the
+  // Optional brief name - recordings are uploaded as a draft without one, so the
   // popup passes it now (at file time) for the dashboard to show while filing.
   // `includeVideo` is the user's "attach the recording" toggle, also only known
   // at file time (set in the popup after the draft was uploaded).
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const includeVideo = body?.includeVideo === true;
 
   // Mark it queued (processing) right away, scoped to the caller, so the
-  // dashboard shows it as "in progress" the instant the user lands there — then
+  // dashboard shows it as "in progress" the instant the user lands there - then
   // respond immediately. The agent run (download → write → file) happens in the
   // background via after(), so the extension popup never waits on it.
   const admin = createAdminSupabase();

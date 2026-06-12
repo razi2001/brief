@@ -13,8 +13,8 @@ export interface FileResult { ticketUrl: string; ticketIdentifier: string; summa
 /**
  * Extract the high-signal context (page URL/title, browser, console errors) out
  * of brief.json into a compact, prominent text block. The whole brief.json is
- * still sent, but key facts buried in it — especially the URL and console
- * errors — get surfaced here so the agent reliably uses them.
+ * still sent, but key facts buried in it - especially the URL and console
+ * errors - get surfaced here so the agent reliably uses them.
  */
 function buildContextBlock(json: unknown): string {
   if (!json || typeof json !== "object") return "";
@@ -38,10 +38,10 @@ function buildContextBlock(json: unknown): string {
     }
   }
   let block = "";
-  if (lines.length) block += "PAGE CONTEXT (ground truth — put the URL in the ticket):\n" + lines.join("\n");
+  if (lines.length) block += "PAGE CONTEXT (ground truth - put the URL in the ticket):\n" + lines.join("\n");
   if (errs.length) {
     const unique = [...new Set(errs)].slice(0, 8);
-    block += (block ? "\n\n" : "") + "CONSOLE / RUNTIME ERRORS (verbatim — include the relevant ones in a code block):\n" + unique.map((m) => `- ${m}`).join("\n");
+    block += (block ? "\n\n" : "") + "CONSOLE / RUNTIME ERRORS (verbatim - include the relevant ones in a code block):\n" + unique.map((m) => `- ${m}`).join("\n");
   }
   return block;
 }
@@ -53,9 +53,9 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   const prefs = (instructions ?? "").trim();
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. create_issue also accepts optional labels, priority, state, assignee, and comment — set each ONLY when the user's ticket preferences (or the report itself) call for it, choosing names from the chosen ${noun}'s lists (labels / states / members) where possible. The comment is posted on the issue after it's created (e.g. an automatic "In progress" note); it's separate from the description. Evidence files (screenshots/keyframes/recording) are handled automatically — they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
+    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. create_issue also accepts optional labels, priority, state, assignee, and comment - set each ONLY when the user's ticket preferences (or the report itself) call for it, choosing names from the chosen ${noun}'s lists (labels / states / members) where possible. The comment is posted on the issue after it's created (e.g. an automatic "In progress" note); it's separate from the description. Evidence files (screenshots/keyframes/recording) are handled automatically - they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
     (prefs
-      ? `\n\nUSER TICKET PREFERENCES — these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), labels, priority, workflow state/status, wording, format, and what to include. If a preference names a label or state, pass it through create_issue's labels/state parameters — do not just mention it in the description. They never override the banned-vocabulary or evidence rules.\n${prefs}`
+      ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), labels, priority, workflow state/status, wording, format, and what to include. If a preference names a label or state, pass it through create_issue's labels/state parameters - do not just mention it in the description. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "");
 
   const tools = [
@@ -82,27 +82,27 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
               type: "array",
               items: { type: "string" },
               description:
-                "Label names to apply — only when the user's preferences or the report call for them. Prefer names from the chosen target's label list.",
+                "Label names to apply - only when the user's preferences or the report call for them. Prefer names from the chosen target's label list.",
             },
             priority: {
               type: "string",
               enum: ["urgent", "high", "medium", "low"],
-              description: "Issue priority — only when the preferences or report justify one.",
+              description: "Issue priority - only when the preferences or report justify one.",
             },
             state: {
               type: "string",
               description:
-                "Workflow state/status name (e.g. \"Backlog\", \"Todo\", \"Triage\") from the chosen target's state list — only when the preferences ask for one.",
+                "Workflow state/status name (e.g. \"Backlog\", \"Todo\", \"Triage\") from the chosen target's state list - only when the preferences ask for one.",
             },
             assignee: {
               type: "string",
               description:
-                "Who to assign the issue to (a member name or email, e.g. \"Devin\") — only when the preferences ask for an assignee. Prefer a name from the chosen target's assignee list.",
+                "Who to assign the issue to (a member name or email, e.g. \"Devin\") - only when the preferences ask for an assignee. Prefer a name from the chosen target's assignee list.",
             },
             comment: {
               type: "string",
               description:
-                "A comment to post on the issue right after creating it (e.g. \"In progress\") — only when the preferences ask for an automatic comment. This is separate from the description.",
+                "A comment to post on the issue right after creating it (e.g. \"In progress\") - only when the preferences ask for an automatic comment. This is separate from the description.",
             },
           },
           required: ["targetId", "title", "description"],
@@ -118,15 +118,15 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   const targets = await tracker.listTargets();
   if (!targets.length) {
     throw new Error(
-      `No ${noun}s found in your ${tracker.kind === "jira" ? "Jira" : "Linear"} workspace — create a ${noun} there, then retry.`,
+      `No ${noun}s found in your ${tracker.kind === "jira" ? "Jira" : "Linear"} workspace - create a ${noun} there, then retry.`,
     );
   }
-  // One line per target, with its usable labels/states (capped — this is prompt
+  // One line per target, with its usable labels/states (capped - this is prompt
   // text) so preference-driven labels and statuses resolve to real names.
   const targetList = targets
     .slice(0, 50)
     .map((t) => {
-      let line = `- ${t.name} (${t.key}) — id: ${t.id}`;
+      let line = `- ${t.name} (${t.key}) - id: ${t.id}`;
       if (t.labels?.length) line += `\n  labels: ${t.labels.slice(0, 30).join(", ")}`;
       if (t.states?.length) line += `\n  states: ${t.states.slice(0, 20).join(", ")}`;
       if (t.assignees?.length) line += `\n  members: ${t.assignees.slice(0, 40).join(", ")}`;
@@ -149,7 +149,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   tail.push({
     type: "text",
     text:
-      "CORRELATE EVERYTHING before writing. Cross-reference every signal you have — " +
+      "CORRELATE EVERYTHING before writing. Cross-reference every signal you have - " +
       (frameCount ? `the ${frameCount} time-ordered screen frames, ` : "") +
       "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the console errors, and the URL. " +
       "Build a single coherent account of what the user did, what they expected, and what actually happened; resolve disagreements in favor of the screenshots/console/events over the narration. " +
@@ -224,7 +224,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   } catch (e: any) {
     const msg = String(e?.message ?? e);
     if (brief.images.length && /image|vision|media/i.test(msg)) {
-      console.warn("[agent] model rejected a provided image — retrying text-only:", msg);
+      console.warn("[agent] model rejected a provided image - retrying text-only:", msg);
       created = await runLoop(textOnly);
     } else {
       throw e;

@@ -6,14 +6,14 @@ import { useState } from "react";
  * Subtle "archive" action for a brief. OPTIMISTIC + RELIABLE: clicking removes
  * the card instantly via `onArchive(id)`, then writes archived_at to the server.
  *
- * The write is NOT fire-and-forget — a plain dropped fetch was the archive bug:
+ * The write is NOT fire-and-forget - a plain dropped fetch was the archive bug:
  * if the page unloaded/navigated before it committed, or auth() hit a transient
  * Clerk error, the write was silently lost and the brief reappeared on the next
  * load. So we:
  *   - send with `keepalive: true` (survives an unload, like the extension's
  *     submitBrief), and
  *   - await the response and retry once on failure, and
- *   - if it still fails, call `onArchiveFailed(id)` to bring the card back —
+ *   - if it still fails, call `onArchiveFailed(id)` to bring the card back -
  *     honest, immediate feedback instead of a silent loss that resurfaces later.
  *
  * Rendered as a SIBLING of the card link (never nested inside the <a>), so its
@@ -40,7 +40,7 @@ export default function ArchiveButton({
         });
         if (res.ok) return true;
       } catch {
-        // network blip — fall through to retry
+        // network blip - fall through to retry
       }
     }
     return false;

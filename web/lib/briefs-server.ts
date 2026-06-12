@@ -33,7 +33,7 @@ export const BRIEF_COLUMNS =
  * worker is interrupted (dev restart, serverless timeout, hang) it would
  * otherwise spin forever. We give it up to 10 minutes to land, then quietly
  * mark it failed. Failed briefs are hidden from the UI (no nagging "didn't
- * file" — see the feed/dashboard), so this is just the retry ceiling.
+ * file" - see the feed/dashboard), so this is just the retry ceiling.
  */
 export const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -56,20 +56,20 @@ export async function recoverOrphans(
   try {
     const cutoff = new Date(Date.now() - timeoutMs).toISOString();
     // Only 'processing' is a live filing run that can orphan. 'uploaded' means
-    // a draft the user hasn't filed yet (e.g. a recording uploaded on stop) —
+    // a draft the user hasn't filed yet (e.g. a recording uploaded on stop) -
     // leave those alone; they're managed from the extension, not auto-failed.
     await admin
       .from("briefs")
       .update({
         status: "failed",
-        error: "Processing timed out — retry.",
+        error: "Processing timed out - retry.",
         updated_at: new Date().toISOString(),
       })
       .eq("user_id", userId)
       .eq("status", "processing")
       .lt("updated_at", cutoff);
   } catch {
-    // Recovery is opportunistic — swallow failures so the feed still renders.
+    // Recovery is opportunistic - swallow failures so the feed still renders.
   }
 }
 
@@ -138,7 +138,7 @@ export async function getTrackerContext(): Promise<TrackerContext> {
  * Live status sync per provider, then merge into provider-agnostic
  * DashboardBrief objects. Best-effort and fully contained: if a tracker isn't
  * connected, there are no filed identifiers, or the token/fetch fails, the
- * brief renders without live info — never breaks the page.
+ * brief renders without live info - never breaks the page.
  *
  * `syncLimit` caps how many filed identifiers we fetch live state for (the
  * Dashboard may pass hundreds of historical briefs but only needs live state

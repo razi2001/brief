@@ -16,7 +16,7 @@ export const ROLES: { label: string; icon: string }[] = [
   { label: "Other", icon: "•" },
 ];
 
-/** "How'd you hear about Brief?" — attribution captured once at onboarding. */
+/** "How'd you hear about Brief?" - attribution captured once at onboarding. */
 export const SOURCES: string[] = [
   "Someone from Brief showed me",
   "A friend or colleague",

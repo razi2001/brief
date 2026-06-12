@@ -1,4 +1,4 @@
-/* Brief — floating overlay (launcher + bar)
+/* Brief - floating overlay (launcher + bar)
    Bottom-centered. Single iframe hosts all states. */
 
 :root {
@@ -42,8 +42,8 @@ body {
   padding: 14px;
 }
 /* After recording (no transcript panel), center the confirmation pill in the
-   iframe so it lands where the eye was — between where the transcript and the
-   bar sat — instead of pinned to the bottom. */
+   iframe so it lands where the eye was - between where the transcript and the
+   bar sat - instead of pinned to the bottom. */
 body.state-saving,
 body.state-saved,
 body.state-inboxed,
@@ -90,7 +90,7 @@ body.state-error     [data-state='error']     { display: flex; }
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(26, 22, 18, 0.08);
   gap: 12px;
   user-select: none;
-  /* Slide-down + fade-in from the icon — visually links the card to the
+  /* Slide-down + fade-in from the icon - visually links the card to the
      extension button it just popped out of. */
   animation: launcher-enter 0.22s cubic-bezier(0.18, 0.89, 0.32, 1.18) both;
   transform-origin: top right;
@@ -317,7 +317,7 @@ body.state-error     [data-state='error']     { display: flex; }
 }
 .icon-btn.dark-on-cream:hover { background: var(--hairline); color: var(--ink); }
 
-/* Drag grip — Notion-style 6-dot handle on the left of the recording bar */
+/* Drag grip - Notion-style 6-dot handle on the left of the recording bar */
 .drag-grip {
   flex-shrink: 0;
   width: 18px;
@@ -334,7 +334,7 @@ body.state-error     [data-state='error']     { display: flex; }
   margin-right: -2px;
   border-radius: 4px;
   transition: color 0.15s, background 0.15s;
-  /* the bar element is itself the drag handle target — see bar.js */
+  /* the bar element is itself the drag handle target - see bar.js */
 }
 .drag-grip:hover {
   color: rgba(245, 241, 232, 0.85);
@@ -495,7 +495,7 @@ body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
 .spinner.small { width: 14px; height: 14px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---------- Transcript panel — single-line ticker ---------- */
+/* ---------- Transcript panel - single-line ticker ---------- */
 .transcript-panel {
   width: 360px;
   padding: 9px 22px;
@@ -530,7 +530,7 @@ body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
   50%      { transform: scaleY(1);   opacity: 1; }
 }
 
-/* The ticker viewport — single line. Older text scrolls out the left
+/* The ticker viewport - single line. Older text scrolls out the left
    under the panel's left padding; no mask needed. */
 .transcript-text {
   position: relative;

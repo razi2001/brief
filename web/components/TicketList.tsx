@@ -24,7 +24,7 @@ function initial(name?: string): string {
 }
 
 /**
- * A dense, Linear-like list of filed tickets: one row each — live status dot,
+ * A dense, Linear-like list of filed tickets: one row each - live status dot,
  * title, tracker logo + identifier, time, assignee avatar. Each row links to
  * the real ticket. Pure props; used on the Dashboard's "Recent tickets" panel.
  */
@@ -38,7 +38,7 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
           const ti = b.ticket;
           const isProcessing = b.status === "processing" || b.status === "uploaded";
           const href = ti?.url || b.ticket_url || undefined;
-          // While filing there's no tracker title yet — fall back to the brief's
+          // While filing there's no tracker title yet - fall back to the brief's
           // name, then a generic label.
           const title =
             ti?.title || b.title || (isProcessing ? "Creating ticket…" : `${b.source_kind ?? "brief"} ticket`);
@@ -46,7 +46,7 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
           const stateName = isProcessing ? "Creating…" : ti?.stateName || "Filed";
           const Row = (
             <div className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-cream-2/40">
-              {/* Title — smaller, capped so it crops before the status column. */}
+              {/* Title - smaller, capped so it crops before the status column. */}
               <span className="min-w-0 max-w-[60%] flex-1 truncate text-[0.8125rem] text-ink">
                 {title}
               </span>

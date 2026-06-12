@@ -49,7 +49,7 @@ export default function Integrations() {
   // Removing a connected account is a "sensitive" action: Clerk requires
   // step-up reverification (session_reverification_required). useReverification
   // wraps the call so it pops Clerk's verify-code modal inline and retries the
-  // destroy on success — no leaving the page.
+  // destroy on success - no leaving the page.
   const destroyAccount = useReverification(
     (account: { destroy: () => Promise<unknown> }) => account.destroy(),
   );
@@ -77,7 +77,7 @@ export default function Integrations() {
       await destroyAccount(account);
       await user!.reload();
     } catch {
-      // Reverification cancelled or some other failure — fall back to the
+      // Reverification cancelled or some other failure - fall back to the
       // account page, where Clerk's own UI can complete the removal.
       setNeedsAccount((m) => ({ ...m, [t.key]: true }));
     } finally {
@@ -90,7 +90,7 @@ export default function Integrations() {
       <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Issue tracker</h2>
 
       {/* Brief files into a single tracker, so only one can be connected. */}
-      <p className="mt-1 text-xs text-muted">Connect one — Brief files into a single tracker.</p>
+      <p className="mt-1 text-xs text-muted">Connect one - Brief files into a single tracker.</p>
 
       <div className="mt-3 flex flex-col gap-3">
         {TRACKER_DEFS.map((t) => {
@@ -100,7 +100,7 @@ export default function Integrations() {
           const isBusy = !!busy[t.key];
           const error = errors[t.key];
           const showAccount = !!needsAccount[t.key];
-          // Another tracker already holds the single slot — this one would switch.
+          // Another tracker already holds the single slot - this one would switch.
           const otherConnected = TRACKER_DEFS.some(
             (o) => o.key !== t.key && !!connectedAccount(o.providerMatch),
           );
@@ -147,7 +147,7 @@ export default function Integrations() {
 
               {showAccount ? (
                 <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
-                  Couldn&apos;t remove it here —{" "}
+                  Couldn&apos;t remove it here -{" "}
                   <Link
                     href="/account"
                     className="text-accent no-underline hover:underline"
@@ -160,7 +160,7 @@ export default function Integrations() {
                 (error || pending) && (
                   <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
                     {error ||
-                      // Show Clerk's actual verification error when it has one —
+                      // Show Clerk's actual verification error when it has one -
                       // "didn't finish" alone gives the user nothing to act on.
                       [
                         "Last connection didn’t finish",
@@ -168,7 +168,7 @@ export default function Integrations() {
                         "click Connect to try again.",
                       ]
                         .filter(Boolean)
-                        .join(" — ")}
+                        .join(" - ")}
                   </p>
                 )
               )}

@@ -47,20 +47,20 @@ export async function processBriefById(
   }
   if (!tracker) {
     // Don't leave the row stuck in 'processing' (the process route flips it
-    // before queueing this run) — fail it honestly with an actionable message
+    // before queueing this run) - fail it honestly with an actionable message
     // so the dashboard can show it with a Retry instead of a silent stall.
     await admin
       .from("briefs")
       .update({
         status: "failed",
-        error: "No tracker connected — connect Linear or Jira in Connections, then retry.",
+        error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
         updated_at: new Date().toISOString(),
       })
       .eq("id", briefId);
     return {
       ok: false,
       status: 409,
-      error: "No tracker connected — connect Linear or Jira in Connections, then retry.",
+      error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
     };
   }
 
@@ -86,7 +86,7 @@ export async function processBriefById(
     const evidence: BriefInput["evidence"] = [];
 
     // Whether to attach the actual video. This is the user's explicit "Attach
-    // the recording to the ticket" toggle — OFF by default. The popup passes the
+    // the recording to the ticket" toggle - OFF by default. The popup passes the
     // current value at file time; fall back to the (frozen) brief.json value,
     // then to false. When off, we still extract keyframe stills from the video
     // as the visual evidence so the ticket isn't left blind.
@@ -100,7 +100,7 @@ export async function processBriefById(
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
     // Sample up to 6 evenly-spaced frames (not just first/mid/last) so the model
-    // can follow the sequence and correlate it with the transcript/events —
+    // can follow the sequence and correlate it with the transcript/events -
     // three frames was too sparse to reconstruct what happened.
     const SAMPLE = 6;
     const pick =
@@ -117,7 +117,7 @@ export async function processBriefById(
       keyframeEvidence.push({ filename, contentType: "image/png", bytes: b });
     }
 
-    // A user-annotated screenshot is intentional markup — always embed it.
+    // A user-annotated screenshot is intentional markup - always embed it.
     const shot = await dl(`${prefix}/screenshot.png`);
     if (shot) {
       images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
@@ -126,11 +126,11 @@ export async function processBriefById(
 
     const rec = await dl(`${prefix}/recording.webm`);
     if (rec && includeVideo) {
-      // User opted to attach the recording — embed the video (it already shows
+      // User opted to attach the recording - embed the video (it already shows
       // every keyframe, so don't also embed the stills).
       evidence.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
     } else {
-      // No video attached (toggle off, or no recording at all) — embed the
+      // No video attached (toggle off, or no recording at all) - embed the
       // keyframe stills sampled from the capture as the visual evidence.
       evidence.push(...keyframeEvidence);
     }

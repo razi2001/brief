@@ -30,7 +30,7 @@ function initial(name?: string): string {
 
 /**
  * One Linear-like row in the Briefs feed. Replaces the big 2-col card: a single
- * dense line — status dot, title, then right-aligned meta (tracker id, time,
+ * dense line - status dot, title, then right-aligned meta (tracker id, time,
  * assignee). Processing rows show a live "filing… m:ss" elapsed so nothing looks
  * frozen; failed rows show a Retry; filed rows link to the ticket. Archive is an
  * absolutely-positioned SIBLING of the row link (never nested in the <a>), faint
@@ -80,7 +80,7 @@ export default function BriefListRow({
 
   const inner = (
     <>
-      {/* Title — smaller, and capped so it crops well before the status column. */}
+      {/* Title - smaller, and capped so it crops well before the status column. */}
       <div className="min-w-0 max-w-[60%] flex-1">
         <p className={`truncate text-[0.8125rem] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
           {title}
@@ -92,7 +92,7 @@ export default function BriefListRow({
 
       {/* Right meta */}
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        {/* Archived marker — a quiet tag, paired with the row's dimmed look.
+        {/* Archived marker - a quiet tag, paired with the row's dimmed look.
             The action (restore) lives in the hover icons, not here as text. */}
         {b.archived && (
           <span
@@ -106,7 +106,7 @@ export default function BriefListRow({
             archived
           </span>
         )}
-        {/* Status column — three distinct states. Failed must NOT borrow the
+        {/* Status column - three distinct states. Failed must NOT borrow the
             green "Filed" look; it gets a red "didn't file" with the Retry. */}
         {isProcessing ? (
           <span className="w-[5.5rem] text-right font-mono text-[0.625rem] text-accent">
@@ -128,7 +128,7 @@ export default function BriefListRow({
             {ti?.stateName || "Filed"}
           </span>
         )}
-        {/* Retry only makes sense on a live (non-archived) failed brief —
+        {/* Retry only makes sense on a live (non-archived) failed brief -
             an archived one should be restored first. */}
         {isFailed && !b.archived && <RetryButton briefId={b.id} />}
         {!isFailed && b.ticket_identifier && (
@@ -159,7 +159,7 @@ export default function BriefListRow({
     </>
   );
 
-  // Archived rows recede — dim the content so they read as "put away" at a
+  // Archived rows recede - dim the content so they read as "put away" at a
   // glance (the strongest cue), with the small tag + restore icon for detail.
   const contentClass =
     "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 no-underline" +
@@ -177,7 +177,7 @@ export default function BriefListRow({
     >
       {isProcessing && <span aria-hidden className="queue-bar" />}
 
-      {/* Leading checkbox — always occupies space (no layout shift), shown on
+      {/* Leading checkbox - always occupies space (no layout shift), shown on
           hover / when selected. */}
       <button
         type="button"
@@ -212,7 +212,7 @@ export default function BriefListRow({
         <div className={contentClass}>{inner}</div>
       )}
 
-      {/* Row actions — faint until hover. Archived rows swap the archive action
+      {/* Row actions - faint until hover. Archived rows swap the archive action
           for a restore one; both share the same icon-button language as delete.
           Hidden while a batch selection is active (header icons handle that). */}
       {!anySelected && (

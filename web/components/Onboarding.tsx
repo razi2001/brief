@@ -128,7 +128,7 @@ function ChipGrid({
 }
 
 /**
- * The first-run onboarding experience — a dedicated full page (/welcome), not
+ * The first-run onboarding experience - a dedicated full page (/welcome), not
  * a dashboard widget. New sign-ups land here straight from Clerk (no hop
  * through "/"). Three steps: about you (role + how you heard) → connect a
  * tracker (inline Clerk OAuth) → install the extension. Finishing or skipping
@@ -165,7 +165,7 @@ export default function Onboarding({
   async function submitYou() {
     if (savingYou) return;
     setSavingYou(true);
-    // Persist whatever's filled; both are optional. Best-effort — advance regardless.
+    // Persist whatever's filled; both are optional. Best-effort - advance regardless.
     await saveSettings({ role, source });
     setSavingYou(false);
     setStep("tracker");
@@ -185,7 +185,7 @@ export default function Onboarding({
   };
   const stepSub: Record<Step, string> = {
     you: "Brief uses this to write tickets the way your team expects them.",
-    tracker: "Brief writes tickets straight into it — no copy-paste, ever.",
+    tracker: "Brief writes tickets straight into it - no copy-paste, ever.",
     extension: "this is how you capture a bug: record, talk, done.",
   };
 
@@ -306,7 +306,7 @@ export default function Onboarding({
                 </span>
               )}
 
-              {/* Install card — groups the store action with its two setup steps
+              {/* Install card - groups the store action with its two setup steps
                   so the button doesn't float in empty space. */}
               <div className="rounded-2xl border hairline bg-[#fffdf8] p-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -345,7 +345,7 @@ export default function Onboarding({
                     </span>
                     <span>
                       Open it and hit{" "}
-                      <span className="text-ink">Connect to Brief Cloud</span> — it
+                      <span className="text-ink">Connect to Brief Cloud</span> - it
                       pairs with this account instantly. Then record a bug and it
                       files itself.
                     </span>
@@ -355,7 +355,7 @@ export default function Onboarding({
 
               <div className="flex items-center justify-between">
                 {/* With a tracker connected the tracker step has nothing left to
-                    do (and would immediately bounce forward) — hide "back". */}
+                    do (and would immediately bounce forward) - hide "back". */}
                 {trackerConnected ? (
                   <span />
                 ) : (
@@ -373,14 +373,14 @@ export default function Onboarding({
                   disabled={finishing}
                   className="cursor-pointer rounded-xl border border-hairline bg-transparent px-4 py-2 font-mono text-[0.8125rem] text-ink transition-colors hover:bg-cream-2 disabled:opacity-60"
                 >
-                  {finishing ? "Saving…" : "All set — open my dashboard"}
+                  {finishing ? "Saving…" : "All set - open my dashboard"}
                 </button>
               </div>
             </div>
           )}
         </div>
 
-        {/* Quiet escape hatch — never trap the user in a wizard. */}
+        {/* Quiet escape hatch - never trap the user in a wizard. */}
         {step !== "extension" && (
           <p className="mt-4 text-center">
             <button
@@ -389,7 +389,7 @@ export default function Onboarding({
               disabled={finishing}
               className="font-mono text-[0.6875rem] text-muted no-underline hover:text-ink hover:underline disabled:opacity-60"
             >
-              skip setup — straight to the dashboard
+              skip setup - straight to the dashboard
             </button>
           </p>
         )}

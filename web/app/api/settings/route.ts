@@ -9,12 +9,12 @@ const MAX_GUIDANCE = 4000;
 const MAX_ROLE = 100;
 const MAX_SOURCE = 100;
 
-// Clerk-session-authed account settings — PARTIAL updates: only the keys
+// Clerk-session-authed account settings - PARTIAL updates: only the keys
 // present in the body are written (Clerk merges privateMetadata top-level
 // keys), so e.g. the onboarding wizard saving `role` can never wipe the
 // ticket guidance. proxy.ts protects this route by default (it isn't on the
 // public matcher), but protected API routes still run their handler for authed
-// same-origin fetches — the dashboard fetch carries the Clerk session cookie —
+// same-origin fetches - the dashboard fetch carries the Clerk session cookie -
 // so the handler self-authenticates via auth().
 export async function POST(req: NextRequest) {
   const { userId } = await auth();
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   if ("source" in body) {
     updates.source = String(body.source ?? "").trim().slice(0, MAX_SOURCE);
   }
-  // Any truthy value marks onboarding done "now" (server clock — the client
+  // Any truthy value marks onboarding done "now" (server clock - the client
   // never supplies the timestamp); null clears it (useful for re-testing).
   if ("onboardedAt" in body) {
     updates.onboardedAt = body.onboardedAt ? new Date().toISOString() : null;

@@ -20,7 +20,7 @@ export type DashboardBrief = {
   archived?: boolean;
   source_kind?: string | null;
   created_at?: string | null;
-  /** When the brief last changed state — used to time "filing…" elapsed. */
+  /** When the brief last changed state - used to time "filing…" elapsed. */
   updated_at?: string | null;
   ticket_url?: string | null;
   ticket_identifier?: string | null;

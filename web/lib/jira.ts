@@ -4,7 +4,7 @@ import type { Tracker, TrackerTarget } from "./tracker";
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
 
 // ---------------------------------------------------------------------------
-// ADF (Atlassian Document Format) builder — pure, unit-tested in jira.test.ts.
+// ADF (Atlassian Document Format) builder - pure, unit-tested in jira.test.ts.
 // ---------------------------------------------------------------------------
 
 export interface AdfMark {
@@ -126,7 +126,7 @@ export function markdownToAdf(markdown: string): AdfNode {
       continue;
     }
 
-    // Paragraph — gather consecutive plain lines until a blank or a special block.
+    // Paragraph - gather consecutive plain lines until a blank or a special block.
     const para: string[] = [line];
     i++;
     while (
@@ -162,7 +162,7 @@ export async function getJiraAuth(userId: string): Promise<JiraTok | null> {
       const res = await client.users.getUserOauthAccessToken(userId, "oauth_atlassian");
       const t = res.data?.[0]?.token;
       if (t) return { token: t, kind: "oauth" };
-    } catch { /* not connected — fall through */ }
+    } catch { /* not connected - fall through */ }
   }
   // Testing fallback: API token + email (basic auth) against a single site.
   const apiToken = process.env.JIRA_API_TOKEN;
@@ -428,7 +428,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
       let createRes = await createIssue({ ...baseFields, ...extraFields });
       if (!createRes.ok && hasExtras && createRes.status === 400) {
         console.warn(
-          `[jira-tracker] create with labels/priority rejected (400) — retrying without: ${await createRes.text()}`,
+          `[jira-tracker] create with labels/priority rejected (400) - retrying without: ${await createRes.text()}`,
         );
         createRes = await createIssue(baseFields);
       }

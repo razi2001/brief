@@ -4,7 +4,7 @@ import type { Tracker, TrackerPriority } from "./tracker";
 export type LinearTok = { token: string };
 
 export async function getLinearToken(userId: string): Promise<LinearTok | null> {
-  // Clerk-vended OAuth token for the user's connected Linear account — the only
+  // Clerk-vended OAuth token for the user's connected Linear account - the only
   // path. No global API-key fallback: a user who hasn't connected Linear has no
   // token, so the app honestly reports "no tracker connected" instead of
   // silently filing through a shared key.
@@ -25,7 +25,7 @@ function authHeader(tok: LinearTok): string {
 }
 
 const AUTH_EXPIRED =
-  "Your Linear connection has expired — reconnect Linear under Connections, then retry.";
+  "Your Linear connection has expired - reconnect Linear under Connections, then retry.";
 
 export async function linearGraphQL<T = any>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
   const r = await fetch("https://api.linear.app/graphql", {
@@ -63,7 +63,7 @@ export interface LinearIssueInfo {
  * round-trip and parses the result into a map keyed by identifier.
  *
  * Defensive by design: de-dupes ids, caps at 20, and wraps the whole thing in
- * try/catch returning {} on ANY failure — a Linear outage or token problem must
+ * try/catch returning {} on ANY failure - a Linear outage or token problem must
  * never break the dashboard render.
  */
 export async function getIssuesByIdentifiers(
@@ -292,7 +292,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
             // Human caption, never the raw filename.
             embeds.push(`![Screenshot ${imgN}](${assetUrl})`);
           } else {
-            // Recording: a bare URL on its own line is enough — Linear renders it
+            // Recording: a bare URL on its own line is enough - Linear renders it
             // as an inline player with its own link. Don't add a second link (that
             // made the recording show up "twice").
             embeds.push(`**Screen recording:**\n\n${assetUrl}`);
@@ -306,7 +306,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         description += "\n\n## Evidence\n\n" + embeds.join("\n\n");
       }
 
-      // Resolve the agent's label/state names to ids — best-effort, never fatal.
+      // Resolve the agent's label/state names to ids - best-effort, never fatal.
       let labelIds: string[] | undefined;
       let stateId: string | undefined;
       try {
@@ -321,7 +321,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
               continue;
             }
             // The user's preferences may name a label that doesn't exist yet
-            // ("label every ticket inbound") — create it on the team so the
+            // ("label every ticket inbound") - create it on the team so the
             // preference is honored instead of silently dropped.
             try {
               const c = await linearGraphQL<{ issueLabelCreate: { success: boolean; issueLabel: { id: string } } }>(

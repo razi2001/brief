@@ -13,8 +13,8 @@ import { useUser, useReverification } from "@clerk/nextjs";
  *   - user.createExternalAccount({ strategy, redirectUrl }): Promise<ExternalAccountResource>
  *       The returned account's verification.externalVerificationRedirectURL (a URL | null)
  *       is the OAuth URL the browser must navigate to.
- *   - externalAccount.destroy(): Promise<void>  — disconnects the account.
- *   - user.reload(): Promise<UserResource>      — refreshes externalAccounts after destroy.
+ *   - externalAccount.destroy(): Promise<void>  - disconnects the account.
+ *   - user.reload(): Promise<UserResource>      - refreshes externalAccounts after destroy.
  */
 
 export type TrackerDef = {
@@ -36,15 +36,15 @@ export const TRACKER_DEFS: TrackerDef[] = [
     caption: "Files tickets with embedded evidence.",
     providerMatch: "linear",
     strategy: "oauth_linear",
-    notEnabledHint: "Linear isn't enabled yet — add the Linear connection in Clerk.",
+    notEnabledHint: "Linear isn't enabled yet - add the Linear connection in Clerk.",
   },
   {
     key: "jira",
     name: "Jira",
-    caption: "Atlassian Cloud — file to a project.",
+    caption: "Atlassian Cloud - file to a project.",
     providerMatch: "atlassian",
     strategy: "oauth_atlassian",
-    notEnabledHint: "Jira isn't enabled yet — add the Atlassian connection in Clerk.",
+    notEnabledHint: "Jira isn't enabled yet - add the Atlassian connection in Clerk.",
   },
 ];
 
@@ -53,7 +53,7 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Removing a connected account is a Clerk "sensitive" action — this wrapper
+  // Removing a connected account is a Clerk "sensitive" action - this wrapper
   // pops the step-up reverification modal when required, then runs destroy.
   const destroyAccount = useReverification(
     (account: { destroy: () => Promise<unknown> }) => account.destroy(),
@@ -78,7 +78,7 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   const connectedAccount = (providerMatch: string) => accountFor(providerMatch, true);
   const pendingAccount = (providerMatch: string) => accountFor(providerMatch, false);
 
-  // The REASON the last OAuth attempt didn't verify — rewritten to something
+  // The REASON the last OAuth attempt didn't verify - rewritten to something
   // actionable where we recognize the Clerk error, otherwise Clerk's own text.
   // Empty when there's no pending record or Clerk attached no error to it.
   const pendingError = (providerMatch: string): string => {
@@ -121,25 +121,25 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     setTrackerBusy(t.key, true);
     try {
       // One tracker at a time: drop the other before switching. If the user
-      // cancels the reverification to remove it, abort — don't connect both.
+      // cancels the reverification to remove it, abort - don't connect both.
       const switched = await disconnectOtherTrackers(t.providerMatch);
       if (!switched) {
         setTrackerError(
           t.key,
-          "Couldn't switch trackers — you'll need to disconnect the current one first.",
+          "Couldn't switch trackers - you'll need to disconnect the current one first.",
         );
         setTrackerBusy(t.key, false);
         return;
       }
       // Clear out a previous failed/abandoned attempt so it can't linger and
-      // look "connected" — and so the new attempt starts clean.
+      // look "connected" - and so the new attempt starts clean.
       const stale = pendingAccount(t.providerMatch);
       if (stale) {
         try {
           await stale.destroy();
           await user.reload();
         } catch {
-          /* ignore — proceed with a fresh attempt */
+          /* ignore - proceed with a fresh attempt */
         }
       }
       const externalAccount = await user.createExternalAccount({
@@ -151,7 +151,7 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
       if (redirectUrl) {
         // externalVerificationRedirectURL is a URL object; send the browser to it.
         window.location.href = redirectUrl.toString();
-        return; // navigating away — keep the button in its busy state.
+        return; // navigating away - keep the button in its busy state.
       }
       // No redirect URL returned: nothing to navigate to. Surface a hint.
       setTrackerError(t.key, t.notEnabledHint);

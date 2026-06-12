@@ -67,8 +67,8 @@ function EmptyState({ filtered }: { filtered: boolean }) {
       </p>
       <p className="max-w-xs text-sm text-muted">
         {filtered
-          ? "no tickets in the selected statuses — adjust the filter to see more."
-          : "hit ✦ in the extension, talk through a bug, and it lands here — written up and filed."}
+          ? "no tickets in the selected statuses - adjust the filter to see more."
+          : "hit ✦ in the extension, talk through a bug, and it lands here - written up and filed."}
       </p>
     </div>
   );
@@ -105,7 +105,7 @@ function SummaryLine({ counts }: { counts: Counts }) {
  * The Briefs feed: editorial heading + summary line, a funnel-icon filter
  * popover, and the rich brief cards. Optimistic archive/restore/delete
  * (fire-and-forget POSTs) and AutoRefresh while anything is processing. Failed
- * briefs are shown with their error and a Retry — and can be filtered out via
+ * briefs are shown with their error and a Retry - and can be filtered out via
  * the "Didn't file" status option.
  *
  * Extracted from the old DashboardTabs so it can live on its own /tickets route.
@@ -124,7 +124,7 @@ export default function BriefsFeed({
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
   const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
-  // Show archived tickets? Off by default — and because it's local state it
+  // Show archived tickets? Off by default - and because it's local state it
   // resets to off every time the page is (re)loaded.
   const [showArchived, setShowArchived] = useState(false);
   // Pending exit-animation timers, so a failed archive can cancel the
@@ -141,7 +141,7 @@ export default function BriefsFeed({
     });
 
   // Swipe the row out, then commit (mark archived / deleted). When archived
-  // rows are visible the archive commit is immediate — the row stays in place
+  // rows are visible the archive commit is immediate - the row stays in place
   // and just flips to its archived look, no exit animation.
   const swipeOut = (id: string, commit: (id: string) => void) => {
     setLeaving((prev) => new Set(prev).add(id));
@@ -158,7 +158,7 @@ export default function BriefsFeed({
     else swipeOut(id, addTo(setArchivedIds));
   };
 
-  // The server write failed for good — undo the optimistic removal so the card
+  // The server write failed for good - undo the optimistic removal so the card
   // reappears immediately (honest feedback) instead of vanishing then coming
   // back on a later load.
   const onArchiveFailed = (id: string) => {
@@ -191,16 +191,16 @@ export default function BriefsFeed({
 
   // Effective archived state = server flag, overridden by this session's
   // optimistic archives/restores. An archived brief is never dropped from the
-  // data — it's just hidden unless "Show archived" is on, so toggling the
+  // data - it's just hidden unless "Show archived" is on, so toggling the
   // filter shows briefs archived seconds ago too.
   const isArchived = (b: DashboardBrief) =>
     archivedIds.has(b.id) || (!!b.archived && !unarchivedIds.has(b.id));
 
   // Hidden from the feed:
   //  - uploaded: a not-yet-filed draft (e.g. a recording uploaded on stop) that
-  //    the user files from the extension — it isn't a real ticket yet.
+  //    the user files from the extension - it isn't a real ticket yet.
   //  - archived: only shown when the "Show archived" toggle is on.
-  // Failed briefs ARE shown (with the error and a Retry) — hiding them made a
+  // Failed briefs ARE shown (with the error and a Retry) - hiding them made a
   // failed filing look like the ticket silently vanished.
   const liveBriefs = useMemo(
     () =>
@@ -218,7 +218,7 @@ export default function BriefsFeed({
 
   const options = useMemo(() => deriveOptions(liveBriefs), [liveBriefs]);
 
-  // Track only the statuses the user EXPLICITLY hid — not the ones they keep.
+  // Track only the statuses the user EXPLICITLY hid - not the ones they keep.
   // Everything else is shown, so the default is "all" and a brand-new status
   // (e.g. a just-filed ticket's tracker state) appears automatically instead of
   // being filtered out. The user opts a status out by toggling it off.
@@ -315,7 +315,7 @@ export default function BriefsFeed({
     clearSelection();
   };
   const deleteSelected = () => {
-    // Deleting many at once is permanent — one light confirm (the icon turns red).
+    // Deleting many at once is permanent - one light confirm (the icon turns red).
     if (!confirmDelete) {
       setConfirmDelete(true);
       setTimeout(() => setConfirmDelete(false), 4000);
@@ -333,7 +333,7 @@ export default function BriefsFeed({
           <SummaryLine counts={liveCounts} />
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {/* Batch action icons — appear next to the filter once you select rows. */}
+          {/* Batch action icons - appear next to the filter once you select rows. */}
           {anySelected && (
             <div className="animate-rise flex items-center gap-1.5 pr-1">
               <button
@@ -359,7 +359,7 @@ export default function BriefsFeed({
               <button
                 type="button"
                 onClick={deleteSelected}
-                title={confirmDelete ? `Delete ${selected.size} — click again to confirm` : "Delete selected"}
+                title={confirmDelete ? `Delete ${selected.size} - click again to confirm` : "Delete selected"}
                 aria-label="Delete selected"
                 className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
                   confirmDelete

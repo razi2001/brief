@@ -14,7 +14,7 @@ function format(ms: number): string {
  * Live "filing… m:ss" elapsed counter for a processing brief, so it never looks
  * frozen. Starts from `since` (when the brief entered processing) and updates
  * each second on the client. The value is clock-derived, so server and client
- * first paints differ by a beat — harmless here, so the span suppresses the
+ * first paints differ by a beat - harmless here, so the span suppresses the
  * hydration warning and the interval keeps it current.
  */
 export default function Elapsed({ since }: { since?: string | null }) {

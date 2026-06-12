@@ -42,7 +42,7 @@ export default async function Dashboard() {
   const admin = createAdminSupabase();
   await recoverOrphans(admin, userId);
 
-  // All of the user's (non-archived) briefs — cheap, single user. Used for
+  // All of the user's (non-archived) briefs - cheap, single user. Used for
   // counts and the trend; live tracker state is fetched only for the recent
   // filed subset inside attachTicketInfo.
   const { data } = await admin
@@ -55,7 +55,7 @@ export default async function Dashboard() {
   const list = (data ?? []) as BriefRow[];
 
   const filed = list.filter((b) => b.status === "filed");
-  // 'uploaded' = unfiled draft (managed in the extension) — not "in progress".
+  // 'uploaded' = unfiled draft (managed in the extension) - not "in progress".
   const processing = list.filter((b) => b.status === "processing");
 
   const weekAgo = new Date().getTime() - 7 * 24 * 60 * 60 * 1000;
@@ -105,7 +105,7 @@ export default async function Dashboard() {
 
   const hasBriefs = list.length > 0;
   // First-run onboarding lives on its own page. Send not-yet-onboarded users
-  // there; users who already have filed tickets predate the wizard — never
+  // there; users who already have filed tickets predate the wizard - never
   // nag them with it.
   if (!!ctx.user && !ctx.onboarded && filed.length === 0) redirect("/welcome");
 
@@ -150,13 +150,13 @@ export default async function Dashboard() {
         </>
       ) : null}
 
-      {/* Onboarding done (or skipped) but nothing captured yet — one quiet
+      {/* Onboarding done (or skipped) but nothing captured yet - one quiet
           pointer at the extension instead of a blank page. */}
       {!hasBriefs && (
         <div className="card mt-10 px-5 py-10 text-center">
           <p className="font-display text-xl text-ink">no tickets yet.</p>
           <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted">
-            hit ✦ in the extension, talk through a bug, and it lands here —
+            hit ✦ in the extension, talk through a bug, and it lands here -
             written up and filed.
           </p>
         </div>

@@ -18,7 +18,7 @@ export type FilterOption = {
  * Funnel-icon button + popover checklist of statuses to SHOW. Multi-select,
  * outside-click / Esc to close, a Reset link, and an accent dot on the funnel
  * when the live selection differs from the default. Filtering itself lives in
- * the parent — this component only owns the open/close UI and selection.
+ * the parent - this component only owns the open/close UI and selection.
  */
 export default function FilterPopover({
   options,
@@ -164,7 +164,7 @@ export default function FilterPopover({
             })}
           </ul>
 
-          {/* Archived toggle — separate from status; off by default each visit. */}
+          {/* Archived toggle - separate from status; off by default each visit. */}
           <div className="mt-1.5 border-t hairline pt-1.5">
             <button
               type="button"

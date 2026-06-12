@@ -149,7 +149,7 @@ a {
   border-radius: 15px;
 }
 /* Archive exit: slide the row right + fade, then collapse its height to nothing
-   — mirrors the extension's swipe-out so web and extension archiving feel the
+   - mirrors the extension's swipe-out so web and extension archiving feel the
    same. The parent drops it from the list once the ~340ms animation completes. */
 .brief-leaving {
   animation: brief-swipe-out 0.34s cubic-bezier(0.4, 0, 0.2, 1) forwards;
@@ -162,7 +162,7 @@ a {
   100% { opacity: 0; transform: translateX(40px); max-height: 0; border-width: 0; }
 }
 
-/* Indeterminate "in queue / filing" bar along the bottom of a processing row —
+/* Indeterminate "in queue / filing" bar along the bottom of a processing row -
    a clear, always-visible signal that the agent is working (the old card-wide
    shimmer was invisible on a dense list row). */
 .queue-bar {
@@ -252,14 +252,14 @@ a {
   width: 100%;
   height: auto;
 }
-/* back layer — large, faded, slow */
+/* back layer - large, faded, slow */
 .sky .bg-1 { top: 8%;  left: -4%;  width: 320px; opacity: 0.32; animation: drift-r 180s linear infinite; }
 .sky .bg-2 { top: 54%; right: -6%; width: 360px; opacity: 0.28; animation: drift-l 210s -40s linear infinite; }
 /* mid layer */
 .sky .mid-1 { top: 22%; left: 36%; width: 220px; opacity: 0.55; animation: drift-r 120s -20s linear infinite; }
 .sky .mid-2 { top: 68%; left: 14%; width: 200px; opacity: 0.5;  animation: drift-l 140s -60s linear infinite; }
 .sky .mid-3 { top: 40%; right: 8%; width: 240px; opacity: 0.55; animation: drift-r 130s -90s linear infinite; }
-/* front layer — small, more opaque, faster */
+/* front layer - small, more opaque, faster */
 .sky .fg-1 { top: 12%; right: 22%; width: 130px; opacity: 0.85; animation: drift-l 80s linear infinite; }
 .sky .fg-2 { top: 80%; left: 46%; width: 120px; opacity: 0.8;  animation: drift-r 70s -25s linear infinite; }
 
