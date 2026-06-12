@@ -299,34 +299,61 @@ export default function Onboarding({
 
           {/* ---- Step 3: extension ---- */}
           {step === "extension" && (
-            <div className="mt-6">
+            <div className="mt-6 flex flex-col gap-5">
               {trackerConnected && (
-                <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] px-3 py-1 font-mono text-xs text-[#2e7d32]">
+                <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] px-3 py-1 font-mono text-xs text-[#2e7d32]">
                   tracker connected ✓
-                </p>
+                </span>
               )}
 
-              <a
-                href={CHROME_STORE_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="btn-accent inline-flex w-full items-center justify-center gap-2.5 py-3.5 no-underline sm:w-auto"
-              >
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="3" x2="12" y2="15" />
-                </svg>
-                Add Brief to Chrome
-              </a>
+              {/* Install card — groups the store action with its two setup steps
+                  so the button doesn't float in empty space. */}
+              <div className="rounded-2xl border hairline bg-[#fffdf8] p-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <BrandMark size={40} className="shrink-0 rounded-xl" />
+                    <div className="min-w-0">
+                      <p className="text-sm text-ink">Brief for Chrome</p>
+                      <p className="mt-0.5 text-xs text-muted">Free · Chrome Web Store</p>
+                    </div>
+                  </div>
+                  <a
+                    href={CHROME_STORE_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-accent shrink-0 no-underline"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    Add to Chrome
+                  </a>
+                </div>
 
-              <p className="mt-4 text-sm leading-relaxed text-muted">
-                Already installed? Open Brief from your toolbar and hit{" "}
-                <span className="text-ink">Connect to Brief Cloud</span> — it pairs
-                with this account in one click. Then record a bug and it files itself.
-              </p>
+                <ol className="mt-5 flex flex-col gap-3 border-t hairline pt-5">
+                  <li className="flex items-start gap-3 text-sm text-ink-2">
+                    <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cream-2 font-mono text-[0.625rem] text-muted">
+                      1
+                    </span>
+                    <span>Pin Brief to your toolbar so it&apos;s one click away.</span>
+                  </li>
+                  <li className="flex items-start gap-3 text-sm text-ink-2">
+                    <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cream-2 font-mono text-[0.625rem] text-muted">
+                      2
+                    </span>
+                    <span>
+                      Open it and hit{" "}
+                      <span className="text-ink">Connect to Brief Cloud</span> — it
+                      pairs with this account instantly. Then record a bug and it
+                      files itself.
+                    </span>
+                  </li>
+                </ol>
+              </div>
 
-              <div className="mt-7 flex items-center justify-between">
+              <div className="flex items-center justify-between">
                 {/* With a tracker connected the tracker step has nothing left to
                     do (and would immediately bounce forward) — hide "back". */}
                 {trackerConnected ? (
@@ -344,7 +371,7 @@ export default function Onboarding({
                   type="button"
                   onClick={finish}
                   disabled={finishing}
-                  className="btn-accent cursor-pointer disabled:opacity-60"
+                  className="cursor-pointer rounded-xl border border-hairline bg-transparent px-4 py-2 font-mono text-[0.8125rem] text-ink transition-colors hover:bg-cream-2 disabled:opacity-60"
                 >
                   {finishing ? "Saving…" : "All set — open my dashboard"}
                 </button>
