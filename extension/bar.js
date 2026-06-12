@@ -470,6 +470,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
   let userScreenshot = '';
   let userScreenshotAnnotated = false;
   let userExtra = [];
+  let userIncludeVideo = false;
   try {
     const { inbox } = await chrome.storage.local.get('inbox');
     const entry = (Array.isArray(inbox) ? inbox : []).find((b) => b.id === briefId);
@@ -478,6 +479,7 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
       userScreenshot = entry.screenshot || '';
       userScreenshotAnnotated = !!entry.screenshotAnnotated;
       userExtra = Array.isArray(entry.extra) ? entry.extra.filter((p) => p.key.trim() || p.value.trim()) : [];
+      userIncludeVideo = !!entry.includeVideo;
     }
   } catch {}
 
@@ -498,6 +500,10 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
     description: userDescription,
     hasScreenshot: !!userScreenshot,
     screenshotAnnotated: userScreenshotAnnotated,
+    // The "attach the recording" toggle is OFF by default and may be flipped in
+    // the popup after this point; the authoritative value is sent at file time.
+    // This is just a frozen fallback for retries.
+    includeVideo: userIncludeVideo,
     extra: userExtra,
     recording: { file: 'recording.webm', mimeType: mimeType || 'video/webm', durationMs },
   };

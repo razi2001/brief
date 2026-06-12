@@ -50,13 +50,13 @@ export async function uploadDraft(files, meta) {
 // Throws on any non-OK response. A 409 means no tracker is connected — the
 // thrown error carries `code: "no_tracker"` so the popup can show an
 // actionable "connect your tracker" message instead of a generic failure.
-export async function processBrief(briefId, title) {
+export async function processBrief(briefId, title, includeVideo) {
   const token = await getCloudToken();
   if (!token) throw new Error("Not connected to Brief Cloud");
   const res = await fetch(`${APP_URL}/api/briefs/${briefId}/process`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ title: title || "" }),
+    body: JSON.stringify({ title: title || "", includeVideo: !!includeVideo }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

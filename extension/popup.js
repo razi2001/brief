@@ -938,8 +938,9 @@ bcCreateTicket?.addEventListener('click', async () => {
         }
       }
       // File it — kick off processing on the uploaded brief (passing its name
-      // so the dashboard can label it while filing).
-      await processBrief(b.cloudBriefId, b.name);
+      // so the dashboard can label it while filing, and the user's "attach the
+      // recording" toggle so the video is embedded only when they asked).
+      await processBrief(b.cloudBriefId, b.name, !!b.includeVideo);
       sentIds.push(b.id);
     } catch (err) {
       failure = failure || err;

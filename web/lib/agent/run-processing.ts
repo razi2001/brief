@@ -18,7 +18,11 @@ export type ProcessResult =
  * (POST /api/briefs/[id]/process) and the Clerk-authed dashboard retry route.
  * Behavior must remain identical to the original process route.
  */
-export async function processBriefById(userId: string, briefId: string): Promise<ProcessResult> {
+export async function processBriefById(
+  userId: string,
+  briefId: string,
+  opts: { includeVideo?: boolean } = {},
+): Promise<ProcessResult> {
   const admin = createAdminSupabase();
   const { data: brief } = await admin
     .from("briefs")
@@ -81,10 +85,17 @@ export async function processBriefById(userId: string, briefId: string): Promise
     const images: BriefInput["images"] = [];
     const evidence: BriefInput["evidence"] = [];
 
+    // Whether to attach the actual video. This is the user's explicit "Attach
+    // the recording to the ticket" toggle — OFF by default. The popup passes the
+    // current value at file time; fall back to the (frozen) brief.json value,
+    // then to false. When off, we still extract keyframe stills from the video
+    // as the visual evidence so the ticket isn't left blind.
+    const includeVideo = opts.includeVideo ?? !!json.includeVideo;
+
     // Collect picked keyframes. They always go to `images` (so the model can SEE
-    // them and write an accurate description), but we only EMBED them in the
-    // ticket when there's no recording — otherwise the keyframe stills just
-    // duplicate frames of the video that's already embedded.
+    // them and write an accurate description). They're EMBEDDED as the ticket's
+    // visual evidence unless the user opted to attach the full recording (which
+    // already shows those frames).
     const keyframeEvidence: BriefInput["evidence"] = [];
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
@@ -114,16 +125,18 @@ export async function processBriefById(userId: string, briefId: string): Promise
     }
 
     const rec = await dl(`${prefix}/recording.webm`);
-    if (rec) {
-      // The video covers the keyframes, so embed it INSTEAD of the stills.
+    if (rec && includeVideo) {
+      // User opted to attach the recording — embed the video (it already shows
+      // every keyframe, so don't also embed the stills).
       evidence.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
     } else {
-      // No video — the keyframe stills are the visual evidence.
+      // No video attached (toggle off, or no recording at all) — embed the
+      // keyframe stills sampled from the capture as the visual evidence.
       evidence.push(...keyframeEvidence);
     }
 
     console.log(
-      `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} evidence=${evidence.length}`
+      `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} includeVideo=${includeVideo} evidence=${evidence.length}`
     );
 
     const result = await processBrief({ json, images, evidence }, tracker, guidance);

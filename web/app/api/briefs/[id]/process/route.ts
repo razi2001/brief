@@ -35,8 +35,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   // Optional brief name — recordings are uploaded as a draft without one, so the
   // popup passes it now (at file time) for the dashboard to show while filing.
-  const body = await req.json().catch(() => ({}) as { title?: string });
+  // `includeVideo` is the user's "attach the recording" toggle, also only known
+  // at file time (set in the popup after the draft was uploaded).
+  const body = await req.json().catch(() => ({}) as { title?: string; includeVideo?: boolean });
   const title = (body?.title ?? "").toString().trim();
+  const includeVideo = body?.includeVideo === true;
 
   // Mark it queued (processing) right away, scoped to the caller, so the
   // dashboard shows it as "in progress" the instant the user lands there — then
@@ -58,7 +61,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   after(async () => {
     // Errors are handled inside processBriefById (it flips the row to 'failed').
-    await processBriefById(userId, id).catch(() => {});
+    await processBriefById(userId, id, { includeVideo }).catch(() => {});
   });
 
   return jsonCors({ queued: true });
