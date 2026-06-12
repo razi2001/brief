@@ -52,6 +52,7 @@
   "externally_connectable": {
     "matches": [
       "http://localhost:3000/*",
+      "https://brief-cloud.fly.dev/*",
       "https://cloud.get-brief.app/*",
       "https://app.get-brief.app/*"
     ]
