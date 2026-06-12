@@ -48,6 +48,11 @@ export const TRACKER_DEFS: TrackerDef[] = [
   },
 ];
 
+// Clerk's account-linking rejection when the OAuth account's email doesn't
+// match any email on this user. Matched in pendingError (copy) and connect()
+// (the auto-heal).
+const EMAIL_MISMATCH_RE = /email address does not match|does not match your existing email/i;
+
 export function useTrackerConnect(redirectPath = "/dashboard") {
   const { isLoaded, user } = useUser();
   const [busy, setBusy] = useState<Record<string, boolean>>({});
@@ -93,9 +98,10 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
       return `This ${name} account is already linked to a different Brief account. Disconnect it there (or sign in with that account) before connecting it here.`;
     }
     // Clerk requires the OAuth account's email to match one of THIS account's
-    // emails. Spell out both ways to fix it instead of Clerk's dead-end copy.
-    if (/email address does not match|does not match your existing email/i.test(raw)) {
-      return `Your ${name} login uses a different email than this Brief account. Fix either side: sign in to ${name} with this account's email, or add your ${name} email to this account first (Account page, "add email"), then hit Connect again.`;
+    // emails. We handle it: Connect adopts the provider's email onto this
+    // account and retries - the user just has to click again.
+    if (EMAIL_MISMATCH_RE.test(raw)) {
+      return `Your ${name} login uses a different email than this account - that's fine. Hit Connect again and it will be linked.`;
     }
     return raw;
   };
@@ -136,9 +142,28 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
         setTrackerBusy(t.key, false);
         return;
       }
+      // Different-email linking: when the last attempt failed because the
+      // provider account's email isn't on this user, adopt that email onto
+      // the account (server verifies it came from the user's own OAuth
+      // attempt) so THIS attempt links cleanly. Different emails are fine.
+      const stale = pendingAccount(t.providerMatch);
+      const staleErr =
+        stale?.verification?.error?.longMessage || stale?.verification?.error?.message || "";
+      if (stale?.emailAddress && EMAIL_MISMATCH_RE.test(staleErr)) {
+        try {
+          const r = await fetch("/api/account/link-email", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: stale.emailAddress }),
+          });
+          if (r.ok) await user.reload();
+        } catch {
+          /* best-effort - the retry below surfaces any remaining error */
+        }
+      }
       // Clear out a previous failed/abandoned attempt so it can't linger and
       // look "connected" - and so the new attempt starts clean.
-      const stale = pendingAccount(t.providerMatch);
       if (stale) {
         try {
           await stale.destroy();
