@@ -1,26 +1,27 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import type { Tracker, TrackerPriority } from "./tracker";
 
-export type LinearTok = { token: string; kind: "oauth" | "apikey" };
+export type LinearTok = { token: string };
 
 export async function getLinearToken(userId: string): Promise<LinearTok | null> {
-  // Productized path: Clerk-vended OAuth token for the Linear connected account.
+  // Clerk-vended OAuth token for the user's connected Linear account — the only
+  // path. No global API-key fallback: a user who hasn't connected Linear has no
+  // token, so the app honestly reports "no tracker connected" instead of
+  // silently filing through a shared key.
   const client = await clerkClient().catch(() => null);
-  if (client) {
-    try {
-      const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
-      const t = res.data?.[0]?.token;
-      if (t) return { token: t, kind: "oauth" };
-    } catch { /* not connected / shared creds — fall through */ }
+  if (!client) return null;
+  try {
+    const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
+    const t = res.data?.[0]?.token;
+    if (t) return { token: t };
+  } catch {
+    /* not connected */
   }
-  // Testing fallback: personal API key.
-  const key = process.env.LINEAR_API_KEY;
-  if (key) return { token: key, kind: "apikey" };
   return null;
 }
 
 function authHeader(tok: LinearTok): string {
-  return tok.kind === "oauth" ? `Bearer ${tok.token}` : tok.token;
+  return `Bearer ${tok.token}`;
 }
 
 const AUTH_EXPIRED =
