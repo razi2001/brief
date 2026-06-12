@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import AutoRefresh from "@/components/AutoRefresh";
-import GettingStarted from "@/components/GettingStarted";
+import OnboardingClient from "@/components/OnboardingClient";
 import StatStrip, { type Stat } from "@/components/StatStrip";
 import TrendChart, { type TrendDay } from "@/components/TrendChart";
 import StatusBreakdown, { type StatusSegment } from "@/components/StatusBreakdown";
@@ -104,7 +104,9 @@ export default async function Dashboard() {
   ];
 
   const hasBriefs = list.length > 0;
-  const showGettingStarted = !ctx.trackerConnected || !hasBriefs || filed.length === 0;
+  // First-run wizard: shown until the user finishes/skips it. Users who already
+  // have filed tickets predate the wizard — never nag them with it.
+  const showOnboarding = !!ctx.user && !ctx.onboarded && filed.length === 0;
 
   return (
     <>
@@ -147,12 +149,20 @@ export default async function Dashboard() {
         </>
       ) : null}
 
-      {showGettingStarted && (
-        <GettingStarted
-          trackerConnected={ctx.trackerConnected}
-          hasBriefs={hasBriefs}
-          hasFiled={filed.length > 0}
-        />
+      {showOnboarding && (
+        <OnboardingClient initialRole={ctx.role} greetingName={ctx.greetingName} />
+      )}
+
+      {/* Onboarding done (or skipped) but nothing captured yet — one quiet
+          pointer at the extension instead of a blank page. */}
+      {!hasBriefs && !showOnboarding && (
+        <div className="card mt-10 px-5 py-10 text-center">
+          <p className="font-display text-xl text-ink">no tickets yet.</p>
+          <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted">
+            hit ✦ in the extension, talk through a bug, and it lands here —
+            written up and filed.
+          </p>
+        </div>
       )}
 
       <footer className="mt-16 border-t hairline pt-6 text-center">

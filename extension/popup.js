@@ -8,7 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { APP_URL, TICKETS_URL, getCloudToken, submitBrief, processBrief } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, uploadDraft, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -23,7 +23,6 @@ const exportBtn = document.getElementById('exportBtn');
 const exportCount = document.getElementById('exportCount');
 const exportDone = document.getElementById('exportDone');
 const bcCreateTicket = document.getElementById('bc-create-ticket');
-const bcStatus = document.getElementById('bc-status');
 let bcConnected = false;
 
 // Storage key for cached mic grant. Cache is good for the extension's
@@ -86,7 +85,9 @@ async function ensureContentScript(tabId) {
   await new Promise((r) => setTimeout(r, 50));
 }
 
-function showInlineError(msg) {
+// Inline error bar. `action` (optional) = { linkText, url } renders a tappable
+// fix-it link (e.g. "Connect a tracker →") after the message.
+function showInlineError(msg, action) {
   let bar = document.getElementById('errBar');
   if (!bar) {
     bar = document.createElement('div');
@@ -95,6 +96,19 @@ function showInlineError(msg) {
     document.getElementById('app').appendChild(bar);
   }
   bar.textContent = msg;
+  if (action?.linkText && action?.url) {
+    bar.appendChild(document.createTextNode(' '));
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'err-link';
+    a.textContent = action.linkText;
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: action.url });
+      window.close();
+    });
+    bar.appendChild(a);
+  }
   bar.classList.add('show');
 }
 
@@ -513,7 +527,14 @@ function updateChrome(items) {
 
   // When connected to Brief Cloud, "Create ticket" replaces "Export".
   if (ready > 0 && bcConnected) {
-    if (bcCreateTicket) bcCreateTicket.classList.add('is-on');
+    if (bcCreateTicket) {
+      bcCreateTicket.classList.add('is-on');
+      // Reflect how many briefs will be filed (never while a send is running —
+      // the in-flight progress label owns the button then).
+      if (!bcCreateTicket.classList.contains('sending')) {
+        bcCreateTicket.textContent = ready > 1 ? `Create ${ready} tickets` : 'Create ticket';
+      }
+    }
     exportBtn.classList.remove('is-on');
   } else if (ready > 0) {
     exportBtn.classList.add('is-on');
@@ -838,16 +859,11 @@ function bcBuildFilesAndMeta(b) {
   return { files, meta };
 }
 
-function bcSetStatus(html) {
-  if (bcStatus) bcStatus.innerHTML = html;
-}
-
 async function bcRefresh() {
   let token = null;
   try { token = await getCloudToken(); } catch {}
   bcConnected = !!token;
   // No connect/disconnect UI — pairing is automatic via the Brief Cloud button.
-  bcSetStatus('');
   // Re-evaluate which primary action (Create ticket vs Export) to show.
   try { updateChrome(await getInbox()); } catch {}
 }
@@ -855,10 +871,10 @@ async function bcRefresh() {
 // Reuse the green "Copied to clipboard" success overlay (#exportDone) to
 // confirm a cloud submit, then send the user straight to their briefs page in a
 // new tab and close the popup — no link to click, no "filling" limbo.
-function bcShowSentAndOpen() {
+function bcShowSentAndOpen(count) {
   const title = exportDone.querySelector('.export-done-title');
   const sub = exportDone.querySelector('.export-done-sub');
-  if (title) title.textContent = 'Queued ✓';
+  if (title) title.textContent = count > 1 ? `${count} tickets queued ✓` : 'Queued ✓';
   if (sub) sub.textContent = 'Opening your tickets…';
   exportDone.hidden = false;
   // Once it's queued, take the user to the tickets page to watch it land.
@@ -866,42 +882,71 @@ function bcShowSentAndOpen() {
   setTimeout(() => window.close(), 700);
 }
 
+// File EVERY ready brief (the button says how many). Sends run sequentially so
+// the button can show honest progress; briefs that fail stay in the inbox.
 bcCreateTicket?.addEventListener('click', async () => {
   clearInlineError();
   const items = await getInbox();
   const ready = items.filter(isReady);
   if (ready.length === 0) return;
-  // Cloud upload targets a single brief; use the first ready one.
-  const b = ready[0];
 
   bcCreateTicket.disabled = true;
   bcCreateTicket.classList.add('sending');
-  bcCreateTicket.innerHTML = '<span class="btn-spin"></span> Sending…';
-  try {
-    if (b.cloudBriefId) {
-      // Recording: already uploaded to the cloud as a draft on stop. Just file
-      // it — kick off processing on the existing brief (passing its name so the
-      // dashboard can label it while filing), no re-upload.
+
+  const sentIds = [];
+  let failure = null; // first error — shown after the loop
+  for (let i = 0; i < ready.length; i++) {
+    const b = ready[i];
+    bcCreateTicket.innerHTML =
+      '<span class="btn-spin"></span> ' +
+      (ready.length > 1 ? `Filing ${i + 1} of ${ready.length}…` : 'Filing…');
+    try {
+      // Recordings were already uploaded as a cloud draft on stop. Screenshot/
+      // text briefs upload here, once — the draft id is persisted on the inbox
+      // entry so a failed filing (e.g. no tracker yet) retries the SAME draft
+      // instead of uploading a duplicate.
+      if (!b.cloudBriefId) {
+        const { files, meta } = bcBuildFilesAndMeta(b);
+        b.cloudBriefId = await uploadDraft(files, meta);
+        const list = await getInbox();
+        const entry = list.find((x) => x.id === b.id);
+        if (entry) {
+          entry.cloudBriefId = b.cloudBriefId;
+          await setInbox(list);
+        }
+      }
+      // File it — kick off processing on the uploaded brief (passing its name
+      // so the dashboard can label it while filing).
       await processBrief(b.cloudBriefId, b.name);
-    } else {
-      // Screenshot / text brief: upload + process now.
-      const { files, meta } = bcBuildFilesAndMeta(b);
-      await submitBrief(files, meta);
+      sentIds.push(b.id);
+    } catch (err) {
+      failure = failure || err;
+      // No tracker connected → every remaining brief would fail identically.
+      if (err?.code === 'no_tracker') break;
     }
+  }
 
-    // Remove the filed brief from the inbox immediately so it disappears
-    // from the extension.
+  // Queued briefs leave the inbox; failed ones stay so nothing is lost.
+  if (sentIds.length) {
     const after = await getInbox();
-    await setInbox(after.filter((x) => x.id !== b.id));
-    bcSetStatus('');
+    await setInbox(after.filter((x) => !sentIds.includes(x.id)));
+  }
 
-    // Confirm, then open the dashboard in a new tab and close the popup.
-    bcShowSentAndOpen();
-  } catch (err) {
-    showInlineError(`Couldn’t send: ${err?.message || err}`);
-    bcCreateTicket.classList.remove('sending');
-    bcCreateTicket.textContent = 'Create ticket';
-    bcCreateTicket.disabled = false;
+  if (!failure) {
+    bcShowSentAndOpen(sentIds.length);
+    return;
+  }
+
+  bcCreateTicket.classList.remove('sending');
+  bcCreateTicket.disabled = false;
+  await refreshInbox(); // re-render what's left + restore the button label
+  if (failure?.code === 'no_tracker') {
+    showInlineError('No tracker connected yet — link Linear or Jira, then try again.', {
+      linkText: 'Connect a tracker →',
+      url: `${APP_URL}/connections`,
+    });
+  } else {
+    showInlineError(`Couldn’t send: ${failure?.message || failure}`);
   }
 });
 

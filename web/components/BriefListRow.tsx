@@ -40,6 +40,7 @@ export default function BriefListRow({
   brief: b,
   onArchive,
   onArchiveFailed,
+  onUnarchive,
   onDelete,
   leaving = false,
   selected = false,
@@ -49,6 +50,7 @@ export default function BriefListRow({
   brief: DashboardBrief;
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
+  onUnarchive?: (id: string) => void;
   onDelete?: (id: string) => void;
   leaving?: boolean;
   /** This row is selected. */
@@ -187,8 +189,23 @@ export default function BriefListRow({
       {!anySelected && (
         <div className="flex shrink-0 items-center gap-0.5 pl-1 pr-2.5">
           {b.archived ? (
-            <span className="mr-1 font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
-              archived
+            <span className="mr-1 inline-flex items-center gap-1.5">
+              <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
+                archived
+              </span>
+              {onUnarchive && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onUnarchive(b.id);
+                  }}
+                  className="font-mono text-[0.625rem] text-accent opacity-0 transition-opacity duration-150 hover:underline focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  restore
+                </button>
+              )}
             </span>
           ) : (
             <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />

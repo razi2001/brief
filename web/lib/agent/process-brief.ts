@@ -17,9 +17,9 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   const prefs = (instructions ?? "").trim();
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. Evidence files (screenshots/keyframes/recording) are handled automatically — they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
+    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. create_issue also accepts optional labels, priority, and state — set them ONLY when the user's ticket preferences (or the report itself) call for them, choosing from the names listed for the chosen ${noun} where possible. Evidence files (screenshots/keyframes/recording) are handled automatically — they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
     (prefs
-      ? `\n\nUSER TICKET PREFERENCES (follow these for wording/format/labels; they never override the banned-vocabulary or evidence rules):\n${prefs}`
+      ? `\n\nUSER TICKET PREFERENCES — these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), labels, priority, workflow state/status, wording, format, and what to include. If a preference names a label or state, pass it through create_issue's labels/state parameters — do not just mention it in the description. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "");
 
   const tools = [
@@ -42,6 +42,22 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
             targetId: { type: "string", description: `The ${noun} id to file into` },
             title: { type: "string" },
             description: { type: "string", description: "Markdown body" },
+            labels: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Label names to apply — only when the user's preferences or the report call for them. Prefer names from the chosen target's label list.",
+            },
+            priority: {
+              type: "string",
+              enum: ["urgent", "high", "medium", "low"],
+              description: "Issue priority — only when the preferences or report justify one.",
+            },
+            state: {
+              type: "string",
+              description:
+                "Workflow state/status name (e.g. \"Backlog\", \"Todo\") from the chosen target's state list — only when the preferences ask for one.",
+            },
           },
           required: ["targetId", "title", "description"],
           additionalProperties: false,
@@ -59,7 +75,17 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
       `No ${noun}s found in your ${tracker.kind === "jira" ? "Jira" : "Linear"} workspace — create a ${noun} there, then retry.`,
     );
   }
-  const targetList = targets.slice(0, 50).map((t) => `- ${t.name} (${t.key}) — id: ${t.id}`).join("\n");
+  // One line per target, with its usable labels/states (capped — this is prompt
+  // text) so preference-driven labels and statuses resolve to real names.
+  const targetList = targets
+    .slice(0, 50)
+    .map((t) => {
+      let line = `- ${t.name} (${t.key}) — id: ${t.id}`;
+      if (t.labels?.length) line += `\n  labels: ${t.labels.slice(0, 30).join(", ")}`;
+      if (t.states?.length) line += `\n  states: ${t.states.slice(0, 20).join(", ")}`;
+      return line;
+    })
+    .join("\n");
 
   const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
   const tail: any[] = [];
@@ -97,6 +123,13 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
               targetId: args.targetId,
               title: args.title,
               descriptionMarkdown: args.description,
+              labels: Array.isArray(args.labels)
+                ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
+                : undefined,
+              priority: ["urgent", "high", "medium", "low"].includes(args.priority)
+                ? args.priority
+                : undefined,
+              state: typeof args.state === "string" && args.state.trim() ? args.state : undefined,
               evidence: brief.evidence,
             });
             result = created;

@@ -1,5 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import type { Tracker } from "./tracker";
+import type { Tracker, TrackerPriority } from "./tracker";
 
 export type LinearTok = { token: string; kind: "oauth" | "apikey" };
 
@@ -106,7 +106,14 @@ export async function getIssuesByIdentifiers(
 
 export interface LinearApi {
   listTeams(): Promise<Array<{ id: string; name: string; key: string }>>;
-  createIssue(input: { teamId: string; title: string; description: string }): Promise<{ id: string; identifier: string; url: string; title: string }>;
+  createIssue(input: {
+    teamId: string;
+    title: string;
+    description: string;
+    labelIds?: string[];
+    priority?: number;
+    stateId?: string;
+  }): Promise<{ id: string; identifier: string; url: string; title: string }>;
   // Upload a file to Linear's asset storage and return its public asset URL.
   uploadAsset(input: { filename: string; contentType: string; bytes: Buffer }): Promise<string>;
 }
@@ -151,18 +158,74 @@ export function makeLinearApi(tok: LinearTok): LinearApi {
   };
 }
 
+/** Linear numeric priority for our normalized names (0 = none). */
+const LINEAR_PRIORITY: Record<TrackerPriority, number> = {
+  urgent: 1,
+  high: 2,
+  medium: 3,
+  low: 4,
+};
+
+type TeamMeta = {
+  name: string;
+  key: string;
+  states: Array<{ id: string; name: string }>;
+  labels: Array<{ id: string; name: string }>; // workspace + this team's labels
+};
+
 // Provider-agnostic adapter. Reuses makeLinearApi's upload+embed behaviour so
 // Linear tickets keep their inline images.
 export function makeLinearTracker(tok: LinearTok): Tracker {
   const api = makeLinearApi(tok);
+
+  // Teams with their workflow states + usable labels, fetched once per run and
+  // reused by fileIssue to resolve the names the agent passes into real ids.
+  let teamMeta: Map<string, TeamMeta> | null = null;
+  async function loadTeamMeta(): Promise<Map<string, TeamMeta>> {
+    if (teamMeta) return teamMeta;
+    const d = await linearGraphQL<{
+      teams: { nodes: Array<{ id: string; name: string; key: string; states: { nodes: Array<{ id: string; name: string }> }; labels: { nodes: Array<{ id: string; name: string }> } }> };
+      issueLabels: { nodes: Array<{ id: string; name: string; team: { id: string } | null }> };
+    }>(
+      tok,
+      `query TeamsWithMeta {
+        teams { nodes { id name key states { nodes { id name } } labels { nodes { id name } } } }
+        issueLabels(first: 250) { nodes { id name team { id } } }
+      }`,
+      {},
+    );
+    const workspaceLabels = (d.issueLabels?.nodes ?? []).filter((l) => !l.team);
+    teamMeta = new Map(
+      (d.teams?.nodes ?? []).map((t) => [
+        t.id,
+        {
+          name: t.name,
+          key: t.key,
+          states: t.states?.nodes ?? [],
+          labels: [...workspaceLabels, ...(t.labels?.nodes ?? [])],
+        },
+      ]),
+    );
+    return teamMeta;
+  }
+
   return {
     kind: "linear",
     targetNoun: "team",
     async listTargets() {
-      const teams = await api.listTeams();
-      return teams.map((t) => ({ id: t.id, key: t.key, name: t.name }));
+      // Include each team's labels/states so the agent can apply the user's
+      // ticket preferences (e.g. "label every ticket inbound", "status Backlog")
+      // with real names instead of guessing.
+      const d = await loadTeamMeta();
+      return [...d.entries()].map(([id, meta]) => ({
+        id,
+        key: meta.key,
+        name: meta.name,
+        labels: meta.labels.map((l) => l.name),
+        states: meta.states.map((s) => s.name),
+      }));
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, evidence }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, evidence }) {
       let description = descriptionMarkdown;
       // Upload each evidence file and embed it inline (Linear-hosted asset URL).
       const embeds: string[] = [];
@@ -188,7 +251,52 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       if (embeds.length && !description.includes("uploads.linear.app")) {
         description += "\n\n## Evidence\n\n" + embeds.join("\n\n");
       }
-      const issue = await api.createIssue({ teamId: targetId, title, description });
+
+      // Resolve the agent's label/state names to ids — best-effort, never fatal.
+      let labelIds: string[] | undefined;
+      let stateId: string | undefined;
+      try {
+        const meta = (await loadTeamMeta()).get(targetId);
+        const norm = (s: string) => s.trim().toLowerCase();
+        if (labels?.length && meta) {
+          const ids: string[] = [];
+          for (const want of labels) {
+            const found = meta.labels.find((l) => norm(l.name) === norm(want));
+            if (found) {
+              ids.push(found.id);
+              continue;
+            }
+            // The user's preferences may name a label that doesn't exist yet
+            // ("label every ticket inbound") — create it on the team so the
+            // preference is honored instead of silently dropped.
+            try {
+              const c = await linearGraphQL<{ issueLabelCreate: { success: boolean; issueLabel: { id: string } } }>(
+                tok,
+                `mutation LabelCreate($input: IssueLabelCreateInput!) { issueLabelCreate(input: $input) { success issueLabel { id } } }`,
+                { input: { name: want.trim(), teamId: targetId } },
+              );
+              if (c.issueLabelCreate?.success) ids.push(c.issueLabelCreate.issueLabel.id);
+            } catch (err) {
+              console.warn("[linear-tracker] label create failed:", want, err);
+            }
+          }
+          if (ids.length) labelIds = ids;
+        }
+        if (state && meta) {
+          stateId = meta.states.find((s) => norm(s.name) === norm(state))?.id;
+        }
+      } catch (err) {
+        console.warn("[linear-tracker] label/state resolution failed:", err);
+      }
+
+      const issue = await api.createIssue({
+        teamId: targetId,
+        title,
+        description,
+        ...(labelIds ? { labelIds } : {}),
+        ...(priority && LINEAR_PRIORITY[priority] ? { priority: LINEAR_PRIORITY[priority] } : {}),
+        ...(stateId ? { stateId } : {}),
+      });
       return { id: issue.id, identifier: issue.identifier, url: issue.url, title: issue.title };
     },
   };

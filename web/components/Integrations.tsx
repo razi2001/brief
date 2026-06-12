@@ -2,55 +2,17 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useUser, useReverification } from "@clerk/nextjs";
+import { useReverification } from "@clerk/nextjs";
 import { TrackerLogo } from "./TrackerLogo";
+import { TRACKER_DEFS, useTrackerConnect, type TrackerDef } from "./useTrackerConnect";
 
 /**
  * Dedicated Integrations section for trackers (Linear, Jira). Connections are
  * managed here via the Clerk client API rather than through the `<UserProfile/>`
- * "Connected accounts" panel.
- *
- * Clerk client API used (verified against @clerk/types in node_modules,
- * matching @clerk/nextjs v7.4.3):
- *   - user.createExternalAccount({ strategy, redirectUrl }): Promise<ExternalAccountResource>
- *       The returned account's verification.externalVerificationRedirectURL (a URL | null)
- *       is the OAuth URL the browser must navigate to.
- *   - externalAccount.destroy(): Promise<void>  — disconnects the account.
- *   - user.reload(): Promise<UserResource>      — refreshes externalAccounts after destroy.
+ * "Connected accounts" panel. The connect flow itself lives in
+ * useTrackerConnect (shared with the onboarding wizard); this component adds
+ * the card UI and the disconnect flow.
  */
-
-type Tracker = {
-  key: "linear" | "jira";
-  name: string;
-  caption: string;
-  // Substring matched against externalAccount.provider (e.g. "oauth_linear",
-  // "oauth_atlassian"), and the strategy passed to createExternalAccount.
-  providerMatch: string;
-  strategy: "oauth_linear" | "oauth_atlassian";
-  // Inline copy shown when the provider isn't enabled in the Clerk instance.
-  notEnabledHint: string;
-};
-
-const TRACKERS: Tracker[] = [
-  {
-    key: "linear",
-    name: "Linear",
-    caption: "Files tickets with embedded evidence.",
-    providerMatch: "linear",
-    strategy: "oauth_linear",
-    notEnabledHint:
-      "Linear isn't enabled yet — add the Linear connection in Clerk.",
-  },
-  {
-    key: "jira",
-    name: "Jira",
-    caption: "Atlassian Cloud — file to a project.",
-    providerMatch: "atlassian",
-    strategy: "oauth_atlassian",
-    notEnabledHint:
-      "Jira isn't enabled yet — add the Atlassian connection in Clerk.",
-  },
-];
 
 function SkeletonCard() {
   return (
@@ -68,10 +30,17 @@ function SkeletonCard() {
 }
 
 export default function Integrations() {
-  const { isLoaded, user } = useUser();
-  // Per-tracker busy + error state, keyed by tracker key.
-  const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const {
+    isLoaded,
+    user,
+    busy,
+    errors,
+    setTrackerBusy,
+    setTrackerError,
+    connectedAccount,
+    pendingAccount,
+    connect,
+  } = useTrackerConnect("/dashboard");
   // Set when the inline disconnect ultimately fails (user cancels the
   // reverification, or some other error), so we point them to account settings.
   const [needsAccount, setNeedsAccount] = useState<Record<string, boolean>>({});
@@ -96,62 +65,7 @@ export default function Integrations() {
     );
   }
 
-  const setTrackerBusy = (key: string, value: boolean) =>
-    setBusy((b) => ({ ...b, [key]: value }));
-  const setTrackerError = (key: string, value: string) =>
-    setErrors((e) => ({ ...e, [key]: value }));
-
-  // Only a VERIFIED external account counts as connected. Clerk creates an
-  // (unverified) record even when the OAuth flow fails or is abandoned, so
-  // checking mere existence would wrongly show "Connected".
-  const accountFor = (providerMatch: string, verified: boolean) =>
-    user.externalAccounts.find(
-      (a) =>
-        (a.provider ?? "").toLowerCase().includes(providerMatch) &&
-        (verified
-          ? a.verification?.status === "verified"
-          : a.verification?.status !== "verified"),
-    );
-  const connectedAccount = (providerMatch: string) => accountFor(providerMatch, true);
-  const pendingAccount = (providerMatch: string) => accountFor(providerMatch, false);
-
-  async function handleConnect(t: Tracker) {
-    setTrackerError(t.key, "");
-    setTrackerBusy(t.key, true);
-    try {
-      // Clear out a previous failed/abandoned attempt so it can't linger and
-      // look "connected" — and so the new attempt starts clean.
-      const stale = pendingAccount(t.providerMatch);
-      if (stale) {
-        try {
-          await stale.destroy();
-          await user!.reload();
-        } catch {
-          /* ignore — proceed with a fresh attempt */
-        }
-      }
-      const externalAccount = await user!.createExternalAccount({
-        strategy: t.strategy,
-        redirectUrl: window.location.origin + "/dashboard",
-      });
-      const redirectUrl =
-        externalAccount.verification?.externalVerificationRedirectURL;
-      if (redirectUrl) {
-        // externalVerificationRedirectURL is a URL object; send the browser to it.
-        window.location.href = redirectUrl.toString();
-        return; // navigating away — keep the button in its busy state.
-      }
-      // No redirect URL returned: nothing to navigate to. Surface a hint.
-      setTrackerError(t.key, t.notEnabledHint);
-      setTrackerBusy(t.key, false);
-    } catch {
-      // Most commonly the provider isn't enabled in the Clerk instance.
-      setTrackerError(t.key, t.notEnabledHint);
-      setTrackerBusy(t.key, false);
-    }
-  }
-
-  async function handleDisconnect(t: Tracker) {
+  async function handleDisconnect(t: TrackerDef) {
     const account = connectedAccount(t.providerMatch) ?? pendingAccount(t.providerMatch);
     if (!account) return;
     setTrackerError(t.key, "");
@@ -175,7 +89,7 @@ export default function Integrations() {
       <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers · MCP</h2>
 
       <div className="mt-3 flex flex-col gap-3">
-        {TRACKERS.map((t) => {
+        {TRACKER_DEFS.map((t) => {
           const account = connectedAccount(t.providerMatch);
           const isConnected = !!account;
           const pending = !isConnected && !!pendingAccount(t.providerMatch);
@@ -213,7 +127,7 @@ export default function Integrations() {
                 ) : (
                   <button
                     type="button"
-                    onClick={() => handleConnect(t)}
+                    onClick={() => connect(t)}
                     disabled={isBusy}
                     className="shrink-0 text-xs tracking-wide text-accent no-underline hover:underline disabled:opacity-50"
                   >

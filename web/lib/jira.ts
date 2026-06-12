@@ -363,7 +363,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
       }
       return out;
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, evidence }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, evidence }) {
       // We need the project key to look up issue types and build the browse url.
       const targets = await this.listTargets();
       const project = targets.find((t) => t.id === targetId || t.key === targetId);
@@ -376,18 +376,44 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         body += `\n\nEvidence attached: ${names} (see the Attachments panel).`;
       }
 
-      const createRes = await jiraFetch(tok, base, `/issue`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fields: {
-            project: { id: project.id },
-            summary: title,
-            issuetype: { id: issueTypeId },
-            description: markdownToAdf(body),
-          },
-        }),
-      });
+      const baseFields: Record<string, unknown> = {
+        project: { id: project.id },
+        summary: title,
+        issuetype: { id: issueTypeId },
+        description: markdownToAdf(body),
+      };
+      // Preference-driven extras. Jira labels can't contain spaces; priority is
+      // by standard name. Both are best-effort: if the project's create screen
+      // rejects them (400), retry without so the filing never fails over them.
+      const extraFields: Record<string, unknown> = {};
+      if (labels?.length) {
+        extraFields.labels = labels.map((l) => l.trim().replace(/\s+/g, "-")).filter(Boolean);
+      }
+      if (priority) {
+        const JIRA_PRIORITY: Record<string, string> = {
+          urgent: "Highest",
+          high: "High",
+          medium: "Medium",
+          low: "Low",
+        };
+        if (JIRA_PRIORITY[priority]) extraFields.priority = { name: JIRA_PRIORITY[priority] };
+      }
+
+      const createIssue = (fields: Record<string, unknown>) =>
+        jiraFetch(tok, base, `/issue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fields }),
+        });
+
+      const hasExtras = Object.keys(extraFields).length > 0;
+      let createRes = await createIssue({ ...baseFields, ...extraFields });
+      if (!createRes.ok && hasExtras && createRes.status === 400) {
+        console.warn(
+          `[jira-tracker] create with labels/priority rejected (400) — retrying without: ${await createRes.text()}`,
+        );
+        createRes = await createIssue(baseFields);
+      }
       if (!createRes.ok) throw new Error(`Jira issue create failed: ${createRes.status} ${await createRes.text()}`);
       const created = (await createRes.json()) as { id: string; key: string };
 

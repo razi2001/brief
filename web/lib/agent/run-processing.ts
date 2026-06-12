@@ -41,10 +41,31 @@ export async function processBriefById(userId: string, briefId: string): Promise
       if (cloud) tracker = makeJiraTracker(jiraTok, cloud);
     }
   }
-  if (!tracker) return { ok: false, status: 409, error: "no tracker connected" };
+  if (!tracker) {
+    // Don't leave the row stuck in 'processing' (the process route flips it
+    // before queueing this run) — fail it honestly with an actionable message
+    // so the dashboard can show it with a Retry instead of a silent stall.
+    await admin
+      .from("briefs")
+      .update({
+        status: "failed",
+        error: "No tracker connected — connect Linear or Jira in Connections, then retry.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", briefId);
+    return {
+      ok: false,
+      status: 409,
+      error: "No tracker connected — connect Linear or Jira in Connections, then retry.",
+    };
+  }
 
-  // Account-level ticket guidance (Clerk privateMetadata), applied by the agent.
-  const { ticketGuidance } = await getUserSettings(userId);
+  // Account-level ticket guidance (Clerk privateMetadata), applied by the
+  // agent. The reporter's role (from onboarding) rides along as light context.
+  const { ticketGuidance, role } = await getUserSettings(userId);
+  const guidance = [role ? `The reporter's role: ${role}.` : "", ticketGuidance]
+    .filter(Boolean)
+    .join("\n");
 
   await admin.from("briefs").update({ status: "processing" }).eq("id", briefId);
   try {
@@ -96,7 +117,7 @@ export async function processBriefById(userId: string, briefId: string): Promise
       `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} evidence=${evidence.length}`
     );
 
-    const result = await processBrief({ json, images, evidence }, tracker, ticketGuidance);
+    const result = await processBrief({ json, images, evidence }, tracker, guidance);
 
     await admin
       .from("briefs")

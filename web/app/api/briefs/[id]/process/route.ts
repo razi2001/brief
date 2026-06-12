@@ -3,6 +3,8 @@ import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { processBriefById } from "@/lib/agent/run-processing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
+import { getLinearToken } from "@/lib/linear";
+import { getJiraAuth } from "@/lib/jira";
 
 export const maxDuration = 300;
 
@@ -15,6 +17,21 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const token = bearerFromHeader(req.headers.get("authorization"));
   const userId = token ? await userIdForToken(token) : null;
   if (!userId) return jsonCors({ error: "unauthorized" }, { status: 401 });
+
+  // Refuse up front when no tracker is connected, BEFORE flipping the row to
+  // 'processing' — the extension gets an immediate, actionable 409 instead of a
+  // brief that silently stalls and times out. The brief stays an uploaded draft
+  // so it can be filed once a tracker is linked.
+  const hasTracker = (await getLinearToken(userId)) ?? (await getJiraAuth(userId));
+  if (!hasTracker) {
+    return jsonCors(
+      {
+        error: "no_tracker",
+        message: "No tracker connected — connect Linear or Jira in Brief Cloud first.",
+      },
+      { status: 409 },
+    );
+  }
 
   // Optional brief name — recordings are uploaded as a draft without one, so the
   // popup passes it now (at file time) for the dashboard to show while filing.

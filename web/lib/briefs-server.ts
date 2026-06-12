@@ -80,6 +80,10 @@ export type TrackerContext = {
   trackerConnected: boolean;
   ticketGuidance: string;
   greetingName: string;
+  /** Reporter role captured during onboarding ("" until answered). */
+  role: string;
+  /** True once the first-run onboarding wizard was finished or skipped. */
+  onboarded: boolean;
 };
 
 /**
@@ -107,6 +111,8 @@ export async function getTrackerContext(): Promise<TrackerContext> {
   const hasJira = !!user?.externalAccounts?.some((a) => matches(a, "atlassian") && isLive(a));
 
   const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";
+  const role = ((user?.privateMetadata?.role as string) ?? "").trim();
+  const onboarded = !!user?.privateMetadata?.onboardedAt;
   const greetingName =
     user?.firstName ??
     user?.primaryEmailAddress?.emailAddress?.split("@")[0] ??
@@ -119,6 +125,8 @@ export async function getTrackerContext(): Promise<TrackerContext> {
     trackerConnected: hasLinear || hasJira,
     ticketGuidance,
     greetingName,
+    role,
+    onboarded,
   };
 }
 

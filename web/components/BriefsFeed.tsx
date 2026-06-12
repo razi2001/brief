@@ -9,12 +9,13 @@ import type { DashboardBrief } from "@/lib/brief-types";
 
 export type Counts = { filed: number; processing: number; failed: number };
 
-// Synthetic (non-tracker-state) filter keys. Failed/"didn't file" briefs are not
-// shown at all (see liveBriefs), so there's no failed key.
+// Synthetic (non-tracker-state) filter keys.
 const KEY_PROCESSING = "__processing";
 const KEY_FILED = "__filed"; // filed briefs with no live tracker state
+const KEY_FAILED = "__failed"; // briefs that couldn't file (shown with a Retry)
 
 function filterKeyOf(b: DashboardBrief): string {
+  if (b.status === "failed") return KEY_FAILED;
   if (b.status === "processing" || b.status === "uploaded") return KEY_PROCESSING;
   if (b.status === "filed") {
     return b.ticket?.stateName ? `state:${b.ticket.stateName}` : KEY_FILED;
@@ -26,9 +27,11 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   const states = new Map<string, FilterOption>();
   let hasBareFiled = false;
   let hasProcessing = false;
+  let hasFailed = false;
 
   for (const b of briefs) {
-    if (b.status === "processing" || b.status === "uploaded") hasProcessing = true;
+    if (b.status === "failed") hasFailed = true;
+    else if (b.status === "processing" || b.status === "uploaded") hasProcessing = true;
     else if (b.status === "filed") {
       if (b.ticket?.stateName) {
         const key = `state:${b.ticket.stateName}`;
@@ -49,6 +52,8 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   if (hasBareFiled) opts.push({ key: KEY_FILED, label: "Filed", color: "#2e7d32" });
   if (hasProcessing)
     opts.push({ key: KEY_PROCESSING, label: "In progress", color: "#dd6936" });
+  if (hasFailed)
+    opts.push({ key: KEY_FAILED, label: "Didn't file", color: "#c62828" });
 
   return opts;
 }
@@ -74,6 +79,8 @@ function SummaryLine({ counts }: { counts: Counts }) {
   if (counts.filed > 0) parts.push({ color: "#2e7d32", text: `${counts.filed} filed` });
   if (counts.processing > 0)
     parts.push({ color: "#dd6936", text: `${counts.processing} in progress`, pulse: true });
+  if (counts.failed > 0)
+    parts.push({ color: "#c62828", text: `${counts.failed} didn't file` });
 
   if (parts.length === 0)
     return <p className="mt-1.5 font-mono text-xs text-muted">nothing yet</p>;
@@ -96,9 +103,10 @@ function SummaryLine({ counts }: { counts: Counts }) {
 
 /**
  * The Briefs feed: editorial heading + summary line, a funnel-icon filter
- * popover, and the rich brief cards. Optimistic archive (instant exit animation,
- * fire-and-forget POST) and AutoRefresh while anything is processing. Failed
- * briefs are hidden by default and surfaced via a quiet "didn't file — show".
+ * popover, and the rich brief cards. Optimistic archive/restore/delete
+ * (fire-and-forget POSTs) and AutoRefresh while anything is processing. Failed
+ * briefs are shown with their error and a Retry — and can be filtered out via
+ * the "Didn't file" status option.
  *
  * Extracted from the old DashboardTabs so it can live on its own /tickets route.
  */
@@ -112,27 +120,42 @@ export default function BriefsFeed({
   isProcessing: boolean;
 }) {
   const [filterOpen, setFilterOpen] = useState(false);
+  // Optimistic state for this session: archives, restores, and deletes.
   const [archivedIds, setArchivedIds] = useState<Set<string>>(new Set());
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const [leaving, setLeaving] = useState<Set<string>>(new Set());
   // Show archived tickets? Off by default — and because it's local state it
   // resets to off every time the page is (re)loaded.
   const [showArchived, setShowArchived] = useState(false);
   // Pending exit-animation timers, so a failed archive can cancel the
-  // "commit to archivedIds" step and restore the card cleanly.
+  // commit step and restore the card cleanly.
   const exitTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  const onArchive = (id: string) => {
+  const addTo = (set: typeof setArchivedIds) => (id: string) =>
+    set((prev) => new Set(prev).add(id));
+  const dropFrom = (set: typeof setArchivedIds) => (id: string) =>
+    set((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+
+  // Swipe the row out, then commit (mark archived / deleted). When archived
+  // rows are visible the archive commit is immediate — the row stays in place
+  // and just flips to its archived look, no exit animation.
+  const swipeOut = (id: string, commit: (id: string) => void) => {
     setLeaving((prev) => new Set(prev).add(id));
     const t = setTimeout(() => {
-      setArchivedIds((prev) => new Set(prev).add(id));
-      setLeaving((prev) => {
-        const next = new Set(prev);
-        next.delete(id);
-        return next;
-      });
+      commit(id);
+      dropFrom(setLeaving)(id);
       exitTimers.current.delete(id);
     }, 340);
     exitTimers.current.set(id, t);
+  };
+
+  const onArchive = (id: string) => {
+    if (showArchived) addTo(setArchivedIds)(id);
+    else swipeOut(id, addTo(setArchivedIds));
   };
 
   // The server write failed for good — undo the optimistic removal so the card
@@ -144,33 +167,53 @@ export default function BriefsFeed({
       clearTimeout(t);
       exitTimers.current.delete(id);
     }
-    setLeaving((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-    setArchivedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
+    dropFrom(setLeaving)(id);
+    dropFrom(setArchivedIds)(id);
+  };
+
+  // Briefs un-archived in this session (optimistic restore, mirrors archivedIds).
+  const [unarchivedIds, setUnarchivedIds] = useState<Set<string>>(new Set());
+
+  const onUnarchive = (id: string) => {
+    addTo(setUnarchivedIds)(id);
+    dropFrom(setArchivedIds)(id);
+    fetch(`/api/briefs/${id}/archive`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ unarchive: true }),
+      keepalive: true,
+    }).catch(() => {
+      // Honest feedback: the restore didn't land, flip it back to archived.
+      dropFrom(setUnarchivedIds)(id);
     });
   };
 
+  // Effective archived state = server flag, overridden by this session's
+  // optimistic archives/restores. An archived brief is never dropped from the
+  // data — it's just hidden unless "Show archived" is on, so toggling the
+  // filter shows briefs archived seconds ago too.
+  const isArchived = (b: DashboardBrief) =>
+    archivedIds.has(b.id) || (!!b.archived && !unarchivedIds.has(b.id));
+
   // Hidden from the feed:
-  //  - failed: the system retries for up to 10 min, then quietly gives up.
   //  - uploaded: a not-yet-filed draft (e.g. a recording uploaded on stop) that
   //    the user files from the extension — it isn't a real ticket yet.
   //  - archived: only shown when the "Show archived" toggle is on.
+  // Failed briefs ARE shown (with the error and a Retry) — hiding them made a
+  // failed filing look like the ticket silently vanished.
   const liveBriefs = useMemo(
     () =>
-      briefs.filter(
-        (b) =>
-          !archivedIds.has(b.id) &&
-          b.status !== "failed" &&
-          b.status !== "uploaded" &&
-          (showArchived || !b.archived),
-      ),
-    [briefs, archivedIds, showArchived],
+      briefs
+        .filter(
+          (b) =>
+            !deletedIds.has(b.id) &&
+            b.status !== "uploaded" &&
+            (showArchived || !isArchived(b)),
+        )
+        .map((b) => (isArchived(b) === !!b.archived ? b : { ...b, archived: isArchived(b) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [briefs, archivedIds, unarchivedIds, deletedIds, showArchived],
   );
 
   const options = useMemo(() => deriveOptions(liveBriefs), [liveBriefs]);
@@ -210,15 +253,21 @@ export default function BriefsFeed({
   const filteredOut = liveBriefs.length - visible.length;
 
   const liveCounts = useMemo<Counts>(() => {
-    const next = { ...counts, failed: 0 };
-    for (const b of briefs) {
-      if (!archivedIds.has(b.id)) continue;
+    const next = { ...counts };
+    const bump = (b: DashboardBrief, delta: number) => {
       const k = filterKeyOf(b);
-      if (k === KEY_PROCESSING) next.processing = Math.max(0, next.processing - 1);
-      else next.filed = Math.max(0, next.filed - 1);
+      if (k === KEY_PROCESSING) next.processing = Math.max(0, next.processing + delta);
+      else if (k === KEY_FAILED) next.failed = Math.max(0, next.failed + delta);
+      else next.filed = Math.max(0, next.filed + delta);
+    };
+    for (const b of briefs) {
+      // Server counts cover the active (non-archived) set; adjust for this
+      // session's optimistic archives/deletes (out) and restores (back in).
+      if (!b.archived && (archivedIds.has(b.id) || deletedIds.has(b.id))) bump(b, -1);
+      else if (b.archived && unarchivedIds.has(b.id)) bump(b, +1);
     }
     return next;
-  }, [counts, briefs, archivedIds]);
+  }, [counts, briefs, archivedIds, deletedIds, unarchivedIds]);
 
   // ---- Batch selection (archive / delete many) ----
   // No "select mode": a checkbox shows on row hover; selecting any row reveals
@@ -242,10 +291,13 @@ export default function BriefsFeed({
   const toggleSelectAll = () =>
     setSelected(allVisibleSelected ? new Set() : new Set(visible.map((b) => b.id)));
 
-  // Fire a write for a set of ids, optimistically swiping the rows out first
-  // (keepalive so it lands even if the page changes).
+  // Fire a write for a set of ids, optimistically updating the rows first
+  // (keepalive so it lands even if the page changes). Deletes always swipe out;
+  // archives flip in place when archived rows are visible.
   const runIds = (ids: string[], endpoint: "archive" | "delete") => {
-    ids.forEach((id) => onArchive(id));
+    ids.forEach((id) =>
+      endpoint === "archive" ? onArchive(id) : swipeOut(id, addTo(setDeletedIds)),
+    );
     ids.forEach((id) =>
       fetch(`/api/briefs/${id}/${endpoint}`, {
         method: "POST",
@@ -357,6 +409,7 @@ export default function BriefsFeed({
               brief={b}
               onArchive={onArchive}
               onArchiveFailed={onArchiveFailed}
+              onUnarchive={onUnarchive}
               onDelete={deleteOne}
               leaving={leaving.has(b.id)}
               selected={selected.has(b.id)}
