@@ -72,14 +72,21 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   const connectedAccount = (providerMatch: string) => accountFor(providerMatch, true);
   const pendingAccount = (providerMatch: string) => accountFor(providerMatch, false);
 
-  // The REASON the last OAuth attempt didn't verify, straight from Clerk —
-  // far more actionable than a generic "didn't finish". Empty when there's no
-  // pending record or Clerk attached no error to it.
+  // The REASON the last OAuth attempt didn't verify — rewritten to something
+  // actionable where we recognize the Clerk error, otherwise Clerk's own text.
+  // Empty when there's no pending record or Clerk attached no error to it.
   const pendingError = (providerMatch: string): string => {
     const v = pendingAccount(providerMatch)?.verification;
     if (!v || v.status === "verified") return "";
-    const err = v.error;
-    return err?.longMessage || err?.message || "";
+    const raw = v.error?.longMessage || v.error?.message || "";
+    const def = TRACKER_DEFS.find((t) => t.providerMatch === providerMatch);
+    const name = def?.name ?? "tracker";
+    // Clerk's account-linking guard: this OAuth identity/email already belongs
+    // to a different Brief account. Tell the user what to actually do.
+    if (/claimed by another user|already.*(connected|linked|associated)/i.test(raw)) {
+      return `This ${name} account is already linked to a different Brief account. Disconnect it there (or sign in with that account) before connecting it here.`;
+    }
+    return raw;
   };
 
   async function connect(t: TrackerDef) {
