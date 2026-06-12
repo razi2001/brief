@@ -1,6 +1,21 @@
 // Pure helpers for the ticket snapshot sync (persisted last-known title/state
 // of a filed ticket). Kept free of server-only imports so they're unit-testable.
 
+/**
+ * Infer the tracker a filed brief went to from its ticket URL. Decided by the
+ * HOSTNAME only - Linear puts the ticket title in the URL slug, so a ticket
+ * *about* Jira (".../issue/RAZ-181/...-after-switching-to-jira") must not be
+ * misread as a Jira ticket.
+ */
+export function providerOf(url?: string | null): "linear" | "jira" {
+  try {
+    const host = new URL(url ?? "").hostname.toLowerCase();
+    return host.includes("atlassian") || host.includes("jira") ? "jira" : "linear";
+  } catch {
+    return "linear";
+  }
+}
+
 /** Split a list into consecutive chunks of at most `size` items. */
 export function chunk<T>(list: T[], size: number): T[][] {
   const out: T[][] = [];

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getLinearToken, getIssuesByIdentifiers } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, getJiraIssues } from "@/lib/jira";
 import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
-import { ticketSnapshotPatch } from "@/lib/ticket-sync";
+import { providerOf, ticketSnapshotPatch } from "@/lib/ticket-sync";
 
 /**
  * Server-side helpers shared by the Dashboard (/dashboard) and Briefs (/briefs)
@@ -42,11 +42,8 @@ export const BRIEF_COLUMNS =
  */
 export const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000;
 
-/** Infer the tracker a filed brief went to, from its ticket URL. */
-export function providerOf(url?: string | null): "linear" | "jira" {
-  const u = (url ?? "").toLowerCase();
-  return u.includes("atlassian") || u.includes("jira") ? "jira" : "linear";
-}
+// Re-exported for existing imports; lives in ticket-sync.ts (pure, unit-tested).
+export { providerOf };
 
 /**
  * Flip any of the user's briefs that have been stuck in uploaded/processing

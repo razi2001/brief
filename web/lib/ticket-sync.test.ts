@@ -1,5 +1,29 @@
 import { describe, it, expect } from "vitest";
-import { chunk, ticketSnapshotPatch } from "./ticket-sync";
+import { chunk, providerOf, ticketSnapshotPatch } from "./ticket-sync";
+
+describe("providerOf", () => {
+  it("detects Jira from the hostname", () => {
+    expect(providerOf("https://acme.atlassian.net/browse/PROJ-42")).toBe("jira");
+    expect(providerOf("https://jira.mycompany.com/browse/PROJ-42")).toBe("jira");
+  });
+
+  it("detects Linear from the hostname", () => {
+    expect(providerOf("https://linear.app/acme/issue/RAZ-180/some-slug")).toBe("linear");
+  });
+
+  it("ignores 'jira' appearing in the ticket-title slug (RAZ-181 regression)", () => {
+    expect(
+      providerOf(
+        "https://linear.app/acme/issue/RAZ-181/connections-page-still-shows-the-linear-card-after-switching-to-jira",
+      ),
+    ).toBe("linear");
+  });
+
+  it("defaults to linear for missing or unparseable urls", () => {
+    expect(providerOf(null)).toBe("linear");
+    expect(providerOf("not a url")).toBe("linear");
+  });
+});
 
 describe("chunk", () => {
   it("splits a list into fixed-size chunks", () => {
