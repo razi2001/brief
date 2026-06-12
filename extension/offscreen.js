@@ -38,7 +38,11 @@ function log(...args) {
 
 // ---------- Message router ----------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.target !== 'offscreen') return false;
+  // Only accept the copy relayed by background. The bar is an extension-origin
+  // iframe, so its sendMessage BROADCASTS here directly too - without this
+  // guard every command runs twice (double STOP = duplicate uploads, a blob
+  // missing its final chunk, and broken UPLOADS_PENDING accounting).
+  if (message?.target !== 'offscreen' || !message.viaBackground) return false;
 
   (async () => {
     try {
@@ -257,6 +261,9 @@ async function collectRecording() {
     keyframes: keyframes.slice(),
     durationMs: Date.now() - recordingStartMs,
     startedAtMs: recordingStartMs,
+    // Snapshot the lang NOW - a new recording can reuse this document while
+    // the upload is still running and would clobber the module-level value.
+    lang: recordingLang,
   };
   recordedChunks = [];
   keyframes = [];
@@ -298,7 +305,7 @@ async function relayFinished(data, transcriptFinalFromBar, transcriptChunksFromB
 // draft fields from the inbox entry) and upload the draft. The bar is already
 // closed - failures fall back to the local zip download so the recording is
 // never lost, and the result lands on the inbox entry via UPLOAD_RESULT.
-async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChunks, blob, mimeType, keyframes: frames, durationMs, startedAtMs }) {
+async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChunks, blob, mimeType, keyframes: frames, durationMs, startedAtMs, lang }) {
   // Page meta + event log collected by background during the recording.
   let meta = { events: [], pageUrl: null, pageTitle: null };
   try {
@@ -329,7 +336,7 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
     pageUrl: meta.pageUrl,
     pageTitle: meta.pageTitle,
     userAgent: navigator.userAgent,
-    transcriptLang: recordingLang,
+    transcriptLang: lang || recordingLang,
     transcript: transcriptFinal || null,
     transcriptChunks: transcriptChunks || [],
     keyframes: keyframeMeta,

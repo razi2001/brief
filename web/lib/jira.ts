@@ -467,7 +467,11 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         })(),
         (async () => {
           try {
-            const r = await jiraFetch(tok, base, `/user/assignable/search?project=${encodeURIComponent(key)}&maxResults=50`);
+            // Jira's assignable-user search documents `query` as required
+            // (400 without it on some sites) - try with an empty query first,
+            // then without the param, and degrade to [] if both fail.
+            let r = await jiraFetch(tok, base, `/user/assignable/search?project=${encodeURIComponent(key)}&query=&maxResults=50`);
+            if (!r.ok) r = await jiraFetch(tok, base, `/user/assignable/search?project=${encodeURIComponent(key)}&maxResults=50`);
             if (!r.ok) return [] as string[];
             const j = (await r.json()) as Array<{ displayName?: string }>;
             return j.map((u) => u.displayName ?? "").filter(Boolean);

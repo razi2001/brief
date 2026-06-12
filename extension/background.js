@@ -129,7 +129,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await ensureOffscreenDocument();
         // Remember which tab to relay results back to
         if (sender?.tab?.id) ACTIVE_BAR_TAB_ID = sender.tab.id;
-        const res = await chrome.runtime.sendMessage(message);
+        // Tag the forwarded copy - offscreen ignores untagged (direct
+        // broadcast) copies so each command runs exactly once.
+        const res = await chrome.runtime.sendMessage({ ...message, viaBackground: true });
         // A STOP that goes the cloud route starts a BACKGROUND upload in the
         // offscreen document - guard it from teardown until OFFSCREEN_DONE.
         if (message.type === 'STOP' && res?.mode === 'cloud') UPLOADS_PENDING++;
@@ -192,9 +194,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'BRIEF_STOP':
           STATE.recording = false;
-          // Do NOT close the offscreen document here - it may still be
-          // uploading the recording to Brief Cloud (or relaying the legacy
-          // zip payload). It reports OFFSCREEN_DONE when it's finished.
+          // Close the offscreen document UNLESS it's still uploading to
+          // Brief Cloud in the background (UPLOADS_PENDING was incremented
+          // by the STOP relay before the bar could send BRIEF_STOP). This
+          // also covers the legacy-relay and cancel paths, where the
+          // OFFSCREEN_DONE message arrives while recording is still flagged
+          // and therefore skips the close.
+          if (UPLOADS_PENDING === 0) closeOffscreenDocument().catch(() => {});
           sendResponse({ ok: true });
           break;
 

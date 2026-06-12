@@ -286,7 +286,18 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
     // repair (update_issue) until the preferences actually landed. It ends
     // when the model answers without tool calls, or at the turn cap.
     for (let i = 0; i < 14; i++) {
-      const resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
+      let resp;
+      try {
+        resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
+      } catch (e) {
+        // The issue already exists - a failed VERIFICATION turn must not lose
+        // it (marking the brief failed would file a duplicate on retry).
+        if (created) {
+          console.warn("[agent] verification turn failed after creation - keeping the issue:", e);
+          return created;
+        }
+        throw e;
+      }
       const msg = resp.choices[0].message;
       messages.push(msg);
       if (!msg.tool_calls?.length) break;
