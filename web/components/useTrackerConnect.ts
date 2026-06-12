@@ -92,6 +92,11 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     if (/claimed by another user|already.*(connected|linked|associated)/i.test(raw)) {
       return `This ${name} account is already linked to a different Brief account. Disconnect it there (or sign in with that account) before connecting it here.`;
     }
+    // Clerk requires the OAuth account's email to match one of THIS account's
+    // emails. Spell out both ways to fix it instead of Clerk's dead-end copy.
+    if (/email address does not match|does not match your existing email/i.test(raw)) {
+      return `Your ${name} login uses a different email than this Brief account. Fix either side: sign in to ${name} with this account's email, or add your ${name} email to this account first (Account page, "add email"), then hit Connect again.`;
+    }
     return raw;
   };
 

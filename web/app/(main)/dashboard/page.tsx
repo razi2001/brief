@@ -112,11 +112,11 @@ export default async function Dashboard() {
 
   return (
     <>
-      {/* Live status: manual refresh always available; while anything is
-          filing, also poll so the user can watch a just-queued ticket move
-          from "in progress" to "filed" without reloading. */}
+      {/* Live status: always kept in sync - fast poll while anything is
+          filing, slow background poll otherwise, instant refresh on tab
+          focus. Manual refresh stays for impatient moments. */}
       <div className="mb-3 flex items-center justify-end gap-2">
-        {processing.length > 0 && <AutoRefresh active />}
+        <AutoRefresh active={processing.length > 0} />
         <RefreshButton />
       </div>
       <StatStrip stats={stats} />
