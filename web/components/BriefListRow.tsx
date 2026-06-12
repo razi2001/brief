@@ -92,6 +92,20 @@ export default function BriefListRow({
 
       {/* Right meta */}
       <div className="ml-auto flex shrink-0 items-center gap-3">
+        {/* Archived marker — a quiet tag, paired with the row's dimmed look.
+            The action (restore) lives in the hover icons, not here as text. */}
+        {b.archived && (
+          <span
+            className="hidden items-center gap-1 rounded-full bg-cream-2/70 px-2 py-0.5 font-mono text-[0.5625rem] tracking-wide text-muted sm:inline-flex"
+            title="Archived"
+          >
+            <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="4" rx="1" />
+              <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+            </svg>
+            archived
+          </span>
+        )}
         {/* Status column — three distinct states. Failed must NOT borrow the
             green "Filed" look; it gets a red "didn't file" with the Retry. */}
         {isProcessing ? (
@@ -145,7 +159,11 @@ export default function BriefListRow({
     </>
   );
 
-  const contentClass = "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 no-underline";
+  // Archived rows recede — dim the content so they read as "put away" at a
+  // glance (the strongest cue), with the small tag + restore icon for detail.
+  const contentClass =
+    "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 no-underline" +
+    (b.archived ? " opacity-55" : "");
 
   // Checkbox is faint until you hover the row; it stays visible once it's
   // checked or while any selection is active. Clicking it selects (never navigates).
@@ -194,29 +212,32 @@ export default function BriefListRow({
         <div className={contentClass}>{inner}</div>
       )}
 
-      {/* Row actions — archive + delete, faint until hover. Hidden while a batch
-          selection is active (the header icons handle batch ops then). */}
+      {/* Row actions — faint until hover. Archived rows swap the archive action
+          for a restore one; both share the same icon-button language as delete.
+          Hidden while a batch selection is active (header icons handle that). */}
       {!anySelected && (
         <div className="flex shrink-0 items-center gap-0.5 pl-1 pr-2.5">
           {b.archived ? (
-            <span className="mr-1 inline-flex items-center gap-1.5">
-              <span className="font-mono text-[0.5625rem] uppercase tracking-[0.1em] text-muted">
-                archived
-              </span>
-              {onUnarchive && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onUnarchive(b.id);
-                  }}
-                  className="font-mono text-[0.625rem] text-accent opacity-0 transition-opacity duration-150 hover:underline focus-visible:opacity-100 group-hover:opacity-100"
-                >
-                  restore
-                </button>
-              )}
-            </span>
+            onUnarchive && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onUnarchive(b.id);
+                }}
+                title="Restore"
+                aria-label="Restore this ticket"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="4" rx="1" />
+                  <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
+                  <path d="M12 18v-6" />
+                  <path d="M9.5 14.5 12 12l2.5 2.5" />
+                </svg>
+              </button>
+            )
           ) : (
             <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
           )}
