@@ -260,6 +260,7 @@ function buildItem(b) {
   const ready = isReady(b);
   const li = document.createElement('li');
   li.className = `brief-item ${ready ? 'ready' : 'draft'}`;
+  if (b.uploading) li.classList.add('uploading');
   li.dataset.id = b.id;
 
   // --- main row ---
@@ -288,6 +289,22 @@ function buildItem(b) {
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
   });
+
+  // Background-upload status for recordings: the bar closes immediately on
+  // stop and the offscreen document uploads behind the scenes. The hint (and
+  // the filing gate in updateChrome) clears when UPLOAD_RESULT lands.
+  let upHint = null;
+  if (b.uploading) {
+    upHint = document.createElement('span');
+    upHint.className = 'up-hint';
+    upHint.textContent = 'uploading…';
+    upHint.title = 'The recording is being uploaded in the background.';
+  } else if (b.uploadFailed) {
+    upHint = document.createElement('span');
+    upHint.className = 'up-hint failed';
+    upHint.textContent = 'upload failed';
+    upHint.title = `${b.uploadError || 'Upload failed'} - the recording was saved locally as a zip in Downloads/brief/.`;
+  }
 
   // Capture controls. Compact icon buttons; they show what's been added.
   const actions = document.createElement('span');
@@ -324,6 +341,7 @@ function buildItem(b) {
 
   row.appendChild(status);
   row.appendChild(input);
+  if (upHint) row.appendChild(upHint);
   row.appendChild(actions);
   row.appendChild(toggle);
   row.appendChild(archive);
@@ -540,6 +558,10 @@ async function archiveItem(id, li) {
 
 function updateChrome(items) {
   const ready = items.filter(isReady).length;
+  // Briefs whose recording is still uploading in the background can't be
+  // filed yet (the cloud draft id hasn't landed) - they gate the button.
+  const fileable = items.filter((b) => isReady(b) && !b.uploading).length;
+  const uploading = items.filter((b) => isReady(b) && b.uploading).length;
 
   listHeader.hidden = items.length === 0;
   if (ready > 0) {
@@ -556,7 +578,13 @@ function updateChrome(items) {
       // Reflect how many briefs will be filed (never while a send is running -
       // the in-flight progress label owns the button then).
       if (!bcCreateTicket.classList.contains('sending')) {
-        bcCreateTicket.textContent = ready > 1 ? `Create ${ready} tickets` : 'Create ticket';
+        if (fileable === 0 && uploading > 0) {
+          bcCreateTicket.disabled = true;
+          bcCreateTicket.textContent = 'Uploading…';
+        } else {
+          bcCreateTicket.disabled = false;
+          bcCreateTicket.textContent = fileable > 1 ? `Create ${fileable} tickets` : 'Create ticket';
+        }
       }
     }
     exportBtn.classList.remove('is-on');
@@ -947,7 +975,9 @@ function bcShowSentAndOpen(count) {
 bcCreateTicket?.addEventListener('click', async () => {
   clearInlineError();
   const items = await getInbox();
-  const ready = items.filter(isReady);
+  // Skip briefs whose recording is still uploading in the background - they
+  // file once the upload lands (the button label reflects this).
+  const ready = items.filter((b) => isReady(b) && !b.uploading);
   if (ready.length === 0) return;
 
   // Pre-flight: the paired account has NO tracker connected - every filing
@@ -1023,3 +1053,18 @@ bcCreateTicket?.addEventListener('click', async () => {
 });
 
 bcRefresh();
+
+// Live-update the list while the popup is open when a BACKGROUND upload
+// settles (offscreen → background → inbox entry). Only re-render on
+// upload-state changes - the popup's own writes (debounced description
+// typing etc.) must not rebuild the list under the user's cursor.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.inbox) return;
+  const sig = (l) =>
+    (Array.isArray(l) ? l : [])
+      .map((b) => [b.id, !!b.uploading, !!b.uploadFailed, b.cloudBriefId || ''].join(':'))
+      .join('|');
+  if (sig(changes.inbox.oldValue) !== sig(changes.inbox.newValue)) {
+    refreshInbox();
+  }
+});

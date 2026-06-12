@@ -6,6 +6,7 @@
 
 import { makeZip } from './lib/zip.js';
 import { getCloudToken, uploadDraft } from './cloud.js';
+import { BRIEF_README, loadSkillEntries } from './brief-bundle.js';
 
 const SAVED_AUTODISMISS_MS = 5000;
 
@@ -368,11 +369,22 @@ stopBtn?.addEventListener('click', async () => {
   stopTimer();
   setView('saving'); // show feedback immediately while transcription flushes
   await stopSpeechRecognition(); // <- wait for buffered final chunks to land
-  await sendToOffscreen('STOP', {
+  const res = await sendToOffscreen('STOP', {
+    briefId,
+    intent,
     transcriptFinal: transcriptFinalCache,
     transcriptChunks: transcriptChunksCache,
   });
-  // The finished payload comes back via RECORDING_FINISHED message
+  if (res?.mode === 'cloud') {
+    // Connected: the offscreen document uploads the draft in the BACKGROUND
+    // (it holds the blob and outlives this bar). Mark the inbox entry as
+    // uploading and close immediately - no more staring at "Uploading…".
+    chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
+    await finishToInbox(briefId, intent, undefined, { uploading: true });
+    return;
+  }
+  // Not connected: the finished payload comes back via RECORDING_FINISHED
+  // and this bar assembles + downloads the local zip as before.
 });
 
 // ---------- Cancel ----------
@@ -391,54 +403,9 @@ closeBtn?.addEventListener('click', closeParent);
 errCloseBtn?.addEventListener('click', closeParent);
 document.getElementById('inboxCloseBtn')?.addEventListener('click', closeParent);
 
-// ---------- Skill bundling ----------
-// The canonical skill files ship inside the extension; we fetch them and add
-// them to each brief zip so the brief is self-contained and install-free.
-const SKILL_FILES = [
-  'skill/SKILL.md',
-  'skill/playbooks/ticket.md',
-  'skill/playbooks/inbox.md',
-];
-
-async function loadSkillEntries() {
-  const entries = [];
-  for (const rel of SKILL_FILES) {
-    try {
-      const res = await fetch(chrome.runtime.getURL(rel));
-      const text = await res.text();
-      entries.push({ name: rel, data: new TextEncoder().encode(text) });
-    } catch (err) {
-      console.warn('[brief/bar] could not bundle skill file', rel, err);
-    }
-  }
-  return entries;
-}
-
-// Dropped into each brief folder so any agent (Claude Code, Cursor, etc.) that
-// opens it knows what this is and how to act on it.
-const BRIEF_README = `# Brief
-
-This folder is a voice+screen "brief" recorded with the Brief browser extension.
-It contains everything needed to file a tracker ticket from it.
-
-## What's here
-- \`brief.json\` - transcript, screen keyframes (with timestamps), page URL/title,
-  the click/scroll/keypress event log, and recording metadata.
-- \`recording.webm\` - the raw screen recording with mic audio.
-- \`keyframes/\` - PNG snapshots referenced by brief.json.
-- \`skill/\` - the playbook for turning this brief into a high-quality ticket.
-
-## How to act on it (for the AI agent reading this)
-Read \`skill/SKILL.md\` and follow it. In short: read brief.json, scan the
-keyframes (binary-search the timestamps around the moment described in the
-transcript), then file ONE ticket in the user's connected tracker (Linear /
-Jira / GitHub / Notion) with the screenshots embedded inline. Don't ask
-clarifying questions about team/project - infer from the workspace.
-
-When multiple briefs are processed together, see \`skill/playbooks/inbox.md\`.
-`;
-
 // ---------- Build zip + save ----------
+// Skill bundling + README now live in brief-bundle.js (shared with the
+// offscreen document's zip fallback).
 async function handleRecordingFinished({ recordingB64, mimeType, durationMs, transcriptFinal, transcriptChunks, keyframes }) {
   chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
 
@@ -650,7 +617,10 @@ async function finishWithCopy(id, intent) {
 // `cloudBriefId` (optional): when the recording was uploaded to Brief Cloud as a
 // draft, we stash its cloud id on the entry so the popup's "Create ticket" can
 // file THIS already-uploaded brief instead of re-uploading.
-async function finishToInbox(id, intent, cloudBriefId) {
+// `opts.uploading`: the upload is running in the BACKGROUND (offscreen) - the
+// entry is flagged so the popup shows progress and defers filing until the
+// cloud id lands (background clears the flag via UPLOAD_RESULT).
+async function finishToInbox(id, intent, cloudBriefId, opts = {}) {
   try {
     const { inbox } = await chrome.storage.local.get('inbox');
     const list = Array.isArray(inbox) ? inbox : [];
@@ -662,10 +632,15 @@ async function finishToInbox(id, intent, cloudBriefId) {
       entry.recordedAt = Date.now();
       entry.intent = intent;
       if (cloudBriefId) entry.cloudBriefId = cloudBriefId;
+      if (opts.uploading) {
+        entry.uploading = true;
+        delete entry.uploadFailed;
+        delete entry.uploadError;
+      }
     } else {
       // Fallback: recording started without a pre-named draft (shouldn't
       // normally happen now, but keep the brief rather than lose it).
-      list.push({ id, intent, name: '', recorded: true, hasRecording: true, addedAt: Date.now(), recordedAt: Date.now(), cloudBriefId });
+      list.push({ id, intent, name: '', recorded: true, hasRecording: true, addedAt: Date.now(), recordedAt: Date.now(), cloudBriefId, ...(opts.uploading ? { uploading: true } : {}) });
     }
     await chrome.storage.local.set({ inbox: list });
     chrome.runtime.sendMessage({ type: 'INBOX_CHANGED' }).catch(() => {});

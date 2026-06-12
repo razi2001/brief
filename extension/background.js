@@ -84,6 +84,11 @@ async function closeOffscreenDocument() {
 // Track which tab's bar to send relayed messages back to
 let ACTIVE_BAR_TAB_ID = null;
 
+// Background uploads running in the offscreen document. While > 0 the
+// document must NOT be closed (the recording streams are already released
+// at that point, so a new recording can safely reuse the same document).
+let UPLOADS_PENDING = 0;
+
 // On install / update, inject the content script into already-open tabs.
 chrome.runtime.onInstalled.addListener(async (details) => {
   try {
@@ -125,6 +130,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Remember which tab to relay results back to
         if (sender?.tab?.id) ACTIVE_BAR_TAB_ID = sender.tab.id;
         const res = await chrome.runtime.sendMessage(message);
+        // A STOP that goes the cloud route starts a BACKGROUND upload in the
+        // offscreen document - guard it from teardown until OFFSCREEN_DONE.
+        if (message.type === 'STOP' && res?.mode === 'cloud') UPLOADS_PENDING++;
         sendResponse(res);
       } catch (err) {
         console.error('[brief/background] offscreen relay:', err);
@@ -184,10 +192,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'BRIEF_STOP':
           STATE.recording = false;
-          // Offscreen no longer needed
-          closeOffscreenDocument().catch(() => {});
+          // Do NOT close the offscreen document here - it may still be
+          // uploading the recording to Brief Cloud (or relaying the legacy
+          // zip payload). It reports OFFSCREEN_DONE when it's finished.
           sendResponse({ ok: true });
           break;
+
+        case 'OFFSCREEN_DONE':
+          // Offscreen finished its post-recording work (upload, relay, or
+          // cancel). Tear it down unless something still needs it: another
+          // pending upload, or a NEW recording that reused the document.
+          UPLOADS_PENDING = Math.max(0, UPLOADS_PENDING - 1);
+          if (UPLOADS_PENDING === 0 && !STATE.recording) {
+            closeOffscreenDocument().catch(() => {});
+          }
+          sendResponse({ ok: true });
+          break;
+
+        case 'UPLOAD_RESULT': {
+          // Background upload settled (offscreen). Land the outcome on the
+          // inbox entry so the popup can file the brief (cloudBriefId) or
+          // explain a failure - works even when the popup is closed.
+          try {
+            const { inbox } = await chrome.storage.local.get('inbox');
+            const list = Array.isArray(inbox) ? inbox : [];
+            const entry = list.find((b) => b.id === message.briefId);
+            if (entry) {
+              entry.uploading = false;
+              if (message.cloudBriefId) {
+                entry.cloudBriefId = message.cloudBriefId;
+                delete entry.uploadFailed;
+                delete entry.uploadError;
+              } else {
+                entry.uploadFailed = true;
+                entry.uploadError = message.error || 'upload failed';
+              }
+              await chrome.storage.local.set({ inbox: list });
+              await refreshBadge();
+            }
+            sendResponse({ ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+          break;
+        }
 
         case 'OPEN_PERMISSION_PAGE':
           // Bar requests it when the offscreen mic call failed - we close
@@ -271,7 +319,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'RESET_BEFORE_NEW_RECORDING':
           // Before a new recording, ensure no stale recording infrastructure
           // is holding a tabCapture stream. Close offscreen, dismiss any
-          // open bar in any tab, clear state.
+          // open bar in any tab, clear state. EXCEPTION: while a background
+          // upload is running, keep the document - its capture streams are
+          // already released (collectRecording cleans up before uploading),
+          // so the new recording can safely reuse it.
           STATE.recording = false;
           STATE.events = [];
           try {
@@ -279,7 +330,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });
             }
           } catch {}
-          await closeOffscreenDocument().catch(() => {});
+          if (UPLOADS_PENDING === 0) {
+            await closeOffscreenDocument().catch(() => {});
+          }
           // Small wait for Chrome to fully release the tabCapture stream
           await new Promise((r) => setTimeout(r, 150));
           sendResponse({ ok: true });
