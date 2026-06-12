@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import AutoRefresh from "./AutoRefresh";
 import BrandMark from "./BrandMark";
+import RefreshButton from "./RefreshButton";
 import FilterPopover, { type FilterOption } from "./FilterPopover";
 import BriefListRow from "./BriefListRow";
 import type { DashboardBrief } from "@/lib/brief-types";
@@ -333,17 +334,34 @@ export default function BriefsFeed({
           <SummaryLine counts={liveCounts} />
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {/* Select all - always available once there are rows, so batch
+              actions are discoverable without hunting for the hover checkbox. */}
+          {visible.length > 0 && (
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={allVisibleSelected ? "true" : anySelected ? "mixed" : "false"}
+              onClick={toggleSelectAll}
+              title={allVisibleSelected ? "Deselect all" : `Select all (${visible.length})`}
+              aria-label={allVisibleSelected ? "Deselect all" : "Select all"}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-hairline text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="3" />
+                {allVisibleSelected ? (
+                  <path d="M8.5 12.5l2.5 2.5 4.5-5" />
+                ) : anySelected ? (
+                  <path d="M8.5 12h7" />
+                ) : null}
+              </svg>
+            </button>
+          )}
           {/* Batch action icons - appear next to the filter once you select rows. */}
           {anySelected && (
             <div className="animate-rise flex items-center gap-1.5 pr-1">
-              <button
-                type="button"
-                onClick={toggleSelectAll}
-                title={allVisibleSelected ? "Deselect all" : "Select all"}
-                className="font-mono text-xs text-muted transition-colors hover:text-ink"
-              >
+              <span className="font-mono text-xs text-muted" title={`${selected.size} selected`}>
                 {selected.size}
-              </button>
+              </span>
               <button
                 type="button"
                 onClick={archiveSelected}
@@ -387,6 +405,7 @@ export default function BriefsFeed({
             </div>
           )}
           <AutoRefresh active={isProcessing} />
+          <RefreshButton />
           <FilterPopover
             options={options}
             selected={reconciled}

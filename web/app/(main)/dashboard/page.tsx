@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import AutoRefresh from "@/components/AutoRefresh";
+import RefreshButton from "@/components/RefreshButton";
 import StatStrip, { type Stat } from "@/components/StatStrip";
 import TrendChart, { type TrendDay } from "@/components/TrendChart";
 import StatusBreakdown, { type StatusSegment } from "@/components/StatusBreakdown";
@@ -111,13 +112,13 @@ export default async function Dashboard() {
 
   return (
     <>
-      {/* Live status: while anything is filing, poll so the user can watch a
-          just-queued ticket move from "in progress" to "filed" without reloading. */}
-      {processing.length > 0 && (
-        <div className="mb-3 flex justify-end">
-          <AutoRefresh active />
-        </div>
-      )}
+      {/* Live status: manual refresh always available; while anything is
+          filing, also poll so the user can watch a just-queued ticket move
+          from "in progress" to "filed" without reloading. */}
+      <div className="mb-3 flex items-center justify-end gap-2">
+        {processing.length > 0 && <AutoRefresh active />}
+        <RefreshButton />
+      </div>
       <StatStrip stats={stats} />
 
       {hasBriefs ? (
