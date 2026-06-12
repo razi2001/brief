@@ -18,8 +18,8 @@ export const ROLES: { label: string; icon: string }[] = [
 
 /** "How'd you hear about Brief?" — attribution captured once at onboarding. */
 export const SOURCES: string[] = [
+  "Someone from Brief showed me",
   "A friend or colleague",
-  "X / Twitter",
   "LinkedIn",
   "Search",
   "Product Hunt",

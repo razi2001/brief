@@ -148,17 +148,19 @@ export default function Onboarding({
     useTrackerConnect("/welcome");
   const trackerConnected = TRACKER_DEFS.some((t) => !!connectedAccount(t.providerMatch));
 
-  const [rawStep, setStep] = useState<Step>("you");
+  // `rawStep` is null until the user manually navigates; before that the step
+  // is DERIVED from real state. This matters because returning from the
+  // tracker's OAuth is a full page reload (in-memory step is lost): if a
+  // tracker is now connected we resume at "extension", if the role was already
+  // saved we resume at "tracker", otherwise we start at "you".
+  const [rawStep, setStep] = useState<Step | null>(null);
   const [role, setRole] = useState(initialRole);
   const [source, setSource] = useState(initialSource);
   const [savingYou, setSavingYou] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
-  // Derived, not an effect: coming back from the tracker's OAuth consent lands
-  // back on /welcome with the account now verified — render the extension step
-  // straight away (the tracker step has nothing left to do).
-  const step: Step =
-    rawStep === "tracker" && isLoaded && trackerConnected ? "extension" : rawStep;
+  const autoStep: Step = trackerConnected ? "extension" : initialRole ? "tracker" : "you";
+  const step: Step = rawStep ?? autoStep;
 
   async function submitYou() {
     if (savingYou) return;
