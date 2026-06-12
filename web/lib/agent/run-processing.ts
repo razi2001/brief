@@ -84,7 +84,8 @@ export async function processBriefById(
     const json = briefJsonBuf ? JSON.parse(briefJsonBuf.toString("utf8")) : {};
 
     const images: BriefInput["images"] = [];
-    const evidence: BriefInput["evidence"] = [];
+    const files: BriefInput["evidence"]["files"] = [];
+    const items: BriefInput["evidence"]["items"] = [];
 
     // Whether to attach the actual video. This is the user's explicit "Attach
     // the recording to the ticket" toggle - OFF by default. The popup passes the
@@ -93,13 +94,14 @@ export async function processBriefById(
     // as the visual evidence so the ticket isn't left blind.
     const includeVideo = opts.includeVideo ?? !!json.includeVideo;
 
-    // Collect keyframes. Sample up to 6 evenly-spaced frames, then DROP exact
+    // Collect keyframes. Sample up to 8 evenly-spaced frames, then DROP exact
     // duplicates (a screen recording barely changes between samples, so naive
-    // sampling yields near-identical stills). The deduped frames go to `images`
-    // so the model can follow the sequence; only a lean subset is EMBEDDED.
+    // sampling yields near-identical stills). Every distinct frame goes to the
+    // model (vision) AND into the attachable evidence pool - the agent picks
+    // the minimal set that proves the issue via create_issue's attach[].
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
-    const SAMPLE = 6;
+    const SAMPLE = 8;
     const pick =
       names.length <= SAMPLE
         ? names
@@ -116,39 +118,65 @@ export async function processBriefById(
       seenFrame.add(hash);
       frames.push({ name: n, filename: n.split("/").pop() || n, bytes: b });
     }
-    // The model sees up to 5 distinct frames for its analysis.
-    for (const f of frames.slice(0, 5)) {
+
+    // Keyframe timestamps from brief.json (filename → ms into the capture),
+    // so the manifest lets the agent correlate frames with the narration.
+    const tsByFile = new Map<string, number>();
+    for (const k of Array.isArray(json.keyframes) ? json.keyframes : []) {
+      const file = String(k?.file ?? "").split("/").pop();
+      if (file && typeof k?.timestamp === "number") tsByFile.set(file, k.timestamp);
+    }
+
+    for (const f of frames) {
       images.push({ name: f.name, dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}` });
+      files.push({ filename: f.filename, contentType: "image/png", bytes: f.bytes });
+      items.push({ name: f.filename, kind: "keyframe", timestampMs: tsByFile.get(f.filename) });
     }
 
     // A user-annotated screenshot is intentional, focused markup - always show
-    // it to the model and embed it.
+    // it to the model and make it attachable.
     const shot = await dl(`${prefix}/screenshot.png`);
     if (shot) {
       images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
-      evidence.push({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
+      files.push({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
+      items.push({ name: "screenshot.png", kind: "screenshot" });
     }
 
-    // Embedded visual evidence - keep it lean and meaningful, never a wall of
-    // near-identical stills:
-    //   - video attached  -> embed the recording (it shows everything).
-    //   - annotated shot   -> that IS the evidence; don't also dump keyframes.
-    //   - otherwise        -> at most a before/after pair of distinct frames.
-    const rec = await dl(`${prefix}/recording.webm`);
-    if (rec && includeVideo) {
-      evidence.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
+    // The recording is attachable ONLY when the user said so - when the toggle
+    // is off we don't even download it. The manifest item still notes its
+    // existence so the agent knows not to allude to it.
+    const recordingExists = !!json.recording || names.length > 0;
+    if (includeVideo) {
+      const rec = await dl(`${prefix}/recording.webm`);
+      if (rec) {
+        files.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
+        items.push({ name: "recording.webm", kind: "recording" });
+      }
+    } else if (recordingExists) {
+      items.push({ name: "recording.webm", kind: "recording" });
+    }
+
+    // Default attachment set when the agent doesn't choose - the old lean
+    // heuristic: annotated shot, or the recording when allowed, else a
+    // before/after frame pair.
+    const fallback: string[] = [];
+    if (shot) fallback.push("screenshot.png");
+    if (includeVideo && files.some((f) => f.filename === "recording.webm")) {
+      fallback.push("recording.webm");
     } else if (!shot && frames.length) {
       const lean = frames.length <= 2 ? frames : [frames[0], frames[frames.length - 1]];
-      for (const f of lean) {
-        evidence.push({ filename: f.filename, contentType: "image/png", bytes: f.bytes });
-      }
+      for (const f of lean) fallback.push(f.filename);
     }
 
     console.log(
-      `[process] brief ${briefId} via ${tracker.kind}: frames=${names.length} distinct=${frames.length} screenshot=${!!shot} recording=${!!rec} includeVideo=${includeVideo} evidence=${evidence.length}`
+      `[process] brief ${briefId} via ${tracker.kind}: frames=${names.length} distinct=${frames.length} screenshot=${!!shot} includeVideo=${includeVideo} attachable=${files.length} fallback=${fallback.length}`
     );
 
-    const result = await processBrief({ json, images, evidence }, tracker, guidance);
+    const result = await processBrief(
+      { json, images, evidence: { files, items, includeVideo, fallback } },
+      tracker,
+      guidance,
+    );
 
     const filedPatch = {
       status: "filed",

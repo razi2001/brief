@@ -1,12 +1,20 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
+import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
 import type { Tracker, IssueResult } from "../tracker";
 
 export interface BriefInput {
   json: unknown;                          // parsed brief.json
-  images: Array<{ name: string; dataUrl: string }>; // selected keyframes/screenshot as data URLs (for the model to SEE)
-  // Raw evidence files handed to the tracker, which embeds (Linear) or attaches (Jira) them.
-  evidence: Array<{ filename: string; contentType: string; bytes: Buffer }>;
+  images: Array<{ name: string; dataUrl: string }>; // distinct keyframes/screenshot as data URLs (for the model to SEE)
+  // The attachable evidence pool. The agent chooses what to attach
+  // (create_issue's attach[]); `fallback` is used when it doesn't choose.
+  // The recording is only in `files` when the user allowed attaching it.
+  evidence: {
+    files: Array<{ filename: string; contentType: string; bytes: Buffer }>;
+    items: EvidenceItem[];
+    includeVideo: boolean;
+    fallback: string[];
+  };
 }
 export interface FileResult {
   ticketUrl: string;
@@ -50,6 +58,15 @@ function buildContextBlock(json: unknown): string {
     const unique = [...new Set(errs)].slice(0, 8);
     block += (block ? "\n\n" : "") + "CONSOLE / RUNTIME ERRORS (verbatim - include the relevant ones in a code block):\n" + unique.map((m) => `- ${m}`).join("\n");
   }
+  // Surface the narration as its own labeled block instead of leaving it
+  // buried in the JSON - it's the reporter's intent, to be corrected against
+  // the visual/console ground truth.
+  if (typeof j.transcript === "string" && j.transcript.trim()) {
+    block +=
+      (block ? "\n\n" : "") +
+      "SPOKEN NARRATION (rough draft - speech-to-text; trust the screenshots/console/events over it, never quote it):\n" +
+      j.transcript.trim().slice(0, 4000);
+  }
   return block;
 }
 
@@ -60,7 +77,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   const prefs = (instructions ?? "").trim();
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTOOLING: You drive the tracker through tools, MCP-style. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${tracker.kind === "linear" ? ", and projects" : ", issue types, and custom fields (with their field ids and allowed values)"} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional labels/priority/state/assignee${tracker.kind === "linear" ? "/project" : ""}/comment/custom_fields). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once. The comment is posted on the issue after it's created; it's separate from the description. Evidence files (screenshots/keyframes/recording) are handled automatically - they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
+    `\n\nTOOLING: You drive the tracker through tools, MCP-style. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${tracker.kind === "linear" ? ", and projects" : ", issue types, and custom fields (with their field ids and allowed values)"} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional labels/priority/state/assignee${tracker.kind === "linear" ? "/project" : ""}/comment/custom_fields). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once. The comment is posted on the issue after it's created; it's separate from the description. Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system uploads and embeds your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
     (prefs
       ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), workflow state/status, assignee, project, labels, priority, custom fields, wording, format, and what to include. Pass each through the matching tool parameter - do not just mention it in the description - and VERIFY it landed via get_issue, repairing with update_issue. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "");
@@ -143,6 +160,12 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
               type: "string",
               description:
                 "A comment to post on the issue right after creating it (e.g. \"In progress\") - only when the preferences ask for an automatic comment. This is separate from the description.",
+            },
+            attach: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Evidence file names to attach (from the EVIDENCE AVAILABLE list). Pick the minimal set that proves the issue - e.g. the annotated screenshot, or a before/after frame pair. Omit to let the system choose a sensible default.",
             },
             custom_fields: customFieldsParam,
           },
@@ -238,12 +261,8 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
       "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present.",
   });
 
-  if (brief.evidence.length) {
-    tail.push({
-      type: "text",
-      text: `${brief.evidence.length} evidence file(s) (screenshots/keyframes/recording) will be attached or embedded automatically. Write the description assuming the reader can see them inline.`,
-    });
-  }
+  const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
+  if (manifest) tail.push({ type: "text", text: manifest });
   tail.push({ type: "text", text: `Available ${noun}s (choose the most appropriate one and pass its id as targetId):\n${targetList}` });
   tail.push({ type: "text", text: `File exactly one ticket for this. Pick the best ${noun}, then create the issue.` });
 
@@ -288,24 +307,34 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                 result = { error: `issue ${created.identifier} already exists - use update_issue to change it` };
                 break;
               }
-              created = await tracker.fileIssue({
-                targetId: args.targetId,
-                title: args.title,
-                descriptionMarkdown: args.description,
-                labels: Array.isArray(args.labels)
-                  ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
-                  : undefined,
-                priority: ["urgent", "high", "medium", "low"].includes(args.priority)
-                  ? args.priority
-                  : undefined,
-                state: str(args.state),
-                assignee: str(args.assignee),
-                project: str(args.project),
-                comment: str(args.comment),
-                extraFields: obj(args.custom_fields),
-                evidence: brief.evidence,
-              });
-              result = created;
+              {
+                // Resolve the agent's evidence selection; an empty/invalid pick
+                // falls back to the lean default. The recording can only be
+                // chosen when the user allowed it (it isn't in the pool otherwise).
+                const attachable = brief.evidence.items
+                  .filter((it) => it.kind !== "recording" || brief.evidence.includeVideo)
+                  .map((it) => it.name);
+                const chosen = pickEvidence(args.attach, attachable, brief.evidence.fallback);
+                const evidenceFiles = brief.evidence.files.filter((f) => chosen.includes(f.filename));
+                created = await tracker.fileIssue({
+                  targetId: args.targetId,
+                  title: args.title,
+                  descriptionMarkdown: args.description,
+                  labels: Array.isArray(args.labels)
+                    ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
+                    : undefined,
+                  priority: ["urgent", "high", "medium", "low"].includes(args.priority)
+                    ? args.priority
+                    : undefined,
+                  state: str(args.state),
+                  assignee: str(args.assignee),
+                  project: str(args.project),
+                  comment: str(args.comment),
+                  extraFields: obj(args.custom_fields),
+                  evidence: evidenceFiles,
+                });
+                result = created;
+              }
               break;
             case "get_issue":
               result = await tracker.getIssue(str(args.identifier) ?? created?.identifier ?? "");
