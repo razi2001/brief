@@ -114,7 +114,9 @@ export default function BriefListRow({
             {ti?.stateName || "Filed"}
           </span>
         )}
-        {isFailed && <RetryButton briefId={b.id} />}
+        {/* Retry only makes sense on a live (non-archived) failed brief —
+            an archived one should be restored first. */}
+        {isFailed && !b.archived && <RetryButton briefId={b.id} />}
         {!isFailed && b.ticket_identifier && (
           <span className="hidden items-center gap-1.5 font-mono text-[0.6875rem] text-accent sm:inline-flex">
             <TrackerLogo kind={b.provider ?? "linear"} size={13} />
