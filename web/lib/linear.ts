@@ -487,7 +487,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         `query IssueRead($id: String!) {
           issue(id: $id) {
             identifier title url priority
-            state { name }
+            state { name color }
             assignee { name displayName }
             labels { nodes { name } }
             project { name }
@@ -503,6 +503,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         title: i.title,
         url: i.url,
         state: i.state?.name ?? null,
+        stateColor: i.state?.color ?? null,
         assignee: i.assignee?.displayName || i.assignee?.name || null,
         labels: (i.labels?.nodes ?? []).map((l: any) => l.name),
         project: i.project?.name ?? null,

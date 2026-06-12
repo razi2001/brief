@@ -156,12 +156,18 @@ export async function processBriefById(
       ticket_identifier: result.ticketIdentifier,
       updated_at: new Date().toISOString(),
     };
-    // Persist the real ticket title so the feed shows it even when the live
-    // tracker sync can't run. Retry without the snapshot column if the DB
-    // predates migration 0004 - filing must never fail over display data.
+    // Persist the real ticket title + initial state so the feed shows them
+    // even when the live tracker sync can't run. Retry without the snapshot
+    // columns if the DB predates migration 0004 - filing must never fail over
+    // display data.
     const { error: updErr } = await admin
       .from("briefs")
-      .update({ ...filedPatch, ticket_title: result.ticketTitle || null })
+      .update({
+        ...filedPatch,
+        ticket_title: result.ticketTitle || null,
+        ticket_state_name: result.ticketState?.name ?? null,
+        ticket_state_color: result.ticketState?.color ?? null,
+      })
       .eq("id", briefId);
     if (updErr) await admin.from("briefs").update(filedPatch).eq("id", briefId);
 

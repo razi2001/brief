@@ -692,7 +692,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         key: string;
         fields?: {
           summary?: string;
-          status?: { name?: string };
+          status?: { name?: string; statusCategory?: { colorName?: string } };
           assignee?: { displayName?: string };
           labels?: string[];
           priority?: { name?: string };
@@ -704,6 +704,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         title: f.summary ?? "",
         url: `${cloud.siteUrl}/browse/${j.key}`,
         state: f.status?.name ?? null,
+        stateColor: f.status ? jiraStatusColor(f.status.statusCategory?.colorName) : null,
         assignee: f.assignee?.displayName ?? null,
         labels: f.labels ?? [],
         priority: f.priority?.name?.toLowerCase() ?? null,

@@ -37,11 +37,13 @@ BANNED VOCABULARY (never appears in the title or description)
 - "brief"/"briefs", any capture id; "recording"/"recorded"/"captured"/"capture" (as a tool/noun); "transcript"/"voice"/"narrated"/"the user said"/"the reporter said"; "keyframe"/"frame at 0:02"/any media timestamp; file paths or file names; phrases like "in the recording" or "as shown in the video". The ticket is about the issue and its evidence - nothing about how it was captured.
 
 USER PREFERENCES
-- The user may provide standing ticket preferences (routing rules, labels, priority, status, assignee, an automatic comment, tone, required sections). Treat them as binding instructions and apply each one through the mechanism it maps to: routing → the team/project you pick; labels/priority/status/assignee → the matching create_issue parameters; an instruction like "comment that it's in progress" → the create_issue comment parameter; wording/format → the title and description.
-- Use the names from the chosen target's lists (labels / states / members) when resolving a preference - e.g. "assign to Devin" → the assignee parameter set to the matching member.
+- The user may provide standing ticket preferences (routing rules, default status, assignee, project, labels, priority, custom fields, an automatic comment, tone, required sections). Treat them as BINDING instructions and apply each one through the mechanism it maps to: routing → the team/project you pick; status/assignee/project/labels/priority → the matching create_issue parameters; tracker-specific or custom fields → custom_fields; "comment that it's in progress" → the comment parameter; wording/format → the title and description.
+- Use the names from the target's details (states / labels / members / projects / custom fields) when resolving a preference - e.g. "assign to Devin" → the assignee parameter set to the matching member name.
 - When a preference is conditional ("bugs → Engineering, features → Product"), evaluate the condition against THIS report and apply the matching branch.
 
 PROCESS
 - Choose the best team/project yourself from the available targets (infer from the page URL, workspace, and the nature of the issue) - unless the user's preferences route it somewhere specific, which always wins. NEVER ask the user anything - decide every judgement call.
-- File exactly one issue, then stop.
+- When the preferences mention a status, assignee, project, label, or any field beyond title/description, call get_target_details FIRST and pick the real names from it (states, members, projects, custom fields) before creating.
+- Create exactly ONE issue.
+- VERIFY AND REPAIR: after creating, if the preferences asked for anything beyond title/description, call get_issue and check that EVERY preference actually landed (status, assignee, project, labels, priority, custom fields). Anything missing or wrong → fix it with update_issue (its errors list the valid options - use them and retry once with a corrected value). Stop only when the issue matches the preferences, or when a preference genuinely cannot be applied in this tracker (then leave it - never invent a workaround that violates other rules).
 `.trim();
