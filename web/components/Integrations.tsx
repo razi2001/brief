@@ -57,7 +57,7 @@ export default function Integrations() {
   if (!isLoaded || !user) {
     return (
       <section id="integrations" className="scroll-mt-8">
-        <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers · MCP</h2>
+        <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Issue tracker</h2>
         <div className="mt-3 flex flex-col gap-3">
           <SkeletonCard />
           <SkeletonCard />
@@ -89,6 +89,9 @@ export default function Integrations() {
     <section id="integrations" className="scroll-mt-8">
       <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Trackers · MCP</h2>
 
+      {/* Brief files into a single tracker, so only one can be connected. */}
+      <p className="mt-1 text-xs text-muted">Connect one — Brief files into a single tracker.</p>
+
       <div className="mt-3 flex flex-col gap-3">
         {TRACKER_DEFS.map((t) => {
           const account = connectedAccount(t.providerMatch);
@@ -97,6 +100,10 @@ export default function Integrations() {
           const isBusy = !!busy[t.key];
           const error = errors[t.key];
           const showAccount = !!needsAccount[t.key];
+          // Another tracker already holds the single slot — this one would switch.
+          const otherConnected = TRACKER_DEFS.some(
+            (o) => o.key !== t.key && !!connectedAccount(o.providerMatch),
+          );
 
           return (
             <div key={t.key} className="card px-4 py-3.5">
@@ -130,9 +137,10 @@ export default function Integrations() {
                     type="button"
                     onClick={() => connect(t)}
                     disabled={isBusy}
+                    title={otherConnected ? `Switch from your current tracker to ${t.name}` : undefined}
                     className="shrink-0 text-xs tracking-wide text-accent no-underline hover:underline disabled:opacity-50"
                   >
-                    {isBusy ? "Connecting…" : "Connect →"}
+                    {isBusy ? "Connecting…" : otherConnected ? "Switch →" : "Connect →"}
                   </button>
                 )}
               </div>

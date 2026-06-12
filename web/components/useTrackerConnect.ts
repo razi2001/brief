@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useReverification } from "@clerk/nextjs";
 
 /**
  * Shared client-side tracker-connection logic (Clerk OAuth external accounts),
@@ -53,6 +53,12 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Removing a connected account is a Clerk "sensitive" action — this wrapper
+  // pops the step-up reverification modal when required, then runs destroy.
+  const destroyAccount = useReverification(
+    (account: { destroy: () => Promise<unknown> }) => account.destroy(),
+  );
+
   const setTrackerBusy = (key: string, value: boolean) =>
     setBusy((b) => ({ ...b, [key]: value }));
   const setTrackerError = (key: string, value: string) =>
@@ -89,11 +95,42 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     return raw;
   };
 
+  // Brief files into ONE tracker, so connecting a new one drops any other.
+  // Returns false if the user cancelled the reverification needed to remove it.
+  async function disconnectOtherTrackers(keepProviderMatch: string): Promise<boolean> {
+    if (!user) return true;
+    const others = user.externalAccounts.filter(
+      (a) =>
+        TRACKER_DEFS.some((d) => (a.provider ?? "").toLowerCase().includes(d.providerMatch)) &&
+        !(a.provider ?? "").toLowerCase().includes(keepProviderMatch),
+    );
+    if (!others.length) return true;
+    try {
+      for (const acc of others) await destroyAccount(acc);
+      await user.reload();
+      return true;
+    } catch {
+      // Reverification cancelled, or removal failed.
+      return false;
+    }
+  }
+
   async function connect(t: TrackerDef) {
     if (!user) return;
     setTrackerError(t.key, "");
     setTrackerBusy(t.key, true);
     try {
+      // One tracker at a time: drop the other before switching. If the user
+      // cancels the reverification to remove it, abort — don't connect both.
+      const switched = await disconnectOtherTrackers(t.providerMatch);
+      if (!switched) {
+        setTrackerError(
+          t.key,
+          "Couldn't switch trackers — you'll need to disconnect the current one first.",
+        );
+        setTrackerBusy(t.key, false);
+        return;
+      }
       // Clear out a previous failed/abandoned attempt so it can't linger and
       // look "connected" — and so the new attempt starts clean.
       const stale = pendingAccount(t.providerMatch);

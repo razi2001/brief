@@ -31,7 +31,8 @@ BANNED VOCABULARY (never appears in the title or description)
 - "brief"/"briefs", any capture id; "recording"/"recorded"/"captured"/"capture" (as a tool/noun); "transcript"/"voice"/"narrated"/"the user said"/"the reporter said"; "keyframe"/"frame at 0:02"/any media timestamp; file paths or file names; phrases like "in the recording" or "as shown in the video". The ticket is about the issue and its evidence — nothing about how it was captured.
 
 USER PREFERENCES
-- The user may provide standing ticket preferences (routing rules, labels, priority, status, tone, required sections). Treat them as binding instructions and apply each one through the mechanism it maps to: routing → the team/project you pick; labels/priority/status → the create_issue parameters; wording/format → the title and description.
+- The user may provide standing ticket preferences (routing rules, labels, priority, status, assignee, an automatic comment, tone, required sections). Treat them as binding instructions and apply each one through the mechanism it maps to: routing → the team/project you pick; labels/priority/status/assignee → the matching create_issue parameters; an instruction like "comment that it's in progress" → the create_issue comment parameter; wording/format → the title and description.
+- Use the names from the chosen target's lists (labels / states / members) when resolving a preference — e.g. "assign to Devin" → the assignee parameter set to the matching member.
 - When a preference is conditional ("bugs → Engineering, features → Product"), evaluate the condition against THIS report and apply the matching branch.
 
 PROCESS

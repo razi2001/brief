@@ -9,6 +9,8 @@ export interface TrackerTarget {
   labels?: string[];
   /** Workflow state names available in this target (Linear teams only). */
   states?: string[];
+  /** Assignable member names (so the agent can resolve "assign to X" preferences). */
+  assignees?: string[];
 }
 
 /** Normalized priority the agent can set; adapters map it to provider values. */
@@ -38,8 +40,12 @@ export interface Tracker {
     descriptionMarkdown: string;
     labels?: string[];
     priority?: TrackerPriority;
-    /** Workflow state name (e.g. "Backlog", "Todo") — Linear only. */
+    /** Workflow state name (e.g. "Backlog", "Todo", "Triage") — Linear only. */
     state?: string;
+    /** Member name/email to assign (e.g. "Devin") — best-effort, resolved by the adapter. */
+    assignee?: string;
+    /** A comment to post on the issue right after it's created (e.g. "In progress"). */
+    comment?: string;
     evidence: Array<{ filename: string; contentType: string; bytes: Buffer }>;
   }): Promise<IssueResult>;
 }

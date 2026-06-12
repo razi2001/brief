@@ -114,7 +114,10 @@ export interface LinearApi {
     labelIds?: string[];
     priority?: number;
     stateId?: string;
+    assigneeId?: string;
   }): Promise<{ id: string; identifier: string; url: string; title: string }>;
+  // Post a comment on an existing issue (markdown body).
+  createComment(issueId: string, body: string): Promise<void>;
   // Upload a file to Linear's asset storage and return its public asset URL.
   uploadAsset(input: { filename: string; contentType: string; bytes: Buffer }): Promise<string>;
 }
@@ -133,6 +136,14 @@ export function makeLinearApi(tok: LinearTok): LinearApi {
       );
       if (!d.issueCreate?.success) throw new Error("Linear issueCreate returned success=false");
       return d.issueCreate.issue;
+    },
+    async createComment(issueId, body) {
+      const d = await linearGraphQL<{ commentCreate: { success: boolean } }>(
+        tok,
+        `mutation CommentCreate($input: CommentCreateInput!) { commentCreate(input: $input) { success } }`,
+        { input: { issueId, body } },
+      );
+      if (!d.commentCreate?.success) throw new Error("Linear commentCreate returned success=false");
     },
     async uploadAsset({ filename, contentType, bytes }) {
       const size = bytes.length;
@@ -210,23 +221,65 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
     return teamMeta;
   }
 
+  // Workspace members (assignable), fetched once and reused to resolve an
+  // "assign to X" preference into a real user id. Includes bot users like Devin.
+  let users: Array<{ id: string; name: string; displayName: string; email: string }> | null = null;
+  async function loadUsers() {
+    if (users) return users;
+    try {
+      const d = await linearGraphQL<{
+        users: { nodes: Array<{ id: string; name: string; displayName: string; email: string; active: boolean }> };
+      }>(tok, `query { users(first: 250) { nodes { id name displayName email active } } }`, {});
+      users = (d.users?.nodes ?? []).filter((u) => u.active);
+    } catch {
+      users = [];
+    }
+    return users;
+  }
+
+  // Resolve a free-text assignee ("Devin", "jane@co.com", "Jane D") to a user id.
+  // Exact email/name first, then a forgiving contains-match on name/displayName.
+  function resolveAssignee(
+    want: string,
+    list: Array<{ id: string; name: string; displayName: string; email: string }>,
+  ): string | undefined {
+    const w = want.trim().toLowerCase();
+    if (!w) return undefined;
+    const exact = list.find(
+      (u) =>
+        u.email?.toLowerCase() === w ||
+        u.name?.toLowerCase() === w ||
+        u.displayName?.toLowerCase() === w,
+    );
+    if (exact) return exact.id;
+    const partial = list.find(
+      (u) =>
+        u.name?.toLowerCase().includes(w) ||
+        u.displayName?.toLowerCase().includes(w) ||
+        u.email?.toLowerCase().split("@")[0] === w,
+    );
+    return partial?.id;
+  }
+
   return {
     kind: "linear",
     targetNoun: "team",
     async listTargets() {
-      // Include each team's labels/states so the agent can apply the user's
-      // ticket preferences (e.g. "label every ticket inbound", "status Backlog")
-      // with real names instead of guessing.
-      const d = await loadTeamMeta();
+      // Include each team's labels/states + the workspace members so the agent
+      // can apply ticket preferences (e.g. "label inbound", "status Backlog",
+      // "assign to Devin") with real names instead of guessing.
+      const [d, members] = await Promise.all([loadTeamMeta(), loadUsers()]);
+      const assignees = members.map((u) => u.displayName || u.name).filter(Boolean);
       return [...d.entries()].map(([id, meta]) => ({
         id,
         key: meta.key,
         name: meta.name,
         labels: meta.labels.map((l) => l.name),
         states: meta.states.map((s) => s.name),
+        assignees,
       }));
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, evidence }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, comment, evidence }) {
       let description = descriptionMarkdown;
       // Upload each evidence file and embed it inline (Linear-hosted asset URL).
       const embeds: string[] = [];
@@ -290,6 +343,17 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         console.warn("[linear-tracker] label/state resolution failed:", err);
       }
 
+      // Resolve the assignee name → user id (best-effort, never fatal).
+      let assigneeId: string | undefined;
+      if (assignee) {
+        try {
+          assigneeId = resolveAssignee(assignee, await loadUsers());
+          if (!assigneeId) console.warn(`[linear-tracker] no member matched assignee "${assignee}"`);
+        } catch (err) {
+          console.warn("[linear-tracker] assignee resolution failed:", err);
+        }
+      }
+
       const issue = await api.createIssue({
         teamId: targetId,
         title,
@@ -297,7 +361,18 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         ...(labelIds ? { labelIds } : {}),
         ...(priority && LINEAR_PRIORITY[priority] ? { priority: LINEAR_PRIORITY[priority] } : {}),
         ...(stateId ? { stateId } : {}),
+        ...(assigneeId ? { assigneeId } : {}),
       });
+
+      // Post the requested comment after the issue exists (best-effort).
+      if (comment?.trim()) {
+        try {
+          await api.createComment(issue.id, comment.trim());
+        } catch (err) {
+          console.warn("[linear-tracker] comment post failed:", err);
+        }
+      }
+
       return { id: issue.id, identifier: issue.identifier, url: issue.url, title: issue.title };
     },
   };

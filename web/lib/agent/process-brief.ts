@@ -17,7 +17,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   const prefs = (instructions ?? "").trim();
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. create_issue also accepts optional labels, priority, and state — set them ONLY when the user's ticket preferences (or the report itself) call for them, choosing from the names listed for the chosen ${noun} where possible. Evidence files (screenshots/keyframes/recording) are handled automatically — they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
+    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. create_issue also accepts optional labels, priority, state, assignee, and comment — set each ONLY when the user's ticket preferences (or the report itself) call for it, choosing names from the chosen ${noun}'s lists (labels / states / members) where possible. The comment is posted on the issue after it's created (e.g. an automatic "In progress" note); it's separate from the description. Evidence files (screenshots/keyframes/recording) are handled automatically — they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
     (prefs
       ? `\n\nUSER TICKET PREFERENCES — these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), labels, priority, workflow state/status, wording, format, and what to include. If a preference names a label or state, pass it through create_issue's labels/state parameters — do not just mention it in the description. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "");
@@ -56,7 +56,17 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
             state: {
               type: "string",
               description:
-                "Workflow state/status name (e.g. \"Backlog\", \"Todo\") from the chosen target's state list — only when the preferences ask for one.",
+                "Workflow state/status name (e.g. \"Backlog\", \"Todo\", \"Triage\") from the chosen target's state list — only when the preferences ask for one.",
+            },
+            assignee: {
+              type: "string",
+              description:
+                "Who to assign the issue to (a member name or email, e.g. \"Devin\") — only when the preferences ask for an assignee. Prefer a name from the chosen target's assignee list.",
+            },
+            comment: {
+              type: "string",
+              description:
+                "A comment to post on the issue right after creating it (e.g. \"In progress\") — only when the preferences ask for an automatic comment. This is separate from the description.",
             },
           },
           required: ["targetId", "title", "description"],
@@ -83,6 +93,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
       let line = `- ${t.name} (${t.key}) — id: ${t.id}`;
       if (t.labels?.length) line += `\n  labels: ${t.labels.slice(0, 30).join(", ")}`;
       if (t.states?.length) line += `\n  states: ${t.states.slice(0, 20).join(", ")}`;
+      if (t.assignees?.length) line += `\n  members: ${t.assignees.slice(0, 40).join(", ")}`;
       return line;
     })
     .join("\n");
@@ -130,6 +141,10 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                 ? args.priority
                 : undefined,
               state: typeof args.state === "string" && args.state.trim() ? args.state : undefined,
+              assignee:
+                typeof args.assignee === "string" && args.assignee.trim() ? args.assignee : undefined,
+              comment:
+                typeof args.comment === "string" && args.comment.trim() ? args.comment : undefined,
               evidence: brief.evidence,
             });
             result = created;

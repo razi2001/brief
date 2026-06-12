@@ -363,12 +363,29 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
       }
       return out;
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, evidence }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, assignee, comment, evidence }) {
       // We need the project key to look up issue types and build the browse url.
       const targets = await this.listTargets();
       const project = targets.find((t) => t.id === targetId || t.key === targetId);
       if (!project) throw new Error(`Jira: project ${targetId} not found`);
       const issueTypeId = await pickIssueType(project.key);
+
+      // Resolve the assignee to a Jira accountId (best-effort, never fatal).
+      async function resolveAssigneeAccountId(want: string): Promise<string | undefined> {
+        try {
+          const r = await jiraFetch(
+            tok,
+            base,
+            `/user/assignable/search?project=${encodeURIComponent(project!.key)}&query=${encodeURIComponent(want)}&maxResults=1`,
+          );
+          if (!r.ok) return undefined;
+          const users = (await r.json()) as Array<{ accountId: string }>;
+          return users?.[0]?.accountId;
+        } catch {
+          return undefined;
+        }
+      }
+      const assigneeAccountId = assignee ? await resolveAssigneeAccountId(assignee) : undefined;
 
       let body = descriptionMarkdown;
       if (evidence.length) {
@@ -398,6 +415,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         };
         if (JIRA_PRIORITY[priority]) extraFields.priority = { name: JIRA_PRIORITY[priority] };
       }
+      if (assigneeAccountId) extraFields.assignee = { accountId: assigneeAccountId };
 
       const createIssue = (fields: Record<string, unknown>) =>
         jiraFetch(tok, base, `/issue`, {
@@ -434,6 +452,20 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           if (!att.ok) console.warn(`[jira-tracker] attachment ${e.filename} failed: ${att.status}`);
         } catch (err) {
           console.warn("[jira-tracker] attachment error:", e.filename, err);
+        }
+      }
+
+      // Post the requested comment after the issue exists (best-effort).
+      if (comment?.trim()) {
+        try {
+          const c = await jiraFetch(tok, base, `/issue/${created.key}/comment`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ body: markdownToAdf(comment.trim()) }),
+          });
+          if (!c.ok) console.warn(`[jira-tracker] comment failed: ${c.status}`);
+        } catch (err) {
+          console.warn("[jira-tracker] comment error:", err);
         }
       }
 
