@@ -82,6 +82,8 @@ export type TrackerContext = {
   greetingName: string;
   /** Reporter role captured during onboarding ("" until answered). */
   role: string;
+  /** How the user heard about Brief (onboarding attribution; "" until answered). */
+  source: string;
   /** True once the first-run onboarding wizard was finished or skipped. */
   onboarded: boolean;
 };
@@ -112,6 +114,7 @@ export async function getTrackerContext(): Promise<TrackerContext> {
 
   const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";
   const role = ((user?.privateMetadata?.role as string) ?? "").trim();
+  const source = ((user?.privateMetadata?.source as string) ?? "").trim();
   const onboarded = !!user?.privateMetadata?.onboardedAt;
   const greetingName =
     user?.firstName ??
@@ -126,6 +129,7 @@ export async function getTrackerContext(): Promise<TrackerContext> {
     ticketGuidance,
     greetingName,
     role,
+    source,
     onboarded,
   };
 }

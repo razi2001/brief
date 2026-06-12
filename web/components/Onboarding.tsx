@@ -5,21 +5,13 @@ import { useRouter } from "next/navigation";
 import BrandMark from "./BrandMark";
 import { TrackerLogo } from "./TrackerLogo";
 import { TRACKER_DEFS, useTrackerConnect } from "./useTrackerConnect";
+import { ROLES, SOURCES } from "@/lib/onboarding-options";
 
 const CHROME_STORE_URL =
   "https://chromewebstore.google.com/detail/brief/dbceddgckljkggbghaddpclblfbkmfig";
 
-const ROLES = [
-  "Engineer",
-  "QA / Tester",
-  "Product manager",
-  "Designer",
-  "Support",
-  "Founder",
-];
-
-type Step = "role" | "tracker" | "extension";
-const STEP_ORDER: Step[] = ["role", "tracker", "extension"];
+type Step = "you" | "tracker" | "extension";
+const STEP_ORDER: Step[] = ["you", "tracker", "extension"];
 
 /** Fire-and-await settings write; failures surface as a return value. */
 async function saveSettings(body: Record<string, unknown>): Promise<boolean> {
@@ -38,7 +30,7 @@ async function saveSettings(body: Record<string, unknown>): Promise<boolean> {
 
 function StepRail({ current, trackerDone }: { current: Step; trackerDone: boolean }) {
   const labels: Record<Step, string> = {
-    role: "you",
+    you: "you",
     tracker: "your tracker",
     extension: "the extension",
   };
@@ -79,18 +71,76 @@ function StepRail({ current, trackerDone }: { current: Step; trackerDone: boolea
   );
 }
 
+/** A labelled grid of single-select chips. */
+function ChipGrid({
+  label,
+  options,
+  selected,
+  onSelect,
+  columns = 2,
+}: {
+  label: string;
+  options: { label: string; icon?: string }[];
+  selected: string;
+  onSelect: (v: string) => void;
+  columns?: number;
+}) {
+  return (
+    <div>
+      <p className="font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-muted">
+        {label}
+      </p>
+      <div
+        className="mt-2.5 grid gap-2"
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
+        {options.map((o) => {
+          const active = selected === o.label;
+          return (
+            <button
+              key={o.label}
+              type="button"
+              onClick={() => onSelect(active ? "" : o.label)}
+              aria-pressed={active}
+              className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left font-mono text-[0.8125rem] transition-colors ${
+                active
+                  ? "border-accent bg-[rgba(221,105,54,.1)] text-accent"
+                  : "border-hairline bg-[#fffdf8] text-ink-2 hover:border-[rgba(221,105,54,.4)] hover:text-ink"
+              }`}
+            >
+              {o.icon && (
+                <span
+                  aria-hidden="true"
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[0.75rem] ${
+                    active ? "bg-[rgba(221,105,54,.16)] text-accent" : "bg-cream-2 text-muted"
+                  }`}
+                >
+                  {o.icon}
+                </span>
+              )}
+              <span className="min-w-0 truncate">{o.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /**
  * The first-run onboarding experience — a dedicated full page (/welcome), not
  * a dashboard widget. New sign-ups land here straight from Clerk (no hop
- * through "/"). Three steps: who you are → connect a tracker (inline Clerk
- * OAuth) → install & pair the extension. Finishing or skipping stamps
- * privateMetadata.onboardedAt and heads to the dashboard.
+ * through "/"). Three steps: about you (role + how you heard) → connect a
+ * tracker (inline Clerk OAuth) → install the extension. Finishing or skipping
+ * stamps privateMetadata.onboardedAt and heads to the dashboard.
  */
 export default function Onboarding({
   initialRole,
+  initialSource,
   greetingName,
 }: {
   initialRole: string;
+  initialSource: string;
   greetingName: string;
 }) {
   const router = useRouter();
@@ -98,10 +148,10 @@ export default function Onboarding({
     useTrackerConnect("/welcome");
   const trackerConnected = TRACKER_DEFS.some((t) => !!connectedAccount(t.providerMatch));
 
-  const [rawStep, setStep] = useState<Step>(initialRole ? "tracker" : "role");
+  const [rawStep, setStep] = useState<Step>("you");
   const [role, setRole] = useState(initialRole);
-  const [customRole, setCustomRole] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [source, setSource] = useState(initialSource);
+  const [savingYou, setSavingYou] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
   // Derived, not an effect: coming back from the tracker's OAuth consent lands
@@ -110,12 +160,12 @@ export default function Onboarding({
   const step: Step =
     rawStep === "tracker" && isLoaded && trackerConnected ? "extension" : rawStep;
 
-  async function chooseRole(r: string) {
-    if (saving) return;
-    setSaving(true);
-    setRole(r);
-    await saveSettings({ role: r }); // best-effort; the wizard moves on regardless
-    setSaving(false);
+  async function submitYou() {
+    if (savingYou) return;
+    setSavingYou(true);
+    // Persist whatever's filled; both are optional. Best-effort — advance regardless.
+    await saveSettings({ role, source });
+    setSavingYou(false);
     setStep("tracker");
   }
 
@@ -127,14 +177,14 @@ export default function Onboarding({
   }
 
   const stepTitle: Record<Step, string> = {
-    role: "first — what do you do?",
+    you: "tell us about you.",
     tracker: "connect your tracker.",
-    extension: "add the capture side.",
+    extension: "install the extension.",
   };
   const stepSub: Record<Step, string> = {
-    role: "Brief uses this to write tickets the way your team expects them.",
+    you: "Brief uses this to write tickets the way your team expects them.",
     tracker: "Brief writes tickets straight into it — no copy-paste, ever.",
-    extension: "the ✦ button in Chrome is where bugs go in.",
+    extension: "this is how you capture a bug: record, talk, done.",
   };
 
   return (
@@ -159,51 +209,33 @@ export default function Onboarding({
           </h2>
           <p className="mt-1.5 text-sm text-muted">{stepSub[step]}</p>
 
-          {/* ---- Step 1: role ---- */}
-          {step === "role" && (
-            <div className="mt-6">
-              <div className="flex flex-wrap gap-2.5">
-                {ROLES.map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    disabled={saving}
-                    onClick={() => chooseRole(r)}
-                    className={`cursor-pointer rounded-full border px-4 py-2 font-mono text-[0.8125rem] transition-colors disabled:opacity-50 ${
-                      role === r
-                        ? "border-accent bg-[rgba(221,105,54,.14)] text-accent"
-                        : "border-hairline bg-[#fffdf8] text-ink-2 hover:border-[rgba(221,105,54,.45)] hover:text-accent"
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
+          {/* ---- Step 1: you (role + source) ---- */}
+          {step === "you" && (
+            <div className="mt-6 flex flex-col gap-6">
+              <ChipGrid
+                label="What do you do?"
+                options={ROLES}
+                selected={role}
+                onSelect={setRole}
+                columns={2}
+              />
+              <ChipGrid
+                label="How'd you hear about Brief?"
+                options={SOURCES.map((s) => ({ label: s }))}
+                selected={source}
+                onSelect={setSource}
+                columns={2}
+              />
+              <div className="flex items-center justify-end">
+                <button
+                  type="button"
+                  onClick={submitYou}
+                  disabled={savingYou}
+                  className="btn-accent cursor-pointer disabled:opacity-60"
+                >
+                  {savingYou ? "Saving…" : "Continue →"}
+                </button>
               </div>
-              <form
-                className="mt-4 flex items-center gap-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (customRole.trim()) chooseRole(customRole.trim());
-                }}
-              >
-                <input
-                  type="text"
-                  value={customRole}
-                  onChange={(e) => setCustomRole(e.target.value)}
-                  maxLength={60}
-                  placeholder="or type your own…"
-                  className="w-60 max-w-full rounded-lg border hairline bg-[#fffdf8] px-3.5 py-2 font-mono text-[0.8125rem] text-ink outline-none transition-colors placeholder:text-muted/60 focus:border-accent"
-                />
-                {customRole.trim() && (
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="pill cursor-pointer border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent transition-colors hover:bg-[rgba(221,105,54,.18)] disabled:opacity-50"
-                  >
-                    That&apos;s me →
-                  </button>
-                )}
-              </form>
             </div>
           )}
 
@@ -247,7 +279,7 @@ export default function Onboarding({
               <div className="mt-5 flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={() => setStep("role")}
+                  onClick={() => setStep("you")}
                   className="font-mono text-xs text-muted no-underline hover:text-ink hover:underline"
                 >
                   ← back
@@ -267,41 +299,31 @@ export default function Onboarding({
           {step === "extension" && (
             <div className="mt-6">
               {trackerConnected && (
-                <p className="mb-4 inline-flex items-center gap-2 rounded-full border border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] px-3 py-1 font-mono text-xs text-[#2e7d32]">
+                <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] px-3 py-1 font-mono text-xs text-[#2e7d32]">
                   tracker connected ✓
                 </p>
               )}
-              <ol className="flex flex-col gap-4 text-sm text-ink-2">
-                <li className="flex gap-3.5">
-                  <span className="font-mono text-xs leading-6 text-accent">1.</span>
-                  <span>
-                    Add the{" "}
-                    <a
-                      href={CHROME_STORE_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent no-underline hover:underline"
-                    >
-                      Brief extension
-                    </a>{" "}
-                    from the Chrome Web Store and pin it to your toolbar.
-                  </span>
-                </li>
-                <li className="flex gap-3.5">
-                  <span className="font-mono text-xs leading-6 text-accent">2.</span>
-                  <span>
-                    Click <span className="text-ink">✦</span>, then the cloud button —
-                    it pairs with this account in one click.
-                  </span>
-                </li>
-                <li className="flex gap-3.5">
-                  <span className="font-mono text-xs leading-6 text-accent">3.</span>
-                  <span>
-                    See a bug? Hit <span className="text-ink">✦</span>, talk through
-                    it, stop — the ticket writes and files itself. No typing.
-                  </span>
-                </li>
-              </ol>
+
+              <a
+                href={CHROME_STORE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-accent inline-flex w-full items-center justify-center gap-2.5 py-3.5 no-underline sm:w-auto"
+              >
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                Add Brief to Chrome
+              </a>
+
+              <p className="mt-4 text-sm leading-relaxed text-muted">
+                Already installed? Open Brief from your toolbar and hit{" "}
+                <span className="text-ink">Connect to Brief Cloud</span> — it pairs
+                with this account in one click. Then record a bug and it files itself.
+              </p>
+
               <div className="mt-7 flex items-center justify-between">
                 {/* With a tracker connected the tracker step has nothing left to
                     do (and would immediately bounce forward) — hide "back". */}

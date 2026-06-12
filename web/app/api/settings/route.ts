@@ -7,6 +7,7 @@ export const maxDuration = 60;
 // can't bloat the Clerk user record.
 const MAX_GUIDANCE = 4000;
 const MAX_ROLE = 100;
+const MAX_SOURCE = 100;
 
 // Clerk-session-authed account settings — PARTIAL updates: only the keys
 // present in the body are written (Clerk merges privateMetadata top-level
@@ -32,6 +33,10 @@ export async function POST(req: NextRequest) {
   }
   if ("role" in body) {
     updates.role = String(body.role ?? "").trim().slice(0, MAX_ROLE);
+  }
+  // Attribution captured during onboarding ("how'd you hear about us").
+  if ("source" in body) {
+    updates.source = String(body.source ?? "").trim().slice(0, MAX_SOURCE);
   }
   // Any truthy value marks onboarding done "now" (server clock — the client
   // never supplies the timestamp); null clears it (useful for re-testing).

@@ -92,10 +92,18 @@ export default function BriefListRow({
 
       {/* Right meta */}
       <div className="ml-auto flex shrink-0 items-center gap-3">
-        {/* Status column */}
+        {/* Status column — three distinct states. Failed must NOT borrow the
+            green "Filed" look; it gets a red "didn't file" with the Retry. */}
         {isProcessing ? (
           <span className="w-[5.5rem] text-right font-mono text-[0.625rem] text-accent">
             filing… <Elapsed since={b.updated_at || b.created_at} />
+          </span>
+        ) : isFailed ? (
+          <span
+            className="w-[5.5rem] truncate text-right font-mono text-[0.625rem] text-[#c62828]"
+            title="Didn't file"
+          >
+            didn&apos;t file
           </span>
         ) : (
           <span
@@ -107,7 +115,7 @@ export default function BriefListRow({
           </span>
         )}
         {isFailed && <RetryButton briefId={b.id} />}
-        {b.ticket_identifier && (
+        {!isFailed && b.ticket_identifier && (
           <span className="hidden items-center gap-1.5 font-mono text-[0.6875rem] text-accent sm:inline-flex">
             <TrackerLogo kind={b.provider ?? "linear"} size={13} />
             {b.ticket_identifier}

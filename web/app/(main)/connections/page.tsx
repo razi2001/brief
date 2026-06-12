@@ -1,6 +1,7 @@
 import { requireUserId } from "@/lib/auth";
 import IntegrationsClient from "@/components/IntegrationsClient";
 import TicketPreferences from "@/components/TicketPreferences";
+import ProfileSettings from "@/components/ProfileSettings";
 import { getTrackerContext } from "@/lib/briefs-server";
 
 export default async function ConnectionsPage() {
@@ -13,6 +14,7 @@ export default async function ConnectionsPage() {
 
       <div className="mt-7 flex flex-col gap-8">
         <IntegrationsClient />
+        <ProfileSettings initialRole={ctx.role} />
         <TicketPreferences initialValue={ctx.ticketGuidance} />
       </div>
     </>

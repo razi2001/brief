@@ -14,5 +14,11 @@ export default async function WelcomePage() {
   const ctx = await getTrackerContext();
   if (ctx.onboarded) redirect("/dashboard");
 
-  return <OnboardingClient initialRole={ctx.role} greetingName={ctx.greetingName} />;
+  return (
+    <OnboardingClient
+      initialRole={ctx.role}
+      initialSource={ctx.source}
+      greetingName={ctx.greetingName}
+    />
+  );
 }

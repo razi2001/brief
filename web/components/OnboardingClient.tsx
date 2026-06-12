@@ -22,6 +22,7 @@ const Onboarding = dynamic(() => import("./Onboarding"), {
 
 export default function OnboardingClient(props: {
   initialRole: string;
+  initialSource: string;
   greetingName: string;
 }) {
   return <Onboarding {...props} />;
