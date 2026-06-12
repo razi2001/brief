@@ -550,7 +550,8 @@ async function handleRecordingFinished({ recordingB64, mimeType, durationMs, tra
 
   if (cloudToken) {
     try {
-      setSavingText('Saving…');
+      // The recording is the slow part; name it so the wait isn't a mystery.
+      setSavingText(recordingArr && recordingArr.length ? 'Uploading recording…' : 'Uploading…');
       const files = [
         { name: 'brief.json', blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }), contentType: 'application/json' },
         ...keyframeEntries.map((k) => ({

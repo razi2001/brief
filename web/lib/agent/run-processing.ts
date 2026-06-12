@@ -1,3 +1,4 @@
+import { createHash } from "crypto";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { getLinearToken, makeLinearTracker } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
@@ -92,16 +93,12 @@ export async function processBriefById(
     // as the visual evidence so the ticket isn't left blind.
     const includeVideo = opts.includeVideo ?? !!json.includeVideo;
 
-    // Collect picked keyframes. They always go to `images` (so the model can SEE
-    // them and write an accurate description). They're EMBEDDED as the ticket's
-    // visual evidence unless the user opted to attach the full recording (which
-    // already shows those frames).
-    const keyframeEvidence: BriefInput["evidence"] = [];
+    // Collect keyframes. Sample up to 6 evenly-spaced frames, then DROP exact
+    // duplicates (a screen recording barely changes between samples, so naive
+    // sampling yields near-identical stills). The deduped frames go to `images`
+    // so the model can follow the sequence; only a lean subset is EMBEDDED.
     const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
     const names = (kf ?? []).map((o) => o.name).sort();
-    // Sample up to 6 evenly-spaced frames (not just first/mid/last) so the model
-    // can follow the sequence and correlate it with the transcript/events -
-    // three frames was too sparse to reconstruct what happened.
     const SAMPLE = 6;
     const pick =
       names.length <= SAMPLE
@@ -109,34 +106,46 @@ export async function processBriefById(
         : Array.from({ length: SAMPLE }, (_, i) =>
             names[Math.round((i * (names.length - 1)) / (SAMPLE - 1))],
           );
+    const frames: Array<{ name: string; filename: string; bytes: Buffer }> = [];
+    const seenFrame = new Set<string>();
     for (const n of [...new Set(pick)]) {
       const b = await dl(`${prefix}/keyframes/${n}`);
       if (!b) continue;
-      const filename = n.split("/").pop() || n;
-      images.push({ name: n, dataUrl: `data:image/png;base64,${b.toString("base64")}` });
-      keyframeEvidence.push({ filename, contentType: "image/png", bytes: b });
+      const hash = createHash("md5").update(b).digest("hex");
+      if (seenFrame.has(hash)) continue; // identical frame - skip
+      seenFrame.add(hash);
+      frames.push({ name: n, filename: n.split("/").pop() || n, bytes: b });
+    }
+    // The model sees up to 5 distinct frames for its analysis.
+    for (const f of frames.slice(0, 5)) {
+      images.push({ name: f.name, dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}` });
     }
 
-    // A user-annotated screenshot is intentional markup - always embed it.
+    // A user-annotated screenshot is intentional, focused markup - always show
+    // it to the model and embed it.
     const shot = await dl(`${prefix}/screenshot.png`);
     if (shot) {
       images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
       evidence.push({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
     }
 
+    // Embedded visual evidence - keep it lean and meaningful, never a wall of
+    // near-identical stills:
+    //   - video attached  -> embed the recording (it shows everything).
+    //   - annotated shot   -> that IS the evidence; don't also dump keyframes.
+    //   - otherwise        -> at most a before/after pair of distinct frames.
     const rec = await dl(`${prefix}/recording.webm`);
     if (rec && includeVideo) {
-      // User opted to attach the recording - embed the video (it already shows
-      // every keyframe, so don't also embed the stills).
       evidence.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
-    } else {
-      // No video attached (toggle off, or no recording at all) - embed the
-      // keyframe stills sampled from the capture as the visual evidence.
-      evidence.push(...keyframeEvidence);
+    } else if (!shot && frames.length) {
+      const lean = frames.length <= 2 ? frames : [frames[0], frames[frames.length - 1]];
+      for (const f of lean) {
+        evidence.push({ filename: f.filename, contentType: "image/png", bytes: f.bytes });
+      }
     }
 
     console.log(
-      `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} picked=${[...new Set(pick)].length} screenshot=${!!shot} recording=${!!rec} includeVideo=${includeVideo} evidence=${evidence.length}`
+      `[process] brief ${briefId} via ${tracker.kind}: frames=${names.length} distinct=${frames.length} screenshot=${!!shot} recording=${!!rec} includeVideo=${includeVideo} evidence=${evidence.length}`
     );
 
     const result = await processBrief({ json, images, evidence }, tracker, guidance);
