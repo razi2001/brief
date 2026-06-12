@@ -72,6 +72,16 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   const connectedAccount = (providerMatch: string) => accountFor(providerMatch, true);
   const pendingAccount = (providerMatch: string) => accountFor(providerMatch, false);
 
+  // The REASON the last OAuth attempt didn't verify, straight from Clerk —
+  // far more actionable than a generic "didn't finish". Empty when there's no
+  // pending record or Clerk attached no error to it.
+  const pendingError = (providerMatch: string): string => {
+    const v = pendingAccount(providerMatch)?.verification;
+    if (!v || v.status === "verified") return "";
+    const err = v.error;
+    return err?.longMessage || err?.message || "";
+  };
+
   async function connect(t: TrackerDef) {
     if (!user) return;
     setTrackerError(t.key, "");
@@ -118,6 +128,7 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     setTrackerError,
     connectedAccount,
     pendingAccount,
+    pendingError,
     connect,
   };
 }

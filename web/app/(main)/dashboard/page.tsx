@@ -1,8 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import AutoRefresh from "@/components/AutoRefresh";
-import OnboardingClient from "@/components/OnboardingClient";
 import StatStrip, { type Stat } from "@/components/StatStrip";
 import TrendChart, { type TrendDay } from "@/components/TrendChart";
 import StatusBreakdown, { type StatusSegment } from "@/components/StatusBreakdown";
@@ -104,9 +104,10 @@ export default async function Dashboard() {
   ];
 
   const hasBriefs = list.length > 0;
-  // First-run wizard: shown until the user finishes/skips it. Users who already
-  // have filed tickets predate the wizard — never nag them with it.
-  const showOnboarding = !!ctx.user && !ctx.onboarded && filed.length === 0;
+  // First-run onboarding lives on its own page. Send not-yet-onboarded users
+  // there; users who already have filed tickets predate the wizard — never
+  // nag them with it.
+  if (!!ctx.user && !ctx.onboarded && filed.length === 0) redirect("/welcome");
 
   return (
     <>
@@ -149,13 +150,9 @@ export default async function Dashboard() {
         </>
       ) : null}
 
-      {showOnboarding && (
-        <OnboardingClient initialRole={ctx.role} greetingName={ctx.greetingName} />
-      )}
-
       {/* Onboarding done (or skipped) but nothing captured yet — one quiet
           pointer at the extension instead of a blank page. */}
-      {!hasBriefs && !showOnboarding && (
+      {!hasBriefs && (
         <div className="card mt-10 px-5 py-10 text-center">
           <p className="font-display text-xl text-ink">no tickets yet.</p>
           <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted">

@@ -39,8 +39,9 @@ export default function Integrations() {
     setTrackerError,
     connectedAccount,
     pendingAccount,
+    pendingError,
     connect,
-  } = useTrackerConnect("/dashboard");
+  } = useTrackerConnect("/connections");
   // Set when the inline disconnect ultimately fails (user cancels the
   // reverification, or some other error), so we point them to account settings.
   const [needsAccount, setNeedsAccount] = useState<Record<string, boolean>>({});
@@ -150,7 +151,16 @@ export default function Integrations() {
               ) : (
                 (error || pending) && (
                   <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
-                    {error || "Last connection didn’t finish — click Connect to try again."}
+                    {error ||
+                      // Show Clerk's actual verification error when it has one —
+                      // "didn't finish" alone gives the user nothing to act on.
+                      [
+                        "Last connection didn’t finish",
+                        pendingError(t.providerMatch),
+                        "click Connect to try again.",
+                      ]
+                        .filter(Boolean)
+                        .join(" — ")}
                   </p>
                 )
               )}
