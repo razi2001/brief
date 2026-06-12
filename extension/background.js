@@ -487,10 +487,16 @@ function installConsoleCapture() {
   } catch {}
 }
 
-// Brief Cloud pairing: receive the token from the web app (externally_connectable).
+// Brief Cloud pairing: the web app pushes/revokes the token (externally_connectable).
 chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "brief-cloud-token" && typeof msg.token === "string") {
     chrome.storage.local.set({ briefCloudToken: msg.token }, () => sendResponse({ ok: true }));
     return true; // async sendResponse
+  }
+  if (msg && msg.type === "brief-cloud-disconnect") {
+    // The user signed out on the web - the extension mirrors the session, so
+    // drop the pairing. Creating a ticket from here on opens the pair page.
+    chrome.storage.local.remove("briefCloudToken", () => sendResponse({ ok: true }));
+    return true;
   }
 });

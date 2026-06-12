@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import CloudBackground from "@/components/CloudBackground";
+import ExtensionTokenSync from "@/components/ExtensionTokenSync";
 import "./globals.css";
 
 const instrumentSerif = Instrument_Serif({
@@ -46,6 +47,10 @@ export default function RootLayout({
       >
         <body className="min-h-full flex flex-col bg-cream text-ink">
           <CloudBackground />
+          {/* Mirrors the web session onto the extension pairing (both ways:
+              account switches re-pair it, signing out unpairs it). Mounted at
+              the root so the signed-out case fires on any page. */}
+          <ExtensionTokenSync />
           {children}
         </body>
       </html>
