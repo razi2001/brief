@@ -8,7 +8,7 @@
 //      reveal and cache. If not, redirect to permission page.
 
 import { makeZip } from './lib/zip.js';
-import { APP_URL, TICKETS_URL, getCloudToken, uploadDraft, processBrief } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -24,6 +24,11 @@ const exportCount = document.getElementById('exportCount');
 const exportDone = document.getElementById('exportDone');
 const bcCreateTicket = document.getElementById('bc-create-ticket');
 let bcConnected = false;
+// Which tracker the paired account has: "linear" | "jira" | null (none) |
+// undefined (not checked yet / offline - assume OK, the process route is the
+// backstop). Refreshed from /api/me on every popup open so switching to an
+// account WITHOUT a tracker is caught before filing, not after.
+let bcTracker;
 
 // Storage key for cached mic grant. Cache is good for the extension's
 // session - Chrome invalidates the underlying grant if the user revokes it.
@@ -166,17 +171,36 @@ async function recordForItem(itemId, recBtn) {
   }
 }
 
+// Open the tickets page WITHOUT stacking up tabs: if a tickets tab is already
+// open, focus its window, activate it, and reload it (so the just-queued
+// ticket shows up); otherwise open a fresh tab.
+async function openTicketsTab() {
+  try {
+    const tabs = await chrome.tabs.query({ url: `${TICKETS_URL}*` });
+    if (tabs.length && tabs[0].id != null) {
+      const tab = tabs[0];
+      await chrome.tabs.update(tab.id, { active: true });
+      try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
+      chrome.tabs.reload(tab.id);
+      return;
+    }
+  } catch {}
+  await chrome.tabs.create({ url: TICKETS_URL }).catch(() => {});
+}
+
 // "Brief Cloud" - open the web app. Pairing is automatic: if we don't have a
 // token yet, open the connect page (which mints + pushes a token when you're
 // signed in, then lands you on your tickets); if we already have one, go
-// straight to the tickets page. No manual "connect" step, no settings page.
+// straight to the tickets page (reusing an existing tab). No manual "connect"
+// step, no settings page.
 briefCloudBtn?.addEventListener('click', async () => {
   let token = null;
   try { token = await getCloudToken(); } catch {}
-  const url = token
-    ? `${APP_URL}/tickets`
-    : `${APP_URL}/connect?ext=${chrome.runtime.id}`;
-  chrome.tabs.create({ url });
+  if (token) {
+    await openTicketsTab();
+  } else {
+    await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
+  }
   window.close();
 });
 
@@ -887,6 +911,19 @@ async function bcRefresh() {
   // No connect/disconnect UI - pairing is automatic via the Brief Cloud button.
   // Re-evaluate which primary action (Create ticket vs Export) to show.
   try { updateChrome(await getInbox()); } catch {}
+  if (!token) return;
+  // Validate the pairing + tracker in the background (don't block the UI).
+  // A dead token (account switched/revoked) flips us back to Export; an
+  // account with no tracker keeps the button but gates the click with an
+  // actionable "connect a tracker" message. null = network problem - keep
+  // the last-known state.
+  try {
+    const status = await fetchAccountStatus();
+    if (!status) return;
+    bcConnected = status.connected;
+    bcTracker = status.tracker;
+    updateChrome(await getInbox());
+  } catch {}
 }
 
 // Reuse the green "Copied to clipboard" success overlay (#exportDone) to
@@ -898,8 +935,10 @@ function bcShowSentAndOpen(count) {
   if (title) title.textContent = count > 1 ? `${count} tickets queued ✓` : 'Queued ✓';
   if (sub) sub.textContent = 'Opening your tickets…';
   exportDone.hidden = false;
-  // Once it's queued, take the user to the tickets page to watch it land.
-  chrome.tabs.create({ url: TICKETS_URL });
+  // Once it's queued, take the user to the tickets page to watch it land -
+  // reusing (and refreshing) an already-open tickets tab instead of stacking
+  // a new one each time.
+  openTicketsTab();
   setTimeout(() => window.close(), 700);
 }
 
@@ -910,6 +949,16 @@ bcCreateTicket?.addEventListener('click', async () => {
   const items = await getInbox();
   const ready = items.filter(isReady);
   if (ready.length === 0) return;
+
+  // Pre-flight: the paired account has NO tracker connected - every filing
+  // would 409. Say so (with the fix) BEFORE uploading anything.
+  if (bcTracker === null) {
+    showInlineError('This account has no tracker connected - link Linear or Jira, then try again.', {
+      linkText: 'Connect a tracker →',
+      url: `${APP_URL}/connections`,
+    });
+    return;
+  }
 
   bcCreateTicket.disabled = true;
   bcCreateTicket.classList.add('sending');
