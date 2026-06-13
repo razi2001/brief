@@ -56,7 +56,7 @@ export function buildContextBlock(json: unknown): string {
   if (typeof j.transcript === "string" && j.transcript.trim()) {
     block +=
       (block ? "\n\n" : "") +
-      "SPOKEN NARRATION (rough draft - speech-to-text; trust the screenshots/console/events over it, never quote it):\n" +
+      "SPOKEN NARRATION (transcribed audio - the reporter's intent; corroborate against the screenshots/console/events, and quote it when it's relevant):\n" +
       j.transcript.trim().slice(0, 4000);
   }
   return block;
