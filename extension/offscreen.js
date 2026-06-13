@@ -24,6 +24,7 @@ let recordingStartMs = 0;
 let previewVideo = null;
 let keyframes = [];
 let keyframeTimer = null;
+let levelTimer = null;
 
 const KEYFRAME_INTERVAL_MS = 2000;
 
@@ -170,6 +171,31 @@ async function startRecording(streamId, lang) {
     audioRecorder = null;
   }
 
+  // Live mic level meter for the bar's waveform. The analyser taps the MIC (not
+  // the mixed dest) so the bars react to the user's voice - and muting the mic
+  // flattens them, which is honest feedback. Sampled on a timer (NOT rAF, which
+  // throttles in an invisible offscreen document) and relayed to the bar, which
+  // does the actual drawing. Failure here is purely cosmetic - never fatal.
+  try {
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.78;
+    audioCtx.createMediaStreamSource(micStream).connect(analyser);
+    const freq = new Uint8Array(analyser.frequencyBinCount);
+    if (levelTimer) clearInterval(levelTimer);
+    levelTimer = setInterval(() => {
+      analyser.getByteFrequencyData(freq);
+      // Send a small slice of the low-mid voice range (0..255 per bin); the bar
+      // mirrors + maps it across its bars. 48 bytes covers the bar's sampling.
+      const bins = Array.from(freq.subarray(0, 48));
+      chrome.runtime
+        .sendMessage({ target: 'relayToBar', payload: { target: 'bar', type: 'AUDIO_LEVELS', bins } })
+        .catch(() => {});
+    }, 40);
+  } catch (err) {
+    log('level meter failed to start:', err);
+  }
+
   // 4b. Hidden video element to enable keyframe extraction via canvas
   if (!previewVideo) {
     previewVideo = document.createElement('video');
@@ -238,6 +264,7 @@ async function collectRecording() {
   log('collectRecording');
   await stopAudioRecorder();
   stopKeyframeCapture();
+  if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
 
   // Wait for MediaRecorder to flush
   await new Promise((resolve) => {
@@ -388,6 +415,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
 async function cancelRecording() {
   log('cancelRecording');
   stopKeyframeCapture();
+  if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
   if (audioRecorder) {
     audioRecorder.ondataavailable = null;
     if (audioRecorder.state !== 'inactive') { try { audioRecorder.stop(); } catch {} }

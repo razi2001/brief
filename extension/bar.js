@@ -22,6 +22,7 @@ const cancelBtn = document.getElementById('cancelBtn');
 const closeBtn = document.getElementById('closeBtn');
 const errCloseBtn = document.getElementById('errCloseBtn');
 const timerEl = document.getElementById('timer');
+const waveEl = document.getElementById('wave');
 const errTextEl = document.getElementById('errText');
 
 // ---------- State ----------
@@ -131,6 +132,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.runtime.sendMessage({ type: 'BRIEF_START', briefId, startedAt: recordingStartMs }).catch(() => {});
     setView('recording');
     startTimer();
+    startWave();
+  } else if (message.type === 'AUDIO_LEVELS') {
+    waveFreq = message.bins;
+    waveLastMsgMs = Date.now();
   }
   sendResponse({ ok: true });
   return false;
@@ -153,6 +158,62 @@ function startTimer() {
   timerInterval = setInterval(tick, 500);
 }
 function stopTimer() { if (timerInterval) clearInterval(timerInterval); timerInterval = null; }
+
+// ---------- Waveform ----------
+// Thin bars that follow the user's voice. The offscreen document owns the mic
+// (it's immune to host-page Permissions-Policy, unlike this iframe) and relays
+// frequency levels as AUDIO_LEVELS messages; we just draw. Before the first
+// message lands (startup handshake / silence) a gentle idle shimmer keeps the
+// bar feeling alive.
+const WAVE_BARS = 24;
+const WAVE_MAX_H = 22;        // px, tallest a bar gets at full volume
+const waveBars = [];
+let waveLevels = new Array(WAVE_BARS).fill(0);
+let waveFreq = null;          // latest frequency bytes from offscreen
+let waveLastMsgMs = 0;
+let waveRaf = null;
+
+(function buildWave() {
+  if (!waveEl) return;
+  for (let i = 0; i < WAVE_BARS; i++) {
+    const el = document.createElement('i');
+    waveEl.appendChild(el);
+    waveBars.push(el);
+  }
+})();
+
+function startWave() {
+  if (!waveEl || waveRaf) return;
+  const mid = (WAVE_BARS - 1) / 2;
+  const draw = () => {
+    const now = Date.now();
+    const live = waveFreq && now - waveLastMsgMs < 400;
+    for (let i = 0; i < WAVE_BARS; i++) {
+      let target;
+      if (live) {
+        // Mirror around centre, sampling the low-mid voice bins - punchy.
+        const dist = Math.abs(i - mid);
+        const v = (waveFreq[2 + Math.floor(dist * 1.6)] || 0) / 255;
+        target = 3 + Math.pow(v, 1.4) * WAVE_MAX_H;
+      } else {
+        // Idle shimmer: a soft centre-weighted sine wave.
+        const d = Math.abs(i - mid) / (WAVE_BARS / 2);
+        target = 3 + (Math.sin(now / 380 + i * 0.5) * 0.5 + 0.5) * (1 - d) * 6;
+      }
+      waveLevels[i] += (target - waveLevels[i]) * 0.35; // smoothing
+      waveBars[i].style.height = waveLevels[i].toFixed(1) + 'px';
+    }
+    waveRaf = requestAnimationFrame(draw);
+  };
+  draw();
+}
+
+function stopWave() {
+  if (waveRaf) cancelAnimationFrame(waveRaf);
+  waveRaf = null;
+  waveFreq = null;
+  waveLevels = new Array(WAVE_BARS).fill(0);
+}
 
 // ---------- Mute ----------
 muteBtn?.addEventListener('click', async () => {
@@ -189,6 +250,7 @@ async function stopAndSave(savingMessage) {
   if (stopBtn) stopBtn.disabled = true;
   if (cancelBtn) cancelBtn.disabled = true;
   stopTimer();
+  stopWave();
   if (savingMessage) setSavingText(savingMessage);
   setView('saving'); // show feedback immediately while the recorder flushes
   const res = await sendToOffscreen('STOP', { briefId, intent });
@@ -211,6 +273,7 @@ cancelBtn?.addEventListener('click', async () => {
   cancelBtn.disabled = true;
   if (stopBtn) stopBtn.disabled = true;
   stopTimer();
+  stopWave();
   await sendToOffscreen('CANCEL');
   chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
   setView('cancelled');

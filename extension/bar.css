@@ -290,6 +290,38 @@ body.state-error     [data-state='error']     { display: flex; }
 .stop-btn:hover { background: var(--accent-2); }
 .stop-btn:active { transform: scale(0.94); }
 .stop-square { width: 11px; height: 11px; background: var(--cream); border-radius: 2px; }
+/* Subtle brightness pulse so the bar always reads as live while recording.
+   (A box-shadow halo would be clipped by the bar's overflow:hidden, so we
+   pulse the button's own fill instead - clip-safe.) */
+.stop-btn { animation: rec-pulse 2.4s ease-in-out infinite; }
+@keyframes rec-pulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.16); }
+}
+
+/* Live voice waveform - thin bars that follow the user's mic. Heights are
+   driven by bar.js from levels relayed by the offscreen analyser. Fills the
+   flexible middle of the recording bar. */
+.wave {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+.wave i {
+  display: block;
+  width: 2.5px;
+  height: 3px;
+  flex: none;
+  border-radius: 99px;
+  background: linear-gradient(180deg, #f3925a, var(--accent));
+  transform-origin: center;
+  transition: height 0.06s linear;
+}
 
 .icon-btn {
   width: 28px; height: 28px;

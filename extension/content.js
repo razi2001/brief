@@ -102,17 +102,17 @@
     iframeEl.src = url;
     iframeEl.allow = 'microphone; camera; display-capture; clipboard-write';
     iframeEl.scrolling = 'no';
-    // Fixed, compact size with a GENEROUS height. The size is constant - we never
-    // recompute it from zoom-scaled measurements, which was the source of the
-    // drift. The bar lays out bottom-anchored inside; extra height is transparent
-    // + click-through (body is pointer-events:none, the bar is auto).
+    // Fixed, compact size. The size is constant - we never recompute it from
+    // zoom-scaled measurements, which was the source of the drift. The bar lays
+    // out bottom-anchored inside; the small amount of extra height above it is
+    // transparent + click-through (body is pointer-events:none, the bar is auto).
     Object.assign(iframeEl.style, {
       position: 'fixed',
       bottom: '0',
       left: '50%',
       transform: 'translateX(-50%)',
       width: '400px',
-      height: '135px',
+      height: '84px',
       border: '0',
       background: 'transparent',
       zIndex: '2147483647',
