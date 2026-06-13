@@ -581,15 +581,21 @@ function attachVoiceDictation(textarea, container, onCommit) {
       meterCtx = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = meterCtx.createAnalyser();
       analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
+      analyser.smoothingTimeConstant = 0.85;
       meterCtx.createMediaStreamSource(s).connect(analyser);
       const data = new Uint8Array(analyser.frequencyBinCount);
+      let lvl = 0;
       const draw = () => {
         analyser.getByteFrequencyData(data);
         let peak = 0;
         for (let i = 2; i < 28; i++) if (data[i] > peak) peak = data[i];
-        const v = Math.min(1, Math.pow(peak / 255, 1.3));
-        btn.style.boxShadow = `0 0 0 ${(4 + v * 9).toFixed(1)}px rgba(221, 105, 54, ${(0.1 + v * 0.3).toFixed(3)})`;
+        const target = Math.min(1, Math.pow(peak / 255, 1.3));
+        lvl += (target - lvl) * 0.18; // ease so the ring glides, never jumps
+        // Keep the halo small (max ~7px). .brief-item has overflow:hidden + 9px
+        // rounded corners (for the accordion), so a larger ring gets clipped.
+        const spread = (2 + lvl * 5).toFixed(2);
+        const alpha = (0.08 + lvl * 0.22).toFixed(3);
+        btn.style.boxShadow = `0 0 0 ${spread}px rgba(221, 105, 54, ${alpha})`;
         meterRaf = requestAnimationFrame(draw);
       };
       draw();
