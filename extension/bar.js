@@ -136,6 +136,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === 'AUDIO_LEVELS') {
     waveFreq = message.bins;
     waveLastMsgMs = Date.now();
+    let peak = 0;
+    for (const b of message.bins) if (b > peak) peak = b;
+    if (peak >= SPEAK_LEVEL) waveLastLoudMs = waveLastMsgMs;
   }
   sendResponse({ ok: true });
   return false;
@@ -167,38 +170,43 @@ function stopTimer() { if (timerInterval) clearInterval(timerInterval); timerInt
 // bar feeling alive.
 const WAVE_BARS = 24;
 const WAVE_MAX_H = 22;        // px, tallest a bar gets at full volume
+const SPEAK_LEVEL = 42;       // 0..255 mic peak above this counts as "speaking"
+const SILENCE_MS = 900;       // keep the wave up this long after the last peak
+const waveBarsContainer = document.getElementById('waveBars');
 const waveBars = [];
 let waveLevels = new Array(WAVE_BARS).fill(0);
 let waveFreq = null;          // latest frequency bytes from offscreen
 let waveLastMsgMs = 0;
+let waveLastLoudMs = 0;       // last time the mic crossed SPEAK_LEVEL
 let waveRaf = null;
 
 (function buildWave() {
-  if (!waveEl) return;
+  if (!waveBarsContainer) return;
   for (let i = 0; i < WAVE_BARS; i++) {
     const el = document.createElement('i');
-    waveEl.appendChild(el);
+    waveBarsContainer.appendChild(el);
     waveBars.push(el);
   }
 })();
 
 function startWave() {
-  if (!waveEl || waveRaf) return;
+  if (!waveBarsContainer || waveRaf) return;
   const mid = (WAVE_BARS - 1) / 2;
   const draw = () => {
     const now = Date.now();
     const live = waveFreq && now - waveLastMsgMs < 400;
+    // Crossfade the "Describe your brief…" hint and the bars: stay in "speaking"
+    // for SILENCE_MS after the last voice peak so pauses between words don't
+    // flicker the hint back in.
+    if (waveEl) waveEl.classList.toggle('speaking', now - waveLastLoudMs < SILENCE_MS);
     for (let i = 0; i < WAVE_BARS; i++) {
-      let target;
+      // Mirror around centre, sampling the low-mid voice bins - punchy. When
+      // there's no live data the bars rest flat (hidden behind the hint).
+      let target = 3;
       if (live) {
-        // Mirror around centre, sampling the low-mid voice bins - punchy.
         const dist = Math.abs(i - mid);
         const v = (waveFreq[2 + Math.floor(dist * 1.6)] || 0) / 255;
         target = 3 + Math.pow(v, 1.4) * WAVE_MAX_H;
-      } else {
-        // Idle shimmer: a soft centre-weighted sine wave.
-        const d = Math.abs(i - mid) / (WAVE_BARS / 2);
-        target = 3 + (Math.sin(now / 380 + i * 0.5) * 0.5 + 0.5) * (1 - d) * 6;
       }
       waveLevels[i] += (target - waveLevels[i]) * 0.35; // smoothing
       waveBars[i].style.height = waveLevels[i].toFixed(1) + 'px';
@@ -212,7 +220,9 @@ function stopWave() {
   if (waveRaf) cancelAnimationFrame(waveRaf);
   waveRaf = null;
   waveFreq = null;
+  waveLastLoudMs = 0;
   waveLevels = new Array(WAVE_BARS).fill(0);
+  if (waveEl) waveEl.classList.remove('speaking');
 }
 
 // ---------- Mute ----------
