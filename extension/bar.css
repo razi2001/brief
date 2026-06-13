@@ -340,8 +340,8 @@ body.state-error     [data-state='error']     { display: flex; }
   justify-content: center;
   font-family: var(--display);
   font-style: italic;
-  font-size: 13.5px;
-  color: var(--muted-cream);
+  font-size: 14.5px;
+  color: var(--muted-cream-2);
   white-space: nowrap;
   transition: opacity 0.35s ease;
   pointer-events: none;
