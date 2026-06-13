@@ -18,6 +18,19 @@
           <span class="state-text">Starting…</span>
         </div>
 
+        <!-- COUNTDOWN (pre-roll: prompt + 3·2·1, before capture begins) -->
+        <div data-state="countdown" class="state-inner">
+          <div class="cd-num" id="cdNum">3</div>
+          <span class="cd-prompt">Describe your brief</span>
+          <span class="spacer"></span>
+          <button id="cdCancelBtn" class="icon-btn" title="Cancel">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="6" y1="6" x2="18" y2="18"/>
+              <line x1="18" y1="6" x2="6" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
         <!-- RECORDING -->
         <div data-state="recording" class="state-inner">
           <button id="dragGrip" class="drag-grip" title="Drag to move">
@@ -33,12 +46,11 @@
           <button id="stopBtn" class="stop-btn" title="Stop &amp; copy">
             <span class="stop-square"></span>
           </button>
+          <div class="wave" id="wave">
+            <div class="wave-bars" id="waveBars" aria-hidden="true"></div>
+            <span class="wave-hint" id="waveHint">Describe your brief…</span>
+          </div>
           <span class="timer" id="timer">00:00</span>
-          <span class="lang-pills" role="group" aria-label="Recognition language">
-            <button type="button" class="lang-pill" data-lang="en-US">EN</button>
-            <button type="button" class="lang-pill" data-lang="fr-FR">FR</button>
-          </span>
-          <span class="spacer"></span>
           <button id="muteBtn" class="icon-btn" title="Mute mic">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 1.5a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0v-7a3 3 0 0 0-3-3z"/>
@@ -120,15 +132,6 @@
         </div>
       </div>
 
-      <!-- Transcript panel below the bar (only visible during recording) -->
-      <div class="transcript-panel" id="transcriptPanel" hidden>
-        <div class="bars-anim" aria-hidden="true">
-          <span></span><span></span><span></span><span></span><span></span>
-        </div>
-        <div class="transcript-text" id="transcriptText">
-          <span class="placeholder">Listening…</span>
-        </div>
-      </div>
     </div>
 
     <video id="preview" autoplay muted playsinline style="display:none"></video>

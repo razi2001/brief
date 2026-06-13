@@ -7,7 +7,7 @@
 //   2. Slow path (no cache): probe getUserMedia synchronously. If granted,
 //      reveal and cache. If not, redirect to permission page.
 
-import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, uploadFilesToDraft, processBrief } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, uploadFilesToDraft, processBrief, transcribeNote } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -174,13 +174,9 @@ async function recordForItem(itemId, recBtn) {
       });
     });
 
-    // Language is chosen on the bar now; pass the last-used pref as the start value.
-    const { lang } = await chrome.storage.local.get('lang');
-
     await chrome.tabs.sendMessage(tab.id, {
       type: 'INJECT_BAR',
       streamId,
-      lang: lang || 'en-US',
       intent: 'brief',
       mode: 'inbox',
       itemId, // record for this specific pre-named brief
@@ -471,6 +467,7 @@ function buildDetailPanel(b) {
   });
   desc.addEventListener('blur', () => { clearTimeout(descTimer); persistDesc(); });
   descWrap.appendChild(desc);
+  attachVoiceDictation(desc, descWrap, persistDesc);
 
   // Attach-recording - only shown when a recording exists for this brief.
   let attachWrap = null;
@@ -535,6 +532,132 @@ function buildDetailPanel(b) {
   if (attachWrap) panel.appendChild(attachWrap);
   panel.appendChild(dataWrap);
   return panel;
+}
+
+// Voice-to-text: a mic button pinned in the corner of a textarea. Records a
+// short note in the popup (the extension's own page, so getUserMedia works here
+// directly), transcribes it server-side, and APPENDS the result to the field so
+// the user doesn't have to type. Auto-stops at 60s; errors show a brief hint.
+function attachVoiceDictation(textarea, container, onCommit) {
+  const MIC = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1.5a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0v-7a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg>';
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'desc-mic';
+  btn.title = 'Record a voice note';
+  btn.setAttribute('aria-label', 'Record a voice note');
+  btn.innerHTML = MIC;
+  container.appendChild(btn);
+
+  let msgEl = null;
+  function flash(text) {
+    if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'desc-mic-msg'; container.appendChild(msgEl); }
+    msgEl.textContent = text;
+    msgEl.classList.add('show');
+    setTimeout(() => { if (msgEl) msgEl.classList.remove('show'); }, 2200);
+  }
+
+  let state = 'idle', rec = null, stream = null, chunks = [], capTimer = null;
+  let meterCtx = null, meterRaf = null;
+  function setState(s) {
+    state = s;
+    btn.classList.toggle('rec', s === 'recording');
+    btn.classList.toggle('busy', s === 'busy');
+    btn.title = s === 'recording' ? 'Stop recording' : 'Record a voice note';
+    btn.innerHTML = s === 'recording' ? '<span class="mic-stop"></span>'
+      : s === 'busy' ? '<span class="mic-spin"></span>'
+      : MIC;
+  }
+  function teardown() {
+    stopMeter();
+    if (capTimer) { clearTimeout(capTimer); capTimer = null; }
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    rec = null; chunks = [];
+  }
+
+  // Live voice halo: an analyser on the recording stream drives a ring around
+  // the mic button that grows/brightens with volume, so it visibly "hears" you.
+  function startMeter(s) {
+    try {
+      meterCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = meterCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.85;
+      meterCtx.createMediaStreamSource(s).connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      let lvl = 0;
+      const draw = () => {
+        analyser.getByteFrequencyData(data);
+        let peak = 0;
+        for (let i = 2; i < 28; i++) if (data[i] > peak) peak = data[i];
+        const target = Math.min(1, Math.pow(peak / 255, 1.3));
+        lvl += (target - lvl) * 0.18; // ease so the ring glides, never jumps
+        // Keep the halo small (max ~7px). .brief-item has overflow:hidden + 9px
+        // rounded corners (for the accordion), so a larger ring gets clipped.
+        const spread = (2 + lvl * 5).toFixed(2);
+        const alpha = (0.08 + lvl * 0.22).toFixed(3);
+        btn.style.boxShadow = `0 0 0 ${spread}px rgba(221, 105, 54, ${alpha})`;
+        meterRaf = requestAnimationFrame(draw);
+      };
+      draw();
+    } catch { meterCtx = null; }
+  }
+  function stopMeter() {
+    if (meterRaf) cancelAnimationFrame(meterRaf);
+    meterRaf = null;
+    btn.style.boxShadow = '';
+    if (meterCtx) { meterCtx.close().catch(() => {}); meterCtx = null; }
+  }
+
+  async function start() {
+    let s;
+    try { s = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { flash('Allow mic access'); return; }
+    stream = s; chunks = [];
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    try { rec = new MediaRecorder(stream, { mimeType: mime }); }
+    catch { teardown(); flash('Recording unavailable'); return; }
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = onStop;
+    rec.start();
+    setState('recording');
+    startMeter(stream);
+    capTimer = setTimeout(() => { if (state === 'recording') stop(); }, 60000);
+  }
+
+  function stop() {
+    if (capTimer) { clearTimeout(capTimer); capTimer = null; }
+    try { if (rec && rec.state !== 'inactive') rec.stop(); } catch {}
+  }
+
+  async function onStop() {
+    const blob = new Blob(chunks, { type: 'audio/webm' });
+    teardown();
+    if (!blob.size) { setState('idle'); return; }
+    setState('busy');
+    try {
+      const text = await transcribeNote(blob);
+      if (text) {
+        const cur = (textarea.value || '').trim();
+        // Programmatic value sets don't fire 'input', so persist explicitly.
+        textarea.value = cur ? `${cur} ${text}` : text;
+        textarea.focus();
+        try { textarea.setSelectionRange(textarea.value.length, textarea.value.length); } catch {}
+        await onCommit();
+      } else {
+        flash('Didn’t catch that');
+      }
+    } catch (err) {
+      console.warn('[brief/popup] dictation failed:', err);
+      flash('Transcription failed');
+    } finally {
+      setState('idle');
+    }
+  }
+
+  btn.addEventListener('click', () => {
+    if (state === 'recording') stop();
+    else if (state === 'idle') start();
+  });
 }
 
 // Re-mark the disclosure dot without a full re-render.

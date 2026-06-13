@@ -20,7 +20,7 @@
       return false;
     }
     if (message?.type === 'INJECT_BAR') {
-      injectBar(message.streamId, message.lang || 'en-US', message.intent || 'brief', message.mode || 'ship', message.itemId || '');
+      injectBar(message.streamId, message.intent || 'brief', message.mode || 'ship', message.itemId || '');
     } else if (message?.type === 'INJECT_SHOT') {
       injectShot(message.itemId || '', message.dataUrl || '');
     } else if (message?.type === 'BRIEF_START') {
@@ -86,12 +86,11 @@
   }
 
   // ---------- Iframe injection ----------
-  function injectBar(streamId, lang, intent, mode, itemId) {
+  function injectBar(streamId, intent, mode, itemId) {
     // If a bar is already on-screen, ignore - recording's in progress
     if (iframeEl) return;
     const hashParts = [
       `streamId=${encodeURIComponent(streamId)}`,
-      `lang=${encodeURIComponent(lang)}`,
       `intent=${encodeURIComponent(intent)}`,
       `mode=${encodeURIComponent(mode || 'ship')}`,
       `itemId=${encodeURIComponent(itemId || '')}`,
@@ -103,10 +102,9 @@
     iframeEl.src = url;
     iframeEl.allow = 'microphone; camera; display-capture; clipboard-write';
     iframeEl.scrolling = 'no';
-    // Fixed, compact size with a GENEROUS height that comfortably fits both the
-    // collapsed bar and the expanded (transcript) state. The size is constant -
-    // we never recompute it from zoom-scaled measurements, which was the source
-    // of the drift. The bar lays out bottom-anchored inside; extra height is
+    // Fixed, compact size. The size is constant - we never recompute it from
+    // zoom-scaled measurements, which was the source of the drift. The bar lays
+    // out bottom-anchored inside; the small amount of extra height above it is
     // transparent + click-through (body is pointer-events:none, the bar is auto).
     Object.assign(iframeEl.style, {
       position: 'fixed',
@@ -114,7 +112,7 @@
       left: '50%',
       transform: 'translateX(-50%)',
       width: '400px',
-      height: '135px',
+      height: '84px',
       border: '0',
       background: 'transparent',
       zIndex: '2147483647',

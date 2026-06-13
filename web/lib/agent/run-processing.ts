@@ -4,6 +4,7 @@ import { getLinearToken, makeLinearTracker } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
 import type { Tracker } from "@/lib/tracker";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
+import { transcribeAudio } from "@/lib/agent/transcribe";
 import { getUserSettings } from "@/lib/settings";
 
 export type ProcessResult =
@@ -82,6 +83,25 @@ export async function processBriefById(
     };
     const briefJsonBuf = await dl(`${prefix}/brief.json`);
     const json = briefJsonBuf ? JSON.parse(briefJsonBuf.toString("utf8")) : {};
+
+    // Transcribe the audio-only track (uploaded alongside the video) with
+    // OpenAI and surface it as json.transcript so buildContextBlock picks it up
+    // unchanged. Fail-soft: missing audio or any API error leaves transcript
+    // null and the brief still files on visual + console/network evidence.
+    let audioInput: { bytes: Buffer; filename: string; contentType: string } | null = null;
+    const audioBuf = await dl(`${prefix}/audio.webm`);
+    if (audioBuf) {
+      audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
+    } else {
+      // Older drafts (created before the audio track existed) only have the
+      // video. Transcribe it directly when it's under OpenAI's 25 MB cap.
+      const recBuf = await dl(`${prefix}/recording.webm`);
+      if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
+        audioInput = { bytes: recBuf, filename: "recording.webm", contentType: "video/webm" };
+      }
+    }
+    const transcript = await transcribeAudio(audioInput);
+    if (transcript) json.transcript = transcript;
 
     const images: BriefInput["images"] = [];
     const files: BriefInput["evidence"]["files"] = [];
@@ -200,7 +220,7 @@ export async function processBriefById(
     if (updErr) await admin.from("briefs").update(filedPatch).eq("id", briefId);
 
     // delete media on success (keep the row)
-    const toDelete: string[] = [`${prefix}/brief.json`, `${prefix}/recording.webm`, `${prefix}/screenshot.png`, ...names.map((n) => `${prefix}/keyframes/${n}`)];
+    const toDelete: string[] = [`${prefix}/brief.json`, `${prefix}/recording.webm`, `${prefix}/audio.webm`, `${prefix}/screenshot.png`, ...names.map((n) => `${prefix}/keyframes/${n}`)];
     await admin.storage.from("briefs").remove(toDelete);
 
     return { ok: true, result };

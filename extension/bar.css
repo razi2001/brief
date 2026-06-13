@@ -41,14 +41,13 @@ body {
   pointer-events: none;
   padding: 14px;
 }
-/* After recording (no transcript panel), center the confirmation pill in the
-   iframe so it lands where the eye was - between where the transcript and the
-   bar sat - instead of pinned to the bottom. */
+/* After recording, center the confirmation pill in the iframe so it lands
+   where the eye was instead of pinned to the bottom. */
 body.state-saving,
 body.state-saved,
 body.state-inboxed,
 body.state-cancelled { align-items: center; }
-.bar, .transcript-panel { pointer-events: auto; }
+.bar { pointer-events: auto; }
 #root {
   display: flex;
   flex-direction: column;
@@ -57,10 +56,10 @@ body.state-cancelled { align-items: center; }
 }
 
 /* ---------- State routing ---------- */
-.bar,
-.transcript-panel { display: none !important; }
+.bar { display: none !important; }
 
 body.state-loading .bar,
+body.state-countdown .bar,
 body.state-recording .bar,
 body.state-saving .bar,
 body.state-saved .bar,
@@ -68,10 +67,9 @@ body.state-inboxed .bar,
 body.state-cancelled .bar,
 body.state-error .bar { display: flex !important; align-items: center; }
 
-body.state-recording .transcript-panel { display: flex !important; }
-
 .state-inner { display: none; width: 100%; height: 100%; align-items: center; gap: 10px; padding: 6px 16px 6px 6px; user-select: none; }
 body.state-loading   [data-state='loading']   { display: flex; justify-content: center; }
+body.state-countdown [data-state='countdown'] { display: flex; }
 body.state-recording [data-state='recording'] { display: flex; }
 body.state-saving    [data-state='saving']    { display: flex; justify-content: center; }
 body.state-saved     [data-state='saved']     { display: flex; }
@@ -271,7 +269,7 @@ body.state-error     [data-state='error']     { display: flex; }
 
 /* ---------- BAR (on-brand dark) ---------- */
 .bar {
-  width: 360px;
+  width: 380px;
   height: 52px;
   background: var(--surface);
   border-radius: 999px;
@@ -294,6 +292,85 @@ body.state-error     [data-state='error']     { display: flex; }
 .stop-btn:hover { background: var(--accent-2); }
 .stop-btn:active { transform: scale(0.94); }
 .stop-square { width: 11px; height: 11px; background: var(--cream); border-radius: 2px; }
+/* Subtle brightness pulse so the bar always reads as live while recording.
+   (A box-shadow halo would be clipped by the bar's overflow:hidden, so we
+   pulse the button's own fill instead - clip-safe.) */
+.stop-btn { animation: rec-pulse 2.4s ease-in-out infinite; }
+@keyframes rec-pulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.16); }
+}
+
+/* Live voice waveform - thin bars that follow the user's mic. Heights are
+   driven by bar.js from levels relayed by the offscreen analyser. Fills the
+   flexible middle of the recording bar. */
+.wave {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  position: relative;
+  overflow: hidden;
+}
+/* Bars + hint are stacked; we crossfade between them. While silent the hint
+   shows ("Describe your brief…"); as soon as the voice comes through the bars
+   fade in and the hint fades out (.speaking toggled by bar.js). */
+.wave-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+.wave-bars i {
+  display: block;
+  width: 2.5px;
+  height: 3px;
+  flex: none;
+  border-radius: 99px;
+  background: linear-gradient(180deg, #f3925a, var(--accent));
+  transform-origin: center;
+  transition: height 0.06s linear;
+}
+.wave-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 14.5px;
+  color: var(--muted-cream-2);
+  white-space: nowrap;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+.wave.speaking .wave-bars { opacity: 1; }
+.wave.speaking .wave-hint { opacity: 0; }
+
+/* COUNTDOWN (pre-roll) - a ticking 3·2·1 chip + the "Describe your brief" prompt */
+.cd-num {
+  width: 38px; height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(245, 241, 232, 0.08);
+  color: var(--cream);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+}
+.cd-prompt {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--muted-cream-2);
+  white-space: nowrap;
+  margin-left: 2px;
+}
 
 .icon-btn {
   width: 28px; height: 28px;
@@ -349,31 +426,6 @@ body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
   font-size: 14px;
   letter-spacing: -0.01em;
   color: var(--cream);
-}
-.lang-pills {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  background: rgba(245, 241, 232, 0.08);
-  border-radius: 7px;
-}
-.lang-pill {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--muted-cream-2);
-  cursor: pointer;
-  transition: background 0.13s, color 0.13s;
-}
-.lang-pill:hover { color: var(--cream); }
-.lang-pill.active {
-  background: rgba(245, 241, 232, 0.92);
-  color: var(--ink);
 }
 .spacer { flex: 1; }
 
@@ -495,65 +547,3 @@ body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
 .spinner.small { width: 14px; height: 14px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---------- Transcript panel - single-line ticker ---------- */
-.transcript-panel {
-  width: 360px;
-  padding: 9px 22px;
-  background: var(--surface);
-  color: var(--cream);
-  border-radius: 999px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.26), 0 0 0 1px var(--surface-line);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-.bars-anim {
-  display: flex; align-items: center; gap: 3px;
-  height: 22px;
-  flex-shrink: 0;
-}
-.bars-anim span {
-  width: 2.5px;
-  background: var(--accent);
-  border-radius: 2px;
-  animation: bar 1s ease-in-out infinite;
-}
-.bars-anim span:nth-child(1) { height: 8px;  animation-delay: 0s; }
-.bars-anim span:nth-child(2) { height: 14px; animation-delay: 0.15s; }
-.bars-anim span:nth-child(3) { height: 10px; animation-delay: 0.3s; }
-.bars-anim span:nth-child(4) { height: 18px; animation-delay: 0.45s; }
-.bars-anim span:nth-child(5) { height: 9px;  animation-delay: 0.6s; }
-@keyframes bar {
-  0%, 100% { transform: scaleY(0.4); opacity: 0.7; }
-  50%      { transform: scaleY(1);   opacity: 1; }
-}
-
-/* The ticker viewport - single line. Older text scrolls out the left
-   under the panel's left padding; no mask needed. */
-.transcript-text {
-  position: relative;
-  flex: 1;
-  height: 22px;
-  overflow: hidden;
-}
-.transcript-text .ticker {
-  display: inline-block;
-  white-space: nowrap;
-  font-family: var(--display);
-  font-size: 14px;
-  line-height: 22px;
-  color: var(--cream);
-  transform: translateX(0);
-  will-change: transform;
-  transition: transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-.transcript-text .ticker .interim { color: var(--muted-cream); font-style: italic; }
-.transcript-text .placeholder {
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 14px;
-  color: rgba(245, 241, 232, 0.5);
-  line-height: 22px;
-}

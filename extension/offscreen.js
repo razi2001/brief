@@ -17,17 +17,16 @@ import { uploadDraft } from './cloud.js';
 let micStream = null;
 let tabStream = null;
 let mediaRecorder = null;
+let audioRecorder = null;
+let audioChunks = [];
 let recordedChunks = [];
-let recognizer = null;
-let transcriptFinal = '';
-let transcriptInterim = '';
-let transcriptChunks = [];
-let recognitionShouldRun = false;
 let recordingStartMs = 0;
-let recordingLang = 'en-US';
 let previewVideo = null;
 let keyframes = [];
 let keyframeTimer = null;
+let levelTimer = null;
+let levelAnalyser = null;
+let levelFreq = null;
 
 const KEYFRAME_INTERVAL_MS = 2000;
 
@@ -50,7 +49,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case 'START':
-          await startRecording(message.streamId, message.lang);
+          // Phase 1: acquire streams + build recorders (don't start yet).
+          await prepareRecording(message.streamId);
+          sendResponse({ ok: true });
+          break;
+        case 'GO':
+          // Phase 2: the bar's countdown finished - start capturing now.
+          beginRecording();
           sendResponse({ ok: true });
           break;
         case 'STOP': {
@@ -63,8 +68,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           uploadAndFinish({
             briefId: message.briefId,
             intent: message.intent || 'brief',
-            transcriptFinal: (message.transcriptFinal || '').trim(),
-            transcriptChunks: message.transcriptChunks || [],
             ...data,
           });
           break;
@@ -98,14 +101,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // ---------- Recording ----------
-async function startRecording(streamId, lang) {
-  log('startRecording', { streamId, lang });
+// Phase 1: acquire the streams and BUILD the recorders without starting them,
+// so the bar can run its 3-2-1 countdown while this (slow) capture setup
+// happens. beginRecording() starts everything at "go" for a clean start with
+// no clipped first word and no captured dead-time.
+async function prepareRecording(streamId) {
+  log('prepareRecording', { streamId });
   recordedChunks = [];
-  transcriptFinal = '';
-  transcriptInterim = '';
-  transcriptChunks = [];
-  recordingLang = lang || 'en-US';
-  recordingStartMs = Date.now();
+  audioChunks = [];
 
   // 1. Tab stream from the streamId we were handed
   tabStream = await navigator.mediaDevices.getUserMedia({
@@ -160,7 +163,36 @@ async function startRecording(streamId, lang) {
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
-  mediaRecorder.start(1000);
+
+  // Audio-only recorder for server-side transcription. Records JUST the mixed
+  // tab+mic audio (dest.stream) as a small opus webm (~1-2 MB for 2 min), so it
+  // always fits under OpenAI's 25 MB transcription cap - no video bloat.
+  const audioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : 'audio/webm';
+  try {
+    audioRecorder = new MediaRecorder(new MediaStream(dest.stream.getAudioTracks()), { mimeType: audioMime });
+    audioRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+  } catch (err) {
+    // Non-fatal: if the audio recorder can't start we just upload without a
+    // transcribable track; the brief still files on visual evidence.
+    log('audio recorder failed to start:', err);
+    audioRecorder = null;
+  }
+
+  // Build the mic-level analyser now (started in beginRecording). It taps the
+  // MIC (not the mixed dest) so the bar's waveform reacts to the user's voice -
+  // and muting the mic flattens it, which is honest feedback.
+  try {
+    levelAnalyser = audioCtx.createAnalyser();
+    levelAnalyser.fftSize = 256;
+    levelAnalyser.smoothingTimeConstant = 0.78;
+    audioCtx.createMediaStreamSource(micStream).connect(levelAnalyser);
+    levelFreq = new Uint8Array(levelAnalyser.frequencyBinCount);
+  } catch (err) {
+    levelAnalyser = null;
+    log('level meter setup failed:', err);
+  }
 
   // 4b. Hidden video element to enable keyframe extraction via canvas
   if (!previewVideo) {
@@ -174,15 +206,40 @@ async function startRecording(streamId, lang) {
   previewVideo.srcObject = combinedStream;
   await previewVideo.play().catch(() => {});
 
+  // Streams are live and the recorders are built but NOT started. The bar runs
+  // its 3-2-1 countdown, then sends GO -> beginRecording().
+}
+
+// Phase 2: actually start capturing. Called on GO, after the bar's countdown.
+// Starts both recorders, the keyframe capture, and the live level meter, stamps
+// the start time, and tells the bar to switch to the recording UI. This is the
+// instant recording truly begins - no countdown audio is captured.
+function beginRecording() {
+  recordingStartMs = Date.now();
+  try { mediaRecorder.start(1000); } catch (err) { log('recorder start failed:', err); }
+  if (audioRecorder) {
+    try { audioRecorder.start(1000); }
+    catch (err) { log('audio recorder start failed:', err); audioRecorder = null; }
+  }
+
+  // Start sampling the mic-level analyser (built in prepareRecording) and relay
+  // levels to the bar's waveform. Timer, not rAF (offscreen docs throttle rAF).
+  if (levelAnalyser && levelFreq) {
+    if (levelTimer) clearInterval(levelTimer);
+    levelTimer = setInterval(() => {
+      levelAnalyser.getByteFrequencyData(levelFreq);
+      // Low-mid voice slice (0..255 per bin); the bar mirrors + maps it.
+      const bins = Array.from(levelFreq.subarray(0, 48));
+      chrome.runtime
+        .sendMessage({ target: 'relayToBar', payload: { target: 'bar', type: 'AUDIO_LEVELS', bins } })
+        .catch(() => {});
+    }, 40);
+  }
+
   keyframes = [];
   startKeyframeCapture();
 
-  // 5. Speech recognition runs in the BAR, not here. Offscreen documents
-  // are invisible to Chrome, and webkitSpeechRecognition silently fails to
-  // produce results in invisible contexts. The bar iframe is visible and
-  // works correctly. We just record audio/video here.
-
-  // 6. Notify the bar (via background relay - it knows which tab the bar is in)
+  // Notify the bar (via background relay) to switch to the recording UI.
   chrome.runtime.sendMessage({
     target: 'relayToBar',
     payload: { target: 'bar', type: 'RECORDING_STARTED', startedAt: recordingStartMs },
@@ -212,21 +269,27 @@ function stopKeyframeCapture() {
   keyframeTimer = null;
 }
 
-function startSpeechRecognition(lang) {
-  // Intentionally unused - SR runs in the bar iframe instead.
-  // Kept as a no-op so the rest of the message handling doesn't break.
-}
-
-function stopSpeechRecognition() {
-  // No-op - see startSpeechRecognition.
+// Stop the audio-only recorder and wait for its final chunk to flush. A 3s
+// safety net guards against onstop never firing on a flaky engine - without it
+// collectRecording (on the critical stop/upload path) could hang forever.
+function stopAudioRecorder() {
+  return new Promise((resolve) => {
+    if (!audioRecorder || audioRecorder.state === 'inactive') return resolve();
+    let done = false;
+    const finish = () => { if (done) return; done = true; clearTimeout(safety); resolve(); };
+    const safety = setTimeout(finish, 3000);
+    audioRecorder.onstop = finish;
+    try { audioRecorder.stop(); } catch { finish(); }
+  });
 }
 
 // Stop the recorder and hand back the raw results (blob + keyframe blobs).
 // Shared by the cloud-upload and legacy-relay paths.
 async function collectRecording() {
   log('collectRecording');
-  stopSpeechRecognition();
+  await stopAudioRecorder();
   stopKeyframeCapture();
+  if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
 
   // Wait for MediaRecorder to flush
   await new Promise((resolve) => {
@@ -238,17 +301,18 @@ async function collectRecording() {
   cleanupStreams();
 
   const blob = new Blob(recordedChunks, { type: 'video/webm' });
+  const audioBlob = audioChunks.length ? new Blob(audioChunks, { type: 'audio/webm' }) : null;
   const collected = {
     blob,
+    audioBlob,
     mimeType: 'video/webm',
     keyframes: keyframes.slice(),
     durationMs: Date.now() - recordingStartMs,
     startedAtMs: recordingStartMs,
-    // Snapshot the lang NOW - a new recording can reuse this document while
-    // the upload is still running and would clobber the module-level value.
-    lang: recordingLang,
   };
   recordedChunks = [];
+  audioChunks = [];
+  audioRecorder = null;
   keyframes = [];
   return collected;
 }
@@ -258,7 +322,7 @@ async function collectRecording() {
 // closed - the upload retries a few times, and the outcome (cloud id or a
 // labelled error) lands on the inbox entry via UPLOAD_RESULT. Cloud-only: there
 // is no local zip fallback, so a hard failure is surfaced, not hidden.
-async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChunks, blob, mimeType, keyframes: frames, durationMs, startedAtMs, lang }) {
+async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, keyframes: frames, durationMs, startedAtMs }) {
   // CRITICAL: an offscreen document only reliably gets chrome.runtime -
   // chrome.storage is undefined here, so reading the token / inbox directly
   // threw "Cannot read properties of undefined (reading 'local')" and EVERY
@@ -294,9 +358,8 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
     pageUrl: meta.pageUrl,
     pageTitle: meta.pageTitle,
     userAgent: navigator.userAgent,
-    transcriptLang: lang || recordingLang,
-    transcript: transcriptFinal || null,
-    transcriptChunks: transcriptChunks || [],
+    transcript: null,        // filled server-side by OpenAI transcription
+    transcriptChunks: [],
     keyframes: keyframeMeta,
     events: meta.events || [],
     description: entry?.description || '',
@@ -324,6 +387,9 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
     if (blob && blob.size) {
       files.push({ name: 'recording.webm', blob, contentType: mimeType });
     }
+    if (audioBlob && audioBlob.size) {
+      files.push({ name: 'audio.webm', blob: audioBlob, contentType: 'audio/webm' });
+    }
     if (entry?.screenshot) {
       try {
         const b64 = entry.screenshot.split(',')[1] || '';
@@ -336,7 +402,7 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
 
     const cloudMeta = {
       title: entry?.name || '',
-      transcript: transcriptFinal || '',
+      transcript: '',
       keyframeCount: keyframeEntries.length,
       hasScreenshot: !!entry?.screenshot,
       pageUrl: meta.pageUrl,
@@ -373,16 +439,20 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
 
 async function cancelRecording() {
   log('cancelRecording');
-  stopSpeechRecognition();
   stopKeyframeCapture();
+  if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
+  if (audioRecorder) {
+    audioRecorder.ondataavailable = null;
+    if (audioRecorder.state !== 'inactive') { try { audioRecorder.stop(); } catch {} }
+  }
+  audioRecorder = null;
+  audioChunks = [];
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     try { mediaRecorder.stop(); } catch {}
   }
   cleanupStreams();
   recordedChunks = [];
   keyframes = [];
-  transcriptChunks = [];
-  transcriptFinal = '';
 }
 
 function cleanupStreams() {
@@ -400,6 +470,8 @@ function cleanupStreams() {
   tabStream = null;
   micStream = null;
   mediaRecorder = null;
+  levelAnalyser = null;
+  levelFreq = null;
   if (previewVideo) {
     try { previewVideo.srcObject = null; } catch {}
   }

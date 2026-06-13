@@ -41,3 +41,17 @@ describe("buildContextBlock - network errors", () => {
     expect(occurrences).toBe(1);
   });
 });
+
+describe("buildContextBlock - narration", () => {
+  it("surfaces the transcript under a 'transcribed audio' label and includes the text", () => {
+    const block = buildContextBlock({ transcript: "the save button does nothing" });
+    expect(block).toContain("transcribed audio");
+    expect(block).toContain("the save button does nothing");
+    expect(block).not.toContain("rough draft");
+  });
+
+  it("omits the narration block when there is no transcript", () => {
+    const block = buildContextBlock({ pageUrl: "https://example.com" });
+    expect(block).not.toContain("SPOKEN NARRATION");
+  });
+});

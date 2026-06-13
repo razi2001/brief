@@ -69,6 +69,27 @@ async function fetchOrThrow(url, init, label) {
   }
 }
 
+// Transcribe a short voice note (recorded in the popup) via the cloud - reuses
+// the same model the brief-filing agent uses. Sends the audio as the raw body.
+// Returns the recognized text (possibly empty); throws a labelled error on a
+// network/auth/server failure so the caller can show a friendly hint.
+export async function transcribeNote(blob, tokenOverride) {
+  const token = tokenOverride || (await getCloudToken());
+  if (!token) throw new Error("Not connected to Brief Cloud");
+  const res = await fetchOrThrow(
+    `${APP_URL}/api/transcribe`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": blob.type || "audio/webm" },
+      body: blob,
+    },
+    "transcribe",
+  );
+  if (!res.ok) throw new Error(`transcribe failed: ${res.status}${await errorDetail(res)}`);
+  const body = await res.json().catch(() => ({}));
+  return (body?.text || "").trim();
+}
+
 // Create a brief row + upload its files. Does NOT file the ticket - the brief
 // sits as an "uploaded" draft until processBrief() is called. Returns the cloud
 // brief id. Used for recordings: we upload on stop to preserve the video, but
