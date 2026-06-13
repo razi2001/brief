@@ -185,10 +185,8 @@ async function startRecording(streamId, lang) {
   keyframes = [];
   startKeyframeCapture();
 
-  // 5. Speech recognition runs in the BAR, not here. Offscreen documents
-  // are invisible to Chrome, and webkitSpeechRecognition silently fails to
-  // produce results in invisible contexts. The bar iframe is visible and
-  // works correctly. We just record audio/video here.
+  // 5. This document records the video plus a separate audio-only track; the
+  // audio is uploaded as audio.webm and transcribed server-side by OpenAI.
 
   // 6. Notify the bar (via background relay - it knows which tab the bar is in)
   chrome.runtime.sendMessage({
@@ -225,7 +223,7 @@ function stopAudioRecorder() {
   return new Promise((resolve) => {
     if (!audioRecorder || audioRecorder.state === 'inactive') return resolve();
     audioRecorder.onstop = () => resolve();
-    try { audioRecorder.stop(); } catch { resolve(); }
+    try { audioRecorder.stop(); } catch { audioRecorder.onstop = null; resolve(); }
   });
 }
 
@@ -385,8 +383,9 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
 async function cancelRecording() {
   log('cancelRecording');
   stopKeyframeCapture();
-  if (audioRecorder && audioRecorder.state !== 'inactive') {
-    try { audioRecorder.stop(); } catch {}
+  if (audioRecorder) {
+    audioRecorder.ondataavailable = null;
+    if (audioRecorder.state !== 'inactive') { try { audioRecorder.stop(); } catch {} }
   }
   audioRecorder = null;
   audioChunks = [];
