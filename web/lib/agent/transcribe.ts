@@ -24,13 +24,16 @@ export async function transcribeAudio(
 ): Promise<string | null> {
   if (!input || !input.bytes || input.bytes.length === 0) return null;
   const model = deps.model || process.env.TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+  const client = deps.create ? null : new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const create: (args: Record<string, unknown>) => Promise<unknown> =
+    deps.create ||
+    ((args) => {
+      const c = client!;
+      return c.audio.transcriptions.create(
+        args as unknown as Parameters<typeof c.audio.transcriptions.create>[0],
+      );
+    });
   try {
-    const create =
-      deps.create ||
-      (async (args: Record<string, unknown>) => {
-        const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        return client.audio.transcriptions.create(args as never);
-      });
     const file = await toFile(input.bytes, input.filename, { type: input.contentType });
     const res = await create({ file, model, response_format: "text" });
     const text = typeof res === "string" ? res : ((res as { text?: string })?.text ?? "");

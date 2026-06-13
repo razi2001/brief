@@ -36,6 +36,6 @@ describe("transcribeAudio", () => {
   it("passes the configured model through to the API", async () => {
     const create = vi.fn().mockResolvedValue("ok");
     await transcribeAudio(audio(), { create, model: "gpt-4o-transcribe" });
-    expect(create.mock.calls[0][0]).toMatchObject({ model: "gpt-4o-transcribe" });
+    expect(create.mock.calls[0][0]).toMatchObject({ model: "gpt-4o-transcribe", response_format: "text" });
   });
 });
