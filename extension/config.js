@@ -9,7 +9,7 @@
 // Note: every URL here must also be listed in manifest.json
 // "externally_connectable.matches" or the /connect token handshake won't reach
 // the extension.
-export const ENV = "local"; // "local" | "prod"
+export const ENV = "prod"; // "local" | "prod"
 
 export const APP_URLS = {
   local: "http://localhost:3000",
