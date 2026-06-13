@@ -174,13 +174,9 @@ async function recordForItem(itemId, recBtn) {
       });
     });
 
-    // Language is chosen on the bar now; pass the last-used pref as the start value.
-    const { lang } = await chrome.storage.local.get('lang');
-
     await chrome.tabs.sendMessage(tab.id, {
       type: 'INJECT_BAR',
       streamId,
-      lang: lang || 'en-US',
       intent: 'brief',
       mode: 'inbox',
       itemId, // record for this specific pre-named brief
