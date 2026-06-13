@@ -16,7 +16,7 @@ export default async function BriefsPage() {
   const admin = createAdminSupabase();
   await recoverOrphans(admin, userId);
 
-  // Active (non-archived) tickets - the default view.
+  // Archived briefs are treated as deleted - never fetched, never shown.
   const { data: activeData } = await admin
     .from("briefs")
     .select(BRIEF_COLUMNS)
@@ -26,24 +26,12 @@ export default async function BriefsPage() {
     .limit(40);
   const active = (activeData ?? []) as BriefRow[];
 
-  // Archived tickets - fetched up front so the "Show archived" toggle is instant
-  // (no refetch); hidden by default in the feed.
-  const { data: archivedData } = await admin
-    .from("briefs")
-    .select(BRIEF_COLUMNS)
-    .eq("user_id", userId)
-    .not("archived_at", "is", null)
-    .order("archived_at", { ascending: false })
-    .limit(40);
-  const archived = (archivedData ?? []) as BriefRow[];
-
   // Only 'processing' is in-progress; 'uploaded' is an unfiled draft (hidden).
-  // Counts reflect the active set only.
   const isProcessing = active.some((b) => b.status === "processing");
 
   const dashboardBriefs = await attachTicketInfo(
     userId,
-    [...active, ...archived],
+    active,
     ctx.hasLinear,
     ctx.hasJira,
     60,

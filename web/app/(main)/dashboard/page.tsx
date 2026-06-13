@@ -80,7 +80,7 @@ export default async function Dashboard() {
   // shows up immediately with its name; drafts ('uploaded') and failed are excluded.
   const recent = dashboardBriefs
     .filter((b) => b.status === "filed" || b.status === "processing")
-    .slice(0, 8);
+    .slice(0, 4);
 
   // Status breakdown: group filed tickets by their live tracker state.
   const segMap = new Map<string, StatusSegment>();

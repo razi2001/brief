@@ -24,7 +24,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const body = await req.json().catch(() => ({}) as { files?: string[] });
   const files = Array.isArray(body?.files)
-    ? body.files.filter((f): f is string => typeof f === "string" && f.length > 0)
+    ? body.files.filter((f: unknown): f is string => typeof f === "string" && f.length > 0)
     : [];
   if (!files.length) return jsonCors({ error: "no files" }, { status: 400 });
 

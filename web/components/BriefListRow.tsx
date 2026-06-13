@@ -2,6 +2,7 @@
 
 import RetryButton from "./RetryButton";
 import ArchiveButton from "./ArchiveButton";
+import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
 import Elapsed from "./Elapsed";
 import type { DashboardBrief } from "@/lib/brief-types";
@@ -11,7 +12,7 @@ function relativeTime(iso?: string | null): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
   const s = Math.round((new Date().getTime() - then) / 1000);
-  if (s < 60) return "just now";
+  if (s < 60) return "now";
   const m = Math.round(s / 60);
   if (m < 60) return `${m}m`;
   const h = Math.round(m / 60);
@@ -29,19 +30,21 @@ function initial(name?: string): string {
 }
 
 /**
- * One Linear-like row in the Briefs feed. Replaces the big 2-col card: a single
- * dense line - status dot, title, then right-aligned meta (tracker id, time,
- * assignee). Processing rows show a live "filing… m:ss" elapsed so nothing looks
- * frozen; failed rows show a Retry; filed rows link to the ticket. Archive is an
- * absolutely-positioned SIBLING of the row link (never nested in the <a>), faint
- * until hover. Exit animation (`brief-leaving`) lives on the <li> wrapper.
+ * One Linear-like row in the Briefs feed, laid out on the shared `.ticket-grid`
+ * column tracks (checkbox · title · status · id · updated · assignee · actions)
+ * so every row's meta lands in the same column down the whole list - even when
+ * a cell is empty, its track still holds the space.
+ *
+ * Every cell is a DIRECT grid child. Navigation for filed rows is a full-row
+ * absolute overlay <a> (covers the row, but isn't a grid cell); the interactive
+ * cells (checkbox, retry, archive) sit above it via `relative z-10`, so
+ * clicking them never navigates. Processing rows show a live "filing… m:ss";
+ * failed rows show a Retry; the exit animation (`brief-leaving`) lives here.
  */
 export default function BriefListRow({
   brief: b,
   onArchive,
   onArchiveFailed,
-  onUnarchive,
-  onDelete,
   leaving = false,
   selected = false,
   anySelected = false,
@@ -50,8 +53,6 @@ export default function BriefListRow({
   brief: DashboardBrief;
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
-  onUnarchive?: (id: string) => void;
-  onDelete?: (id: string) => void;
   leaving?: boolean;
   /** This row is selected. */
   selected?: boolean;
@@ -78,107 +79,35 @@ export default function BriefListRow({
           ? `${b.source_kind} brief`
           : "Untitled brief");
 
-  const inner = (
-    <>
-      {/* Title - smaller, and capped so it crops well before the status column. */}
-      <div className="min-w-0 max-w-[60%] flex-1">
-        <p className={`truncate text-[0.8125rem] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
-          {title}
-        </p>
-        {isFailed && b.error && (
-          <p className="mt-0.5 truncate text-[0.6875rem] text-muted">{b.error}</p>
-        )}
-      </div>
-
-      {/* Right meta */}
-      <div className="ml-auto flex shrink-0 items-center gap-3">
-        {/* Archived marker - a quiet tag, paired with the row's dimmed look.
-            The action (restore) lives in the hover icons, not here as text. */}
-        {b.archived && (
-          <span
-            className="hidden items-center gap-1 rounded-full bg-cream-2/70 px-2 py-0.5 font-mono text-[0.5625rem] tracking-wide text-muted sm:inline-flex"
-            title="Archived"
-          >
-            <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="4" rx="1" />
-              <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
-            </svg>
-            archived
-          </span>
-        )}
-        {/* Status column - three distinct states. Failed must NOT borrow the
-            green "Filed" look; it gets a red "didn't file" with the Retry. */}
-        {isProcessing ? (
-          <span className="w-[5.5rem] text-right font-mono text-[0.625rem] text-accent">
-            filing… <Elapsed since={b.updated_at || b.created_at} />
-          </span>
-        ) : isFailed ? (
-          <span
-            className="w-[5.5rem] truncate text-right font-mono text-[0.625rem] text-[#c62828]"
-            title="Didn't file"
-          >
-            didn&apos;t file
-          </span>
-        ) : (
-          <span
-            className="w-[5.5rem] truncate text-right font-mono text-[0.625rem]"
-            style={{ color: ti?.stateColor || "#2e7d32" }}
-            title={ti?.stateName || "Filed"}
-          >
-            {ti?.stateName || "Filed"}
-          </span>
-        )}
-        {/* Retry only makes sense on a live (non-archived) failed brief -
-            an archived one should be restored first. */}
-        {isFailed && !b.archived && <RetryButton briefId={b.id} />}
-        {!isFailed && b.ticket_identifier && (
-          <span className="hidden items-center gap-1.5 font-mono text-[0.6875rem] text-accent sm:inline-flex">
-            <TrackerLogo kind={b.provider ?? "linear"} size={13} />
-            {b.ticket_identifier}
-          </span>
-        )}
-        <span className="font-mono text-[0.625rem] text-muted">{relativeTime(b.created_at)}</span>
-        {ti?.assignee &&
-          (ti.assignee.avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={ti.assignee.avatarUrl}
-              alt=""
-              title={ti.assignee.name}
-              className="h-5 w-5 rounded-full border border-hairline object-cover"
-            />
-          ) : (
-            <span
-              title={ti.assignee.name}
-              className="flex h-5 w-5 items-center justify-center rounded-full border border-hairline bg-cream-2 text-[0.625rem] text-ink-2"
-            >
-              {initial(ti.assignee.name)}
-            </span>
-          ))}
-      </div>
-    </>
-  );
-
-  // Archived rows recede - dim the content so they read as "put away" at a
-  // glance (the strongest cue), with the small tag + restore icon for detail.
-  const contentClass =
-    "flex min-w-0 flex-1 items-center gap-3 py-3 pr-4 no-underline" +
-    (b.archived ? " opacity-55" : "");
-
   // Checkbox is faint until you hover the row; it stays visible once it's
   // checked or while any selection is active. Clicking it selects (never navigates).
   const boxVisible = selected || anySelected;
+  // Archived rows recede - dim the content cells so they read as "put away" at a
+  // glance, while the checkbox + hover actions (incl. restore) stay full strength.
+  const dim = b.archived ? " opacity-55" : "";
 
   return (
     <li
-      className={`group animate-rise relative flex items-stretch transition-colors hover:bg-cream-2/30${
+      className={`group animate-rise ticket-grid relative py-3 pl-3 pr-2.5 transition-colors hover:bg-cream-2/30${
         leaving ? " brief-leaving" : ""
-      } ${selected ? "bg-cream-2/50" : ""}`}
+      }${selected ? " bg-cream-2/50" : ""}`}
     >
       {isProcessing && <span aria-hidden className="queue-bar" />}
 
-      {/* Leading checkbox - always occupies space (no layout shift), shown on
-          hover / when selected. */}
+      {/* Full-row click target for filed rows. Absolutely positioned, so it
+          covers the row without being a grid cell; interactive cells layer over
+          it with `relative z-10`. */}
+      {asLink && (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={title}
+          className="absolute inset-0"
+        />
+      )}
+
+      {/* 1 · Checkbox (always reserves its track - no layout shift on hover) */}
       <button
         type="button"
         role="checkbox"
@@ -189,7 +118,7 @@ export default function BriefListRow({
           e.stopPropagation();
           onToggleSelect?.(b.id);
         }}
-        className={`flex shrink-0 items-center pl-4 pr-1 transition-opacity duration-150 ${
+        className={`relative z-10 flex items-center justify-center transition-opacity duration-150 ${
           boxVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
         }`}
       >
@@ -204,62 +133,89 @@ export default function BriefListRow({
         </span>
       </button>
 
-      {asLink ? (
-        <a href={href} target="_blank" rel="noreferrer" className={contentClass}>
-          {inner}
-        </a>
-      ) : (
-        <div className={contentClass}>{inner}</div>
-      )}
+      {/* 2 · Tracker id, or Retry on a live failed brief */}
+      <div className={`flex min-w-0 items-center${dim}`}>
+        {isFailed && !b.archived ? (
+          <span className="relative z-10">
+            <RetryButton briefId={b.id} />
+          </span>
+        ) : !isFailed && b.ticket_identifier ? (
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-accent">
+            <TrackerLogo kind={b.provider ?? "linear"} size={13} />
+            <span className="truncate">{b.ticket_identifier}</span>
+          </span>
+        ) : (
+          <span className="font-mono text-[0.625rem] text-muted/50">—</span>
+        )}
+      </div>
 
-      {/* Row actions - faint until hover. Archived rows swap the archive action
-          for a restore one; both share the same icon-button language as delete.
-          Hidden while a batch selection is active (header icons handle that). */}
-      {!anySelected && (
-        <div className="flex shrink-0 items-center gap-0.5 pl-1 pr-2.5">
-          {b.archived ? (
-            onUnarchive && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onUnarchive(b.id);
-                }}
-                title="Restore"
-                aria-label="Restore this ticket"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+      {/* 3 · Title (+ inline error on failed rows) */}
+      <div className={`min-w-0${dim}`}>
+        <p className={`truncate text-[0.625rem] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
+          {title}
+        </p>
+        {isFailed && b.error && (
+          <p className="mt-0.5 truncate text-[0.6875rem] text-muted">{b.error}</p>
+        )}
+      </div>
+
+      {/* 4 · Status - readable chip (filing / didn't file / tracker state) */}
+      <div className={`min-w-0${dim}`}>
+        {isProcessing ? (
+          <StatusBadge color="#dd6936">
+            filing… <Elapsed since={b.updated_at || b.created_at} />
+          </StatusBadge>
+        ) : isFailed ? (
+          <StatusBadge color="#c62828" title="Didn't file">
+            didn&apos;t file
+          </StatusBadge>
+        ) : (
+          <StatusBadge color={ti?.stateColor || "#2e7d32"} title={ti?.stateName || "Filed"}>
+            {ti?.stateName || "Filed"}
+          </StatusBadge>
+        )}
+      </div>
+
+      {/* 5 · Assignee - avatar + name (hidden < sm) */}
+      <div className={`hidden min-w-0 items-center gap-2 sm:flex${dim}`}>
+        {ti?.assignee ? (
+          <>
+            {ti.assignee.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={ti.assignee.avatarUrl}
+                alt=""
+                title={ti.assignee.name}
+                className="h-5 w-5 shrink-0 rounded-full border border-hairline object-cover"
+              />
+            ) : (
+              <span
+                title={ti.assignee.name}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-hairline bg-cream-2 text-[0.625rem] text-ink-2"
               >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="4" rx="1" />
-                  <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8" />
-                  <path d="M12 18v-6" />
-                  <path d="M9.5 14.5 12 12l2.5 2.5" />
-                </svg>
-              </button>
-            )
-          ) : (
-            <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
-          )}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onDelete?.(b.id);
-            }}
-            title="Delete"
-            aria-label="Delete this ticket"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-[rgba(198,40,40,.1)] hover:text-[#c62828] focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6" />
-              <line x1="10" y1="11" x2="10" y2="17" />
-              <line x1="14" y1="11" x2="14" y2="17" />
-            </svg>
-          </button>
-        </div>
-      )}
+                {initial(ti.assignee.name)}
+              </span>
+            )}
+            <span className="truncate text-[0.625rem] text-ink-2">{ti.assignee.name}</span>
+          </>
+        ) : (
+          <span className="text-[0.625rem] text-muted/50">—</span>
+        )}
+      </div>
+
+      {/* 6 · Updated (hidden < sm) */}
+      <span className={`hidden truncate font-mono text-[0.625rem] text-muted sm:block${dim}`}>
+        {relativeTime(b.created_at)}
+      </span>
+
+      {/* 7 · Row action - Archive is the only removal (acts like delete). Faint
+          until hover; hidden while a batch selection is active (the floating bar
+          handles that), but the cell still holds its track. */}
+      <div className="relative z-10 flex items-center justify-end gap-0.5">
+        {!anySelected && (
+          <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+        )}
+      </div>
     </li>
   );
 }

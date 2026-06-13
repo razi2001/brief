@@ -20,6 +20,18 @@
 
 :root {
   color-scheme: light;
+
+  /* ── Ticket grid column tracks ──────────────────────────────────────
+     One source of truth for the Tickets feed and the dashboard "Recent
+     tickets" widget, so every row's meta columns line up vertically -
+     even when a cell is empty. The header row and BriefListRow both build
+     their grid from these, so they can never drift apart. */
+  --tk-check: 2.25rem;     /* leading checkbox column                     */
+  --tk-id: 6rem;           /* tracker logo + identifier (e.g. RAZ-188)    */
+  --tk-status: 5.5rem;     /* tracker state / "filing…" / "didn't file"   */
+  --tk-assignee: 9rem;     /* assignee avatar + name (roomier)            */
+  --tk-upd: 4rem;          /* fits the "UPDATED" header label             */
+  --tk-actions: 1.75rem;   /* exactly the archive icon button (28px)      */
 }
 
 body {
@@ -88,6 +100,60 @@ a {
     text-transform: uppercase;
     border: 1px solid var(--color-hairline);
   }
+
+  /* ── Aligned ticket grid ──────────────────────────────────────────────
+     A real, column-aligned grid. Every row (and the header) is a grid built
+     from the same tracks, so the meta columns lock to the same x-positions
+     down the whole list. Empty cells render as empty spans that still hold
+     their track - that's what stops the columns from wobbling. */
+  .ticket-grid {
+    display: grid;
+    grid-template-columns:
+      var(--tk-check)
+      var(--tk-id)
+      minmax(0, 1fr)
+      var(--tk-status)
+      var(--tk-assignee)
+      var(--tk-upd)
+      var(--tk-actions);
+    align-items: center;
+    column-gap: 0.75rem;
+  }
+
+  /* Read-only variant for the dashboard widget: no checkbox, no hover
+     actions, but the shared meta tracks match the feed exactly. */
+  .ticket-grid-ro {
+    display: grid;
+    grid-template-columns:
+      var(--tk-id)
+      minmax(0, 1fr)
+      var(--tk-status)
+      var(--tk-assignee)
+      var(--tk-upd);
+    align-items: center;
+    column-gap: 0.75rem;
+  }
+
+  /* Below sm the assignee + updated cells are hidden (Tailwind `hidden sm:*`
+     on those cells), so the templates drop those two tracks to match - the
+     remaining cells flow into id · title · status (+ checkbox/actions). The
+     id + status tracks also tighten to leave the title room. */
+  @media (max-width: 639px) {
+    .ticket-grid {
+      grid-template-columns:
+        var(--tk-check)
+        5rem
+        minmax(0, 1fr)
+        4.75rem
+        var(--tk-actions);
+    }
+    .ticket-grid-ro {
+      grid-template-columns:
+        5rem
+        minmax(0, 1fr)
+        4.75rem;
+    }
+  }
 }
 
 /* ── Dashboard motion ───────────────────────────────────────────────── */
@@ -106,6 +172,21 @@ a {
 
 .animate-rise {
   animation: brief-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Floating bulk-action bar: slides up from the bottom when rows are selected. */
+@keyframes brief-bar-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-bar-rise {
+  animation: brief-bar-rise 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Soft shimmer sweep for processing rows. */
@@ -276,6 +357,7 @@ a {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-rise,
+  .animate-bar-rise,
   .shimmer,
   .dot-pulse {
     animation: none;
