@@ -152,7 +152,11 @@ async function startRecording(streamId, lang) {
     : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
       ? 'video/webm;codecs=vp8,opus'
       : 'video/webm';
-  mediaRecorder = new MediaRecorder(combinedStream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
+  // 1.2 Mbps keeps screen content crisp while staying well under Supabase's
+  // 50 MB object cap: ~5.5 min of recording vs ~2.7 min at 2.5 Mbps. Long
+  // briefs that still cross the cap surface a clear "exceeded maximum size"
+  // error now (see cloud.js) instead of a silent failure.
+  mediaRecorder = new MediaRecorder(combinedStream, { mimeType: mime, videoBitsPerSecond: 1_200_000 });
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
@@ -251,20 +255,26 @@ async function collectRecording() {
 
 // Cloud path: assemble brief.json HERE (page meta from background, the user's
 // draft fields from the inbox entry) and upload the draft. The bar is already
-// closed - failures fall back to the local zip download so the recording is
-// never lost, and the result lands on the inbox entry via UPLOAD_RESULT.
+// closed - the upload retries a few times, and the outcome (cloud id or a
+// labelled error) lands on the inbox entry via UPLOAD_RESULT. Cloud-only: there
+// is no local zip fallback, so a hard failure is surfaced, not hidden.
 async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChunks, blob, mimeType, keyframes: frames, durationMs, startedAtMs, lang }) {
-  // Page meta + event log collected by background during the recording.
+  // CRITICAL: an offscreen document only reliably gets chrome.runtime -
+  // chrome.storage is undefined here, so reading the token / inbox directly
+  // threw "Cannot read properties of undefined (reading 'local')" and EVERY
+  // background upload failed. Ask the background worker (which has full
+  // chrome.storage) for the token + this brief's draft fields over runtime
+  // messaging instead. Page meta comes back in the same call.
+  let token = null;
+  let entry = null;
   let meta = { events: [], pageUrl: null, pageTitle: null };
   try {
-    meta = await chrome.runtime.sendMessage({ type: 'GET_BRIEF_META' });
-  } catch {}
-
-  // The user's draft fields (name, description, screenshot, extras, toggle).
-  let entry = null;
-  try {
-    const { inbox } = await chrome.storage.local.get('inbox');
-    entry = (Array.isArray(inbox) ? inbox : []).find((b) => b.id === briefId) || null;
+    const ctx = await chrome.runtime.sendMessage({ type: 'GET_UPLOAD_CONTEXT', briefId });
+    if (ctx) {
+      token = ctx.token || null;
+      entry = ctx.entry || null;
+      if (ctx.meta) meta = ctx.meta;
+    }
   } catch {}
 
   const keyframeEntries = [];
@@ -341,7 +351,7 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
     for (const delay of [0, 1500, 5000]) {
       if (delay) await new Promise((r) => setTimeout(r, delay));
       try {
-        cloudBriefId = await uploadDraft(files, cloudMeta);
+        cloudBriefId = await uploadDraft(files, cloudMeta, token);
         break;
       } catch (err) {
         lastErr = err;

@@ -336,14 +336,33 @@ body.ready { opacity: 1; }
 /* Recording uploaded in the background (offscreen) - pulse until the cloud id lands. */
 .brief-item.uploading .brief-status { background: var(--accent); animation: up-pulse 1.2s ease-in-out infinite; }
 @keyframes up-pulse { 50% { opacity: 0.35; } }
-.up-hint {
-  flex-shrink: 0;
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--muted);
-  white-space: nowrap;
+
+/* The ✦ mark stands in for upload status (no text): it spins in the accent
+   colour while the recording uploads, and turns into a static red badge if the
+   upload fails (hover for the reason). */
+/* The record button doubles as the background-upload indicator: the brand ✦
+   mark replaces the camera icon, spinning in the accent colour while uploading
+   and turning red on failure. Spin the SVG only - rotating the bordered button
+   would look wrong. Two-class selectors (.cap-btn.up-mark) outrank plain
+   .cap-btn so these colours win regardless of source order. */
+.cap-btn.up-mark {
+  color: var(--accent);
+  border-color: rgba(221, 105, 54, 0.45);
+  background: rgba(221, 105, 54, 0.06);
 }
-.up-hint.failed { color: #c62828; }
+.cap-btn.up-mark svg { display: block; }
+.cap-btn.up-mark.spinning svg { animation: mark-spin 1.4s linear infinite; transform-origin: 50% 50%; }
+.cap-btn.up-mark.failed {
+  color: #c62828;
+  border-color: rgba(198, 40, 40, 0.5);
+  background: rgba(198, 40, 40, 0.06);
+}
+.cap-btn.up-mark.failed:hover {
+  color: #a31515;
+  border-color: #c62828;
+  background: rgba(198, 40, 40, 0.12);
+}
+@keyframes mark-spin { to { transform: rotate(360deg); } }
 
 .brief-name-input {
   flex: 1;

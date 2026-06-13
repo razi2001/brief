@@ -325,7 +325,15 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                 const attachable = brief.evidence.items
                   .filter((it) => it.kind !== "recording" || brief.evidence.includeVideo)
                   .map((it) => it.name);
-                const chosen = pickEvidence(args.attach, attachable, brief.evidence.fallback);
+                const chosen = [...pickEvidence(args.attach, attachable, brief.evidence.fallback)];
+                // "Attach the recording" is an explicit user instruction, not a
+                // hint - guarantee the actual video lands on the ticket. The
+                // model kept picking the screenshot/frames instead, so when the
+                // toggle is on we force the recording into the attached set.
+                const recName = brief.evidence.items.find((it) => it.kind === "recording")?.name;
+                if (brief.evidence.includeVideo && recName && attachable.includes(recName) && !chosen.includes(recName)) {
+                  chosen.push(recName);
+                }
                 const evidenceFiles = brief.evidence.files.filter((f) => chosen.includes(f.filename));
                 created = await tracker.fileIssue({
                   targetId: args.targetId,

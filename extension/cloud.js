@@ -44,25 +44,53 @@ export async function fetchAccountStatus() {
   }
 }
 
+// Read a (possibly truncated) error body so failures name their own cause in
+// the inbox tooltip and the offscreen console - a bare status code ("415",
+// "413") tells us nothing; the body says "object exceeded the maximum allowed
+// size", "unauthorized", etc. Best-effort: never let reading the body throw.
+async function errorDetail(res) {
+  try {
+    const text = (await res.text())?.trim();
+    return text ? ` - ${text.slice(0, 300)}` : "";
+  } catch {
+    return "";
+  }
+}
+
+// fetch() that turns a network-level failure (DNS, offline, aborted because the
+// offscreen document was torn down) into a labelled error instead of a bare
+// "Failed to fetch", so the inbox tooltip distinguishes "can't reach server"
+// from "server said no".
+async function fetchOrThrow(url, init, label) {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    throw new Error(`${label}: network error (${err?.message || err})`);
+  }
+}
+
 // Create a brief row + upload its files. Does NOT file the ticket - the brief
 // sits as an "uploaded" draft until processBrief() is called. Returns the cloud
 // brief id. Used for recordings: we upload on stop to preserve the video, but
 // only file when the user hits "Create ticket".
-export async function uploadDraft(files, meta) {
-  const token = await getCloudToken();
+//
+// `tokenOverride` lets a caller pass a token captured earlier (before any
+// account-sync churn could clear storage); falls back to the stored token.
+export async function uploadDraft(files, meta, tokenOverride) {
+  const token = tokenOverride || (await getCloudToken());
   if (!token) throw new Error("Not connected to Brief Cloud");
-  const create = await fetch(`${APP_URL}/api/briefs`, {
+  const create = await fetchOrThrow(`${APP_URL}/api/briefs`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ meta, files: files.map((f) => f.name) }),
-  });
-  if (!create.ok) throw new Error(`create brief failed: ${create.status}`);
+  }, "create brief");
+  if (!create.ok) throw new Error(`create brief failed: ${create.status}${await errorDetail(create)}`);
   const { briefId, uploads } = await create.json();
   for (const f of files) {
     const up = uploads[f.name];
     if (!up) throw new Error(`no upload URL for ${f.name}`);
-    const put = await fetch(up.signedUrl, { method: "PUT", headers: { "Content-Type": f.contentType || f.blob.type || "application/octet-stream" }, body: f.blob });
-    if (!put.ok) throw new Error(`upload ${f.name} failed: ${put.status}`);
+    const put = await fetchOrThrow(up.signedUrl, { method: "PUT", headers: { "Content-Type": f.contentType || f.blob.type || "application/octet-stream" }, body: f.blob }, `upload ${f.name}`);
+    if (!put.ok) throw new Error(`upload ${f.name} failed: ${put.status}${await errorDetail(put)}`);
   }
   return briefId;
 }

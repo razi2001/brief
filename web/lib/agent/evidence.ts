@@ -41,9 +41,12 @@ export function buildEvidenceManifest(items: EvidenceItem[], includeVideo: boole
     const ts = i.timestampMs !== undefined ? ` at ${fmtTs(i.timestampMs)}` : "";
     return `- ${i.name} (${KIND_LABEL[i.kind]}${ts})`;
   });
+  const hasAttachableRecording = attachable.some((i) => i.kind === "recording");
   let text =
     "EVIDENCE AVAILABLE - choose what to attach via create_issue's `attach` parameter (file names from this list). " +
-    "Pick the minimal set that PROVES the issue: the annotated screenshot when there is one, otherwise the frame(s) showing the problem (e.g. a before/after pair). Skip near-identical frames.\n" +
+    (hasAttachableRecording
+      ? "The screen recording (video) is the evidence the user explicitly asked to attach - you MUST include it in `attach`. Add the annotated screenshot as well if it highlights the issue; skip redundant near-identical frames.\n"
+      : "Pick the minimal set that PROVES the issue: the annotated screenshot when there is one, otherwise the frame(s) showing the problem (e.g. a before/after pair). Skip near-identical frames.\n") +
     lines.join("\n");
   if (excludedRecording) {
     text +=

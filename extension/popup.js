@@ -29,6 +29,18 @@ let bcConnected = false;
 // account WITHOUT a tracker is caught before filing, not after.
 let bcTracker;
 
+// The popup makes its own inbox writes (archive swipe-out, filing) and manages
+// the DOM for them itself. The storage.onChanged listener below must stand down
+// during those, or its full list rebuild destroys the in-progress per-row
+// animation (archive) and flickers the list (filing). `bcFiling` covers the
+// whole multi-brief filing run; `suppressInboxListenerUntil` is a short window
+// for one-off animated writes like archive.
+let bcFiling = false;
+let suppressInboxListenerUntil = 0;
+function suppressInboxListener(ms = 600) {
+  suppressInboxListenerUntil = Date.now() + ms;
+}
+
 // Storage key for cached mic grant. Cache is good for the extension's
 // session - Chrome invalidates the underlying grant if the user revokes it.
 const MIC_CACHE_KEY = 'micGrantedAt';
@@ -182,17 +194,27 @@ async function recordForItem(itemId, recBtn) {
   }
 }
 
-// Open the tickets page WITHOUT stacking up tabs: if a tickets tab is already
-// open, focus its window, activate it, and reload it (so the just-queued
-// ticket shows up); otherwise open a fresh tab.
+// Open the tickets page WITHOUT stacking up tabs:
+//  1. a /tickets tab is already open -> focus + reload it (the new ticket shows)
+//  2. any other Brief Cloud tab is open (e.g. /dashboard) -> reuse it, navigate
+//     it to /tickets, focus it (don't strand the user on a stale page or open a
+//     duplicate)
+//  3. nothing open -> a fresh tab
 async function openTicketsTab() {
   try {
-    const tabs = await chrome.tabs.query({ url: `${TICKETS_URL}*` });
-    if (tabs.length && tabs[0].id != null) {
-      const tab = tabs[0];
+    const ticketTabs = await chrome.tabs.query({ url: `${TICKETS_URL}*` });
+    if (ticketTabs.length && ticketTabs[0].id != null) {
+      const tab = ticketTabs[0];
       await chrome.tabs.update(tab.id, { active: true });
       try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
       chrome.tabs.reload(tab.id);
+      return;
+    }
+    const appTabs = await chrome.tabs.query({ url: `${APP_URL}/*` });
+    if (appTabs.length && appTabs[0].id != null) {
+      const tab = appTabs[0];
+      await chrome.tabs.update(tab.id, { active: true, url: TICKETS_URL });
+      try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
       return;
     }
   } catch {}
@@ -241,6 +263,10 @@ function isReady(b) {
 const ICON_ARCHIVE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>';
 const ICON_CAM = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
 const ICON_VIDEO = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2z"/><path d="M15 10l6-3v10l-6-3"/></svg>';
+// The brand 4-point star (✦), filled with currentColor so CSS can tint it. Used
+// as the live upload indicator on a brief - it spins while the recording uploads
+// in the background, instead of a "uploading…" / "upload failed" text label.
+const ICON_MARK = '<svg viewBox="0 0 128 128" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M64 16 C70 44, 84 58, 112 64 C84 70, 70 84, 64 112 C58 84, 44 70, 16 64 C44 58, 58 44, 64 16 Z"/></svg>';
 
 async function screenshotForItem(itemId, btn) {
   clearInlineError();
@@ -301,32 +327,32 @@ function buildItem(b) {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
   });
 
-  // Background-upload status for recordings: the bar closes immediately on
-  // stop and the offscreen document uploads behind the scenes. The hint (and
-  // the filing gate in updateChrome) clears when UPLOAD_RESULT lands.
-  let upHint = null;
-  if (b.uploading) {
-    upHint = document.createElement('span');
-    upHint.className = 'up-hint';
-    upHint.textContent = 'uploading…';
-    upHint.title = 'The recording is being uploaded in the background.';
-  } else if (b.uploadFailed) {
-    upHint = document.createElement('span');
-    upHint.className = 'up-hint failed';
-    upHint.textContent = 'upload failed';
-    upHint.title = `${b.uploadError || 'Upload failed'} - the recording was saved locally as a zip in Downloads/brief/.`;
-  }
-
   // Capture controls. Compact icon buttons; they show what's been added.
   const actions = document.createElement('span');
   actions.className = 'brief-actions';
 
+  // The record button doubles as the background-upload indicator: while the
+  // recording uploads (offscreen), the camera icon is REPLACED by the brand ✦
+  // mark spinning in place; on failure it turns red (hover for the reason,
+  // click to re-record). It reverts to the camera icon once UPLOAD_RESULT lands.
   const hasRec = !!(b.hasRecording || b.recorded);
   const recBtn = document.createElement('button');
-  recBtn.className = 'cap-btn' + (hasRec ? ' done' : '');
-  recBtn.title = hasRec ? 'Re-record' : 'Record voice + screen';
-  recBtn.innerHTML = ICON_VIDEO;
-  recBtn.addEventListener('click', () => recordForItem(b.id, recBtn));
+  if (b.uploading) {
+    recBtn.className = 'cap-btn up-mark spinning';
+    recBtn.innerHTML = ICON_MARK;
+    recBtn.title = 'Uploading the recording…';
+    recBtn.disabled = true;
+  } else if (b.uploadFailed) {
+    recBtn.className = 'cap-btn up-mark failed';
+    recBtn.innerHTML = ICON_MARK;
+    recBtn.title = `Upload failed: ${b.uploadError || 'unknown error'} - click to re-record`;
+    recBtn.addEventListener('click', () => recordForItem(b.id, recBtn));
+  } else {
+    recBtn.className = 'cap-btn' + (hasRec ? ' done' : '');
+    recBtn.title = hasRec ? 'Re-record' : 'Record voice + screen';
+    recBtn.innerHTML = ICON_VIDEO;
+    recBtn.addEventListener('click', () => recordForItem(b.id, recBtn));
+  }
   actions.appendChild(recBtn);
 
   const shotBtn = document.createElement('button');
@@ -352,7 +378,6 @@ function buildItem(b) {
 
   row.appendChild(status);
   row.appendChild(input);
-  if (upHint) row.appendChild(upHint);
   row.appendChild(actions);
   row.appendChild(toggle);
   row.appendChild(archive);
@@ -548,6 +573,9 @@ async function archiveItem(id, li) {
   li.classList.add('swipe-out');
   const list = await getInbox();
   const next = list.filter((x) => x.id !== id);
+  // We animate + remove this single row ourselves below; keep the storage
+  // listener from rebuilding the whole list and clobbering the swipe.
+  suppressInboxListener();
   await setInbox(next);
   // Remove ONLY this row when its exit animation ends - don't rebuild the whole
   // list (a rebuild re-runs the entry animation on every remaining row, which
@@ -610,6 +638,13 @@ function updateChrome(items) {
 
 async function refreshInbox({ expandBriefId = null } = {}) {
   const items = await getInbox();
+  // Remember which briefs are expanded BEFORE we rebuild the list. Filing a
+  // ticket (writes cloudBriefId) and a background upload settling both trigger
+  // this refresh via storage.onChanged - without this, an open detail panel
+  // would snap shut under the user mid-interaction.
+  const expandedIds = new Set(
+    [...briefList.querySelectorAll('.brief-item.expanded')].map((el) => el.dataset.id)
+  );
   briefList.innerHTML = '';
   if (items.length === 0) {
     briefList.hidden = true;
@@ -620,6 +655,15 @@ async function refreshInbox({ expandBriefId = null } = {}) {
   emptyState.hidden = true;
   briefList.hidden = false;
   items.forEach((b) => briefList.appendChild(buildItem(b)));
+  // Re-apply expanded state silently (no animation/scroll - this is a passive
+  // refresh, not a user click).
+  expandedIds.forEach((id) => {
+    const li = briefList.querySelector(`[data-id="${CSS.escape(id)}"]`);
+    if (li) {
+      li.classList.add('expanded');
+      li.querySelector('.brief-more')?.classList.add('open');
+    }
+  });
   updateChrome(items);
 
   // Auto-expand only when explicitly told which brief to expand (post-capture).
@@ -793,14 +837,13 @@ async function bcRefresh() {
 function bcShowSentAndOpen(count) {
   const title = exportDone.querySelector('.export-done-title');
   const sub = exportDone.querySelector('.export-done-sub');
-  if (title) title.textContent = count > 1 ? `${count} tickets queued ✓` : 'Queued ✓';
+  if (title) title.textContent = count > 1 ? `${count} tickets queued` : 'Queued';
   if (sub) sub.textContent = 'Opening your tickets…';
   exportDone.hidden = false;
-  // Once it's queued, take the user to the tickets page to watch it land -
-  // reusing (and refreshing) an already-open tickets tab instead of stacking
-  // a new one each time.
-  openTicketsTab();
-  setTimeout(() => window.close(), 700);
+  // Let the confirmation animation (fade-in + rise, ~0.4s) play and linger
+  // before switching tabs - openTicketsTab() activates another tab, which makes
+  // the popup lose focus and close instantly, cutting the overlay off.
+  setTimeout(() => { openTicketsTab(); }, 1600);
 }
 
 // File EVERY ready brief (the button says how many). Sends run sequentially so
@@ -836,6 +879,9 @@ bcCreateTicket?.addEventListener('click', async () => {
 
   bcCreateTicket.disabled = true;
   bcCreateTicket.classList.add('sending');
+  // Filing writes cloudBriefId per brief (and removes sent ones at the end) -
+  // hold off the storage listener so the list doesn't flicker/rebuild mid-run.
+  bcFiling = true;
 
   const sentIds = [];
   let failure = null; // first error - shown after the loop
@@ -899,10 +945,13 @@ bcCreateTicket?.addEventListener('click', async () => {
   }
 
   if (!failure) {
+    // Sent briefs were just removed above (under suppression); the overlay
+    // shows and the popup closes shortly, so leave the listener suppressed.
     bcShowSentAndOpen(sentIds.length);
     return;
   }
 
+  bcFiling = false; // done filing - the explicit refresh below shows what's left
   bcCreateTicket.classList.remove('sending');
   bcCreateTicket.disabled = false;
   await refreshInbox(); // re-render what's left + restore the button label
@@ -924,6 +973,9 @@ bcRefresh();
 // typing etc.) must not rebuild the list under the user's cursor.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !changes.inbox) return;
+  // The popup's own animated writes manage the DOM themselves - don't rebuild
+  // the list out from under them (kills the archive swipe + filing flicker).
+  if (bcFiling || Date.now() < suppressInboxListenerUntil) return;
   const sig = (l) =>
     (Array.isArray(l) ? l : [])
       .map((b) => [b.id, !!b.uploading, !!b.uploadFailed, b.cloudBriefId || ''].join(':'))

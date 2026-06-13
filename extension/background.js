@@ -359,6 +359,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           break;
 
+        case 'GET_UPLOAD_CONTEXT': {
+          // The offscreen document can't touch chrome.storage (only
+          // chrome.runtime is available there), so it asks US for everything
+          // the background upload needs: the pairing token, this brief's draft
+          // fields, and the page meta/event log we collected during recording.
+          try {
+            const { briefCloudToken, inbox } = await chrome.storage.local.get([
+              'briefCloudToken',
+              'inbox',
+            ]);
+            const entry = (Array.isArray(inbox) ? inbox : []).find((b) => b.id === message.briefId) || null;
+            sendResponse({
+              token: briefCloudToken || null,
+              entry,
+              meta: {
+                events: STATE.events.slice(),
+                pageUrl: STATE.activeTabAtStart?.url || null,
+                pageTitle: STATE.activeTabAtStart?.title || null,
+              },
+            });
+          } catch (err) {
+            sendResponse({ token: null, entry: null, meta: { events: [], pageUrl: null, pageTitle: null }, error: String(err?.message || err) });
+          }
+          break;
+        }
+
         case 'open-url':
           // The bar runs as a content script and has no chrome.tabs access, so
           // it asks us to open a filed ticket in a new tab on click.
