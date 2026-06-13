@@ -25,6 +25,8 @@ let previewVideo = null;
 let keyframes = [];
 let keyframeTimer = null;
 let levelTimer = null;
+let levelAnalyser = null;
+let levelFreq = null;
 
 const KEYFRAME_INTERVAL_MS = 2000;
 
@@ -47,7 +49,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case 'START':
-          await startRecording(message.streamId, message.lang);
+          // Phase 1: acquire streams + build recorders (don't start yet).
+          await prepareRecording(message.streamId);
+          sendResponse({ ok: true });
+          break;
+        case 'GO':
+          // Phase 2: the bar's countdown finished - start capturing now.
+          beginRecording();
           sendResponse({ ok: true });
           break;
         case 'STOP': {
@@ -93,11 +101,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // ---------- Recording ----------
-async function startRecording(streamId, lang) {
-  log('startRecording', { streamId, lang });
+// Phase 1: acquire the streams and BUILD the recorders without starting them,
+// so the bar can run its 3-2-1 countdown while this (slow) capture setup
+// happens. beginRecording() starts everything at "go" for a clean start with
+// no clipped first word and no captured dead-time.
+async function prepareRecording(streamId) {
+  log('prepareRecording', { streamId });
   recordedChunks = [];
   audioChunks = [];
-  recordingStartMs = Date.now();
 
   // 1. Tab stream from the streamId we were handed
   tabStream = await navigator.mediaDevices.getUserMedia({
@@ -152,7 +163,6 @@ async function startRecording(streamId, lang) {
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
-  mediaRecorder.start(1000);
 
   // Audio-only recorder for server-side transcription. Records JUST the mixed
   // tab+mic audio (dest.stream) as a small opus webm (~1-2 MB for 2 min), so it
@@ -163,7 +173,6 @@ async function startRecording(streamId, lang) {
   try {
     audioRecorder = new MediaRecorder(new MediaStream(dest.stream.getAudioTracks()), { mimeType: audioMime });
     audioRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
-    audioRecorder.start(1000);
   } catch (err) {
     // Non-fatal: if the audio recorder can't start we just upload without a
     // transcribable track; the brief still files on visual evidence.
@@ -171,29 +180,18 @@ async function startRecording(streamId, lang) {
     audioRecorder = null;
   }
 
-  // Live mic level meter for the bar's waveform. The analyser taps the MIC (not
-  // the mixed dest) so the bars react to the user's voice - and muting the mic
-  // flattens them, which is honest feedback. Sampled on a timer (NOT rAF, which
-  // throttles in an invisible offscreen document) and relayed to the bar, which
-  // does the actual drawing. Failure here is purely cosmetic - never fatal.
+  // Build the mic-level analyser now (started in beginRecording). It taps the
+  // MIC (not the mixed dest) so the bar's waveform reacts to the user's voice -
+  // and muting the mic flattens it, which is honest feedback.
   try {
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.78;
-    audioCtx.createMediaStreamSource(micStream).connect(analyser);
-    const freq = new Uint8Array(analyser.frequencyBinCount);
-    if (levelTimer) clearInterval(levelTimer);
-    levelTimer = setInterval(() => {
-      analyser.getByteFrequencyData(freq);
-      // Send a small slice of the low-mid voice range (0..255 per bin); the bar
-      // mirrors + maps it across its bars. 48 bytes covers the bar's sampling.
-      const bins = Array.from(freq.subarray(0, 48));
-      chrome.runtime
-        .sendMessage({ target: 'relayToBar', payload: { target: 'bar', type: 'AUDIO_LEVELS', bins } })
-        .catch(() => {});
-    }, 40);
+    levelAnalyser = audioCtx.createAnalyser();
+    levelAnalyser.fftSize = 256;
+    levelAnalyser.smoothingTimeConstant = 0.78;
+    audioCtx.createMediaStreamSource(micStream).connect(levelAnalyser);
+    levelFreq = new Uint8Array(levelAnalyser.frequencyBinCount);
   } catch (err) {
-    log('level meter failed to start:', err);
+    levelAnalyser = null;
+    log('level meter setup failed:', err);
   }
 
   // 4b. Hidden video element to enable keyframe extraction via canvas
@@ -208,13 +206,40 @@ async function startRecording(streamId, lang) {
   previewVideo.srcObject = combinedStream;
   await previewVideo.play().catch(() => {});
 
+  // Streams are live and the recorders are built but NOT started. The bar runs
+  // its 3-2-1 countdown, then sends GO -> beginRecording().
+}
+
+// Phase 2: actually start capturing. Called on GO, after the bar's countdown.
+// Starts both recorders, the keyframe capture, and the live level meter, stamps
+// the start time, and tells the bar to switch to the recording UI. This is the
+// instant recording truly begins - no countdown audio is captured.
+function beginRecording() {
+  recordingStartMs = Date.now();
+  try { mediaRecorder.start(1000); } catch (err) { log('recorder start failed:', err); }
+  if (audioRecorder) {
+    try { audioRecorder.start(1000); }
+    catch (err) { log('audio recorder start failed:', err); audioRecorder = null; }
+  }
+
+  // Start sampling the mic-level analyser (built in prepareRecording) and relay
+  // levels to the bar's waveform. Timer, not rAF (offscreen docs throttle rAF).
+  if (levelAnalyser && levelFreq) {
+    if (levelTimer) clearInterval(levelTimer);
+    levelTimer = setInterval(() => {
+      levelAnalyser.getByteFrequencyData(levelFreq);
+      // Low-mid voice slice (0..255 per bin); the bar mirrors + maps it.
+      const bins = Array.from(levelFreq.subarray(0, 48));
+      chrome.runtime
+        .sendMessage({ target: 'relayToBar', payload: { target: 'bar', type: 'AUDIO_LEVELS', bins } })
+        .catch(() => {});
+    }, 40);
+  }
+
   keyframes = [];
   startKeyframeCapture();
 
-  // 5. This document records the video plus a separate audio-only track; the
-  // audio is uploaded as audio.webm and transcribed server-side by OpenAI.
-
-  // 6. Notify the bar (via background relay - it knows which tab the bar is in)
+  // Notify the bar (via background relay) to switch to the recording UI.
   chrome.runtime.sendMessage({
     target: 'relayToBar',
     payload: { target: 'bar', type: 'RECORDING_STARTED', startedAt: recordingStartMs },
@@ -445,6 +470,8 @@ function cleanupStreams() {
   tabStream = null;
   micStream = null;
   mediaRecorder = null;
+  levelAnalyser = null;
+  levelFreq = null;
   if (previewVideo) {
     try { previewVideo.srcObject = null; } catch {}
   }

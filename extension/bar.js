@@ -32,6 +32,9 @@ let timerInterval = null;
 let muted = false;
 let savedDismissTimer = null;
 let stopping = false;       // guards stopAndSave against double-invocation
+let cancelled = false;      // set if the user cancels during the countdown
+let countdownTimer = null;
+let countdownResolve = null; // resolves the countdown promise early on cancel
 
 // ---------- Iframe sizing ----------
 function postToParent(type, payload = {}) {
@@ -116,7 +119,13 @@ async function sendToOffscreen(type, extra = {}) {
       }
       return;
     }
-    // RECORDING_STARTED message will arrive shortly and we transition to recording UI
+    // Streams are prepared (not yet capturing). Run the 3-2-1 pre-roll, then
+    // tell offscreen to GO - recording starts clean at zero. A cancel during
+    // the countdown sets `cancelled` and we never send GO.
+    await runCountdown();
+    if (cancelled) return;
+    await sendToOffscreen('GO');
+    // RECORDING_STARTED will arrive shortly and we transition to recording UI.
   } catch (err) {
     console.error('[brief/bar] start failed:', err);
     showError(String(err?.message || err));
@@ -162,6 +171,25 @@ function startTimer() {
 }
 function stopTimer() { if (timerInterval) clearInterval(timerInterval); timerInterval = null; }
 
+// ---------- Countdown (pre-roll before recording starts) ----------
+// Shows "Describe your brief" + 3 → 2 → 1 (~0.7s each), then resolves so init()
+// sends GO and offscreen actually starts capturing. Resolves early if cancelled.
+function runCountdown() {
+  setView('countdown');
+  const numEl = document.getElementById('cdNum');
+  return new Promise((resolve) => {
+    countdownResolve = resolve;
+    let n = 3;
+    const step = () => {
+      if (cancelled || n === 0) { resolve(); return; }
+      if (numEl) numEl.textContent = String(n);
+      n -= 1;
+      countdownTimer = setTimeout(step, 700);
+    };
+    step();
+  });
+}
+
 // ---------- Waveform ----------
 // Thin bars that follow the user's voice. The offscreen document owns the mic
 // (it's immune to host-page Permissions-Policy, unlike this iframe) and relays
@@ -172,14 +200,12 @@ const WAVE_BARS = 24;
 const WAVE_MAX_H = 22;        // px, tallest a bar gets at full volume
 const SPEAK_LEVEL = 55;       // 0..255 mic peak above this counts as "speaking"
 const SILENCE_MS = 900;       // keep the wave up this long after the last peak
-const HINT_DWELL_MS = 2000;   // min time the CTA hint stays up at recording start
 const waveBarsContainer = document.getElementById('waveBars');
 const waveBars = [];
 let waveLevels = new Array(WAVE_BARS).fill(0);
 let waveFreq = null;          // latest frequency bytes from offscreen
 let waveLastMsgMs = 0;
 let waveLastLoudMs = 0;       // last time the mic crossed SPEAK_LEVEL
-let waveStartMs = 0;          // when the current wave (recording) started
 let waveRaf = null;
 
 (function buildWave() {
@@ -193,18 +219,14 @@ let waveRaf = null;
 
 function startWave() {
   if (!waveBarsContainer || waveRaf) return;
-  waveStartMs = Date.now();
   const mid = (WAVE_BARS - 1) / 2;
   const draw = () => {
     const now = Date.now();
     const live = waveFreq && now - waveLastMsgMs < 400;
-    // Crossfade the "Describe your brief…" hint and the bars: stay in "speaking"
-    // for SILENCE_MS after the last voice peak so pauses between words don't
-    // flicker the hint back in. But pin the hint for the first HINT_DWELL_MS no
-    // matter what - recording auto-starts the instant the bar appears, so
-    // without this dwell the wave takes over before the prompt can be read.
-    const inDwell = now - waveStartMs < HINT_DWELL_MS;
-    const speaking = !inDwell && now - waveLastLoudMs < SILENCE_MS;
+    // Crossfade the silence-hint and the bars: stay "speaking" for SILENCE_MS
+    // after the last voice peak so pauses between words don't flicker the hint.
+    // (No startup dwell needed - the 3-2-1 countdown already showed the prompt.)
+    const speaking = now - waveLastLoudMs < SILENCE_MS;
     if (waveEl) waveEl.classList.toggle('speaking', speaking);
     for (let i = 0; i < WAVE_BARS; i++) {
       // Mirror around centre, sampling the low-mid voice bins - punchy. When
@@ -228,7 +250,6 @@ function stopWave() {
   waveRaf = null;
   waveFreq = null;
   waveLastLoudMs = 0;
-  waveStartMs = 0;
   waveLevels = new Array(WAVE_BARS).fill(0);
   if (waveEl) waveEl.classList.remove('speaking');
 }
@@ -286,9 +307,16 @@ async function stopAndSave(savingMessage) {
 stopBtn?.addEventListener('click', () => { stopAndSave(); });
 
 // ---------- Cancel ----------
-cancelBtn?.addEventListener('click', async () => {
+// Shared by the recording-state X and the countdown-state X. Works in either
+// phase: during the countdown it sets `cancelled` (so init never sends GO) and
+// tears down the prepared streams; during recording it discards the capture.
+async function cancelAll() {
+  if (cancelled) return;
+  cancelled = true;
   stopping = true;
-  cancelBtn.disabled = true;
+  if (countdownTimer) { clearTimeout(countdownTimer); countdownTimer = null; }
+  if (countdownResolve) { countdownResolve(); countdownResolve = null; }
+  if (cancelBtn) cancelBtn.disabled = true;
   if (stopBtn) stopBtn.disabled = true;
   stopTimer();
   stopWave();
@@ -296,7 +324,9 @@ cancelBtn?.addEventListener('click', async () => {
   chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
   setView('cancelled');
   setTimeout(closeParent, 2000);
-});
+}
+cancelBtn?.addEventListener('click', cancelAll);
+document.getElementById('cdCancelBtn')?.addEventListener('click', cancelAll);
 
 closeBtn?.addEventListener('click', closeParent);
 errCloseBtn?.addEventListener('click', closeParent);

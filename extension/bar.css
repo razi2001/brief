@@ -59,6 +59,7 @@ body.state-cancelled { align-items: center; }
 .bar { display: none !important; }
 
 body.state-loading .bar,
+body.state-countdown .bar,
 body.state-recording .bar,
 body.state-saving .bar,
 body.state-saved .bar,
@@ -68,6 +69,7 @@ body.state-error .bar { display: flex !important; align-items: center; }
 
 .state-inner { display: none; width: 100%; height: 100%; align-items: center; gap: 10px; padding: 6px 16px 6px 6px; user-select: none; }
 body.state-loading   [data-state='loading']   { display: flex; justify-content: center; }
+body.state-countdown [data-state='countdown'] { display: flex; }
 body.state-recording [data-state='recording'] { display: flex; }
 body.state-saving    [data-state='saving']    { display: flex; justify-content: center; }
 body.state-saved     [data-state='saved']     { display: flex; }
@@ -348,6 +350,27 @@ body.state-error     [data-state='error']     { display: flex; }
 }
 .wave.speaking .wave-bars { opacity: 1; }
 .wave.speaking .wave-hint { opacity: 0; }
+
+/* COUNTDOWN (pre-roll) - a ticking 3·2·1 chip + the "Describe your brief" prompt */
+.cd-num {
+  width: 38px; height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(245, 241, 232, 0.08);
+  color: var(--cream);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+}
+.cd-prompt {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--muted-cream-2);
+  white-space: nowrap;
+  margin-left: 2px;
+}
 
 .icon-btn {
   width: 28px; height: 28px;
