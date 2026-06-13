@@ -41,14 +41,13 @@ body {
   pointer-events: none;
   padding: 14px;
 }
-/* After recording (no transcript panel), center the confirmation pill in the
-   iframe so it lands where the eye was - between where the transcript and the
-   bar sat - instead of pinned to the bottom. */
+/* After recording, center the confirmation pill in the iframe so it lands
+   where the eye was instead of pinned to the bottom. */
 body.state-saving,
 body.state-saved,
 body.state-inboxed,
 body.state-cancelled { align-items: center; }
-.bar, .transcript-panel { pointer-events: auto; }
+.bar { pointer-events: auto; }
 #root {
   display: flex;
   flex-direction: column;
@@ -57,8 +56,7 @@ body.state-cancelled { align-items: center; }
 }
 
 /* ---------- State routing ---------- */
-.bar,
-.transcript-panel { display: none !important; }
+.bar { display: none !important; }
 
 body.state-loading .bar,
 body.state-recording .bar,
@@ -67,8 +65,6 @@ body.state-saved .bar,
 body.state-inboxed .bar,
 body.state-cancelled .bar,
 body.state-error .bar { display: flex !important; align-items: center; }
-
-body.state-recording .transcript-panel { display: flex !important; }
 
 .state-inner { display: none; width: 100%; height: 100%; align-items: center; gap: 10px; padding: 6px 16px 6px 6px; user-select: none; }
 body.state-loading   [data-state='loading']   { display: flex; justify-content: center; }
@@ -350,31 +346,6 @@ body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
   letter-spacing: -0.01em;
   color: var(--cream);
 }
-.lang-pills {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  background: rgba(245, 241, 232, 0.08);
-  border-radius: 7px;
-}
-.lang-pill {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--muted-cream-2);
-  cursor: pointer;
-  transition: background 0.13s, color 0.13s;
-}
-.lang-pill:hover { color: var(--cream); }
-.lang-pill.active {
-  background: rgba(245, 241, 232, 0.92);
-  color: var(--ink);
-}
 .spacer { flex: 1; }
 
 .state-text {
@@ -495,65 +466,3 @@ body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
 .spinner.small { width: 14px; height: 14px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---------- Transcript panel - single-line ticker ---------- */
-.transcript-panel {
-  width: 360px;
-  padding: 9px 22px;
-  background: var(--surface);
-  color: var(--cream);
-  border-radius: 999px;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.26), 0 0 0 1px var(--surface-line);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-.bars-anim {
-  display: flex; align-items: center; gap: 3px;
-  height: 22px;
-  flex-shrink: 0;
-}
-.bars-anim span {
-  width: 2.5px;
-  background: var(--accent);
-  border-radius: 2px;
-  animation: bar 1s ease-in-out infinite;
-}
-.bars-anim span:nth-child(1) { height: 8px;  animation-delay: 0s; }
-.bars-anim span:nth-child(2) { height: 14px; animation-delay: 0.15s; }
-.bars-anim span:nth-child(3) { height: 10px; animation-delay: 0.3s; }
-.bars-anim span:nth-child(4) { height: 18px; animation-delay: 0.45s; }
-.bars-anim span:nth-child(5) { height: 9px;  animation-delay: 0.6s; }
-@keyframes bar {
-  0%, 100% { transform: scaleY(0.4); opacity: 0.7; }
-  50%      { transform: scaleY(1);   opacity: 1; }
-}
-
-/* The ticker viewport - single line. Older text scrolls out the left
-   under the panel's left padding; no mask needed. */
-.transcript-text {
-  position: relative;
-  flex: 1;
-  height: 22px;
-  overflow: hidden;
-}
-.transcript-text .ticker {
-  display: inline-block;
-  white-space: nowrap;
-  font-family: var(--display);
-  font-size: 14px;
-  line-height: 22px;
-  color: var(--cream);
-  transform: translateX(0);
-  will-change: transform;
-  transition: transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-}
-.transcript-text .ticker .interim { color: var(--muted-cream); font-style: italic; }
-.transcript-text .placeholder {
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 14px;
-  color: rgba(245, 241, 232, 0.5);
-  line-height: 22px;
-}
