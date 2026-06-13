@@ -144,8 +144,12 @@ body.ready { opacity: 1; }
 /* ---------- Ticket list ---------- */
 .brief-list {
   list-style: none;
-  margin: 0;
-  padding: 2px;
+  /* Negative right margin lets the reserved scrollbar gutter live in #app's
+     right padding, so the rows reach the same right edge as the "+" / "Name it"
+     row above instead of stopping ~10px short. Horizontal padding dropped so the
+     left edge lines up with the input too. */
+  margin: 0 -8px 0 0;
+  padding: 2px 0;
   display: flex;
   flex-direction: column;
   /* Sizes to content; scrolls once the briefs exceed this. No flex-fill, so an
