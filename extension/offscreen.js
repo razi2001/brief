@@ -218,12 +218,17 @@ function stopKeyframeCapture() {
   keyframeTimer = null;
 }
 
-// Stop the audio-only recorder and wait for its final chunk to flush.
+// Stop the audio-only recorder and wait for its final chunk to flush. A 3s
+// safety net guards against onstop never firing on a flaky engine - without it
+// collectRecording (on the critical stop/upload path) could hang forever.
 function stopAudioRecorder() {
   return new Promise((resolve) => {
     if (!audioRecorder || audioRecorder.state === 'inactive') return resolve();
-    audioRecorder.onstop = () => resolve();
-    try { audioRecorder.stop(); } catch { audioRecorder.onstop = null; resolve(); }
+    let done = false;
+    const finish = () => { if (done) return; done = true; clearTimeout(safety); resolve(); };
+    const safety = setTimeout(finish, 3000);
+    audioRecorder.onstop = finish;
+    try { audioRecorder.stop(); } catch { finish(); }
   });
 }
 
