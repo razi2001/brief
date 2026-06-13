@@ -31,7 +31,6 @@ let timerInterval = null;
 let muted = false;
 let savedDismissTimer = null;
 let stopping = false;       // guards stopAndSave against double-invocation
-let capTimer = null;        // reserved for cap teardown on cancel
 
 // ---------- Iframe sizing ----------
 function postToParent(type, payload = {}) {
@@ -187,12 +186,11 @@ window.addEventListener('mouseup', () => {
 async function stopAndSave(savingMessage) {
   if (stopping) return;
   stopping = true;
-  if (capTimer) { clearTimeout(capTimer); capTimer = null; }
   if (stopBtn) stopBtn.disabled = true;
   if (cancelBtn) cancelBtn.disabled = true;
   stopTimer();
-  setView('saving'); // show feedback immediately while the recorder flushes
   if (savingMessage) setSavingText(savingMessage);
+  setView('saving'); // show feedback immediately while the recorder flushes
   const res = await sendToOffscreen('STOP', { briefId, intent });
   chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
   if (res?.ok) {
@@ -210,7 +208,6 @@ stopBtn?.addEventListener('click', () => { stopAndSave(); });
 // ---------- Cancel ----------
 cancelBtn?.addEventListener('click', async () => {
   stopping = true;
-  if (capTimer) { clearTimeout(capTimer); capTimer = null; }
   cancelBtn.disabled = true;
   if (stopBtn) stopBtn.disabled = true;
   stopTimer();
