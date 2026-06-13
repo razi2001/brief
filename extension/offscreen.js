@@ -17,14 +17,10 @@ import { uploadDraft } from './cloud.js';
 let micStream = null;
 let tabStream = null;
 let mediaRecorder = null;
+let audioRecorder = null;
+let audioChunks = [];
 let recordedChunks = [];
-let recognizer = null;
-let transcriptFinal = '';
-let transcriptInterim = '';
-let transcriptChunks = [];
-let recognitionShouldRun = false;
 let recordingStartMs = 0;
-let recordingLang = 'en-US';
 let previewVideo = null;
 let keyframes = [];
 let keyframeTimer = null;
@@ -63,8 +59,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           uploadAndFinish({
             briefId: message.briefId,
             intent: message.intent || 'brief',
-            transcriptFinal: (message.transcriptFinal || '').trim(),
-            transcriptChunks: message.transcriptChunks || [],
             ...data,
           });
           break;
@@ -101,10 +95,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function startRecording(streamId, lang) {
   log('startRecording', { streamId, lang });
   recordedChunks = [];
-  transcriptFinal = '';
-  transcriptInterim = '';
-  transcriptChunks = [];
-  recordingLang = lang || 'en-US';
+  audioChunks = [];
   recordingStartMs = Date.now();
 
   // 1. Tab stream from the streamId we were handed
@@ -162,6 +153,23 @@ async function startRecording(streamId, lang) {
   };
   mediaRecorder.start(1000);
 
+  // Audio-only recorder for server-side transcription. Records JUST the mixed
+  // tab+mic audio (dest.stream) as a small opus webm (~1-2 MB for 2 min), so it
+  // always fits under OpenAI's 25 MB transcription cap - no video bloat.
+  const audioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : 'audio/webm';
+  try {
+    audioRecorder = new MediaRecorder(new MediaStream(dest.stream.getAudioTracks()), { mimeType: audioMime });
+    audioRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+    audioRecorder.start(1000);
+  } catch (err) {
+    // Non-fatal: if the audio recorder can't start we just upload without a
+    // transcribable track; the brief still files on visual evidence.
+    log('audio recorder failed to start:', err);
+    audioRecorder = null;
+  }
+
   // 4b. Hidden video element to enable keyframe extraction via canvas
   if (!previewVideo) {
     previewVideo = document.createElement('video');
@@ -212,20 +220,20 @@ function stopKeyframeCapture() {
   keyframeTimer = null;
 }
 
-function startSpeechRecognition(lang) {
-  // Intentionally unused - SR runs in the bar iframe instead.
-  // Kept as a no-op so the rest of the message handling doesn't break.
-}
-
-function stopSpeechRecognition() {
-  // No-op - see startSpeechRecognition.
+// Stop the audio-only recorder and wait for its final chunk to flush.
+function stopAudioRecorder() {
+  return new Promise((resolve) => {
+    if (!audioRecorder || audioRecorder.state === 'inactive') return resolve();
+    audioRecorder.onstop = () => resolve();
+    try { audioRecorder.stop(); } catch { resolve(); }
+  });
 }
 
 // Stop the recorder and hand back the raw results (blob + keyframe blobs).
 // Shared by the cloud-upload and legacy-relay paths.
 async function collectRecording() {
   log('collectRecording');
-  stopSpeechRecognition();
+  await stopAudioRecorder();
   stopKeyframeCapture();
 
   // Wait for MediaRecorder to flush
@@ -238,17 +246,18 @@ async function collectRecording() {
   cleanupStreams();
 
   const blob = new Blob(recordedChunks, { type: 'video/webm' });
+  const audioBlob = audioChunks.length ? new Blob(audioChunks, { type: 'audio/webm' }) : null;
   const collected = {
     blob,
+    audioBlob,
     mimeType: 'video/webm',
     keyframes: keyframes.slice(),
     durationMs: Date.now() - recordingStartMs,
     startedAtMs: recordingStartMs,
-    // Snapshot the lang NOW - a new recording can reuse this document while
-    // the upload is still running and would clobber the module-level value.
-    lang: recordingLang,
   };
   recordedChunks = [];
+  audioChunks = [];
+  audioRecorder = null;
   keyframes = [];
   return collected;
 }
@@ -258,7 +267,7 @@ async function collectRecording() {
 // closed - the upload retries a few times, and the outcome (cloud id or a
 // labelled error) lands on the inbox entry via UPLOAD_RESULT. Cloud-only: there
 // is no local zip fallback, so a hard failure is surfaced, not hidden.
-async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChunks, blob, mimeType, keyframes: frames, durationMs, startedAtMs, lang }) {
+async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, keyframes: frames, durationMs, startedAtMs }) {
   // CRITICAL: an offscreen document only reliably gets chrome.runtime -
   // chrome.storage is undefined here, so reading the token / inbox directly
   // threw "Cannot read properties of undefined (reading 'local')" and EVERY
@@ -294,9 +303,8 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
     pageUrl: meta.pageUrl,
     pageTitle: meta.pageTitle,
     userAgent: navigator.userAgent,
-    transcriptLang: lang || recordingLang,
-    transcript: transcriptFinal || null,
-    transcriptChunks: transcriptChunks || [],
+    transcript: null,        // filled server-side by OpenAI transcription
+    transcriptChunks: [],
     keyframes: keyframeMeta,
     events: meta.events || [],
     description: entry?.description || '',
@@ -324,6 +332,9 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
     if (blob && blob.size) {
       files.push({ name: 'recording.webm', blob, contentType: mimeType });
     }
+    if (audioBlob && audioBlob.size) {
+      files.push({ name: 'audio.webm', blob: audioBlob, contentType: 'audio/webm' });
+    }
     if (entry?.screenshot) {
       try {
         const b64 = entry.screenshot.split(',')[1] || '';
@@ -336,7 +347,7 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
 
     const cloudMeta = {
       title: entry?.name || '',
-      transcript: transcriptFinal || '',
+      transcript: '',
       keyframeCount: keyframeEntries.length,
       hasScreenshot: !!entry?.screenshot,
       pageUrl: meta.pageUrl,
@@ -373,16 +384,18 @@ async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChu
 
 async function cancelRecording() {
   log('cancelRecording');
-  stopSpeechRecognition();
   stopKeyframeCapture();
+  if (audioRecorder && audioRecorder.state !== 'inactive') {
+    try { audioRecorder.stop(); } catch {}
+  }
+  audioRecorder = null;
+  audioChunks = [];
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     try { mediaRecorder.stop(); } catch {}
   }
   cleanupStreams();
   recordedChunks = [];
   keyframes = [];
-  transcriptChunks = [];
-  transcriptFinal = '';
 }
 
 function cleanupStreams() {
