@@ -7,7 +7,7 @@
 //   2. Slow path (no cache): probe getUserMedia synchronously. If granted,
 //      reveal and cache. If not, redirect to permission page.
 
-import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, processBrief } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, uploadFilesToDraft, processBrief } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -839,6 +839,10 @@ function bcShowSentAndOpen(count) {
   const sub = exportDone.querySelector('.export-done-sub');
   if (title) title.textContent = count > 1 ? `${count} tickets queued` : 'Queued';
   if (sub) sub.textContent = 'Opening your tickets…';
+  // Collapse the popup to a normal launcher height - otherwise the filed list
+  // still in the DOM keeps the popup tall and the confirmation floats in a big
+  // empty panel.
+  document.body.classList.add('done-active');
   exportDone.hidden = false;
   // Let the confirmation animation (fade-in + rise, ~0.4s) play and linger
   // before switching tabs - openTicketsTab() activates another tab, which makes
@@ -905,6 +909,19 @@ bcCreateTicket?.addEventListener('click', async () => {
           entry.cloudBriefId = b.cloudBriefId;
           await setInbox(list);
         }
+      } else if (b.screenshot) {
+        // The draft already exists - a recording uploaded it on stop. That
+        // upload only carried whatever existed at recording-stop time, so a
+        // screenshot added AFTERWARDS was never in it (and this filing path
+        // skips uploadDraft entirely once a draft exists). Push the screenshot
+        // into the existing draft now so the ticket gets BOTH the recording and
+        // the screenshot. Idempotent (x-upsert), so it's harmless when the
+        // screenshot was already bundled in the recording draft.
+        await uploadFilesToDraft(b.cloudBriefId, [{
+          name: 'screenshot.png',
+          blob: new Blob([dataUrlToBytes(b.screenshot)], { type: 'image/png' }),
+          contentType: 'image/png',
+        }]);
       }
       // File it - kick off processing on the uploaded brief (passing its name
       // so the dashboard can label it while filing, and the user's "attach the

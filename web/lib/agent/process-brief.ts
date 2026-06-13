@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
+import { buildContextBlock } from "./context-block";
 import type { Tracker, IssueResult } from "../tracker";
 
 export interface BriefInput {
@@ -23,51 +24,6 @@ export interface FileResult {
   /** Final workflow state right after filing (post verify/repair), if readable. */
   ticketState?: { name: string; color: string | null };
   summary: string;
-}
-
-/**
- * Extract the high-signal context (page URL/title, browser, console errors) out
- * of brief.json into a compact, prominent text block. The whole brief.json is
- * still sent, but key facts buried in it - especially the URL and console
- * errors - get surfaced here so the agent reliably uses them.
- */
-function buildContextBlock(json: unknown): string {
-  if (!json || typeof json !== "object") return "";
-  const j = json as Record<string, any>;
-  const lines: string[] = [];
-  if (j.pageUrl) lines.push(`- Page URL: ${j.pageUrl}`);
-  if (j.pageTitle) lines.push(`- Page title: ${j.pageTitle}`);
-  if (j.userAgent) lines.push(`- Browser (user agent): ${j.userAgent}`);
-
-  // Console errors come through as events of type "console-error" (args[]),
-  // plus window "error"/"unhandledrejection". Surface them verbatim.
-  const events: any[] = Array.isArray(j.events) ? j.events : [];
-  const errs: string[] = [];
-  for (const e of events) {
-    const type = e?.type ?? e?.__brief ?? "";
-    if (/error|rejection|console-error/i.test(String(type))) {
-      const msg = Array.isArray(e?.args)
-        ? e.args.join(" ")
-        : e?.message || e?.reason || (typeof e?.payload === "string" ? e.payload : JSON.stringify(e));
-      if (msg && msg.trim()) errs.push(msg.trim().slice(0, 500));
-    }
-  }
-  let block = "";
-  if (lines.length) block += "PAGE CONTEXT (ground truth - put the URL in the ticket):\n" + lines.join("\n");
-  if (errs.length) {
-    const unique = [...new Set(errs)].slice(0, 8);
-    block += (block ? "\n\n" : "") + "CONSOLE / RUNTIME ERRORS (verbatim - include the relevant ones in a code block):\n" + unique.map((m) => `- ${m}`).join("\n");
-  }
-  // Surface the narration as its own labeled block instead of leaving it
-  // buried in the JSON - it's the reporter's intent, to be corrected against
-  // the visual/console ground truth.
-  if (typeof j.transcript === "string" && j.transcript.trim()) {
-    block +=
-      (block ? "\n\n" : "") +
-      "SPOKEN NARRATION (rough draft - speech-to-text; trust the screenshots/console/events over it, never quote it):\n" +
-      j.transcript.trim().slice(0, 4000);
-  }
-  return block;
 }
 
 export async function processBrief(brief: BriefInput, tracker: Tracker, instructions?: string): Promise<FileResult> {

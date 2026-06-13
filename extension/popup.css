@@ -532,6 +532,12 @@ body.ready { opacity: 1; }
   z-index: 50;
   animation: fade-in 0.2s ease;
 }
+/* When the "Queued" confirmation shows, the just-filed brief list is still in
+   the DOM behind this (fixed, full-cover) overlay and would otherwise stretch
+   the popup to its full height - leaving the small confirmation marooned in a
+   tall, near-empty panel. Clamp the popup to a normal launcher height so the
+   confirmation reads as a regular compact popup. */
+body.done-active #app { height: 240px; }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 .export-done-inner {
   text-align: center;

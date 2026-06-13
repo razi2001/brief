@@ -95,6 +95,38 @@ export async function uploadDraft(files, meta, tokenOverride) {
   return briefId;
 }
 
+// Append extra files to an EXISTING brief draft (created earlier by
+// uploadDraft - e.g. a recording's draft). Used when a screenshot is added
+// AFTER the recording's draft was already uploaded: without this, the popup's
+// filing path skips the screenshot entirely (it only uploads files when
+// creating a brand-new draft), so the screenshot was silently dropped and only
+// the recording reached the ticket.
+//
+// PUTs with `x-upsert: true` so re-uploading a file that already exists in the
+// draft (e.g. the screenshot was bundled in the recording draft, then retaken)
+// overwrites it instead of failing.
+export async function uploadFilesToDraft(briefId, files, tokenOverride) {
+  const token = tokenOverride || (await getCloudToken());
+  if (!token) throw new Error("Not connected to Brief Cloud");
+  const create = await fetchOrThrow(`${APP_URL}/api/briefs/${briefId}/files`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ files: files.map((f) => f.name) }),
+  }, "add files");
+  if (!create.ok) throw new Error(`add files failed: ${create.status}${await errorDetail(create)}`);
+  const { uploads } = await create.json();
+  for (const f of files) {
+    const up = uploads[f.name];
+    if (!up) throw new Error(`no upload URL for ${f.name}`);
+    const put = await fetchOrThrow(up.signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": f.contentType || f.blob.type || "application/octet-stream", "x-upsert": "true" },
+      body: f.blob,
+    }, `upload ${f.name}`);
+    if (!put.ok) throw new Error(`upload ${f.name} failed: ${put.status}${await errorDetail(put)}`);
+  }
+}
+
 // Kick off processing (file the ticket) for an already-uploaded brief. The route
 // marks it queued and returns immediately (it files in the background), so this
 // resolves fast. `title` (optional) is the user-given brief name, shown on the
