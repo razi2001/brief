@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import type { Tracker, TrackerPriority } from "./tracker";
+import { resolveName, type IssuePatch, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
+import { chunk } from "./ticket-sync";
 
 export type LinearTok = { token: string };
 
@@ -59,63 +60,68 @@ export interface LinearIssueInfo {
 
 /**
  * Fetch live Linear issue info for a set of issue identifiers (e.g. "RAZ-153").
- * Builds ONE aliased GraphQL query (i0/i1/…) for up to ~20 ids in a single
- * round-trip and parses the result into a map keyed by identifier.
+ * Builds aliased GraphQL queries (i0/i1/…) of up to 20 ids per round-trip -
+ * larger sets are CHUNKED into several queries instead of silently dropped.
  *
- * Defensive by design: de-dupes ids, caps at 20, and wraps the whole thing in
- * try/catch returning {} on ANY failure - a Linear outage or token problem must
+ * Defensive by design: de-dupes ids and wraps the whole thing in try/catch
+ * returning what it has on ANY failure - a Linear outage or token problem must
  * never break the dashboard render.
  */
 export async function getIssuesByIdentifiers(
   tok: LinearTok,
   identifiers: string[],
 ): Promise<Record<string, LinearIssueInfo>> {
+  const out: Record<string, LinearIssueInfo> = {};
   try {
-    const ids = Array.from(new Set(identifiers.filter(Boolean))).slice(0, 20);
-    if (ids.length === 0) return {};
+    const ids = Array.from(new Set(identifiers.filter(Boolean)));
+    if (ids.length === 0) return out;
 
     const fields =
       "identifier title url createdAt state { name color type } assignee { name avatarUrl }";
-    const aliases = ids
-      .map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { ${fields} }`)
-      .join("\n");
-    const query = `query IssuesByIdentifier {\n${aliases}\n}`;
+    for (const batch of chunk(ids, 20)) {
+      const aliases = batch
+        .map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { ${fields} }`)
+        .join("\n");
+      const query = `query IssuesByIdentifier {\n${aliases}\n}`;
 
-    const data = await linearGraphQL<Record<string, any>>(tok, query, {});
-    const out: Record<string, LinearIssueInfo> = {};
-    for (let i = 0; i < ids.length; i++) {
-      const node = data?.[`i${i}`];
-      if (!node?.identifier) continue;
-      out[node.identifier] = {
-        identifier: node.identifier,
-        title: node.title ?? "",
-        url: node.url ?? "",
-        stateName: node.state?.name ?? "",
-        stateColor: node.state?.color ?? "#8a8378",
-        stateType: node.state?.type ?? "",
-        createdAt: node.createdAt ?? "",
-        assignee: node.assignee
-          ? { name: node.assignee.name, avatarUrl: node.assignee.avatarUrl ?? undefined }
-          : undefined,
-      };
+      const data = await linearGraphQL<Record<string, any>>(tok, query, {});
+      for (let i = 0; i < batch.length; i++) {
+        const node = data?.[`i${i}`];
+        if (!node?.identifier) continue;
+        out[node.identifier] = {
+          identifier: node.identifier,
+          title: node.title ?? "",
+          url: node.url ?? "",
+          stateName: node.state?.name ?? "",
+          stateColor: node.state?.color ?? "#8a8378",
+          stateType: node.state?.type ?? "",
+          createdAt: node.createdAt ?? "",
+          assignee: node.assignee
+            ? { name: node.assignee.name, avatarUrl: node.assignee.avatarUrl ?? undefined }
+            : undefined,
+        };
+      }
     }
     return out;
   } catch {
-    return {};
+    return out;
   }
 }
 
 export interface LinearApi {
   listTeams(): Promise<Array<{ id: string; name: string; key: string }>>;
-  createIssue(input: {
-    teamId: string;
-    title: string;
-    description: string;
-    labelIds?: string[];
-    priority?: number;
-    stateId?: string;
-    assigneeId?: string;
-  }): Promise<{ id: string; identifier: string; url: string; title: string }>;
+  createIssue(
+    input: {
+      teamId: string;
+      title: string;
+      description: string;
+      labelIds?: string[];
+      priority?: number;
+      stateId?: string;
+      assigneeId?: string;
+      projectId?: string;
+    } & Record<string, unknown>,
+  ): Promise<{ id: string; identifier: string; url: string; title: string }>;
   // Post a comment on an existing issue (markdown body).
   createComment(issueId: string, body: string): Promise<void>;
   // Upload a file to Linear's asset storage and return its public asset URL.
@@ -183,6 +189,7 @@ type TeamMeta = {
   key: string;
   states: Array<{ id: string; name: string }>;
   labels: Array<{ id: string; name: string }>; // workspace + this team's labels
+  projects: Array<{ id: string; name: string }>;
 };
 
 // Provider-agnostic adapter. Reuses makeLinearApi's upload+embed behaviour so
@@ -196,12 +203,12 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
   async function loadTeamMeta(): Promise<Map<string, TeamMeta>> {
     if (teamMeta) return teamMeta;
     const d = await linearGraphQL<{
-      teams: { nodes: Array<{ id: string; name: string; key: string; states: { nodes: Array<{ id: string; name: string }> }; labels: { nodes: Array<{ id: string; name: string }> } }> };
+      teams: { nodes: Array<{ id: string; name: string; key: string; states: { nodes: Array<{ id: string; name: string }> }; labels: { nodes: Array<{ id: string; name: string }> }; projects: { nodes: Array<{ id: string; name: string }> } }> };
       issueLabels: { nodes: Array<{ id: string; name: string; team: { id: string } | null }> };
     }>(
       tok,
       `query TeamsWithMeta {
-        teams { nodes { id name key states { nodes { id name } } labels { nodes { id name } } } }
+        teams { nodes { id name key states { nodes { id name } } labels { nodes { id name } } projects(first: 50) { nodes { id name } } } }
         issueLabels(first: 250) { nodes { id name team { id } } }
       }`,
       {},
@@ -215,6 +222,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
           key: t.key,
           states: t.states?.nodes ?? [],
           labels: [...workspaceLabels, ...(t.labels?.nodes ?? [])],
+          projects: t.projects?.nodes ?? [],
         },
       ]),
     );
@@ -279,7 +287,24 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         assignees,
       }));
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, comment, evidence }) {
+    async getTargetDetails(targetId): Promise<TargetDetails> {
+      const [d, members] = await Promise.all([loadTeamMeta(), loadUsers()]);
+      const meta = d.get(targetId);
+      if (!meta) {
+        const known = [...d.entries()].map(([id, m]) => `${m.name} (id: ${id})`).join(", ");
+        throw new Error(`Linear: team ${targetId} not found. Known teams: ${known}`);
+      }
+      return {
+        id: targetId,
+        key: meta.key,
+        name: meta.name,
+        states: meta.states.map((s) => s.name),
+        labels: meta.labels.map((l) => l.name),
+        members: members.map((u) => u.displayName || u.name).filter(Boolean),
+        projects: meta.projects.map((p) => ({ id: p.id, name: p.name })),
+      };
+    },
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, project, comment, extraFields, evidence }) {
       let description = descriptionMarkdown;
       // Upload each evidence file and embed it inline (Linear-hosted asset URL).
       const embeds: string[] = [];
@@ -337,10 +362,25 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
           if (ids.length) labelIds = ids;
         }
         if (state && meta) {
-          stateId = meta.states.find((s) => norm(s.name) === norm(state))?.id;
+          const canonical = resolveName(state, meta.states.map((s) => s.name));
+          stateId = meta.states.find((s) => s.name === canonical)?.id;
         }
       } catch (err) {
         console.warn("[linear-tracker] label/state resolution failed:", err);
+      }
+
+      // Resolve the project preference ("file under Mobile app") to a projectId.
+      let projectId: string | undefined;
+      if (project) {
+        try {
+          const meta = (await loadTeamMeta()).get(targetId);
+          const byId = meta?.projects.find((p) => p.id === project);
+          const canonical = byId?.name ?? resolveName(project, meta?.projects.map((p) => p.name) ?? []);
+          projectId = byId?.id ?? meta?.projects.find((p) => p.name === canonical)?.id;
+          if (!projectId) console.warn(`[linear-tracker] no project matched "${project}"`);
+        } catch (err) {
+          console.warn("[linear-tracker] project resolution failed:", err);
+        }
       }
 
       // Resolve the assignee name → user id (best-effort, never fatal).
@@ -355,6 +395,8 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       }
 
       const issue = await api.createIssue({
+        // Raw passthrough first - resolved fields always win on conflict.
+        ...(extraFields ?? {}),
         teamId: targetId,
         title,
         description,
@@ -362,6 +404,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         ...(priority && LINEAR_PRIORITY[priority] ? { priority: LINEAR_PRIORITY[priority] } : {}),
         ...(stateId ? { stateId } : {}),
         ...(assigneeId ? { assigneeId } : {}),
+        ...(projectId ? { projectId } : {}),
       });
 
       // Post the requested comment after the issue exists (best-effort).
@@ -374,6 +417,98 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       }
 
       return { id: issue.id, identifier: issue.identifier, url: issue.url, title: issue.title };
+    },
+    async updateIssue(identifier, patch: IssuePatch): Promise<UpdateResult> {
+      try {
+        // Linear's issue(id:) accepts the human identifier ("RAZ-12") too.
+        const d = await linearGraphQL<{ issue: { id: string; team: { id: string } } | null }>(
+          tok,
+          `query IssueRef($id: String!) { issue(id: $id) { id team { id } } }`,
+          { id: identifier },
+        );
+        if (!d.issue) return { ok: false, error: `issue ${identifier} not found` };
+        const meta = (await loadTeamMeta()).get(d.issue.team.id);
+
+        const input: Record<string, unknown> = { ...(patch.extraFields ?? {}) };
+        if (patch.title) input.title = patch.title;
+        if (patch.priority && LINEAR_PRIORITY[patch.priority]) input.priority = LINEAR_PRIORITY[patch.priority];
+        if (patch.state) {
+          const names = meta?.states.map((s) => s.name) ?? [];
+          const canonical = resolveName(patch.state, names);
+          const id = meta?.states.find((s) => s.name === canonical)?.id;
+          if (!id) return { ok: false, error: `state "${patch.state}" not found. Valid states: ${names.join(", ")}` };
+          input.stateId = id;
+        }
+        if (patch.assignee) {
+          const users = await loadUsers();
+          const id = resolveAssignee(patch.assignee, users);
+          if (!id) {
+            const names = users.map((u) => u.displayName || u.name).join(", ");
+            return { ok: false, error: `no member matched "${patch.assignee}". Members: ${names}` };
+          }
+          input.assigneeId = id;
+        }
+        if (patch.project) {
+          const projects = meta?.projects ?? [];
+          const byId = projects.find((p) => p.id === patch.project);
+          const canonical = byId?.name ?? resolveName(patch.project, projects.map((p) => p.name));
+          const id = byId?.id ?? projects.find((p) => p.name === canonical)?.id;
+          if (!id) return { ok: false, error: `project "${patch.project}" not found. Projects: ${projects.map((p) => p.name).join(", ") || "(none in this team)"}` };
+          input.projectId = id;
+        }
+        if (patch.labels?.length && meta) {
+          const ids: string[] = [];
+          const missing: string[] = [];
+          for (const want of patch.labels) {
+            const canonical = resolveName(want, meta.labels.map((l) => l.name));
+            const id = meta.labels.find((l) => l.name === canonical)?.id;
+            if (id) ids.push(id);
+            else missing.push(want);
+          }
+          if (missing.length) return { ok: false, error: `labels not found: ${missing.join(", ")}. Valid labels: ${meta.labels.map((l) => l.name).join(", ")}` };
+          input.labelIds = ids;
+        }
+        if (!Object.keys(input).length) return { ok: false, error: "nothing to update" };
+
+        const r = await linearGraphQL<{ issueUpdate: { success: boolean } }>(
+          tok,
+          `mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }`,
+          { id: d.issue.id, input },
+        );
+        if (!r.issueUpdate?.success) return { ok: false, error: "Linear issueUpdate returned success=false" };
+        return { ok: true };
+      } catch (e: any) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
+    },
+    async getIssue(identifier) {
+      const d = await linearGraphQL<{ issue: any }>(
+        tok,
+        `query IssueRead($id: String!) {
+          issue(id: $id) {
+            identifier title url priority
+            state { name color }
+            assignee { name displayName }
+            labels { nodes { name } }
+            project { name }
+          }
+        }`,
+        { id: identifier },
+      );
+      const i = d.issue;
+      if (!i) throw new Error(`issue ${identifier} not found`);
+      const priorityName = (Object.entries(LINEAR_PRIORITY).find(([, v]) => v === i.priority) ?? [null])[0];
+      return {
+        identifier: i.identifier,
+        title: i.title,
+        url: i.url,
+        state: i.state?.name ?? null,
+        stateColor: i.state?.color ?? null,
+        assignee: i.assignee?.displayName || i.assignee?.name || null,
+        labels: (i.labels?.nodes ?? []).map((l: any) => l.name),
+        project: i.project?.name ?? null,
+        priority: priorityName,
+      };
     },
   };
 }

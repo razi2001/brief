@@ -6,6 +6,13 @@
 //
 // Talks to background.js via chrome.runtime messages. The bar iframe never
 // touches mic or MediaRecorder directly - it only sends control messages.
+//
+// When connected to Brief Cloud, THIS document also uploads the finished
+// draft (it holds the blob and outlives the bar, which closes immediately) -
+// the bar shows "saved" right away and the upload runs in the background.
+// Background keeps this document alive until it reports OFFSCREEN_DONE.
+
+import { uploadDraft } from './cloud.js';
 
 let micStream = null;
 let tabStream = null;
@@ -17,6 +24,7 @@ let transcriptInterim = '';
 let transcriptChunks = [];
 let recognitionShouldRun = false;
 let recordingStartMs = 0;
+let recordingLang = 'en-US';
 let previewVideo = null;
 let keyframes = [];
 let keyframeTimer = null;
@@ -29,7 +37,11 @@ function log(...args) {
 
 // ---------- Message router ----------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.target !== 'offscreen') return false;
+  // Only accept the copy relayed by background. The bar is an extension-origin
+  // iframe, so its sendMessage BROADCASTS here directly too - without this
+  // guard every command runs twice (double STOP = duplicate uploads, a blob
+  // missing its final chunk, and broken UPLOADS_PENDING accounting).
+  if (message?.target !== 'offscreen' || !message.viaBackground) return false;
 
   (async () => {
     try {
@@ -41,13 +53,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           await startRecording(message.streamId, message.lang);
           sendResponse({ ok: true });
           break;
-        case 'STOP':
-          await stopRecording(message.transcriptFinal, message.transcriptChunks);
+        case 'STOP': {
+          // Stop + collect synchronously, ACK right away so the bar can show
+          // "saved" and close, then upload in the background (cloud-only - no
+          // local zip; a missing pairing surfaces as uploadFailed and the
+          // popup gates recording on pairing so it shouldn't happen).
+          const data = await collectRecording();
           sendResponse({ ok: true });
+          uploadAndFinish({
+            briefId: message.briefId,
+            intent: message.intent || 'brief',
+            transcriptFinal: (message.transcriptFinal || '').trim(),
+            transcriptChunks: message.transcriptChunks || [],
+            ...data,
+          });
           break;
+        }
         case 'CANCEL':
           await cancelRecording();
           sendResponse({ ok: true });
+          // Nothing to upload or relay - background can close this document.
+          chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
           break;
         case 'GET_TAB_STREAM_ID':
           // Bar might need the stream ID to also tap it for keyframes
@@ -78,6 +104,7 @@ async function startRecording(streamId, lang) {
   transcriptFinal = '';
   transcriptInterim = '';
   transcriptChunks = [];
+  recordingLang = lang || 'en-US';
   recordingStartMs = Date.now();
 
   // 1. Tab stream from the streamId we were handed
@@ -90,6 +117,9 @@ async function startRecording(streamId, lang) {
     const ctx = new AudioContext();
     ctx.createMediaStreamSource(new MediaStream(tabStream.getAudioTracks()))
       .connect(ctx.destination);
+    // AudioContexts can start suspended (autoplay policy); a suspended
+    // context silently drops audio until it spins up.
+    await ctx.resume().catch(() => {});
   } catch (err) {
     log('tab audio routing failed:', err);
   }
@@ -109,6 +139,10 @@ async function startRecording(streamId, lang) {
   for (const t of micStream.getAudioTracks()) {
     audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
   }
+  // CRITICAL for the first seconds of voice: a suspended mixing context
+  // records silence until it starts. Make sure it's actually running BEFORE
+  // the recorder starts pulling from its destination stream.
+  await audioCtx.resume().catch(() => {});
   for (const t of dest.stream.getAudioTracks()) tracks.push(t);
   const combinedStream = new MediaStream(tracks);
 
@@ -144,7 +178,7 @@ async function startRecording(streamId, lang) {
   // produce results in invisible contexts. The bar iframe is visible and
   // works correctly. We just record audio/video here.
 
-  // 6. Notify the bar (via background relay - see RECORDING_FINISHED for why)
+  // 6. Notify the bar (via background relay - it knows which tab the bar is in)
   chrome.runtime.sendMessage({
     target: 'relayToBar',
     payload: { target: 'bar', type: 'RECORDING_STARTED', startedAt: recordingStartMs },
@@ -174,17 +208,6 @@ function stopKeyframeCapture() {
   keyframeTimer = null;
 }
 
-async function blobToBase64(blob) {
-  const ab = await blob.arrayBuffer();
-  const bytes = new Uint8Array(ab);
-  let bin = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(bin);
-}
-
 function startSpeechRecognition(lang) {
   // Intentionally unused - SR runs in the bar iframe instead.
   // Kept as a no-op so the rest of the message handling doesn't break.
@@ -194,8 +217,10 @@ function stopSpeechRecognition() {
   // No-op - see startSpeechRecognition.
 }
 
-async function stopRecording(transcriptFinalFromBar, transcriptChunksFromBar) {
-  log('stopRecording');
+// Stop the recorder and hand back the raw results (blob + keyframe blobs).
+// Shared by the cloud-upload and legacy-relay paths.
+async function collectRecording() {
+  log('collectRecording');
   stopSpeechRecognition();
   stopKeyframeCapture();
 
@@ -208,41 +233,132 @@ async function stopRecording(transcriptFinalFromBar, transcriptChunksFromBar) {
 
   cleanupStreams();
 
-  // Build the audio/video blob
   const blob = new Blob(recordedChunks, { type: 'video/webm' });
-  const recordingB64 = await blobToBase64(blob);
-
-  // Serialize keyframes
-  const keyframesB64 = [];
-  for (const k of keyframes) {
-    keyframesB64.push({
-      timestamp: k.timestamp,
-      base64: await blobToBase64(k.blob),
-    });
-  }
-
-  const durationMs = Date.now() - recordingStartMs;
-
-  // Send via background - it knows which tab the bar lives in.
-  // Using a relay target instead of broadcast so the bar receives the
-  // message only via background's chrome.tabs.sendMessage path (no
-  // duplicate delivery from the broadcast).
-  chrome.runtime.sendMessage({
-    target: 'relayToBar',
-    payload: {
-      target: 'bar',
-      type: 'RECORDING_FINISHED',
-      recordingB64,
-      mimeType: 'video/webm',
-      durationMs,
-      transcriptFinal: (transcriptFinalFromBar || '').trim(),
-      transcriptChunks: transcriptChunksFromBar || [],
-      keyframes: keyframesB64,
-    },
-  });
-
+  const collected = {
+    blob,
+    mimeType: 'video/webm',
+    keyframes: keyframes.slice(),
+    durationMs: Date.now() - recordingStartMs,
+    startedAtMs: recordingStartMs,
+    // Snapshot the lang NOW - a new recording can reuse this document while
+    // the upload is still running and would clobber the module-level value.
+    lang: recordingLang,
+  };
   recordedChunks = [];
   keyframes = [];
+  return collected;
+}
+
+// Cloud path: assemble brief.json HERE (page meta from background, the user's
+// draft fields from the inbox entry) and upload the draft. The bar is already
+// closed - failures fall back to the local zip download so the recording is
+// never lost, and the result lands on the inbox entry via UPLOAD_RESULT.
+async function uploadAndFinish({ briefId, intent, transcriptFinal, transcriptChunks, blob, mimeType, keyframes: frames, durationMs, startedAtMs, lang }) {
+  // Page meta + event log collected by background during the recording.
+  let meta = { events: [], pageUrl: null, pageTitle: null };
+  try {
+    meta = await chrome.runtime.sendMessage({ type: 'GET_BRIEF_META' });
+  } catch {}
+
+  // The user's draft fields (name, description, screenshot, extras, toggle).
+  let entry = null;
+  try {
+    const { inbox } = await chrome.storage.local.get('inbox');
+    entry = (Array.isArray(inbox) ? inbox : []).find((b) => b.id === briefId) || null;
+  } catch {}
+
+  const keyframeEntries = [];
+  const keyframeMeta = [];
+  for (let i = 0; i < frames.length; i++) {
+    const name = `keyframes/keyframe-${String(i).padStart(3, '0')}.png`;
+    keyframeEntries.push({ name, blob: frames[i].blob });
+    keyframeMeta.push({ index: i, timestamp: frames[i].timestamp, file: name });
+  }
+
+  const briefJson = {
+    id: briefId,
+    schemaVersion: 2,
+    createdAt: new Date(startedAtMs).toISOString(),
+    durationMs,
+    intent,
+    pageUrl: meta.pageUrl,
+    pageTitle: meta.pageTitle,
+    userAgent: navigator.userAgent,
+    transcriptLang: lang || recordingLang,
+    transcript: transcriptFinal || null,
+    transcriptChunks: transcriptChunks || [],
+    keyframes: keyframeMeta,
+    events: meta.events || [],
+    description: entry?.description || '',
+    hasScreenshot: !!entry?.screenshot,
+    screenshotAnnotated: !!entry?.screenshotAnnotated,
+    // The "attach the recording" toggle is OFF by default and may be flipped in
+    // the popup after this point; the authoritative value is sent at file time.
+    // This is just a frozen fallback for retries.
+    includeVideo: !!entry?.includeVideo,
+    extra: Array.isArray(entry?.extra)
+      ? entry.extra.filter((p) => (p.key || '').trim() || (p.value || '').trim())
+      : [],
+    recording: { file: 'recording.webm', mimeType, durationMs },
+  };
+
+  try {
+    const files = [
+      {
+        name: 'brief.json',
+        blob: new Blob([JSON.stringify(briefJson)], { type: 'application/json' }),
+        contentType: 'application/json',
+      },
+      ...keyframeEntries.map((k) => ({ name: k.name, blob: k.blob, contentType: 'image/png' })),
+    ];
+    if (blob && blob.size) {
+      files.push({ name: 'recording.webm', blob, contentType: mimeType });
+    }
+    if (entry?.screenshot) {
+      try {
+        const b64 = entry.screenshot.split(',')[1] || '';
+        const bin = atob(b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        files.push({ name: 'screenshot.png', blob: new Blob([arr], { type: 'image/png' }), contentType: 'image/png' });
+      } catch {}
+    }
+
+    const cloudMeta = {
+      title: entry?.name || '',
+      transcript: transcriptFinal || '',
+      keyframeCount: keyframeEntries.length,
+      hasScreenshot: !!entry?.screenshot,
+      pageUrl: meta.pageUrl,
+      pageTitle: meta.pageTitle,
+      description: entry?.description || '',
+    };
+
+    // Transient network/server hiccups: retry before declaring failure -
+    // there is no local fallback anymore, so we try hard here.
+    let cloudBriefId = null;
+    let lastErr = null;
+    for (const delay of [0, 1500, 5000]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      try {
+        cloudBriefId = await uploadDraft(files, cloudMeta);
+        break;
+      } catch (err) {
+        lastErr = err;
+        log('upload attempt failed:', err?.message || err);
+      }
+    }
+    if (!cloudBriefId) throw lastErr || new Error('upload failed');
+    log('background upload done', cloudBriefId);
+    await chrome.runtime.sendMessage({ type: 'UPLOAD_RESULT', briefId, cloudBriefId }).catch(() => {});
+  } catch (err) {
+    console.warn('[brief/offscreen] cloud upload failed:', err);
+    await chrome.runtime
+      .sendMessage({ type: 'UPLOAD_RESULT', briefId, error: String(err?.message || err) })
+      .catch(() => {});
+  } finally {
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
+  }
 }
 
 async function cancelRecording() {

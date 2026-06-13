@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import type { Tracker, TrackerTarget } from "./tracker";
+import { resolveName, type IssuePatch, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
+import { chunk } from "./ticket-sync";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
 
@@ -258,67 +259,102 @@ function jiraStatusColor(colorName?: string): string {
 }
 
 /**
- * Fetch live Jira issue info (summary + status) for a set of issue keys via a
- * single JQL search. Tries the newer `/search/jql` endpoint first and falls back
- * to the legacy `/search` if that 404s. De-dupes and caps at ~25 keys.
+ * Fetch live Jira issue info (summary + status) for a set of issue keys via
+ * JQL search, 25 keys per request - larger sets are CHUNKED into several
+ * requests instead of silently dropped. Tries the newer `/search/jql` endpoint
+ * first and falls back to the legacy `/search` if that 404s.
  *
- * Defensive by design: any failure returns {} so a Jira outage or token problem
- * never breaks the dashboard render.
+ * Defensive by design: any failure returns what it has so a Jira outage or
+ * token problem never breaks the dashboard render.
  */
 export async function getJiraIssues(
   tok: JiraTok,
   cloud: { cloudId: string; siteUrl: string },
   keys: string[],
 ): Promise<Record<string, JiraIssueInfo>> {
+  const out: Record<string, JiraIssueInfo> = {};
   try {
-    const ids = Array.from(new Set(keys.filter(Boolean))).slice(0, 25);
-    if (ids.length === 0) return {};
+    const ids = Array.from(new Set(keys.filter(Boolean)));
+    if (ids.length === 0) return out;
 
     const base = jiraBase(tok, cloud.cloudId, cloud.siteUrl);
-    const jql = `key in (${ids.join(",")})`;
-    const fields = "summary,status,created";
-    const qs = `?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${ids.length}`;
+    for (const batch of chunk(ids, 25)) {
+      const jql = `key in (${batch.join(",")})`;
+      const fields = "summary,status,created";
+      const qs = `?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${batch.length}`;
 
-    // Try the newer /search/jql first, fall back to legacy /search on 404.
-    let r = await jiraFetch(tok, base, `/search/jql${qs}`);
-    if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
-    if (!r.ok) return {};
+      // Try the newer /search/jql first, fall back to legacy /search on 404.
+      let r = await jiraFetch(tok, base, `/search/jql${qs}`);
+      if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
+      if (!r.ok) continue;
 
-    const j = (await r.json()) as {
-      issues?: Array<{
-        key: string;
-        fields?: {
-          summary?: string;
-          created?: string;
-          status?: {
-            name?: string;
-            statusCategory?: { colorName?: string };
+      const j = (await r.json()) as {
+        issues?: Array<{
+          key: string;
+          fields?: {
+            summary?: string;
+            created?: string;
+            status?: {
+              name?: string;
+              statusCategory?: { colorName?: string };
+            };
           };
-        };
-      }>;
-    };
-
-    const out: Record<string, JiraIssueInfo> = {};
-    for (const issue of j.issues ?? []) {
-      if (!issue.key) continue;
-      const f = issue.fields ?? {};
-      out[issue.key] = {
-        title: f.summary ?? "",
-        url: `${cloud.siteUrl}/browse/${issue.key}`,
-        stateName: f.status?.name ?? "",
-        stateColor: jiraStatusColor(f.status?.statusCategory?.colorName),
-        createdAt: f.created ?? "",
+        }>;
       };
+
+      for (const issue of j.issues ?? []) {
+        if (!issue.key) continue;
+        const f = issue.fields ?? {};
+        out[issue.key] = {
+          title: f.summary ?? "",
+          url: `${cloud.siteUrl}/browse/${issue.key}`,
+          stateName: f.status?.name ?? "",
+          stateColor: jiraStatusColor(f.status?.statusCategory?.colorName),
+          createdAt: f.created ?? "",
+        };
+      }
     }
     return out;
   } catch {
-    return {};
+    return out;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Workflow transitions
+// ---------------------------------------------------------------------------
+
+export type JiraTransition = { id: string; name: string; to?: { name?: string } };
+
+/**
+ * Pick the workflow transition that reaches a wanted status. Jira moves issues
+ * between statuses via named transitions, so we match the wanted status first
+ * against each transition's DESTINATION (to.name), then against the transition
+ * name itself - both fuzzily (exact > prefix > substring, case-insensitive).
+ */
+export function pickTransition(
+  want: string,
+  transitions: JiraTransition[],
+): JiraTransition | undefined {
+  const dests = transitions.map((t) => t.to?.name ?? "");
+  const destHit = resolveName(want, dests);
+  if (destHit) return transitions[dests.indexOf(destHit)];
+  const names = transitions.map((t) => t.name);
+  const nameHit = resolveName(want, names);
+  return nameHit ? transitions[names.indexOf(nameHit)] : undefined;
 }
 
 // ---------------------------------------------------------------------------
 // Tracker implementation
 // ---------------------------------------------------------------------------
+
+/** Jira priority names for our normalized priorities. */
+const JIRA_PRIORITY: Record<string, string> = {
+  urgent: "Highest",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
 
 export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl: string }): Tracker {
   const base = jiraBase(tok, cloud.cloudId, cloud.siteUrl);
@@ -341,51 +377,183 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
     return chosen.id;
   }
 
+  // Projects, fetched once per tracker instance (paginated /project/search).
+  let targetsCache: TrackerTarget[] | null = null;
+  async function loadTargets(): Promise<TrackerTarget[]> {
+    if (targetsCache) return targetsCache;
+    const out: TrackerTarget[] = [];
+    let startAt = 0;
+    for (;;) {
+      const r = await jiraFetch(tok, base, `/project/search?startAt=${startAt}&maxResults=50`);
+      if (!r.ok) throw new Error(`Jira project/search failed: ${r.status} ${await r.text()}`);
+      const j = (await r.json()) as {
+        values?: Array<{ id: string; key: string; name: string }>;
+        isLast?: boolean;
+        total?: number;
+      };
+      for (const p of j.values ?? []) out.push({ id: p.id, key: p.key, name: p.name });
+      if (j.isLast || !(j.values?.length)) break;
+      startAt += j.values.length;
+      if (out.length >= (j.total ?? out.length)) break;
+    }
+    targetsCache = out;
+    return out;
+  }
+
+  // Resolve an assignee to a Jira accountId via assignable-user search.
+  async function resolveAssigneeAccountId(projectKey: string, want: string): Promise<string | undefined> {
+    try {
+      const r = await jiraFetch(
+        tok,
+        base,
+        `/user/assignable/search?project=${encodeURIComponent(projectKey)}&query=${encodeURIComponent(want)}&maxResults=1`,
+      );
+      if (!r.ok) return undefined;
+      const users = (await r.json()) as Array<{ accountId: string }>;
+      return users?.[0]?.accountId;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Move an issue to a wanted status via the transitions API. Reports failure
+  // with the reachable statuses so the agent can correct itself.
+  async function transitionTo(issueKey: string, want: string): Promise<UpdateResult> {
+    const r = await jiraFetch(tok, base, `/issue/${issueKey}/transitions`);
+    if (!r.ok) return { ok: false, error: `Jira transitions fetch failed: ${r.status}` };
+    const j = (await r.json()) as { transitions?: JiraTransition[] };
+    const transitions = j.transitions ?? [];
+    const t = pickTransition(want, transitions);
+    if (!t) {
+      const reachable = transitions.map((x) => x.to?.name || x.name).filter(Boolean).join(", ");
+      return { ok: false, error: `no transition reaches status "${want}". Reachable from here: ${reachable || "(none)"}` };
+    }
+    const post = await jiraFetch(tok, base, `/issue/${issueKey}/transitions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transition: { id: t.id } }),
+    });
+    if (!post.ok) return { ok: false, error: `Jira transition failed: ${post.status} ${await post.text()}` };
+    return { ok: true };
+  }
+
   return {
     kind: "jira",
     targetNoun: "project",
     async listTargets(): Promise<TrackerTarget[]> {
-      const out: TrackerTarget[] = [];
-      let startAt = 0;
-      // /project/search is paginated.
-      for (;;) {
-        const r = await jiraFetch(tok, base, `/project/search?startAt=${startAt}&maxResults=50`);
-        if (!r.ok) throw new Error(`Jira project/search failed: ${r.status} ${await r.text()}`);
-        const j = (await r.json()) as {
-          values?: Array<{ id: string; key: string; name: string }>;
-          isLast?: boolean;
-          total?: number;
-        };
-        for (const p of j.values ?? []) out.push({ id: p.id, key: p.key, name: p.name });
-        if (j.isLast || !(j.values?.length)) break;
-        startAt += j.values.length;
-        if (out.length >= (j.total ?? out.length)) break;
-      }
-      return out;
+      return loadTargets();
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, assignee, comment, evidence }) {
+    async getTargetDetails(targetId): Promise<TargetDetails> {
+      const targets = await loadTargets();
+      const project = targets.find((t) => t.id === targetId || t.key === targetId);
+      if (!project) {
+        const known = targets.map((t) => `${t.name} (${t.key}, id: ${t.id})`).join(", ");
+        throw new Error(`Jira: project ${targetId} not found. Known projects: ${known}`);
+      }
+      const key = project.key;
+
+      // Fetched in parallel; each piece degrades to empty on failure so one
+      // flaky endpoint doesn't hide the rest of the metadata.
+      const [statuses, members, labels, fieldsMeta] = await Promise.all([
+        (async () => {
+          try {
+            const r = await jiraFetch(tok, base, `/project/${encodeURIComponent(key)}/statuses`);
+            if (!r.ok) return [] as string[];
+            const j = (await r.json()) as Array<{ statuses?: Array<{ name?: string }> }>;
+            return [...new Set(j.flatMap((t) => (t.statuses ?? []).map((s) => s.name ?? "")).filter(Boolean))];
+          } catch {
+            return [] as string[];
+          }
+        })(),
+        (async () => {
+          try {
+            // Jira's assignable-user search documents `query` as required
+            // (400 without it on some sites) - try with an empty query first,
+            // then without the param, and degrade to [] if both fail.
+            let r = await jiraFetch(tok, base, `/user/assignable/search?project=${encodeURIComponent(key)}&query=&maxResults=50`);
+            if (!r.ok) r = await jiraFetch(tok, base, `/user/assignable/search?project=${encodeURIComponent(key)}&maxResults=50`);
+            if (!r.ok) return [] as string[];
+            const j = (await r.json()) as Array<{ displayName?: string }>;
+            return j.map((u) => u.displayName ?? "").filter(Boolean);
+          } catch {
+            return [] as string[];
+          }
+        })(),
+        (async () => {
+          try {
+            const r = await jiraFetch(tok, base, `/label?maxResults=100`);
+            if (!r.ok) return [] as string[];
+            const j = (await r.json()) as { values?: string[] };
+            return (j.values ?? []).slice(0, 100);
+          } catch {
+            return [] as string[];
+          }
+        })(),
+        (async () => {
+          try {
+            const r = await jiraFetch(
+              tok,
+              base,
+              `/issue/createmeta?projectKeys=${encodeURIComponent(key)}&expand=projects.issuetypes.fields`,
+            );
+            if (!r.ok) return null;
+            return (await r.json()) as {
+              projects?: Array<{
+                issuetypes?: Array<{
+                  name: string;
+                  subtask?: boolean;
+                  fields?: Record<
+                    string,
+                    { name?: string; required?: boolean; schema?: { type?: string }; allowedValues?: Array<{ name?: string; value?: string }> }
+                  >;
+                }>;
+              }>;
+            };
+          } catch {
+            return null;
+          }
+        })(),
+      ]);
+
+      const issueTypes = (fieldsMeta?.projects?.[0]?.issuetypes ?? []).filter((t) => !t.subtask);
+      // Standard fields the toolset already covers - everything else (custom
+      // fields, components, versions…) is surfaced for extraFields.
+      const covered = new Set(["summary", "description", "issuetype", "project", "labels", "priority", "assignee", "reporter", "attachment"]);
+      const customFields: TargetDetails["customFields"] = [];
+      const seen = new Set<string>();
+      for (const t of issueTypes) {
+        for (const [fieldId, f] of Object.entries(t.fields ?? {})) {
+          if (covered.has(fieldId) || seen.has(fieldId)) continue;
+          seen.add(fieldId);
+          customFields.push({
+            id: fieldId,
+            name: f.name ?? fieldId,
+            type: f.schema?.type ?? "unknown",
+            required: !!f.required,
+            allowedValues: f.allowedValues?.map((v) => v.name ?? v.value ?? "").filter(Boolean).slice(0, 25),
+          });
+        }
+      }
+
+      return {
+        id: project.id,
+        key,
+        name: project.name,
+        states: statuses,
+        labels,
+        members,
+        issueTypes: issueTypes.map((t) => t.name),
+        customFields,
+      };
+    },
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, comment, extraFields, evidence }) {
       // We need the project key to look up issue types and build the browse url.
-      const targets = await this.listTargets();
+      const targets = await loadTargets();
       const project = targets.find((t) => t.id === targetId || t.key === targetId);
       if (!project) throw new Error(`Jira: project ${targetId} not found`);
       const issueTypeId = await pickIssueType(project.key);
 
-      // Resolve the assignee to a Jira accountId (best-effort, never fatal).
-      async function resolveAssigneeAccountId(want: string): Promise<string | undefined> {
-        try {
-          const r = await jiraFetch(
-            tok,
-            base,
-            `/user/assignable/search?project=${encodeURIComponent(project!.key)}&query=${encodeURIComponent(want)}&maxResults=1`,
-          );
-          if (!r.ok) return undefined;
-          const users = (await r.json()) as Array<{ accountId: string }>;
-          return users?.[0]?.accountId;
-        } catch {
-          return undefined;
-        }
-      }
-      const assigneeAccountId = assignee ? await resolveAssigneeAccountId(assignee) : undefined;
+      const assigneeAccountId = assignee ? await resolveAssigneeAccountId(project.key, assignee) : undefined;
 
       let body = descriptionMarkdown;
       if (evidence.length) {
@@ -402,20 +570,14 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
       // Preference-driven extras. Jira labels can't contain spaces; priority is
       // by standard name. Both are best-effort: if the project's create screen
       // rejects them (400), retry without so the filing never fails over them.
-      const extraFields: Record<string, unknown> = {};
+      const prefFields: Record<string, unknown> = {};
       if (labels?.length) {
-        extraFields.labels = labels.map((l) => l.trim().replace(/\s+/g, "-")).filter(Boolean);
+        prefFields.labels = labels.map((l) => l.trim().replace(/\s+/g, "-")).filter(Boolean);
       }
       if (priority) {
-        const JIRA_PRIORITY: Record<string, string> = {
-          urgent: "Highest",
-          high: "High",
-          medium: "Medium",
-          low: "Low",
-        };
-        if (JIRA_PRIORITY[priority]) extraFields.priority = { name: JIRA_PRIORITY[priority] };
+        if (JIRA_PRIORITY[priority]) prefFields.priority = { name: JIRA_PRIORITY[priority] };
       }
-      if (assigneeAccountId) extraFields.assignee = { accountId: assigneeAccountId };
+      if (assigneeAccountId) prefFields.assignee = { accountId: assigneeAccountId };
 
       const createIssue = (fields: Record<string, unknown>) =>
         jiraFetch(tok, base, `/issue`, {
@@ -424,11 +586,12 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           body: JSON.stringify({ fields }),
         });
 
-      const hasExtras = Object.keys(extraFields).length > 0;
-      let createRes = await createIssue({ ...baseFields, ...extraFields });
+      // Raw passthrough (custom fields etc.) first - resolved fields win.
+      const hasExtras = Object.keys(prefFields).length > 0 || Object.keys(extraFields ?? {}).length > 0;
+      let createRes = await createIssue({ ...(extraFields ?? {}), ...baseFields, ...prefFields });
       if (!createRes.ok && hasExtras && createRes.status === 400) {
         console.warn(
-          `[jira-tracker] create with labels/priority rejected (400) - retrying without: ${await createRes.text()}`,
+          `[jira-tracker] create with extras rejected (400) - retrying without: ${await createRes.text()}`,
         );
         createRes = await createIssue(baseFields);
       }
@@ -469,11 +632,86 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         }
       }
 
+      // Jira sets status via workflow transitions, not at create time. Apply a
+      // requested state after the fact (best-effort; the agent can verify with
+      // get_issue and repair with update_issue, which reports the options).
+      if (state?.trim()) {
+        try {
+          const t = await transitionTo(created.key, state.trim());
+          if (!t.ok) console.warn(`[jira-tracker] create-time transition: ${t.error}`);
+        } catch (err) {
+          console.warn("[jira-tracker] create-time transition error:", err);
+        }
+      }
+
       return {
         id: created.id,
         identifier: created.key,
         url: `${cloud.siteUrl}/browse/${created.key}`,
         title,
+      };
+    },
+    async updateIssue(identifier, patch: IssuePatch): Promise<UpdateResult> {
+      try {
+        if (patch.project) {
+          return { ok: false, error: "moving a Jira issue to another project isn't supported - file it in the right project instead" };
+        }
+        const fields: Record<string, unknown> = { ...(patch.extraFields ?? {}) };
+        if (patch.title) fields.summary = patch.title;
+        if (patch.labels?.length) fields.labels = patch.labels.map((l) => l.trim().replace(/\s+/g, "-")).filter(Boolean);
+        if (patch.priority && JIRA_PRIORITY[patch.priority]) fields.priority = { name: JIRA_PRIORITY[patch.priority] };
+        if (patch.assignee) {
+          const projectKey = identifier.split("-")[0];
+          const accountId = await resolveAssigneeAccountId(projectKey, patch.assignee);
+          if (!accountId) return { ok: false, error: `no assignable user matched "${patch.assignee}" in project ${projectKey}` };
+          fields.assignee = { accountId };
+        }
+
+        if (Object.keys(fields).length) {
+          const r = await jiraFetch(tok, base, `/issue/${identifier}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fields }),
+          });
+          if (!r.ok) return { ok: false, error: `Jira update failed: ${r.status} ${await r.text()}` };
+        }
+
+        if (patch.state) {
+          const t = await transitionTo(identifier, patch.state);
+          if (!t.ok) return t;
+        }
+        return { ok: true };
+      } catch (e: any) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
+    },
+    async getIssue(identifier) {
+      const r = await jiraFetch(
+        tok,
+        base,
+        `/issue/${identifier}?fields=${encodeURIComponent("summary,status,assignee,labels,priority")}`,
+      );
+      if (!r.ok) throw new Error(`Jira issue fetch failed: ${r.status} ${await r.text()}`);
+      const j = (await r.json()) as {
+        key: string;
+        fields?: {
+          summary?: string;
+          status?: { name?: string; statusCategory?: { colorName?: string } };
+          assignee?: { displayName?: string };
+          labels?: string[];
+          priority?: { name?: string };
+        };
+      };
+      const f = j.fields ?? {};
+      return {
+        identifier: j.key,
+        title: f.summary ?? "",
+        url: `${cloud.siteUrl}/browse/${j.key}`,
+        state: f.status?.name ?? null,
+        stateColor: f.status ? jiraStatusColor(f.status.statusCategory?.colorName) : null,
+        assignee: f.assignee?.displayName ?? null,
+        labels: f.labels ?? [],
+        priority: f.priority?.name?.toLowerCase() ?? null,
       };
     },
   };

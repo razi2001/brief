@@ -84,6 +84,11 @@ async function closeOffscreenDocument() {
 // Track which tab's bar to send relayed messages back to
 let ACTIVE_BAR_TAB_ID = null;
 
+// Background uploads running in the offscreen document. While > 0 the
+// document must NOT be closed (the recording streams are already released
+// at that point, so a new recording can safely reuse the same document).
+let UPLOADS_PENDING = 0;
+
 // On install / update, inject the content script into already-open tabs.
 chrome.runtime.onInstalled.addListener(async (details) => {
   try {
@@ -124,7 +129,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await ensureOffscreenDocument();
         // Remember which tab to relay results back to
         if (sender?.tab?.id) ACTIVE_BAR_TAB_ID = sender.tab.id;
-        const res = await chrome.runtime.sendMessage(message);
+        // Tag the forwarded copy - offscreen ignores untagged (direct
+        // broadcast) copies so each command runs exactly once.
+        const res = await chrome.runtime.sendMessage({ ...message, viaBackground: true });
+        // A successful STOP starts a BACKGROUND upload in the offscreen
+        // document (cloud-only) - guard it from teardown until OFFSCREEN_DONE.
+        if (message.type === 'STOP' && res?.ok) UPLOADS_PENDING++;
         sendResponse(res);
       } catch (err) {
         console.error('[brief/background] offscreen relay:', err);
@@ -184,10 +194,54 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'BRIEF_STOP':
           STATE.recording = false;
-          // Offscreen no longer needed
-          closeOffscreenDocument().catch(() => {});
+          // Close the offscreen document UNLESS it's still uploading to
+          // Brief Cloud in the background (UPLOADS_PENDING was incremented
+          // by the STOP relay before the bar could send BRIEF_STOP). This
+          // also covers the legacy-relay and cancel paths, where the
+          // OFFSCREEN_DONE message arrives while recording is still flagged
+          // and therefore skips the close.
+          if (UPLOADS_PENDING === 0) closeOffscreenDocument().catch(() => {});
           sendResponse({ ok: true });
           break;
+
+        case 'OFFSCREEN_DONE':
+          // Offscreen finished its post-recording work (upload, relay, or
+          // cancel). Tear it down unless something still needs it: another
+          // pending upload, or a NEW recording that reused the document.
+          UPLOADS_PENDING = Math.max(0, UPLOADS_PENDING - 1);
+          if (UPLOADS_PENDING === 0 && !STATE.recording) {
+            closeOffscreenDocument().catch(() => {});
+          }
+          sendResponse({ ok: true });
+          break;
+
+        case 'UPLOAD_RESULT': {
+          // Background upload settled (offscreen). Land the outcome on the
+          // inbox entry so the popup can file the brief (cloudBriefId) or
+          // explain a failure - works even when the popup is closed.
+          try {
+            const { inbox } = await chrome.storage.local.get('inbox');
+            const list = Array.isArray(inbox) ? inbox : [];
+            const entry = list.find((b) => b.id === message.briefId);
+            if (entry) {
+              entry.uploading = false;
+              if (message.cloudBriefId) {
+                entry.cloudBriefId = message.cloudBriefId;
+                delete entry.uploadFailed;
+                delete entry.uploadError;
+              } else {
+                entry.uploadFailed = true;
+                entry.uploadError = message.error || 'upload failed';
+              }
+              await chrome.storage.local.set({ inbox: list });
+              await refreshBadge();
+            }
+            sendResponse({ ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+          break;
+        }
 
         case 'OPEN_PERMISSION_PAGE':
           // Bar requests it when the offscreen mic call failed - we close
@@ -271,7 +325,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'RESET_BEFORE_NEW_RECORDING':
           // Before a new recording, ensure no stale recording infrastructure
           // is holding a tabCapture stream. Close offscreen, dismiss any
-          // open bar in any tab, clear state.
+          // open bar in any tab, clear state. EXCEPTION: while a background
+          // upload is running, keep the document - its capture streams are
+          // already released (collectRecording cleans up before uploading),
+          // so the new recording can safely reuse it.
           STATE.recording = false;
           STATE.events = [];
           try {
@@ -279,7 +336,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });
             }
           } catch {}
-          await closeOffscreenDocument().catch(() => {});
+          if (UPLOADS_PENDING === 0) {
+            await closeOffscreenDocument().catch(() => {});
+          }
           // Small wait for Chrome to fully release the tabCapture stream
           await new Promise((r) => setTimeout(r, 150));
           sendResponse({ ok: true });
@@ -298,11 +357,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             pageUrl: STATE.activeTabAtStart?.url || null,
             pageTitle: STATE.activeTabAtStart?.title || null,
           });
-          break;
-
-        case 'DOWNLOAD_ZIP':
-          await downloadZip(message.payload);
-          sendResponse({ ok: true });
           break;
 
         case 'open-url':
@@ -326,86 +380,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
   return true;
 });
-
-// Best-effort: quiet the download UI. These APIs are deprecated/variable
-// across Chrome versions, so feature-detect and never throw. This is NOT a
-// guarantee of invisibility - Chrome may still flash its download indicator.
-function setDownloadShelf(visible) {
-  try {
-    if (chrome.downloads.setUiOptions) {
-      // Newer API (replaces setShelfEnabled). enabled:false hides the bubble.
-      chrome.downloads.setUiOptions({ enabled: visible }).catch(() => {});
-      return;
-    }
-  } catch {}
-  try {
-    if (chrome.downloads.setShelfEnabled) chrome.downloads.setShelfEnabled(visible);
-  } catch {}
-}
-
-async function downloadZip({ blobUrl, filename }) {
-  // IMPORTANT: erasing a completed download's history record makes a later
-  // conflictAction:'overwrite' fail (Chrome no longer has a record to match,
-  // so it uniquifies → brief-<id> (1).zip, (2).zip…). So we do cleanup BEFORE
-  // the write, not after: remove any prior records for this same filename, and
-  // delete the stale file from disk, so the fresh write lands cleanly at the
-  // canonical path and history shows just one entry.
-  try {
-    // Match the canonical name AND any " (1)", " (2)"… duplicates a prior build
-    // may have created, so this self-heals the mess and overwrite stays clean.
-    const base = String(filename).split('/').pop();           // brief-<id>.zip
-    const stem = base.replace(/\.zip$/i, '');                  // brief-<id>
-    const re = escapeForRegex(stem) + '(?: \\(\\d+\\))?' + '\\.zip$';
-    const prior = await chrome.downloads.search({ filenameRegex: re });
-    for (const d of prior) {
-      try { await chrome.downloads.removeFile(d.id); } catch {}
-      try { await chrome.downloads.erase({ id: d.id }); } catch {}
-    }
-  } catch {}
-
-  setDownloadShelf(false);
-  const downloadId = await new Promise((resolve, reject) => {
-    chrome.downloads.download(
-      { url: blobUrl, filename, conflictAction: 'overwrite', saveAs: false },
-      (id) => {
-        if (chrome.runtime.lastError || !id) {
-          reject(new Error(chrome.runtime.lastError?.message || 'download_failed'));
-        } else {
-          resolve(id);
-        }
-      },
-    );
-  });
-
-  try {
-    await new Promise((resolve, reject) => {
-      const listener = (delta) => {
-        if (delta.id !== downloadId) return;
-        if (delta.state?.current === 'complete') {
-          chrome.downloads.onChanged.removeListener(listener);
-          resolve();
-        } else if (delta.state?.current === 'interrupted') {
-          chrome.downloads.onChanged.removeListener(listener);
-          reject(new Error('download_interrupted'));
-        }
-      };
-      chrome.downloads.onChanged.addListener(listener);
-      setTimeout(() => {
-        chrome.downloads.onChanged.removeListener(listener);
-        resolve();
-      }, 60_000);
-    });
-  } finally {
-    // Do NOT erase this download's record here - a future overwrite needs it.
-    // Just restore the shelf.
-    setDownloadShelf(true);
-  }
-}
-
-// Escape a string so it can be used safely inside a RegExp (for filename match).
-function escapeForRegex(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 // ---------- Page-world console capture (injected via executeScript world:'MAIN') ----------
 // Patches console.error and window error handlers. Each captured event posts a
@@ -513,10 +487,16 @@ function installConsoleCapture() {
   } catch {}
 }
 
-// Brief Cloud pairing: receive the token from the web app (externally_connectable).
+// Brief Cloud pairing: the web app pushes/revokes the token (externally_connectable).
 chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
   if (msg && msg.type === "brief-cloud-token" && typeof msg.token === "string") {
     chrome.storage.local.set({ briefCloudToken: msg.token }, () => sendResponse({ ok: true }));
     return true; // async sendResponse
+  }
+  if (msg && msg.type === "brief-cloud-disconnect") {
+    // The user signed out on the web - the extension mirrors the session, so
+    // drop the pairing. Creating a ticket from here on opens the pair page.
+    chrome.storage.local.remove("briefCloudToken", () => sendResponse({ ok: true }));
+    return true;
   }
 });

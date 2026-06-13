@@ -96,3 +96,33 @@ describe("markdownToAdf", () => {
     expect(JSON.stringify(doc)).not.toContain("**");
   });
 });
+
+// ---------------------------------------------------------------------------
+// pickTransition - choosing the workflow transition that reaches a wanted status
+// ---------------------------------------------------------------------------
+import { pickTransition } from "./jira";
+
+describe("pickTransition", () => {
+  const transitions = [
+    { id: "11", name: "Start work", to: { name: "In Progress" } },
+    { id: "21", name: "Send to triage", to: { name: "Triage" } },
+    { id: "31", name: "Done", to: { name: "Done" } },
+  ];
+
+  it("matches the destination status name, case-insensitively", () => {
+    expect(pickTransition("triage", transitions)?.id).toBe("21");
+    expect(pickTransition("IN PROGRESS", transitions)?.id).toBe("11");
+  });
+
+  it("falls back to the transition name itself", () => {
+    expect(pickTransition("send to triage", transitions)?.id).toBe("21");
+  });
+
+  it("supports fuzzy (prefix/substring) matching on the destination", () => {
+    expect(pickTransition("progress", transitions)?.id).toBe("11");
+  });
+
+  it("returns undefined when nothing matches", () => {
+    expect(pickTransition("Blocked", transitions)).toBeUndefined();
+  });
+});

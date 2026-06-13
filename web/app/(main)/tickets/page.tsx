@@ -46,6 +46,8 @@ export default async function BriefsPage() {
     [...active, ...archived],
     ctx.hasLinear,
     ctx.hasJira,
+    60,
+    admin,
   );
 
   const counts: Counts = {

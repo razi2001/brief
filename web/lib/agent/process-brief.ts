@@ -1,14 +1,29 @@
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
+import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
 import type { Tracker, IssueResult } from "../tracker";
 
 export interface BriefInput {
   json: unknown;                          // parsed brief.json
-  images: Array<{ name: string; dataUrl: string }>; // selected keyframes/screenshot as data URLs (for the model to SEE)
-  // Raw evidence files handed to the tracker, which embeds (Linear) or attaches (Jira) them.
-  evidence: Array<{ filename: string; contentType: string; bytes: Buffer }>;
+  images: Array<{ name: string; dataUrl: string }>; // distinct keyframes/screenshot as data URLs (for the model to SEE)
+  // The attachable evidence pool. The agent chooses what to attach
+  // (create_issue's attach[]); `fallback` is used when it doesn't choose.
+  // The recording is only in `files` when the user allowed attaching it.
+  evidence: {
+    files: Array<{ filename: string; contentType: string; bytes: Buffer }>;
+    items: EvidenceItem[];
+    includeVideo: boolean;
+    fallback: string[];
+  };
 }
-export interface FileResult { ticketUrl: string; ticketIdentifier: string; summary: string; }
+export interface FileResult {
+  ticketUrl: string;
+  ticketIdentifier: string;
+  ticketTitle: string;
+  /** Final workflow state right after filing (post verify/repair), if readable. */
+  ticketState?: { name: string; color: string | null };
+  summary: string;
+}
 
 /**
  * Extract the high-signal context (page URL/title, browser, console errors) out
@@ -43,6 +58,15 @@ function buildContextBlock(json: unknown): string {
     const unique = [...new Set(errs)].slice(0, 8);
     block += (block ? "\n\n" : "") + "CONSOLE / RUNTIME ERRORS (verbatim - include the relevant ones in a code block):\n" + unique.map((m) => `- ${m}`).join("\n");
   }
+  // Surface the narration as its own labeled block instead of leaving it
+  // buried in the JSON - it's the reporter's intent, to be corrected against
+  // the visual/console ground truth.
+  if (typeof j.transcript === "string" && j.transcript.trim()) {
+    block +=
+      (block ? "\n\n" : "") +
+      "SPOKEN NARRATION (rough draft - speech-to-text; trust the screenshots/console/events over it, never quote it):\n" +
+      j.transcript.trim().slice(0, 4000);
+  }
   return block;
 }
 
@@ -53,10 +77,19 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   const prefs = (instructions ?? "").trim();
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTOOLING OVERRIDE: Do not output a JSON line and do not assume an MCP. Use the provided tools: call list_targets first to choose the most appropriate ${noun}, then call create_issue exactly once with a targetId (the ${noun} id), a concise title, and a markdown description. create_issue also accepts optional labels, priority, state, assignee, and comment - set each ONLY when the user's ticket preferences (or the report itself) call for it, choosing names from the chosen ${noun}'s lists (labels / states / members) where possible. The comment is posted on the issue after it's created (e.g. an automatic "In progress" note); it's separate from the description. Evidence files (screenshots/keyframes/recording) are handled automatically - they will be embedded or attached to the ticket by the system, so do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names. Write the description as if the evidence is shown inline. Stop after the issue is created.` +
+    `\n\nTOOLING: You drive the tracker through tools, MCP-style. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${tracker.kind === "linear" ? ", and projects" : ", issue types, and custom fields (with their field ids and allowed values)"} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional labels/priority/state/assignee${tracker.kind === "linear" ? "/project" : ""}/comment/custom_fields). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once. The comment is posted on the issue after it's created; it's separate from the description. Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system uploads and embeds your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
     (prefs
-      ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), labels, priority, workflow state/status, wording, format, and what to include. If a preference names a label or state, pass it through create_issue's labels/state parameters - do not just mention it in the description. They never override the banned-vocabulary or evidence rules.\n${prefs}`
+      ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), workflow state/status, assignee, project, labels, priority, custom fields, wording, format, and what to include. Pass each through the matching tool parameter - do not just mention it in the description - and VERIFY it landed via get_issue, repairing with update_issue. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "");
+
+  const customFieldsParam = {
+    type: "object",
+    description:
+      tracker.kind === "linear"
+        ? "Advanced Linear IssueCreateInput fields by API name (e.g. {\"estimate\": 2, \"dueDate\": \"2026-07-01\"}) - only when the preferences need something the named parameters don't cover."
+        : "Jira fields by field id from get_target_details' customFields (e.g. {\"customfield_10042\": {\"value\": \"Production\"}}) - only when the preferences need them. Use each field's listed type/allowedValues.",
+    additionalProperties: true,
+  };
 
   const tools = [
     {
@@ -65,6 +98,21 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
         name: "list_targets",
         description: `List the ${noun}s (team or project) so you can choose where to file.`,
         parameters: { type: "object", properties: {}, additionalProperties: false },
+      },
+    },
+    {
+      type: "function" as const,
+      function: {
+        name: "get_target_details",
+        description: `Full metadata for one ${noun}: its workflow states, labels, assignable members${tracker.kind === "linear" ? ", and projects" : ", issue types, and settable custom fields with allowed values"}. Call this before create_issue whenever the user's preferences mention a status, assignee, project, label, or custom field.`,
+        parameters: {
+          type: "object",
+          properties: {
+            targetId: { type: "string", description: `The ${noun} id (from list_targets)` },
+          },
+          required: ["targetId"],
+          additionalProperties: false,
+        },
       },
     },
     {
@@ -82,7 +130,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
               type: "array",
               items: { type: "string" },
               description:
-                "Label names to apply - only when the user's preferences or the report call for them. Prefer names from the chosen target's label list.",
+                "Label names to apply - only when the user's preferences or the report call for them. Prefer names from the target's details.",
             },
             priority: {
               type: "string",
@@ -92,20 +140,77 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
             state: {
               type: "string",
               description:
-                "Workflow state/status name (e.g. \"Backlog\", \"Todo\", \"Triage\") from the chosen target's state list - only when the preferences ask for one.",
+                "Workflow state/status name (e.g. \"Backlog\", \"Todo\", \"Triage\") from the target's state list - only when the preferences ask for one.",
             },
             assignee: {
               type: "string",
               description:
-                "Who to assign the issue to (a member name or email, e.g. \"Devin\") - only when the preferences ask for an assignee. Prefer a name from the chosen target's assignee list.",
+                "Who to assign the issue to (a member name or email, e.g. \"Devin\") - only when the preferences ask for an assignee. Prefer a name from the target's member list.",
             },
+            ...(tracker.kind === "linear"
+              ? {
+                  project: {
+                    type: "string",
+                    description:
+                      "Project (name or id from the target's details) to file the issue under - when the preferences ask for a project, or say to pick the best matching one.",
+                  },
+                }
+              : {}),
             comment: {
               type: "string",
               description:
                 "A comment to post on the issue right after creating it (e.g. \"In progress\") - only when the preferences ask for an automatic comment. This is separate from the description.",
             },
+            attach: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Evidence file names to attach (from the EVIDENCE AVAILABLE list). Pick the minimal set that proves the issue - e.g. the annotated screenshot, or a before/after frame pair. Omit to let the system choose a sensible default.",
+            },
+            custom_fields: customFieldsParam,
           },
           required: ["targetId", "title", "description"],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function" as const,
+      function: {
+        name: "get_issue",
+        description:
+          "Read back the created issue's live field values (state, assignee, labels, project, priority) to verify the preferences landed.",
+        parameters: {
+          type: "object",
+          properties: {
+            identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
+          },
+          required: ["identifier"],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function" as const,
+      function: {
+        name: "update_issue",
+        description:
+          "Fix the created issue when verification shows a preference didn't land. Failures return the valid options (states, members, projects) - correct the value and retry once.",
+        parameters: {
+          type: "object",
+          properties: {
+            identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
+            title: { type: "string" },
+            state: { type: "string", description: "Workflow state/status name to move the issue to" },
+            assignee: { type: "string", description: "Member name or email to assign" },
+            labels: { type: "array", items: { type: "string" }, description: "Replacement label set" },
+            priority: { type: "string", enum: ["urgent", "high", "medium", "low"] },
+            ...(tracker.kind === "linear"
+              ? { project: { type: "string", description: "Project name or id to move the issue under" } }
+              : {}),
+            custom_fields: customFieldsParam,
+          },
+          required: ["identifier"],
           additionalProperties: false,
         },
       },
@@ -156,17 +261,20 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
       "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present.",
   });
 
-  if (brief.evidence.length) {
-    tail.push({
-      type: "text",
-      text: `${brief.evidence.length} evidence file(s) (screenshots/keyframes/recording) will be attached or embedded automatically. Write the description assuming the reader can see them inline.`,
-    });
-  }
+  const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
+  if (manifest) tail.push({ type: "text", text: manifest });
   tail.push({ type: "text", text: `Available ${noun}s (choose the most appropriate one and pass its id as targetId):\n${targetList}` });
   tail.push({ type: "text", text: `File exactly one ticket for this. Pick the best ${noun}, then create the issue.` });
 
   const withImages = [briefText, ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })), ...tail];
   const textOnly = [briefText, ...tail];
+
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" && v.trim() ? v.trim() : undefined;
+  const obj = (v: unknown): Record<string, unknown> | undefined =>
+    v && typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length
+      ? (v as Record<string, unknown>)
+      : undefined;
 
   const runLoop = async (userContent: any[]): Promise<IssueResult> => {
     const messages: any[] = [
@@ -174,8 +282,22 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
       { role: "user", content: userContent },
     ];
     let created: IssueResult | null = null;
-    for (let i = 0; i < 8 && !created; i++) {
-      const resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
+    // The loop runs past creation so the agent can verify (get_issue) and
+    // repair (update_issue) until the preferences actually landed. It ends
+    // when the model answers without tool calls, or at the turn cap.
+    for (let i = 0; i < 14; i++) {
+      let resp;
+      try {
+        resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
+      } catch (e) {
+        // The issue already exists - a failed VERIFICATION turn must not lose
+        // it (marking the brief failed would file a duplicate on retry).
+        if (created) {
+          console.warn("[agent] verification turn failed after creation - keeping the issue:", e);
+          return created;
+        }
+        throw e;
+      }
       const msg = resp.choices[0].message;
       messages.push(msg);
       if (!msg.tool_calls?.length) break;
@@ -184,27 +306,68 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
         const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
         let result: unknown;
         try {
-          if (tc.function.name === "list_targets") result = targets;
-          else if (tc.function.name === "create_issue") {
-            created = await tracker.fileIssue({
-              targetId: args.targetId,
-              title: args.title,
-              descriptionMarkdown: args.description,
-              labels: Array.isArray(args.labels)
-                ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
-                : undefined,
-              priority: ["urgent", "high", "medium", "low"].includes(args.priority)
-                ? args.priority
-                : undefined,
-              state: typeof args.state === "string" && args.state.trim() ? args.state : undefined,
-              assignee:
-                typeof args.assignee === "string" && args.assignee.trim() ? args.assignee : undefined,
-              comment:
-                typeof args.comment === "string" && args.comment.trim() ? args.comment : undefined,
-              evidence: brief.evidence,
-            });
-            result = created;
-          } else result = { error: "unknown tool" };
+          switch (tc.function.name) {
+            case "list_targets":
+              result = targets;
+              break;
+            case "get_target_details":
+              result = await tracker.getTargetDetails(String(args.targetId ?? ""));
+              break;
+            case "create_issue":
+              if (created) {
+                result = { error: `issue ${created.identifier} already exists - use update_issue to change it` };
+                break;
+              }
+              {
+                // Resolve the agent's evidence selection; an empty/invalid pick
+                // falls back to the lean default. The recording can only be
+                // chosen when the user allowed it (it isn't in the pool otherwise).
+                const attachable = brief.evidence.items
+                  .filter((it) => it.kind !== "recording" || brief.evidence.includeVideo)
+                  .map((it) => it.name);
+                const chosen = pickEvidence(args.attach, attachable, brief.evidence.fallback);
+                const evidenceFiles = brief.evidence.files.filter((f) => chosen.includes(f.filename));
+                created = await tracker.fileIssue({
+                  targetId: args.targetId,
+                  title: args.title,
+                  descriptionMarkdown: args.description,
+                  labels: Array.isArray(args.labels)
+                    ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
+                    : undefined,
+                  priority: ["urgent", "high", "medium", "low"].includes(args.priority)
+                    ? args.priority
+                    : undefined,
+                  state: str(args.state),
+                  assignee: str(args.assignee),
+                  project: str(args.project),
+                  comment: str(args.comment),
+                  extraFields: obj(args.custom_fields),
+                  evidence: evidenceFiles,
+                });
+                result = created;
+              }
+              break;
+            case "get_issue":
+              result = await tracker.getIssue(str(args.identifier) ?? created?.identifier ?? "");
+              break;
+            case "update_issue":
+              result = await tracker.updateIssue(str(args.identifier) ?? created?.identifier ?? "", {
+                title: str(args.title),
+                state: str(args.state),
+                assignee: str(args.assignee),
+                labels: Array.isArray(args.labels)
+                  ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
+                  : undefined,
+                priority: ["urgent", "high", "medium", "low"].includes(args.priority)
+                  ? args.priority
+                  : undefined,
+                project: str(args.project),
+                extraFields: obj(args.custom_fields),
+              });
+              break;
+            default:
+              result = { error: "unknown tool" };
+          }
         } catch (e: any) {
           result = { error: String(e?.message ?? e) };
         }
@@ -231,5 +394,28 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
     }
   }
 
-  return { ticketUrl: created.url, ticketIdentifier: created.identifier, summary: created.title || "filed" };
+  // Snapshot the final field values (the verify/repair loop may have moved the
+  // state after creation) so the caller can persist the real title + status.
+  let ticketState: FileResult["ticketState"];
+  let finalTitle = created.title || "";
+  try {
+    const live = await tracker.getIssue(created.identifier);
+    if (typeof live.title === "string" && live.title) finalTitle = live.title;
+    if (typeof live.state === "string" && live.state) {
+      ticketState = {
+        name: live.state,
+        color: typeof live.stateColor === "string" ? live.stateColor : null,
+      };
+    }
+  } catch {
+    /* display data only - never fail the filing over it */
+  }
+
+  return {
+    ticketUrl: created.url,
+    ticketIdentifier: created.identifier,
+    ticketTitle: finalTitle,
+    ticketState,
+    summary: finalTitle || "filed",
+  };
 }
