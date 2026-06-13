@@ -263,7 +263,7 @@ body.ready { opacity: 1; }
   border-top-color: var(--hairline);
 }
 
-.opt-desc { display: flex; flex-direction: column; }
+.opt-desc { display: flex; flex-direction: column; position: relative; }
 .desc-input {
   width: 100%;
   box-sizing: border-box;
@@ -272,7 +272,7 @@ body.ready { opacity: 1; }
   background: #fff;
   border: 1px solid var(--hairline);
   border-radius: 8px;
-  padding: 9px 11px;
+  padding: 9px 38px 9px 11px;
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.5;
@@ -282,6 +282,41 @@ body.ready { opacity: 1; }
 }
 .desc-input:focus { border-color: var(--accent); }
 .desc-input::placeholder { color: var(--muted); }
+
+/* Voice-to-text mic pinned in the description field's corner */
+.desc-mic {
+  position: absolute;
+  top: 7px; right: 7px;
+  width: 26px; height: 26px;
+  border: 0; border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.desc-mic:hover { background: rgba(26, 22, 18, 0.06); color: var(--ink); }
+.desc-mic.rec {
+  background: var(--accent); color: #fff;
+  animation: desc-pulse 1.6s ease-in-out infinite;
+}
+.desc-mic.busy { color: var(--accent); }
+@keyframes desc-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
+.desc-mic .mic-stop { width: 9px; height: 9px; background: #fff; border-radius: 2px; }
+.desc-mic .mic-spin {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(221, 105, 54, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: desc-rot 0.8s linear infinite;
+}
+@keyframes desc-rot { to { transform: rotate(360deg); } }
+.desc-mic-msg {
+  position: absolute; right: 6px; bottom: -15px;
+  font-family: var(--mono); font-size: 10.5px; color: var(--accent);
+  opacity: 0; transition: opacity 0.2s; pointer-events: none;
+}
+.desc-mic-msg.show { opacity: 1; }
 
 .opt-check {
   display: flex; align-items: center; gap: 9px;
