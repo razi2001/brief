@@ -296,12 +296,10 @@ body.ready { opacity: 1; }
   transition: background 0.15s, color 0.15s;
 }
 .desc-mic:hover { background: rgba(26, 22, 18, 0.06); color: var(--ink); }
-.desc-mic.rec {
-  background: var(--accent); color: #fff;
-  animation: desc-pulse 1.6s ease-in-out infinite;
-}
+/* The recording halo is drawn live by bar/popup JS (box-shadow driven by mic
+   volume), so no CSS pulse animation here - just the accent fill. */
+.desc-mic.rec { background: var(--accent); color: #fff; }
 .desc-mic.busy { color: var(--accent); }
-@keyframes desc-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
 .desc-mic .mic-stop { width: 9px; height: 9px; background: #fff; border-radius: 2px; }
 .desc-mic .mic-spin {
   width: 14px; height: 14px;

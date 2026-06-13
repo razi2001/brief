@@ -557,6 +557,7 @@ function attachVoiceDictation(textarea, container, onCommit) {
   }
 
   let state = 'idle', rec = null, stream = null, chunks = [], capTimer = null;
+  let meterCtx = null, meterRaf = null;
   function setState(s) {
     state = s;
     btn.classList.toggle('rec', s === 'recording');
@@ -567,9 +568,38 @@ function attachVoiceDictation(textarea, container, onCommit) {
       : MIC;
   }
   function teardown() {
+    stopMeter();
     if (capTimer) { clearTimeout(capTimer); capTimer = null; }
     if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
     rec = null; chunks = [];
+  }
+
+  // Live voice halo: an analyser on the recording stream drives a ring around
+  // the mic button that grows/brightens with volume, so it visibly "hears" you.
+  function startMeter(s) {
+    try {
+      meterCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = meterCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      meterCtx.createMediaStreamSource(s).connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const draw = () => {
+        analyser.getByteFrequencyData(data);
+        let peak = 0;
+        for (let i = 2; i < 28; i++) if (data[i] > peak) peak = data[i];
+        const v = Math.min(1, Math.pow(peak / 255, 1.3));
+        btn.style.boxShadow = `0 0 0 ${(4 + v * 9).toFixed(1)}px rgba(221, 105, 54, ${(0.1 + v * 0.3).toFixed(3)})`;
+        meterRaf = requestAnimationFrame(draw);
+      };
+      draw();
+    } catch { meterCtx = null; }
+  }
+  function stopMeter() {
+    if (meterRaf) cancelAnimationFrame(meterRaf);
+    meterRaf = null;
+    btn.style.boxShadow = '';
+    if (meterCtx) { meterCtx.close().catch(() => {}); meterCtx = null; }
   }
 
   async function start() {
@@ -584,6 +614,7 @@ function attachVoiceDictation(textarea, container, onCommit) {
     rec.onstop = onStop;
     rec.start();
     setState('recording');
+    startMeter(stream);
     capTimer = setTimeout(() => { if (state === 'recording') stop(); }, 60000);
   }
 
