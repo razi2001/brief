@@ -5,7 +5,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 // /api/briefs*, /api/me, and /api/transcribe are public to Clerk: the extension
 // authenticates them via a bearer token, not a Clerk session (without this they
 // would 307 to /sign-in and the extension could never reach them).
-const isPublic = createRouteMatcher(["/sign-in(.*)", "/api/briefs(.*)", "/api/me", "/api/transcribe"]);
+const isPublic = createRouteMatcher(["/sign-in(.*)", "/privacy", "/api/briefs(.*)", "/api/me", "/api/transcribe"]);
 
 export default clerkMiddleware(async (auth, req) => {
   if (!isPublic(req)) await auth.protect();
