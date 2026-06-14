@@ -10,8 +10,6 @@
     "tabs",
     "scripting",
     "storage",
-    "downloads",
-    "downloads.ui",
     "tabCapture",
     "offscreen"
   ],
@@ -51,9 +49,7 @@
   ],
   "externally_connectable": {
     "matches": [
-      "http://localhost:3000/*",
-      "https://cloud.get-brief.app/*",
-      "https://app.get-brief.app/*"
+      "https://cloud.get-brief.app/*"
     ]
   },
   "web_accessible_resources": [
@@ -62,17 +58,11 @@
         "bar.html",
         "bar.js",
         "bar.css",
-        "offscreen.html",
-        "offscreen.js",
-        "lib/zip.js",
         "shot.html",
         "shot.js",
         "shot.css",
         "fonts.css",
-        "fonts/*",
-        "skill/SKILL.md",
-        "skill/playbooks/ticket.md",
-        "skill/playbooks/inbox.md"
+        "fonts/*"
       ],
       "matches": [
         "<all_urls>"

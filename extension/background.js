@@ -2,6 +2,8 @@
 // Thin coordinator: collects per-tab events, manages offscreen recorder,
 // relays messages between bar (in content script) and offscreen.
 
+import { APP_URL } from "./config.js";
+
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
 // rejects it otherwise. We try it and swallow any failure - the toolbar badge
@@ -514,7 +516,31 @@ function installConsoleCapture() {
 }
 
 // Brief Cloud pairing: the web app pushes/revokes the token (externally_connectable).
-chrome.runtime.onMessageExternal.addListener((msg, _sender, sendResponse) => {
+//
+// Defense in depth: manifest "externally_connectable.matches" already restricts
+// which origins Chrome will deliver here, but we ALSO re-check the sender against
+// an explicit allowlist before touching the stored pairing token. That way a
+// pairing token can only be planted or wiped by the real Brief Cloud web app, not
+// by any other allowlisted-but-unexpected origin. APP_URL covers the active
+// backend (cloud.get-brief.app in prod, http://localhost:3000 when ENV="local").
+const BRIEF_CLOUD_ORIGINS = new Set([
+  "https://cloud.get-brief.app",
+  APP_URL,
+]);
+
+function isTrustedBriefCloudSender(sender) {
+  let origin = sender?.origin || null;
+  if (!origin && sender?.url) {
+    try { origin = new URL(sender.url).origin; } catch { origin = null; }
+  }
+  return !!origin && BRIEF_CLOUD_ORIGINS.has(origin);
+}
+
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (!isTrustedBriefCloudSender(sender)) {
+    sendResponse({ ok: false, error: "untrusted_sender" });
+    return; // ignore anything that is not the Brief Cloud web app
+  }
   if (msg && msg.type === "brief-cloud-token" && typeof msg.token === "string") {
     chrome.storage.local.set({ briefCloudToken: msg.token }, () => sendResponse({ ok: true }));
     return true; // async sendResponse

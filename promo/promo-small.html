@@ -56,10 +56,18 @@
         line-height: 0.95;
         letter-spacing: -0.02em;
         color: #1a1612;
+        white-space: nowrap;
       }
       .wordmark em {
         font-style: italic;
         color: #dd6936;
+      }
+      .wordmark .cloud {
+        font-style: italic;
+        color: #dd6936;
+        font-size: 27px;
+        letter-spacing: -0.01em;
+        margin-left: 8px;
       }
       .tagline {
         font-family: 'JetBrains Mono', ui-monospace, monospace;
@@ -98,8 +106,8 @@
       </g>
     </svg>
     <div class="right">
-      <div class="wordmark">Br<em>i</em>ef</div>
-      <div class="tagline">Voice your bug.<br /><span class="accent">Your agent ships the ticket.</span></div>
+      <div class="wordmark">Br<em>i</em>ef<span class="cloud">cloud</span></div>
+      <div class="tagline">Voice your bug.<br /><span class="accent">It files itself to Linear or Jira.</span></div>
     </div>
   </body>
 </html>
