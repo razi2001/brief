@@ -9,6 +9,14 @@
 // Note: every URL here must also be listed in manifest.json
 // "externally_connectable.matches" or the /connect token handshake won't reach
 // the extension.
+//
+// The build uploaded to the Chrome Web Store lists ONLY the production origins
+// (http://localhost:3000 was removed so a stray local server cannot message the
+// extension and plant/wipe a pairing token). For local dev: set ENV="local"
+// AND temporarily add "http://localhost:3000/*" back to
+// externally_connectable.matches in manifest.json. background.js already trusts
+// APP_URL as a pairing origin, so no other change is needed. Never commit the
+// localhost entry into the package you upload to the Web Store.
 export const ENV = "prod"; // "local" | "prod"
 
 export const APP_URLS = {
