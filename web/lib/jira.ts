@@ -1,5 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { resolveName, type IssuePatch, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
+import { resolveName, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
@@ -149,6 +149,46 @@ export function markdownToAdf(markdown: string): AdfNode {
     content.push({ type: "paragraph", content: [{ type: "text", text: " " }] });
   }
   return { type: "doc", version: 1, content };
+}
+
+// ---------------------------------------------------------------------------
+// Precedent search (pure helpers, unit-tested in jira.test.ts)
+// ---------------------------------------------------------------------------
+
+/** Build a JQL text search over summary+description for routing/labeling precedent. */
+export function buildSearchJql(query: string): string {
+  const q = query.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
+  if (!q) return "ORDER BY updated DESC";
+  return `(summary ~ "${q}" OR description ~ "${q}") ORDER BY updated DESC`;
+}
+
+interface JiraSearchRaw {
+  key: string;
+  fields?: {
+    summary?: string;
+    status?: { name?: string };
+    assignee?: { displayName?: string };
+    labels?: string[];
+    priority?: { name?: string };
+    project?: { name?: string };
+    issuetype?: { name?: string };
+  };
+}
+
+/** Map a Jira search hit to the provider-agnostic IssueSearchResult. */
+export function mapJiraSearchIssue(issue: JiraSearchRaw, siteUrl: string): IssueSearchResult {
+  const f = issue.fields ?? {};
+  return {
+    identifier: issue.key,
+    title: f.summary ?? "",
+    url: `${siteUrl}/browse/${issue.key}`,
+    target: f.project?.name ?? "",
+    state: f.status?.name ?? undefined,
+    labels: f.labels ?? [],
+    assignee: f.assignee?.displayName ?? undefined,
+    priority: f.priority?.name ?? undefined,
+    issueType: f.issuetype?.name ?? undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
