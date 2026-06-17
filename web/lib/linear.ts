@@ -564,5 +564,5 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         priority: priorityName,
       };
     },
-  } as Tracker;
+  };
 }

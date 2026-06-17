@@ -770,5 +770,5 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         priority: f.priority?.name?.toLowerCase() ?? null,
       };
     },
-  } as Tracker;
+  };
 }
