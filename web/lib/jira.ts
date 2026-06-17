@@ -1,5 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { resolveName, type IssuePatch, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
+import { resolveName, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
@@ -149,6 +149,62 @@ export function markdownToAdf(markdown: string): AdfNode {
     content.push({ type: "paragraph", content: [{ type: "text", text: " " }] });
   }
   return { type: "doc", version: 1, content };
+}
+
+// ---------------------------------------------------------------------------
+// Precedent search (pure helpers, unit-tested in jira.test.ts)
+// ---------------------------------------------------------------------------
+
+/** Build a JQL text search over summary+description for routing/labeling precedent. */
+export function buildSearchJql(query: string): string {
+  const q = query
+    .replace(/["\\]/g, " ")                 // JQL string delimiters
+    .replace(/[+\-&|!(){}[\]^~*?:/]/g, " ")  // Lucene operator chars (400 in ~ search)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!q) return "ORDER BY updated DESC";
+  return `(summary ~ "${q}" OR description ~ "${q}") ORDER BY updated DESC`;
+}
+
+interface JiraSearchRaw {
+  key: string;
+  fields?: {
+    summary?: string;
+    status?: { name?: string };
+    assignee?: { displayName?: string };
+    labels?: string[];
+    priority?: { name?: string };
+    project?: { name?: string };
+    issuetype?: { name?: string };
+  };
+}
+
+/** Normalize a Jira priority name to our TrackerPriority vocabulary (urgent/high/medium/low). */
+export function normalizeJiraPriority(name?: string): string | undefined {
+  switch ((name ?? "").toLowerCase()) {
+    case "highest": return "urgent";
+    case "high": return "high";
+    case "medium": return "medium";
+    case "low": return "low";
+    case "lowest": return "low";
+    default: return name ? name.toLowerCase() : undefined;
+  }
+}
+
+/** Map a Jira search hit to the provider-agnostic IssueSearchResult. */
+export function mapJiraSearchIssue(issue: JiraSearchRaw, siteUrl: string): IssueSearchResult {
+  const f = issue.fields ?? {};
+  return {
+    identifier: issue.key,
+    title: f.summary ?? "",
+    url: `${siteUrl}/browse/${issue.key}`,
+    target: f.project?.name ?? "",
+    state: f.status?.name ?? undefined,
+    labels: f.labels ?? [],
+    assignee: f.assignee?.displayName ?? undefined,
+    priority: normalizeJiraPriority(f.priority?.name),
+    issueType: f.issuetype?.name ?? undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -384,14 +440,14 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
     const out: TrackerTarget[] = [];
     let startAt = 0;
     for (;;) {
-      const r = await jiraFetch(tok, base, `/project/search?startAt=${startAt}&maxResults=50`);
+      const r = await jiraFetch(tok, base, `/project/search?expand=description&startAt=${startAt}&maxResults=50`);
       if (!r.ok) throw new Error(`Jira project/search failed: ${r.status} ${await r.text()}`);
       const j = (await r.json()) as {
-        values?: Array<{ id: string; key: string; name: string }>;
+        values?: Array<{ id: string; key: string; name: string; description?: string }>;
         isLast?: boolean;
         total?: number;
       };
-      for (const p of j.values ?? []) out.push({ id: p.id, key: p.key, name: p.name });
+      for (const p of j.values ?? []) out.push({ id: p.id, key: p.key, name: p.name, description: p.description || undefined });
       if (j.isLast || !(j.values?.length)) break;
       startAt += j.values.length;
       if (out.length >= (j.total ?? out.length)) break;
@@ -442,6 +498,23 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
     targetNoun: "project",
     async listTargets(): Promise<TrackerTarget[]> {
       return loadTargets();
+    },
+    async searchIssues(query: string, opts?: { limit?: number }): Promise<IssueSearchResult[]> {
+      if (!query.trim()) return [];
+      try {
+        const jql = buildSearchJql(query);
+        const fields = "summary,status,assignee,labels,priority,project,issuetype";
+        const limit = Math.min(Math.max(opts?.limit ?? 15, 1), 50);
+        const qs = `?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${limit}`;
+        // Same endpoint dance as getJiraIssues: newer /search/jql, legacy /search on 404.
+        let r = await jiraFetch(tok, base, `/search/jql${qs}`);
+        if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
+        if (!r.ok) return [];
+        const j = (await r.json()) as { issues?: JiraSearchRaw[] };
+        return (j.issues ?? []).map((i) => mapJiraSearchIssue(i, cloud.siteUrl));
+      } catch {
+        return [];
+      }
     },
     async getTargetDetails(targetId): Promise<TargetDetails> {
       const targets = await loadTargets();
@@ -539,6 +612,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         id: project.id,
         key,
         name: project.name,
+        description: project.description || undefined,
         states: statuses,
         labels,
         members,

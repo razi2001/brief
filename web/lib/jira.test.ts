@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { markdownToAdf, type AdfNode } from "./jira";
+import { markdownToAdf, buildSearchJql, mapJiraSearchIssue, normalizeJiraPriority, type AdfNode } from "./jira";
 
 const types = (n: AdfNode): string[] => [n.type, ...(n.content ?? []).flatMap(types)];
 
@@ -124,5 +124,87 @@ describe("pickTransition", () => {
 
   it("returns undefined when nothing matches", () => {
     expect(pickTransition("Blocked", transitions)).toBeUndefined();
+  });
+});
+
+describe("buildSearchJql", () => {
+  it("builds a text search over summary and description, newest first", () => {
+    expect(buildSearchJql("checkout coupon 500")).toBe(
+      '(summary ~ "checkout coupon 500" OR description ~ "checkout coupon 500") ORDER BY updated DESC',
+    );
+  });
+
+  it("strips quotes and backslashes to keep the JQL valid", () => {
+    expect(buildSearchJql('a "b" \\c')).toBe(
+      '(summary ~ "a b c" OR description ~ "a b c") ORDER BY updated DESC',
+    );
+  });
+
+  it("falls back to a bare order-by when the query is empty", () => {
+    expect(buildSearchJql("   ")).toBe("ORDER BY updated DESC");
+  });
+
+  it("strips Lucene operator characters that would 400 the text search", () => {
+    expect(buildSearchJql("checkout (coupon) 500?")).toBe(
+      '(summary ~ "checkout coupon 500" OR description ~ "checkout coupon 500") ORDER BY updated DESC',
+    );
+  });
+});
+
+describe("mapJiraSearchIssue", () => {
+  it("maps a Jira issue to an enriched search result", () => {
+    const result = mapJiraSearchIssue(
+      {
+        key: "PAY-42",
+        fields: {
+          summary: "Coupon validation 500s",
+          status: { name: "In Progress" },
+          assignee: { displayName: "Jane Doe" },
+          labels: ["area/billing", "type/bug"],
+          priority: { name: "High" },
+          project: { name: "Payments" },
+          issuetype: { name: "Bug" },
+        },
+      },
+      "https://acme.atlassian.net",
+    );
+    expect(result).toEqual({
+      identifier: "PAY-42",
+      title: "Coupon validation 500s",
+      url: "https://acme.atlassian.net/browse/PAY-42",
+      target: "Payments",
+      state: "In Progress",
+      labels: ["area/billing", "type/bug"],
+      assignee: "Jane Doe",
+      priority: "high",
+      issueType: "Bug",
+    });
+  });
+
+  it("tolerates missing fields", () => {
+    const result = mapJiraSearchIssue({ key: "X-1", fields: {} }, "https://s.atlassian.net");
+    expect(result.identifier).toBe("X-1");
+    expect(result.title).toBe("");
+    expect(result.target).toBe("");
+    expect(result.labels).toEqual([]);
+    expect(result.state).toBeUndefined();
+  });
+
+  it("tolerates a completely absent fields property", () => {
+    const result = mapJiraSearchIssue({ key: "Y-9" }, "https://s.atlassian.net");
+    expect(result.identifier).toBe("Y-9");
+    expect(result.title).toBe("");
+    expect(result.labels).toEqual([]);
+  });
+});
+
+describe("normalizeJiraPriority", () => {
+  it("maps Jira priority names to our vocabulary", () => {
+    expect(normalizeJiraPriority("Highest")).toBe("urgent");
+    expect(normalizeJiraPriority("High")).toBe("high");
+    expect(normalizeJiraPriority("Medium")).toBe("medium");
+    expect(normalizeJiraPriority("Low")).toBe("low");
+    expect(normalizeJiraPriority("Lowest")).toBe("low");
+    expect(normalizeJiraPriority(undefined)).toBeUndefined();
   });
 });

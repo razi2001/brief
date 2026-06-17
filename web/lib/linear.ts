@@ -1,5 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { resolveName, type IssuePatch, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
+import { resolveName, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
 export type LinearTok = { token: string };
@@ -184,9 +184,38 @@ const LINEAR_PRIORITY: Record<TrackerPriority, number> = {
   low: 4,
 };
 
+interface LinearSearchNode {
+  identifier: string;
+  title?: string;
+  url?: string;
+  priority?: number;
+  state?: { name?: string } | null;
+  assignee?: { name?: string; displayName?: string } | null;
+  labels?: { nodes?: Array<{ name: string }> } | null;
+  team?: { name?: string } | null;
+  project?: { name?: string } | null;
+}
+
+/** Map a Linear issue node to the provider-agnostic IssueSearchResult. */
+export function mapLinearSearchIssue(node: LinearSearchNode): IssueSearchResult {
+  const priorityName = (Object.entries(LINEAR_PRIORITY).find(([, v]) => v === node.priority) ?? [undefined])[0];
+  return {
+    identifier: node.identifier,
+    title: node.title ?? "",
+    url: node.url ?? "",
+    target: node.team?.name ?? "",
+    state: node.state?.name ?? undefined,
+    labels: (node.labels?.nodes ?? []).map((l) => l.name),
+    assignee: node.assignee?.displayName || node.assignee?.name || undefined,
+    priority: typeof priorityName === "string" ? priorityName : undefined,
+    project: node.project?.name ?? undefined,
+  };
+}
+
 type TeamMeta = {
   name: string;
   key: string;
+  description: string;
   states: Array<{ id: string; name: string }>;
   labels: Array<{ id: string; name: string }>; // workspace + this team's labels
   projects: Array<{ id: string; name: string }>;
@@ -203,12 +232,12 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
   async function loadTeamMeta(): Promise<Map<string, TeamMeta>> {
     if (teamMeta) return teamMeta;
     const d = await linearGraphQL<{
-      teams: { nodes: Array<{ id: string; name: string; key: string; states: { nodes: Array<{ id: string; name: string }> }; labels: { nodes: Array<{ id: string; name: string }> }; projects: { nodes: Array<{ id: string; name: string }> } }> };
+      teams: { nodes: Array<{ id: string; name: string; key: string; description: string | null; states: { nodes: Array<{ id: string; name: string }> }; labels: { nodes: Array<{ id: string; name: string }> }; projects: { nodes: Array<{ id: string; name: string }> } }> };
       issueLabels: { nodes: Array<{ id: string; name: string; team: { id: string } | null }> };
     }>(
       tok,
       `query TeamsWithMeta {
-        teams { nodes { id name key states { nodes { id name } } labels { nodes { id name } } projects(first: 50) { nodes { id name } } } }
+        teams { nodes { id name key description states { nodes { id name } } labels { nodes { id name } } projects(first: 50) { nodes { id name } } } }
         issueLabels(first: 250) { nodes { id name team { id } } }
       }`,
       {},
@@ -220,6 +249,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         {
           name: t.name,
           key: t.key,
+          description: t.description ?? "",
           states: t.states?.nodes ?? [],
           labels: [...workspaceLabels, ...(t.labels?.nodes ?? [])],
           projects: t.projects?.nodes ?? [],
@@ -282,10 +312,37 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         id,
         key: meta.key,
         name: meta.name,
+        description: meta.description || undefined,
         labels: meta.labels.map((l) => l.name),
         states: meta.states.map((s) => s.name),
         assignees,
       }));
+    },
+    async searchIssues(query: string, opts?: { limit?: number }): Promise<IssueSearchResult[]> {
+      const q = query.trim();
+      if (!q) return [];
+      const first = Math.min(Math.max(opts?.limit ?? 15, 1), 50);
+      try {
+        const d = await linearGraphQL<{ issues: { nodes: LinearSearchNode[] } }>(
+          tok,
+          `query IssueSearch($q: String!, $first: Int!) {
+            issues(filter: { or: [{ title: { containsIgnoreCase: $q } }, { description: { containsIgnoreCase: $q } }] }, first: $first, orderBy: updatedAt) {
+              nodes {
+                identifier title url priority
+                state { name }
+                assignee { name displayName }
+                labels { nodes { name } }
+                team { name }
+                project { name }
+              }
+            }
+          }`,
+          { q, first },
+        );
+        return (d.issues?.nodes ?? []).map(mapLinearSearchIssue);
+      } catch {
+        return [];
+      }
     },
     async getTargetDetails(targetId): Promise<TargetDetails> {
       const [d, members] = await Promise.all([loadTeamMeta(), loadUsers()]);
@@ -298,6 +355,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         id: targetId,
         key: meta.key,
         name: meta.name,
+        description: meta.description || undefined,
         states: meta.states.map((s) => s.name),
         labels: meta.labels.map((l) => l.name),
         members: members.map((u) => u.displayName || u.name).filter(Boolean),
