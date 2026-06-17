@@ -239,8 +239,8 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
 
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
   if (manifest) tail.push({ type: "text", text: manifest });
-  tail.push({ type: "text", text: `Available ${noun}s (choose the most appropriate one and pass its id as targetId):\n${targetList}` });
-  tail.push({ type: "text", text: `File exactly one ticket for this. Pick the best ${noun}, then create the issue.` });
+  tail.push({ type: "text", text: `Available ${noun}s (use search_issues first to learn routing precedent, then pick the most appropriate one and pass its id as targetId):\n${targetList}` });
+  tail.push({ type: "text", text: `File exactly one ticket for this. Call search_issues for precedent, pick the best ${noun}, then create the issue.` });
 
   const withImages = [briefText, ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })), ...tail];
   const textOnly = [briefText, ...tail];
