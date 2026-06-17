@@ -207,7 +207,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
     .slice(0, 50)
     .map((t) => {
       let line = `- ${t.name} (${t.key}) - id: ${t.id}`;
-      if (t.description) line += `\n  about: ${t.description}`;
+      if (t.description) line += `\n  about: ${t.description.slice(0, 200)}`;
       if (t.labels?.length) line += `\n  labels: ${t.labels.slice(0, 30).join(", ")}`;
       if (t.states?.length) line += `\n  states: ${t.states.slice(0, 20).join(", ")}`;
       if (t.assignees?.length) line += `\n  members: ${t.assignees.slice(0, 40).join(", ")}`;
