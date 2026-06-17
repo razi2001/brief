@@ -117,6 +117,11 @@ export interface Tracker {
   /** The noun the model should use for a filing destination: "team" (Linear) or "project" (Jira). */
   targetNoun: string;
   listTargets(): Promise<TrackerTarget[]>;
+  /**
+   * Search EXISTING issues for routing/labeling precedent. Best-effort:
+   * returns [] on any failure (a search outage must never break filing).
+   */
+  searchIssues(query: string, opts?: { limit?: number }): Promise<IssueSearchResult[]>;
   /** Full metadata for one target - states, labels, members, projects/custom fields. */
   getTargetDetails(targetId: string): Promise<TargetDetails>;
   // File one issue. The tracker handles evidence its own way:
