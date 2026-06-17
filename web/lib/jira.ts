@@ -440,14 +440,14 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
     const out: TrackerTarget[] = [];
     let startAt = 0;
     for (;;) {
-      const r = await jiraFetch(tok, base, `/project/search?startAt=${startAt}&maxResults=50`);
+      const r = await jiraFetch(tok, base, `/project/search?expand=description&startAt=${startAt}&maxResults=50`);
       if (!r.ok) throw new Error(`Jira project/search failed: ${r.status} ${await r.text()}`);
       const j = (await r.json()) as {
-        values?: Array<{ id: string; key: string; name: string }>;
+        values?: Array<{ id: string; key: string; name: string; description?: string }>;
         isLast?: boolean;
         total?: number;
       };
-      for (const p of j.values ?? []) out.push({ id: p.id, key: p.key, name: p.name });
+      for (const p of j.values ?? []) out.push({ id: p.id, key: p.key, name: p.name, description: p.description || undefined });
       if (j.isLast || !(j.values?.length)) break;
       startAt += j.values.length;
       if (out.length >= (j.total ?? out.length)) break;
@@ -612,6 +612,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         id: project.id,
         key,
         name: project.name,
+        description: project.description || undefined,
         states: statuses,
         labels,
         members,

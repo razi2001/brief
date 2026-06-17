@@ -215,6 +215,7 @@ export function mapLinearSearchIssue(node: LinearSearchNode): IssueSearchResult 
 type TeamMeta = {
   name: string;
   key: string;
+  description: string;
   states: Array<{ id: string; name: string }>;
   labels: Array<{ id: string; name: string }>; // workspace + this team's labels
   projects: Array<{ id: string; name: string }>;
@@ -231,12 +232,12 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
   async function loadTeamMeta(): Promise<Map<string, TeamMeta>> {
     if (teamMeta) return teamMeta;
     const d = await linearGraphQL<{
-      teams: { nodes: Array<{ id: string; name: string; key: string; states: { nodes: Array<{ id: string; name: string }> }; labels: { nodes: Array<{ id: string; name: string }> }; projects: { nodes: Array<{ id: string; name: string }> } }> };
+      teams: { nodes: Array<{ id: string; name: string; key: string; description: string | null; states: { nodes: Array<{ id: string; name: string }> }; labels: { nodes: Array<{ id: string; name: string }> }; projects: { nodes: Array<{ id: string; name: string }> } }> };
       issueLabels: { nodes: Array<{ id: string; name: string; team: { id: string } | null }> };
     }>(
       tok,
       `query TeamsWithMeta {
-        teams { nodes { id name key states { nodes { id name } } labels { nodes { id name } } projects(first: 50) { nodes { id name } } } }
+        teams { nodes { id name key description states { nodes { id name } } labels { nodes { id name } } projects(first: 50) { nodes { id name } } } }
         issueLabels(first: 250) { nodes { id name team { id } } }
       }`,
       {},
@@ -248,6 +249,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         {
           name: t.name,
           key: t.key,
+          description: t.description ?? "",
           states: t.states?.nodes ?? [],
           labels: [...workspaceLabels, ...(t.labels?.nodes ?? [])],
           projects: t.projects?.nodes ?? [],
@@ -310,6 +312,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         id,
         key: meta.key,
         name: meta.name,
+        description: meta.description || undefined,
         labels: meta.labels.map((l) => l.name),
         states: meta.states.map((s) => s.name),
         assignees,
@@ -352,6 +355,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         id: targetId,
         key: meta.key,
         name: meta.name,
+        description: meta.description || undefined,
         states: meta.states.map((s) => s.name),
         labels: meta.labels.map((l) => l.name),
         members: members.map((u) => u.displayName || u.name).filter(Boolean),
