@@ -12,7 +12,7 @@ primary_region = 'cdg'
   [build.args]
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuZ2V0LWJyaWVmLmFwcCQ'
     NEXT_PUBLIC_CLERK_SIGN_IN_URL = '/sign-in'
-    NEXT_PUBLIC_CLERK_SIGN_UP_URL = '/sign-in'
+    NEXT_PUBLIC_CLERK_SIGN_UP_URL = '/sign-up'
     NEXT_PUBLIC_SUPABASE_URL = 'https://zoztsincbmaozuulcfez.supabase.co'
 
 [http_service]
