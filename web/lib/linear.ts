@@ -323,7 +323,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         const d = await linearGraphQL<{ issues: { nodes: LinearSearchNode[] } }>(
           tok,
           `query IssueSearch($q: String!, $first: Int!) {
-            issues(filter: { title: { containsIgnoreCase: $q } }, first: $first, orderBy: updatedAt) {
+            issues(filter: { or: [{ title: { containsIgnoreCase: $q } }, { description: { containsIgnoreCase: $q } }] }, first: $first, orderBy: updatedAt) {
               nodes {
                 identifier title url priority
                 state { name }

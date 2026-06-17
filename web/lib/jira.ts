@@ -157,7 +157,11 @@ export function markdownToAdf(markdown: string): AdfNode {
 
 /** Build a JQL text search over summary+description for routing/labeling precedent. */
 export function buildSearchJql(query: string): string {
-  const q = query.replace(/["\\]/g, " ").replace(/\s+/g, " ").trim();
+  const q = query
+    .replace(/["\\]/g, " ")                 // JQL string delimiters
+    .replace(/[+\-&|!(){}[\]^~*?:/]/g, " ")  // Lucene operator chars (400 in ~ search)
+    .replace(/\s+/g, " ")
+    .trim();
   if (!q) return "ORDER BY updated DESC";
   return `(summary ~ "${q}" OR description ~ "${q}") ORDER BY updated DESC`;
 }
@@ -175,6 +179,18 @@ interface JiraSearchRaw {
   };
 }
 
+/** Normalize a Jira priority name to our TrackerPriority vocabulary (urgent/high/medium/low). */
+export function normalizeJiraPriority(name?: string): string | undefined {
+  switch ((name ?? "").toLowerCase()) {
+    case "highest": return "urgent";
+    case "high": return "high";
+    case "medium": return "medium";
+    case "low": return "low";
+    case "lowest": return "low";
+    default: return name ? name.toLowerCase() : undefined;
+  }
+}
+
 /** Map a Jira search hit to the provider-agnostic IssueSearchResult. */
 export function mapJiraSearchIssue(issue: JiraSearchRaw, siteUrl: string): IssueSearchResult {
   const f = issue.fields ?? {};
@@ -186,7 +202,7 @@ export function mapJiraSearchIssue(issue: JiraSearchRaw, siteUrl: string): Issue
     state: f.status?.name ?? undefined,
     labels: f.labels ?? [],
     assignee: f.assignee?.displayName ?? undefined,
-    priority: f.priority?.name ?? undefined,
+    priority: normalizeJiraPriority(f.priority?.name),
     issueType: f.issuetype?.name ?? undefined,
   };
 }
@@ -484,6 +500,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
       return loadTargets();
     },
     async searchIssues(query: string, opts?: { limit?: number }): Promise<IssueSearchResult[]> {
+      if (!query.trim()) return [];
       try {
         const jql = buildSearchJql(query);
         const fields = "summary,status,assignee,labels,priority,project,issuetype";
@@ -493,7 +510,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         let r = await jiraFetch(tok, base, `/search/jql${qs}`);
         if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
         if (!r.ok) return [];
-        const j = (await r.json()) as { issues?: Array<Parameters<typeof mapJiraSearchIssue>[0]> };
+        const j = (await r.json()) as { issues?: JiraSearchRaw[] };
         return (j.issues ?? []).map((i) => mapJiraSearchIssue(i, cloud.siteUrl));
       } catch {
         return [];

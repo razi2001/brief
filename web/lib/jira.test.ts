@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { markdownToAdf, buildSearchJql, mapJiraSearchIssue, type AdfNode } from "./jira";
+import { markdownToAdf, buildSearchJql, mapJiraSearchIssue, normalizeJiraPriority, type AdfNode } from "./jira";
 
 const types = (n: AdfNode): string[] => [n.type, ...(n.content ?? []).flatMap(types)];
 
@@ -143,6 +143,12 @@ describe("buildSearchJql", () => {
   it("falls back to a bare order-by when the query is empty", () => {
     expect(buildSearchJql("   ")).toBe("ORDER BY updated DESC");
   });
+
+  it("strips Lucene operator characters that would 400 the text search", () => {
+    expect(buildSearchJql("checkout (coupon) 500?")).toBe(
+      '(summary ~ "checkout coupon 500" OR description ~ "checkout coupon 500") ORDER BY updated DESC',
+    );
+  });
 });
 
 describe("mapJiraSearchIssue", () => {
@@ -170,7 +176,7 @@ describe("mapJiraSearchIssue", () => {
       state: "In Progress",
       labels: ["area/billing", "type/bug"],
       assignee: "Jane Doe",
-      priority: "High",
+      priority: "high",
       issueType: "Bug",
     });
   });
@@ -182,5 +188,23 @@ describe("mapJiraSearchIssue", () => {
     expect(result.target).toBe("");
     expect(result.labels).toEqual([]);
     expect(result.state).toBeUndefined();
+  });
+
+  it("tolerates a completely absent fields property", () => {
+    const result = mapJiraSearchIssue({ key: "Y-9" }, "https://s.atlassian.net");
+    expect(result.identifier).toBe("Y-9");
+    expect(result.title).toBe("");
+    expect(result.labels).toEqual([]);
+  });
+});
+
+describe("normalizeJiraPriority", () => {
+  it("maps Jira priority names to our vocabulary", () => {
+    expect(normalizeJiraPriority("Highest")).toBe("urgent");
+    expect(normalizeJiraPriority("High")).toBe("high");
+    expect(normalizeJiraPriority("Medium")).toBe("medium");
+    expect(normalizeJiraPriority("Low")).toBe("low");
+    expect(normalizeJiraPriority("Lowest")).toBe("low");
+    expect(normalizeJiraPriority(undefined)).toBeUndefined();
   });
 });
