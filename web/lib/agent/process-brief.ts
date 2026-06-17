@@ -33,7 +33,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   const prefs = (instructions ?? "").trim();
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTOOLING: You drive the tracker through tools, MCP-style. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${tracker.kind === "linear" ? ", and projects" : ", issue types, and custom fields (with their field ids and allowed values)"} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional labels/priority/state/assignee${tracker.kind === "linear" ? "/project" : ""}/comment/custom_fields). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once. The comment is posted on the issue after it's created; it's separate from the description. Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system uploads and embeds your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
+    `\n\nTOOLING: You drive the tracker through tools, MCP-style. search_issues(query) looks up EXISTING issues so you can route and label by precedent - call it before picking a ${noun}. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${tracker.kind === "linear" ? ", and projects" : ", issue types, and custom fields (with their field ids and allowed values)"} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional labels/priority/state/assignee${tracker.kind === "linear" ? "/project" : ""}/comment/custom_fields). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once. The comment is posted on the issue after it's created; it's separate from the description. Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system uploads and embeds your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
     (prefs
       ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), workflow state/status, assignee, project, labels, priority, custom fields, wording, format, and what to include. Pass each through the matching tool parameter - do not just mention it in the description - and VERIFY it landed via get_issue, repairing with update_issue. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "");
@@ -54,6 +54,25 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
         name: "list_targets",
         description: `List the ${noun}s (team or project) so you can choose where to file.`,
         parameters: { type: "object", properties: {}, additionalProperties: false },
+      },
+    },
+    {
+      type: "function" as const,
+      function: {
+        name: "search_issues",
+        description:
+          `Search EXISTING ${noun === "team" ? "Linear" : "Jira"} issues to learn how this workspace files things like THIS report - which ${noun} similar issues live in, what labels and priority they carry, who owns them. Call this BEFORE choosing where to file. Use keywords from the failure (the error text, the failing endpoint/URL, the feature or page name); run a couple of searches with different keywords if the first is thin.`,
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Keywords to search for, e.g. \"checkout coupon 500\" or \"login redirect loop\".",
+            },
+          },
+          required: ["query"],
+          additionalProperties: false,
+        },
       },
     },
     {
@@ -188,6 +207,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
     .slice(0, 50)
     .map((t) => {
       let line = `- ${t.name} (${t.key}) - id: ${t.id}`;
+      if (t.description) line += `\n  about: ${t.description}`;
       if (t.labels?.length) line += `\n  labels: ${t.labels.slice(0, 30).join(", ")}`;
       if (t.states?.length) line += `\n  states: ${t.states.slice(0, 20).join(", ")}`;
       if (t.assignees?.length) line += `\n  members: ${t.assignees.slice(0, 40).join(", ")}`;
@@ -265,6 +285,9 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
           switch (tc.function.name) {
             case "list_targets":
               result = targets;
+              break;
+            case "search_issues":
+              result = await tracker.searchIssues(str(args.query) ?? "", { limit: 15 });
               break;
             case "get_target_details":
               result = await tracker.getTargetDetails(String(args.targetId ?? ""));
