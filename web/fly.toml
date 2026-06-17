@@ -10,7 +10,7 @@ primary_region = 'cdg'
   dockerfile = 'Dockerfile'
 
   [build.args]
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_test_c21hcnQtZWxlcGhhbnQtMzMuY2xlcmsuYWNjb3VudHMuZGV2JA'
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_live_Y2xlcmsuZ2V0LWJyaWVmLmFwcCQ'
     NEXT_PUBLIC_CLERK_SIGN_IN_URL = '/sign-in'
     NEXT_PUBLIC_CLERK_SIGN_UP_URL = '/sign-in'
     NEXT_PUBLIC_SUPABASE_URL = 'https://zoztsincbmaozuulcfez.supabase.co'
