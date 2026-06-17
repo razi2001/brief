@@ -16,6 +16,8 @@ export interface TrackerTarget {
   states?: string[];
   /** Assignable member names (so the agent can resolve "assign to X" preferences). */
   assignees?: string[];
+  /** Short purpose/description of this destination (Linear team description / Jira project description), to help routing. */
+  description?: string;
 }
 
 /** Full metadata for one filing destination, fetched on demand by the agent. */
@@ -23,6 +25,8 @@ export interface TargetDetails {
   id: string;
   key: string;
   name: string;
+  /** Short purpose/description of this destination, to help routing. */
+  description?: string;
   /** Workflow state / status names valid in this target. */
   states: string[];
   labels: string[];
@@ -40,6 +44,25 @@ export interface TargetDetails {
     required?: boolean;
     allowedValues?: string[];
   }>;
+}
+
+/** One existing issue returned by a precedent search, enriched so the agent can learn routing/labeling conventions. */
+export interface IssueSearchResult {
+  identifier: string;
+  title: string;
+  url: string;
+  /** Where it lives: Linear team name / Jira project name. */
+  target: string;
+  /** Workflow state / status name. */
+  state?: string;
+  labels?: string[];
+  assignee?: string;
+  /** Normalized priority name (urgent/high/medium/low) where resolvable. */
+  priority?: string;
+  /** Jira issue type (Bug/Task/...). */
+  issueType?: string;
+  /** Linear project name, when set. */
+  project?: string;
 }
 
 /** Normalized priority the agent can set; adapters map it to provider values. */
