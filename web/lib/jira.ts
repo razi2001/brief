@@ -483,6 +483,22 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
     async listTargets(): Promise<TrackerTarget[]> {
       return loadTargets();
     },
+    async searchIssues(query: string, opts?: { limit?: number }): Promise<IssueSearchResult[]> {
+      try {
+        const jql = buildSearchJql(query);
+        const fields = "summary,status,assignee,labels,priority,project,issuetype";
+        const limit = Math.min(Math.max(opts?.limit ?? 15, 1), 50);
+        const qs = `?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${limit}`;
+        // Same endpoint dance as getJiraIssues: newer /search/jql, legacy /search on 404.
+        let r = await jiraFetch(tok, base, `/search/jql${qs}`);
+        if (r.status === 404) r = await jiraFetch(tok, base, `/search${qs}`);
+        if (!r.ok) return [];
+        const j = (await r.json()) as { issues?: Array<Parameters<typeof mapJiraSearchIssue>[0]> };
+        return (j.issues ?? []).map((i) => mapJiraSearchIssue(i, cloud.siteUrl));
+      } catch {
+        return [];
+      }
+    },
     async getTargetDetails(targetId): Promise<TargetDetails> {
       const targets = await loadTargets();
       const project = targets.find((t) => t.id === targetId || t.key === targetId);
@@ -754,5 +770,5 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         priority: f.priority?.name?.toLowerCase() ?? null,
       };
     },
-  };
+  } as Tracker;
 }
