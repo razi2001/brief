@@ -3,6 +3,7 @@
 // relays messages between bar (in content script) and offscreen.
 
 import { APP_URL } from "./config.js";
+import { getDraft, updateDraft, migrateInboxToDraft } from "./draft.js";
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
@@ -38,22 +39,27 @@ function tryOpenPopup(briefId) {
   } catch {}
 }
 
-// ---------- Inbox badge ----------
+// ---------- Draft badge ----------
+// No badge for a brief simply being in progress - that shows in the popup, and a
+// dot on the orange icon only ever rendered as a muddy blob. The icon stays
+// clean; we surface a badge ONLY for a real alert (the recording upload failed),
+// as a legible red "!".
 async function refreshBadge() {
   try {
-    const { inbox } = await chrome.storage.local.get('inbox');
-    const count = Array.isArray(inbox) ? inbox.length : 0;
-    if (count === 0) {
-      chrome.action.setBadgeText({ text: '' });
-    } else {
-      chrome.action.setBadgeText({ text: String(count > 99 ? '99+' : count) });
-      chrome.action.setBadgeBackgroundColor({ color: '#dd6936' });
+    const d = await getDraft();
+    const text = d?.uploadFailed ? '!' : '';
+    chrome.action.setBadgeText({ text });
+    if (text) {
+      chrome.action.setBadgeBackgroundColor({ color: '#cf3b2e' });
       chrome.action.setBadgeTextColor?.({ color: '#ffffff' });
     }
   } catch (err) {
     console.warn('[brief/background] badge refresh:', err);
   }
 }
+
+// Migrate any legacy multi-brief inbox to the single draft on worker startup.
+migrateInboxToDraft().then(() => refreshBadge()).catch(() => {});
 
 // ---------- Offscreen document lifecycle ----------
 const OFFSCREEN_PATH = 'offscreen.html';
@@ -86,10 +92,26 @@ async function closeOffscreenDocument() {
 // Track which tab's bar to send relayed messages back to
 let ACTIVE_BAR_TAB_ID = null;
 
-// Background uploads running in the offscreen document. While > 0 the
-// document must NOT be closed (the recording streams are already released
-// at that point, so a new recording can safely reuse the same document).
-let UPLOADS_PENDING = 0;
+// Background uploads running in the offscreen document. While > 0 the document
+// must NOT be closed (the recording streams are already released at that point,
+// so a new recording can safely reuse the same document).
+//
+// Persisted in chrome.storage.session, NOT an in-memory variable: MV3 recycles
+// the service worker after ~30s idle, and a slow upload (a big video to a slow
+// server) easily outlives that. An in-memory counter would reset to 0 on the
+// restart, after which the next event would close the offscreen and abort the
+// in-flight fetch ("Failed to fetch"). session storage is in-memory but survives
+// worker restarts and clears on browser close - exactly the lifetime we want.
+const UPLOADS_KEY = 'uploadsPending';
+async function getUploadsPending() {
+  try { return (await chrome.storage.session.get(UPLOADS_KEY))[UPLOADS_KEY] || 0; }
+  catch { return 0; }
+}
+async function bumpUploadsPending(delta) {
+  const next = Math.max(0, (await getUploadsPending()) + delta);
+  try { await chrome.storage.session.set({ [UPLOADS_KEY]: next }); } catch {}
+  return next;
+}
 
 // On install / update, inject the content script into already-open tabs.
 chrome.runtime.onInstalled.addListener(async (details) => {
@@ -108,6 +130,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     if (details?.reason === 'install') {
       chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }).catch(() => {});
     }
+    await migrateInboxToDraft().catch(() => {});
     await refreshBadge();
   } catch (err) {
     console.warn('[brief/background] on-install inject:', err);
@@ -136,7 +159,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const res = await chrome.runtime.sendMessage({ ...message, viaBackground: true });
         // A successful STOP starts a BACKGROUND upload in the offscreen
         // document (cloud-only) - guard it from teardown until OFFSCREEN_DONE.
-        if (message.type === 'STOP' && res?.ok) UPLOADS_PENDING++;
+        if (message.type === 'STOP' && res?.ok) await bumpUploadsPending(1);
         sendResponse(res);
       } catch (err) {
         console.error('[brief/background] offscreen relay:', err);
@@ -197,12 +220,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'BRIEF_STOP':
           STATE.recording = false;
           // Close the offscreen document UNLESS it's still uploading to
-          // Brief Cloud in the background (UPLOADS_PENDING was incremented
+          // Brief Cloud in the background (the pending-uploads count was bumped
           // by the STOP relay before the bar could send BRIEF_STOP). This
           // also covers the legacy-relay and cancel paths, where the
           // OFFSCREEN_DONE message arrives while recording is still flagged
           // and therefore skips the close.
-          if (UPLOADS_PENDING === 0) closeOffscreenDocument().catch(() => {});
+          if ((await getUploadsPending()) === 0) closeOffscreenDocument().catch(() => {});
           sendResponse({ ok: true });
           break;
 
@@ -210,34 +233,69 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // Offscreen finished its post-recording work (upload, relay, or
           // cancel). Tear it down unless something still needs it: another
           // pending upload, or a NEW recording that reused the document.
-          UPLOADS_PENDING = Math.max(0, UPLOADS_PENDING - 1);
-          if (UPLOADS_PENDING === 0 && !STATE.recording) {
-            closeOffscreenDocument().catch(() => {});
+          {
+            const remaining = await bumpUploadsPending(-1);
+            if (remaining === 0 && !STATE.recording) {
+              closeOffscreenDocument().catch(() => {});
+            }
           }
           sendResponse({ ok: true });
           break;
 
         case 'UPLOAD_RESULT': {
-          // Background upload settled (offscreen). Land the outcome on the
-          // inbox entry so the popup can file the brief (cloudBriefId) or
-          // explain a failure - works even when the popup is closed.
+          // Background upload settled (offscreen). Land the outcome on the draft
+          // (id-matched) so the popup can file the brief (cloudBriefId) or explain
+          // a failure - works even when the popup is closed.
           try {
-            const { inbox } = await chrome.storage.local.get('inbox');
-            const list = Array.isArray(inbox) ? inbox : [];
-            const entry = list.find((b) => b.id === message.briefId);
-            if (entry) {
-              entry.uploading = false;
+            await updateDraft(message.briefId, (d) => {
+              d.uploading = false;
               if (message.cloudBriefId) {
-                entry.cloudBriefId = message.cloudBriefId;
-                delete entry.uploadFailed;
-                delete entry.uploadError;
+                d.cloudBriefId = message.cloudBriefId;
+                d.uploadFailed = false;
+                d.uploadError = null;
               } else {
-                entry.uploadFailed = true;
-                entry.uploadError = message.error || 'upload failed';
+                d.uploadFailed = true;
+                d.uploadError = message.error || 'upload failed';
               }
-              await chrome.storage.local.set({ inbox: list });
-              await refreshBadge();
-            }
+            });
+            await refreshBadge();
+            sendResponse({ ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+          break;
+        }
+
+        case 'RECORDING_POSTER': {
+          // The offscreen doc made a poster (first keyframe). Land it on the
+          // draft's recording (id-matched) so the tile shows a real frame.
+          try {
+            await updateDraft(message.briefId, (d) => {
+              if (d.recording) {
+                d.recording.poster = message.poster || null;
+                if (message.durationMs) d.recording.durationMs = message.durationMs;
+              }
+            });
+            sendResponse({ ok: true });
+          } catch (err) {
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+          break;
+        }
+
+        case 'TRANSCRIPT_RESULT': {
+          // The offscreen doc transcribed the recording's audio after upload.
+          // Land it on the draft (id-matched) so the popup shows it, editable.
+          try {
+            await updateDraft(message.briefId, (d) => {
+              d.transcribing = false;
+              if (typeof message.transcript === 'string' && message.transcript.trim()) {
+                d.transcript = message.transcript.trim();
+                d.transcriptFailed = false;
+              } else if (message.error) {
+                d.transcriptFailed = true;
+              } // empty + no error = genuinely no speech; leave transcript ''
+            });
             sendResponse({ ok: true });
           } catch (err) {
             sendResponse({ ok: false, error: String(err?.message || err) });
@@ -254,6 +312,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
 
         case 'INBOX_CHANGED':
+        case 'DRAFT_CHANGED':
           await refreshBadge();
           sendResponse({ ok: true });
           break;
@@ -268,25 +327,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               break;
             }
             const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-            // Capture the page URL/title now (the screenshot's source page) and
-            // pin it to the brief entry, so the ticket always has that context
+            // Carry the page URL/title (the screenshot's source page) through the
+            // overlay round-trip so SHOT_SAVED can pin it onto THIS screenshot,
             // even if the user navigates away before filing.
-            try {
-              const { inbox } = await chrome.storage.local.get('inbox');
-              const list = Array.isArray(inbox) ? inbox : [];
-              const entry = list.find((b) => b.id === message.itemId);
-              if (entry) {
-                entry.pageUrl = tab.url || null;
-                entry.pageTitle = tab.title || null;
-                await chrome.storage.local.set({ inbox: list });
-              }
-            } catch {}
             // Make sure the content script is present, then inject the overlay.
             try {
               await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
             } catch {}
             await chrome.tabs.sendMessage(tab.id, {
               type: 'INJECT_SHOT', itemId: message.itemId, dataUrl,
+              pageUrl: tab.url || null, pageTitle: tab.title || null,
             });
             sendResponse({ ok: true });
           } catch (err) {
@@ -297,20 +347,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'SHOT_SAVED': {
-          // Store the annotated screenshot dataURL on the brief entry.
+          // Append the annotated screenshot to the current draft (id-matched).
           try {
-            const { inbox } = await chrome.storage.local.get('inbox');
-            const list = Array.isArray(inbox) ? inbox : [];
-            const entry = list.find((b) => b.id === message.itemId);
-            if (entry) {
-              entry.screenshot = message.dataUrl;
-              entry.screenshotAnnotated = !!message.annotated;
-              await chrome.storage.local.set({ inbox: list });
-              await refreshBadge();
-            }
+            const shotId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            let added = false;
+            await updateDraft(message.itemId, (d) => {
+              if (!Array.isArray(d.screenshots)) d.screenshots = [];
+              if (d.screenshots.length >= 3) return; // hard cap: 3 screenshots per brief
+              d.screenshots.push({
+                id: shotId,
+                dataUrl: message.dataUrl,
+                annotated: !!message.annotated,
+                description: '',
+                pageUrl: message.pageUrl || null,
+                pageTitle: message.pageTitle || null,
+                addedAt: Date.now(),
+              });
+              // Pin the brief-level page context from the first capture.
+              if (!d.pageUrl) { d.pageUrl = message.pageUrl || null; d.pageTitle = message.pageTitle || null; }
+              added = true;
+            });
+            // Tell the popup to open this shot's note editor on its next render.
+            if (added) { try { await chrome.storage.local.set({ pendingOpen: { kind: 'shot', id: shotId, at: Date.now() } }); } catch {} }
+            await refreshBadge();
             sendResponse({ ok: true });
-            // Best-effort: pop the user back to the brief to review/export.
-            // Pass the brief id so the popup auto-expands its details panel.
+            // Best-effort: pop the user back to the brief to review.
             tryOpenPopup(message.itemId);
           } catch (err) {
             sendResponse({ ok: false, error: String(err?.message || err) });
@@ -319,6 +380,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'REOPEN_POPUP': {
+          // A recording just landed - have the popup open its sheet on next render.
+          try { await chrome.storage.local.set({ pendingOpen: { kind: 'rec', at: Date.now() } }); } catch {}
           tryOpenPopup(message.briefId);
           sendResponse({ ok: true });
           break;
@@ -338,7 +401,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });
             }
           } catch {}
-          if (UPLOADS_PENDING === 0) {
+          if ((await getUploadsPending()) === 0) {
             await closeOffscreenDocument().catch(() => {});
           }
           // Small wait for Chrome to fully release the tabCapture stream
@@ -367,11 +430,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // the background upload needs: the pairing token, this brief's draft
           // fields, and the page meta/event log we collected during recording.
           try {
-            const { briefCloudToken, inbox } = await chrome.storage.local.get([
-              'briefCloudToken',
-              'inbox',
-            ]);
-            const entry = (Array.isArray(inbox) ? inbox : []).find((b) => b.id === message.briefId) || null;
+            const { briefCloudToken } = await chrome.storage.local.get('briefCloudToken');
+            const d = await getDraft();
+            const entry = d && d.id === message.briefId ? d : null;
             sendResponse({
               token: briefCloudToken || null,
               entry,

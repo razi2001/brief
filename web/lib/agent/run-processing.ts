@@ -1,10 +1,11 @@
-import { createHash } from "crypto";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { selectDistinctFrames } from "@/lib/agent/frame-hash";
 import { getLinearToken, makeLinearTracker } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
 import type { Tracker } from "@/lib/tracker";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
 import { transcribeAudio } from "@/lib/agent/transcribe";
+import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides } from "@/lib/agent/overrides";
 import { getUserSettings } from "@/lib/settings";
 
 export type ProcessResult =
@@ -23,7 +24,7 @@ export type ProcessResult =
 export async function processBriefById(
   userId: string,
   briefId: string,
-  opts: { includeVideo?: boolean } = {},
+  opts: { includeVideo?: boolean; overrides?: BriefOverrides } = {},
 ): Promise<ProcessResult> {
   const admin = createAdminSupabase();
   const { data: brief } = await admin
@@ -82,26 +83,33 @@ export async function processBriefById(
       return data ? Buffer.from(await data.arrayBuffer()) : null;
     };
     const briefJsonBuf = await dl(`${prefix}/brief.json`);
-    const json = briefJsonBuf ? JSON.parse(briefJsonBuf.toString("utf8")) : {};
+    const rawJson = briefJsonBuf ? JSON.parse(briefJsonBuf.toString("utf8")) : {};
+    // The popup's edits (corrected transcript, per-shot notes, description, extra)
+    // are authoritative over the capture-owned brief.json.
+    const json = mergeBriefOverrides(rawJson, opts.overrides);
 
-    // Transcribe the audio-only track (uploaded alongside the video) with
-    // OpenAI and surface it as json.transcript so buildContextBlock picks it up
-    // unchanged. Fail-soft: missing audio or any API error leaves transcript
-    // null and the brief still files on visual + console/network evidence.
-    let audioInput: { bytes: Buffer; filename: string; contentType: string } | null = null;
-    const audioBuf = await dl(`${prefix}/audio.webm`);
-    if (audioBuf) {
-      audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
+    // Use the supplied (edited) transcript when present; only transcribe
+    // server-side when the popup didn't give us one. Fail-soft: missing audio or
+    // any API error leaves transcript null and the brief still files on visual +
+    // console/network evidence.
+    if (typeof json.transcript === "string" && json.transcript.trim()) {
+      // already set by the merge - skip the OpenAI call
     } else {
-      // Older drafts (created before the audio track existed) only have the
-      // video. Transcribe it directly when it's under OpenAI's 25 MB cap.
-      const recBuf = await dl(`${prefix}/recording.webm`);
-      if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
-        audioInput = { bytes: recBuf, filename: "recording.webm", contentType: "video/webm" };
+      let audioInput: { bytes: Buffer; filename: string; contentType: string } | null = null;
+      const audioBuf = await dl(`${prefix}/audio.webm`);
+      if (audioBuf) {
+        audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
+      } else {
+        // Older drafts (created before the audio track existed) only have the
+        // video. Transcribe it directly when it's under OpenAI's 25 MB cap.
+        const recBuf = await dl(`${prefix}/recording.webm`);
+        if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
+          audioInput = { bytes: recBuf, filename: "recording.webm", contentType: "video/webm" };
+        }
       }
+      const transcript = await transcribeAudio(audioInput);
+      if (transcript) json.transcript = transcript;
     }
-    const transcript = await transcribeAudio(audioInput);
-    if (transcript) json.transcript = transcript;
 
     const images: BriefInput["images"] = [];
     const files: BriefInput["evidence"]["files"] = [];
@@ -114,53 +122,66 @@ export async function processBriefById(
     // as the visual evidence so the ticket isn't left blind.
     const includeVideo = opts.includeVideo ?? !!json.includeVideo;
 
-    // Collect keyframes. Sample up to 8 evenly-spaced frames, then DROP exact
-    // duplicates (a screen recording barely changes between samples, so naive
-    // sampling yields near-identical stills). Every distinct frame goes to the
-    // model (vision) AND into the attachable evidence pool - the agent picks
-    // the minimal set that proves the issue via create_issue's attach[].
-    const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
-    const names = (kf ?? []).map((o) => o.name).sort();
-    const SAMPLE = 8;
-    const pick =
-      names.length <= SAMPLE
-        ? names
-        : Array.from({ length: SAMPLE }, (_, i) =>
-            names[Math.round((i * (names.length - 1)) / (SAMPLE - 1))],
-          );
-    const frames: Array<{ name: string; filename: string; bytes: Buffer }> = [];
-    const seenFrame = new Set<string>();
-    for (const n of [...new Set(pick)]) {
-      const b = await dl(`${prefix}/keyframes/${n}`);
-      if (!b) continue;
-      const hash = createHash("md5").update(b).digest("hex");
-      if (seenFrame.has(hash)) continue; // identical frame - skip
-      seenFrame.add(hash);
-      frames.push({ name: n, filename: n.split("/").pop() || n, bytes: b });
-    }
-
-    // Keyframe timestamps from brief.json (filename → ms into the capture),
-    // so the manifest lets the agent correlate frames with the narration.
+    // Keyframe timestamps from brief.json (filename → ms into the capture), so
+    // each frame the model sees can be labelled with where it falls in the
+    // recording (the storyboard) and the manifest can correlate them.
     const tsByFile = new Map<string, number>();
     for (const k of Array.isArray(json.keyframes) ? json.keyframes : []) {
       const file = String(k?.file ?? "").split("/").pop();
       if (file && typeof k?.timestamp === "number") tsByFile.set(file, k.timestamp);
     }
 
+    // Collect keyframes. The recorder samples every 2s, so a mostly-static
+    // screen yields many near-identical stills. Download all of them, then keep
+    // only the frames where the screen ACTUALLY changed (perceptual de-dup),
+    // capped to bound vision cost. Each kept frame goes to the model (vision,
+    // as a timestamped storyboard) AND into the attachable evidence pool.
+    const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
+    const names = (kf ?? []).map((o) => o.name).sort();
+    const downloaded = await Promise.all(
+      names.map(async (n) => {
+        const bytes = await dl(`${prefix}/keyframes/${n}`);
+        const filename = n.split("/").pop() || n;
+        return bytes ? { name: n, filename, timestampMs: tsByFile.get(filename), bytes } : null;
+      }),
+    );
+    const frames = selectDistinctFrames(downloaded.filter((f): f is NonNullable<typeof f> => !!f));
+
+    // Keyframes always go to the model as a vision storyboard (so the ticket can
+    // describe what the recording shows), but they are NOT attached to the ticket
+    // as evidence stills here - a recording or the reporter's own screenshots make
+    // the sampled frames redundant. They earn an attachment slot only when they're
+    // the sole visual evidence (decided below, after we know what else exists).
     for (const f of frames) {
-      images.push({ name: f.name, dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}` });
-      files.push({ filename: f.filename, contentType: "image/png", bytes: f.bytes });
-      items.push({ name: f.filename, kind: "keyframe", timestampMs: tsByFile.get(f.filename) });
+      images.push({
+        name: f.name,
+        dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}`,
+        timestampMs: f.timestampMs,
+      });
     }
 
-    // A user-annotated screenshot is intentional, focused markup - always show
-    // it to the model and make it attachable.
-    const shot = await dl(`${prefix}/screenshot.png`);
-    if (shot) {
-      images.push({ name: "screenshot.png", dataUrl: `data:image/png;base64,${shot.toString("base64")}` });
-      files.push({ filename: "screenshot.png", contentType: "image/png", bytes: shot });
-      items.push({ name: "screenshot.png", kind: "screenshot" });
+    // Screenshots: the popup uploads each as screenshots/<id>.png (multiple, each
+    // with a user caption). Read them all; also accept a legacy top-level
+    // screenshot.png. Each becomes a model image + attachable evidence with its
+    // caption resolved from the (merged) brief.json screenshots[].
+    const shotMeta = Array.isArray((json as any).screenshots) ? (json as any).screenshots : [];
+    const shotPaths: string[] = [];
+    const { data: shotList } = await admin.storage.from("briefs").list(`${prefix}/screenshots`, { limit: 200 });
+    for (const o of shotList ?? []) shotPaths.push(`screenshots/${o.name}`);
+    shotPaths.sort();
+    shotPaths.push("screenshot.png"); // legacy single (dl returns null when absent)
+    const shotFilenames: string[] = [];
+    for (const rel of shotPaths) {
+      const b = await dl(`${prefix}/${rel}`);
+      if (!b) continue;
+      const filename = rel.split("/").pop() || rel;
+      const caption = captionForScreenshot(rel, shotMeta);
+      images.push({ name: rel, dataUrl: `data:image/png;base64,${b.toString("base64")}`, caption });
+      files.push({ filename, contentType: "image/png", bytes: b });
+      items.push({ name: filename, kind: "screenshot", caption });
+      shotFilenames.push(filename);
     }
+    const hasShot = shotFilenames.length > 0;
 
     // The recording is attachable ONLY when the user said so - when the toggle
     // is off we don't even download it. The manifest item still notes its
@@ -176,20 +197,32 @@ export async function processBriefById(
       items.push({ name: "recording.webm", kind: "recording" });
     }
 
-    // Default attachment set when the agent doesn't choose - the old lean
-    // heuristic: annotated shot, or the recording when allowed, else a
-    // before/after frame pair.
+    // Keyframes earn an attachment slot only when there's nothing else to show:
+    // no reporter screenshot AND the video itself isn't being attached. Otherwise
+    // the sampled video stills are redundant clutter on the ticket.
+    const recordingAttached = files.some((f) => f.filename === "recording.webm");
+    const keyframesAsEvidence = !hasShot && !recordingAttached && frames.length > 0;
+    if (keyframesAsEvidence) {
+      for (const f of frames) {
+        files.push({ filename: f.filename, contentType: "image/png", bytes: f.bytes });
+        items.push({ name: f.filename, kind: "keyframe", timestampMs: f.timestampMs });
+      }
+    }
+
+    // Default attachment set when the agent doesn't choose: EVERY screenshot the
+    // reporter added (their explicit evidence), the recording when allowed, and -
+    // only when keyframes are the sole visual evidence - a lean before/after pair.
     const fallback: string[] = [];
-    if (shot) fallback.push("screenshot.png");
-    if (includeVideo && files.some((f) => f.filename === "recording.webm")) {
+    for (const fn of shotFilenames) fallback.push(fn);
+    if (recordingAttached) {
       fallback.push("recording.webm");
-    } else if (!shot && frames.length) {
+    } else if (keyframesAsEvidence) {
       const lean = frames.length <= 2 ? frames : [frames[0], frames[frames.length - 1]];
       for (const f of lean) fallback.push(f.filename);
     }
 
     console.log(
-      `[process] brief ${briefId} via ${tracker.kind}: frames=${names.length} distinct=${frames.length} screenshot=${!!shot} includeVideo=${includeVideo} attachable=${files.length} fallback=${fallback.length}`
+      `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} kept=${frames.length} kfAttached=${keyframesAsEvidence} screenshots=${shotFilenames.length} includeVideo=${includeVideo} attachable=${files.length} fallback=${fallback.length}`
     );
 
     const result = await processBrief(
@@ -220,7 +253,11 @@ export async function processBriefById(
     if (updErr) await admin.from("briefs").update(filedPatch).eq("id", briefId);
 
     // delete media on success (keep the row)
-    const toDelete: string[] = [`${prefix}/brief.json`, `${prefix}/recording.webm`, `${prefix}/audio.webm`, `${prefix}/screenshot.png`, ...names.map((n) => `${prefix}/keyframes/${n}`)];
+    const toDelete: string[] = [
+      `${prefix}/brief.json`, `${prefix}/recording.webm`, `${prefix}/audio.webm`, `${prefix}/screenshot.png`,
+      ...shotPaths.map((p) => `${prefix}/${p}`),
+      ...names.map((n) => `${prefix}/keyframes/${n}`),
+    ];
     await admin.storage.from("briefs").remove(toDelete);
 
     return { ok: true, result };

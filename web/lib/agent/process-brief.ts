@@ -6,7 +6,11 @@ import type { Tracker, IssueResult } from "../tracker";
 
 export interface BriefInput {
   json: unknown;                          // parsed brief.json
-  images: Array<{ name: string; dataUrl: string }>; // distinct keyframes/screenshot as data URLs (for the model to SEE)
+  // distinct keyframes/screenshot as data URLs (for the model to SEE);
+  // timestampMs (when known) positions a keyframe in the recording so the
+  // model reads the frames as a timestamped storyboard; caption is the
+  // reporter's note on a screenshot, shown inline with that image.
+  images: Array<{ name: string; dataUrl: string; timestampMs?: number; caption?: string }>;
   // The attachable evidence pool. The agent chooses what to attach
   // (create_issue's attach[]); `fallback` is used when it doesn't choose.
   // The recording is only in `files` when the user allowed attaching it.
@@ -142,6 +146,12 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
               description:
                 "Evidence file names to attach (from the EVIDENCE AVAILABLE list). Pick the minimal set that proves the issue - e.g. the annotated screenshot, or a before/after frame pair. Omit to let the system choose a sensible default.",
             },
+            screenshot_notes: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "One short, direct description for EACH screenshot, in the same order they were shown to you (Screenshot 1, 2, ...). Each renders as the caption directly ABOVE its image. Write what the image SHOWS and the problem it evidences, present tense - e.g. \"The sub-issues panel renders with broken spacing; the circled row is the misaligned item.\" Do NOT describe it as an artifact (\"a screenshot that...\", \"the reporter circled/noted...\") - just state what is on screen.",
+            },
             custom_fields: customFieldsParam,
           },
           required: ["targetId", "title", "description"],
@@ -230,10 +240,12 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   tail.push({
     type: "text",
     text:
-      "CORRELATE EVERYTHING before writing. Cross-reference every signal you have - " +
-      (frameCount ? `the ${frameCount} time-ordered screen frames, ` : "") +
-      "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the console errors, and the URL. " +
-      "Build a single coherent account of what the user did, what they expected, and what actually happened; resolve disagreements in favor of the screenshots/console/events over the narration. " +
+      "CORRELATE EVERYTHING before writing, led by the reporter's description. " +
+      "Start from what the reporter said the problem is, then use the rest to confirm and flesh it out: " +
+      (frameCount ? `the ${frameCount} time-ordered screen frames (a storyboard), ` : "") +
+      "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the URL, and finally the console/network errors as supporting detail. " +
+      "Build a single coherent account of what the user did, what they expected, and what actually happened. The description defines what the ticket is about; the screenshots/frames are ground truth for what is on screen; treat the narration as a rough draft and the console/network errors as extra context, not the headline. " +
+      "Account for EVERY screenshot the reporter attached: explain what each one shows and weave in the reporter's note for it, so the evidence is described in the ticket, not just attached. Likewise fold any reporter-provided details (the structured fields) into the body. " +
       "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present.",
   });
 
@@ -242,7 +254,35 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
   tail.push({ type: "text", text: `Available ${noun}s (use search_issues first to learn routing precedent, then pick the most appropriate one and pass its id as targetId):\n${targetList}` });
   tail.push({ type: "text", text: `File exactly one ticket for this. Call search_issues for precedent, pick the best ${noun}, then create the issue.` });
 
-  const withImages = [briefText, ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })), ...tail];
+  // Present the images as a labelled, ordered storyboard: each keyframe gets a
+  // "Frame i of N - M:SS into the capture" caption so the model reads them as a
+  // timed sequence, and the annotated screenshot is called out explicitly.
+  const mmss = (ms?: number): string | null => {
+    if (typeof ms !== "number" || !isFinite(ms) || ms < 0) return null;
+    const s = Math.round(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  const shotCount = brief.images.filter((i) => i.name.includes("screenshot")).length;
+  let frameIdx = 0;
+  let shotIdx = 0;
+  const storyboard: any[] = [];
+  for (const img of brief.images) {
+    let label: string;
+    if (img.name.includes("keyframe")) {
+      frameIdx++;
+      const t = mmss(img.timestampMs);
+      label = `Frame ${frameIdx} of ${frameCount}${t ? ` (${t} into the capture)` : ""}:`;
+    } else if (img.name.includes("screenshot")) {
+      shotIdx++;
+      const base = shotCount > 1 ? `Screenshot ${shotIdx} of ${shotCount}` : "Annotated screenshot";
+      const note = img.caption && img.caption.trim() ? ` - the reporter's note on it: "${img.caption.trim()}"` : "";
+      label = `${base} (red marks, if any, = where the reporter is pointing)${note}:`;
+    } else {
+      label = `${img.name}:`;
+    }
+    storyboard.push({ type: "text", text: label }, { type: "image_url", image_url: { url: img.dataUrl } });
+  }
+  const withImages = [briefText, ...storyboard, ...tail];
   const textOnly = [briefText, ...tail];
 
   const str = (v: unknown): string | undefined =>
@@ -305,6 +345,13 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                   .filter((it) => it.kind !== "recording" || brief.evidence.includeVideo)
                   .map((it) => it.name);
                 const chosen = [...pickEvidence(args.attach, attachable, brief.evidence.fallback)];
+                // Every screenshot the reporter added is their explicit evidence -
+                // always attach all of them, regardless of what the model picked.
+                for (const it of brief.evidence.items) {
+                  if (it.kind === "screenshot" && attachable.includes(it.name) && !chosen.includes(it.name)) {
+                    chosen.push(it.name);
+                  }
+                }
                 // "Attach the recording" is an explicit user instruction, not a
                 // hint - guarantee the actual video lands on the ticket. The
                 // model kept picking the screenshot/frames instead, so when the
@@ -313,7 +360,23 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                 if (brief.evidence.includeVideo && recName && attachable.includes(recName) && !chosen.includes(recName)) {
                   chosen.push(recName);
                 }
-                const evidenceFiles = brief.evidence.files.filter((f) => chosen.includes(f.filename));
+                // Pair the agent's per-screenshot descriptions with the images.
+                // screenshot_notes is ordered to match the screenshots as shown
+                // (Screenshot 1, 2, ...); map each to its file so the tracker can
+                // render the caption directly above that image.
+                const notes = Array.isArray(args.screenshot_notes)
+                  ? args.screenshot_notes.filter((n: unknown): n is string => typeof n === "string")
+                  : [];
+                const captionByName = new Map<string, string>();
+                brief.evidence.items
+                  .filter((it) => it.kind === "screenshot")
+                  .forEach((it, i) => {
+                    const note = notes[i]?.trim();
+                    if (note) captionByName.set(it.name, note);
+                  });
+                const evidenceFiles = brief.evidence.files
+                  .filter((f) => chosen.includes(f.filename))
+                  .map((f) => ({ ...f, caption: captionByName.get(f.filename) }));
                 created = await tracker.fileIssue({
                   targetId: args.targetId,
                   title: args.title,

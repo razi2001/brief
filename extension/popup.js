@@ -1,201 +1,481 @@
-// Brief - popup
+// Brief - popup (Evidence gallery + Describe, with bottom sheets)
 //
-// On open:
-//   1. Fast-path: if we have a cached "mic granted" flag from a recent
-//      session, reveal the UI immediately. Probe in background to refresh
-//      the cache for next time.
-//   2. Slow path (no cache): probe getUserMedia synchronously. If granted,
-//      reveal and cache. If not, redirect to permission page.
+// One brief at a time (extension/draft.js). Evidence holds screenshots AND the
+// recording as tiles; Describe holds the description + custom fields. Editing
+// happens in bottom sheets. Capture (screenshot/video) runs on the page, so those
+// actions close the popup and it reopens when the capture lands.
 
 import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, uploadFilesToDraft, processBrief, transcribeNote } from './cloud.js';
+import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, migrateInboxToDraft } from './draft.js';
 
-const briefCloudBtn = document.getElementById('briefCloudBtn');
-const briefList = document.getElementById('briefList');
-const emptyState = document.getElementById('emptyState');
-const addForm = document.getElementById('addForm');
-const addName = document.getElementById('addName');
-const addBtn = document.getElementById('addBtn');
-const listHeader = document.getElementById('listHeader');
-const recBadge = document.getElementById('recBadge');
-const recCount = document.getElementById('recCount');
-const exportBtn = document.getElementById('exportBtn');
-const exportCount = document.getElementById('exportCount');
-const exportDone = document.getElementById('exportDone');
-const bcCreateTicket = document.getElementById('bc-create-ticket');
+const $ = (s, r) => (r || document).querySelector(s);
+const gallery = $('#gallery');
+const evCount = $('#evCount');
+const descWrap = $('#descWrap');
+const descField = $('#descField');
+const kvList = $('#kvList');
+const addFieldBtn = $('#addFieldBtn');
+const createBtn = $('#createBtn');
+const briefCloudBtn = $('#briefCloudBtn');
+const brandMark = $('#brandMark');
+const scrim = $('#scrim');
+const sheet = $('#sheet');
+const sheetBody = $('#sheetBody');
+const sheetTitle = $('#sheetTitle');
+const sheetClose = $('#sheetClose');
+const sheetAction = $('#sheetAction');
+const resetBtn = $('#resetBtn');
+const toastEl = $('#toast');
+const exportDone = $('#exportDone');
+
+const MAX_SHOTS = 3;
+
+let draft = emptyDraft();
 let bcConnected = false;
-// Which tracker the paired account has: "linear" | "jira" | null (none) |
-// undefined (not checked yet / offline - assume OK, the process route is the
-// backstop). Refreshed from /api/me on every popup open so switching to an
-// account WITHOUT a tracker is caught before filing, not after.
 let bcTracker;
+let filing = false;
+let currentSheet = null; // 'shot:<id>' | 'rec' | 'chooser' | 'reset' | null
+let lastSig = '';
 
-// The popup makes its own inbox writes (archive swipe-out, filing) and manages
-// the DOM for them itself. The storage.onChanged listener below must stand down
-// during those, or its full list rebuild destroys the in-progress per-row
-// animation (archive) and flickers the list (filing). `bcFiling` covers the
-// whole multi-brief filing run; `suppressInboxListenerUntil` is a short window
-// for one-off animated writes like archive.
-let bcFiling = false;
-let suppressInboxListenerUntil = 0;
-function suppressInboxListener(ms = 600) {
-  suppressInboxListenerUntil = Date.now() + ms;
-}
+// Generic video poster when the recording's keyframe poster hasn't landed yet.
+const REC_FALLBACK = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='320' height='200'><rect width='320' height='200' fill='%23fbfaf7'/><rect width='320' height='26' fill='%23ece6d6'/><circle cx='14' cy='13' r='4' fill='%23dd6936'/><circle cx='28' cy='13' r='4' fill='%23d9d2c4'/><circle cx='42' cy='13' r='4' fill='%23d9d2c4'/><g fill='%23d9d2c4'><rect x='16' y='52' width='200' height='10' rx='3'/><rect x='16' y='78' width='250' height='10' rx='3'/><rect x='16' y='104' width='150' height='10' rx='3'/></g></svg>";
 
-// Storage key for cached mic grant. Cache is good for the extension's
-// session - Chrome invalidates the underlying grant if the user revokes it.
-const MIC_CACHE_KEY = 'micGrantedAt';
-const MIC_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
-
-// Defensive: the success overlay must never be visible on open.
 exportDone.hidden = true;
 
+// ---------- helpers ----------
+function esc(s) { return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function genShotId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
+function dataUrlToBytes(dataUrl) {
+  const b64 = dataUrl.split(',')[1] || '';
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+let toastTimer;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600);
+}
+async function persist(patch) {
+  const updated = await updateDraft(draft.id, patch);
+  if (updated) draft = updated;
+  return updated;
+}
+
+// ---------- mic pre-flight (reveal UI) ----------
+const MIC_CACHE_KEY = 'micGrantedAt';
+const MIC_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 (async () => {
-  // Fast path: check the cache. If a recent grant exists, reveal UI now,
-  // probe in the background to refresh.
   const { [MIC_CACHE_KEY]: grantedAt } = await chrome.storage.local.get(MIC_CACHE_KEY);
-  const cacheFresh = grantedAt && (Date.now() - grantedAt < MIC_CACHE_TTL_MS);
-  if (cacheFresh) {
+  if (grantedAt && Date.now() - grantedAt < MIC_CACHE_TTL_MS) {
     document.body.classList.add('ready');
-    // Refresh the cache silently for next time (don't await - don't block UI)
-    probeMic().then((ok) => {
-      if (ok) {
-        chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() });
-      } else {
-        chrome.storage.local.remove(MIC_CACHE_KEY);
-      }
-    });
+    probeMic().then((ok) => ok ? chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() }) : chrome.storage.local.remove(MIC_CACHE_KEY));
     return;
   }
-  // Slow path: must actually probe
   const ok = await probeMic();
-  if (!ok) {
-    await chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') });
-    window.close();
-    return;
-  }
+  if (!ok) { await chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }); window.close(); return; }
   await chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() });
   document.body.classList.add('ready');
 })();
-
 async function probeMic() {
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((t) => t.stop());
-    return true;
-  } catch (err) {
-    console.warn('[brief/popup] mic probe failed:', err?.name, err?.message);
-    return false;
-  }
+  try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((t) => t.stop()); return true; }
+  catch (err) { console.warn('[brief/popup] mic probe failed:', err?.name); return false; }
 }
-
 async function ensureContentScript(tabId) {
-  try {
-    const r = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-    if (r?.ok) return;
-  } catch {}
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ['content.js'],
-  });
+  try { const r = await chrome.tabs.sendMessage(tabId, { type: 'PING' }); if (r?.ok) return; } catch {}
+  await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
   await new Promise((r) => setTimeout(r, 50));
 }
 
-// Inline error bar. `action` (optional) = { linkText, url } renders a tappable
-// fix-it link (e.g. "Connect a tracker →") after the message.
+// ---------- inline error ----------
 function showInlineError(msg, action) {
-  let bar = document.getElementById('errBar');
-  if (!bar) {
-    bar = document.createElement('div');
-    bar.id = 'errBar';
-    bar.className = 'err-bar';
-    document.getElementById('app').appendChild(bar);
-  }
+  const bar = $('#errBar');
   bar.textContent = msg;
   if (action?.linkText && action?.url) {
     bar.appendChild(document.createTextNode(' '));
     const a = document.createElement('a');
-    a.href = '#';
-    a.className = 'err-link';
-    a.textContent = action.linkText;
-    a.addEventListener('click', (e) => {
-      e.preventDefault();
-      chrome.tabs.create({ url: action.url });
-      window.close();
-    });
+    a.href = '#'; a.className = 'err-link'; a.textContent = action.linkText;
+    a.addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: action.url }); window.close(); });
     bar.appendChild(a);
   }
   bar.classList.add('show');
 }
+function clearInlineError() { $('#errBar').classList.remove('show'); $('#errBar').textContent = ''; }
 
-function clearInlineError() {
-  const bar = document.getElementById('errBar');
-  if (bar) bar.classList.remove('show');
+// ---------- signature (background-change detection) ----------
+function sig(d) {
+  if (!d) return 'none';
+  return [
+    (d.screenshots || []).length,
+    !!d.recording, d.recording?.poster ? 1 : 0,
+    d.uploading, d.uploadFailed, d.cloudBriefId || '',
+    d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()),
+  ].join('|');
 }
 
-async function recordForItem(itemId, recBtn) {
-  clearInlineError();
+// ---------- render ----------
+function setBrandSpin(on) { brandMark?.classList.toggle('spinning', !!on); }
+function render() {
+  renderGallery();
+  updateCreate();
+  setBrandSpin(filing || !!draft.uploading);
+  lastSig = sig(draft);
+}
 
-  // Cloud-only: a recording is uploaded straight to Brief Cloud when it
-  // stops - there is no local fallback anymore, so recording without a
-  // pairing would lose the video. Pair first, then record.
-  let cloudToken = null;
-  try { cloudToken = await getCloudToken(); } catch {}
-  if (!cloudToken) {
-    await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
-    window.close();
-    return;
+const X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const REFRESH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>';
+const SHEET_X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
+const SHEET_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+function renderGallery() {
+  const shots = Array.isArray(draft.screenshots) ? draft.screenshots : [];
+  let html = '';
+  shots.forEach((s, i) => {
+    const hasNote = s.description && s.description.trim();
+    html += `<div class="tile shot" data-shot="${s.id}">` +
+      `<span class="badge">${i + 1}</span>` +
+      `<button class="remove" data-rm="${s.id}" aria-label="Remove screenshot">${X_SVG}</button>` +
+      `<div class="thumb"><img src="${s.dataUrl}" alt="Screenshot ${i + 1}"></div>` +
+      (hasNote
+        ? `<div class="note-strip"><span class="ntxt">${esc(s.description)}</span></div>`
+        : `<div class="note-strip empty"><span class="ico"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>Note</div>`) +
+      `</div>`;
+  });
+
+  if (draft.recording) {
+    const poster = draft.recording.poster || REC_FALLBACK;
+    const transcribing = draft.transcribing && !draft.uploading && !draft.uploadFailed;
+    const dotCls = draft.uploading ? 'updot up' : draft.uploadFailed ? 'updot failed' : (transcribing ? 'updot up' : 'updot');
+    const footLabel = draft.uploading ? 'Uploading' : draft.uploadFailed ? 'Upload failed' : (transcribing ? 'Transcribing' : 'Recording');
+    html += `<div class="tile rec" data-rec="1">` +
+      `<button class="remove" data-rm="rec" aria-label="Remove recording">${X_SVG}</button>` +
+      `<div class="thumb"><img src="${poster}" alt="Recording"><span class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>` +
+      `<div class="rec-foot"><span class="${dotCls}"></span>${footLabel}</div>` +
+      `</div>`;
   }
 
-  if (recBtn) { recBtn.disabled = true; recBtn.classList.add('loading'); }
+  const canAddShot = shots.length < MAX_SHOTS;
+  const canAddVideo = !draft.recording;
+  if (canAddShot || canAddVideo) {
+    html += `<div class="tile add" data-add="1">` +
+      `<span class="plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>` +
+      `<span class="add-lbl">Add</span></div>`;
+  }
 
+  gallery.innerHTML = html;
+  evCount.textContent = String(shots.length + (draft.recording ? 1 : 0));
+}
+
+// ---------- additional data (inline: description + custom fields) ----------
+function readKv() {
+  return [...kvList.querySelectorAll('.sheet-field')]
+    .map((r) => ({ key: $('.k', r).value, value: $('.v', r).value }))
+    .filter((f) => f.key.trim() || f.value.trim());
+}
+let kvTimer = null;
+function persistKv() { clearTimeout(kvTimer); kvTimer = setTimeout(() => persist((d) => { d.extra = readKv(); }), 250); }
+function renderKvRows() {
+  const fields = Array.isArray(draft.extra) ? draft.extra : [];
+  kvList.innerHTML = fields.map((f) => fieldRowHTML(f)).join('');
+}
+// Reflect the current draft into the inline fields (boot + after reset). Kept out
+// of render() so background updates never clobber what the user is typing.
+function syncAdditionalData() {
+  descField.value = draft.description || '';
+  renderKvRows();
+}
+function initAdditionalData() {
+  const persistDesc = () => persist((d) => { d.description = descField.value; }).then(updateCreate);
+  let dt = null;
+  descField.addEventListener('input', () => { clearTimeout(dt); dt = setTimeout(persistDesc, 250); });
+  descField.addEventListener('blur', () => { clearTimeout(dt); persistDesc(); });
+  attachVoiceDictation(descField, descWrap, persistDesc);
+  kvList.addEventListener('input', persistKv);
+  kvList.addEventListener('click', (e) => { const fx = e.target.closest('.fx'); if (fx) { fx.closest('.sheet-field').remove(); persistKv(); } });
+  addFieldBtn.addEventListener('click', () => {
+    kvList.insertAdjacentHTML('beforeend', fieldRowHTML({ key: '', value: '' }));
+    $('.k', kvList.lastElementChild)?.focus();
+  });
+  syncAdditionalData();
+}
+
+function updateCreate() {
+  if (filing) return;
+  const label = createBtn.querySelector('.ctk-label');
+  if (draft.uploading) { createBtn.disabled = true; if (label) label.textContent = 'Uploading…'; else createBtn.textContent = 'Uploading…'; }
+  else { createBtn.disabled = !isReadyDraft(draft); if (label) label.textContent = 'Create ticket'; }
+}
+
+// ---------- sheets ----------
+let sheetActionHandler = null;
+function openSheet(title, bodyHTML, onReady, key, headAction, closeAsCheck) {
+  currentSheet = key || null;
+  sheetTitle.innerHTML = title;
+  sheetBody.innerHTML = bodyHTML;
+  sheetBody.scrollTop = 0;
+  // For evidence editors the close reads as "done, all good" - a check, not an X.
+  if (closeAsCheck) { sheetClose.innerHTML = SHEET_CHECK_SVG; sheetClose.classList.add('confirm'); sheetClose.title = 'Done'; sheetClose.setAttribute('aria-label', 'Done'); }
+  else { sheetClose.innerHTML = SHEET_X_SVG; sheetClose.classList.remove('confirm'); sheetClose.title = 'Close'; sheetClose.setAttribute('aria-label', 'Close'); }
+  if (headAction) {
+    sheetAction.hidden = false;
+    sheetAction.innerHTML = headAction.html;
+    sheetAction.title = headAction.title || '';
+    sheetAction.setAttribute('aria-label', headAction.title || '');
+    sheetActionHandler = headAction.onClick;
+  } else {
+    sheetAction.hidden = true;
+    sheetActionHandler = null;
+  }
+  scrim.classList.add('open');
+  sheet.classList.add('open');
+  document.body.classList.add('sheet-open');
+  if (onReady) onReady(sheetBody);
+}
+sheetAction.addEventListener('click', () => { if (sheetActionHandler) sheetActionHandler(); });
+function closeSheet() {
+  sheet.classList.remove('open');
+  scrim.classList.remove('open');
+  document.body.classList.remove('sheet-open');
+  currentSheet = null;
+  // Reflect any edits made in the sheet, then re-baseline the signature so the
+  // storage listener doesn't immediately rebuild on our own write.
+  render();
+}
+scrim.addEventListener('click', closeSheet);
+sheetClose.addEventListener('click', closeSheet);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && currentSheet) closeSheet(); });
+
+// ---------- shot sheet ----------
+function openShot(id) {
+  const idx = (draft.screenshots || []).findIndex((s) => s.id === id);
+  if (idx < 0) return;
+  const s = draft.screenshots[idx];
+  const body =
+    `<div class="shot-preview"><img src="${s.dataUrl}" alt="Screenshot ${idx + 1}"></div>` +
+    `<div class="field-label">Note</div>` +
+    `<div class="ai-wrap" id="shotNoteWrap"><textarea class="ai-field has-mic" id="shotNote" placeholder="Add a note for this screenshot">${esc(s.description || '')}</textarea></div>`;
+  const retake = async () => {
+    await persist((d) => { d.screenshots = (d.screenshots || []).filter((x) => x.id !== id); });
+    takeScreenshot(); // captures a fresh one (closes the popup)
+  };
+  openSheet(`Screenshot <em>${idx + 1}</em>`, body, (root) => {
+    const ta = $('#shotNote', root);
+    ta.focus(); try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch {}
+    const persistNote = () => persist((d) => { const h = (d.screenshots || []).find((x) => x.id === id); if (h) h.description = ta.value; });
+    let t = null;
+    ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistNote, 250); });
+    attachVoiceDictation(ta, $('#shotNoteWrap', root), persistNote);
+  }, 'shot:' + id, { html: REFRESH_SVG, title: 'Retake', onClick: retake }, true);
+}
+
+// ---------- recording sheet ----------
+function openRec() {
+  const r = draft.recording;
+  if (!r) return;
+  const poster = r.poster || REC_FALLBACK;
+  // While transcribing: a non-editable animated placeholder (user can't type into
+  // it). When done: the editable field. The swap happens once (see the storage
+  // listener), so it never glitches.
+  const phold = draft.transcriptFailed ? 'Auto-transcription failed - type it here' : 'Transcript';
+  const trBlock = draft.transcribing
+    ? `<div class="transcribing" id="trState" role="status" aria-live="polite"><span class="tr-dots"><i></i><i></i><i></i></span><span class="tr-label">Transcribing</span></div>`
+    : `<div class="ai-wrap"><textarea class="ai-field transcript has-mic" id="recTranscript" placeholder="${phold}">${esc(draft.transcript || '')}</textarea></div>`;
+  const body =
+    `<img class="rec-poster" src="${poster}" alt="Recording preview">` +
+    `<div class="field-label">Transcript</div>` +
+    `<div id="trWrap">${trBlock}</div>` +
+    `<div class="toggle-row"><span class="lbl">Attach the video to the ticket</span>` +
+      `<button class="switch${draft.includeVideo ? ' on' : ''}" id="recAttach" role="switch" aria-checked="${!!draft.includeVideo}"><span class="knob"></span></button></div>`;
+  openSheet('Recording', body, (root) => {
+    const ta = $('#recTranscript', root);
+    if (ta) {
+      let t = null;
+      const persistTr = () => persist((d) => { d.transcript = ta.value; });
+      ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistTr, 250); });
+      // Same voice-record mic as a screenshot note: dictate corrections/additions
+      // straight into the transcript.
+      attachVoiceDictation(ta, ta.parentElement, persistTr);
+    }
+    const sw = $('#recAttach', root);
+    sw.addEventListener('click', async () => {
+      await persist((d) => { d.includeVideo = !d.includeVideo; });
+      sw.classList.toggle('on', draft.includeVideo);
+      sw.setAttribute('aria-checked', String(!!draft.includeVideo));
+    });
+  }, 'rec', { html: REFRESH_SVG, title: 'Re-record', onClick: () => recordBrief() }, true);
+}
+
+// ---------- add chooser ----------
+function openAddChooser() {
+  const shots = (draft.screenshots || []).length;
+  const canShot = shots < MAX_SHOTS;
+  const canVid = !draft.recording;
+  const body = `<div class="chooser">` +
+    `<button class="choice" id="chShot" ${canShot ? '' : 'disabled'}>` +
+      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 17-5-5-4 4-2-2-4 4"/></svg></span>` +
+      `<span class="ctxt"><span class="ct">Screenshot</span><span class="cs">${canShot ? `${shots} of ${MAX_SHOTS}` : 'Limit reached'}</span></span>` +
+      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
+    `<button class="choice" id="chVid" ${canVid ? '' : 'disabled'}>` +
+      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m10 8 6 4-6 4z"/><rect x="3" y="4" width="18" height="16" rx="3"/></svg></span>` +
+      `<span class="ctxt"><span class="ct">Video</span><span class="cs">${canVid ? 'Record the screen' : 'Already added'}</span></span>` +
+      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
+    `</div>`;
+  openSheet('Add to <em>brief</em>', body, (root) => {
+    if (canShot) $('#chShot', root).addEventListener('click', () => takeScreenshot());
+    if (canVid) $('#chVid', root).addEventListener('click', () => recordBrief());
+  }, 'chooser');
+}
+
+// ---------- describe sheet (description + custom fields together) ----------
+function fieldRowHTML(f) {
+  return `<div class="sheet-field">` +
+    `<input class="k" placeholder="Field" value="${esc((f && f.key) || '')}" autocomplete="off">` +
+    `<input class="v" placeholder="Value" value="${esc((f && f.value) || '')}" autocomplete="off">` +
+    `<button class="fx" type="button" aria-label="Remove field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`;
+}
+
+// ---------- reset ----------
+function openReset() {
+  const TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7"/></svg>';
+  const body = `<div class="sheet-actions"><button class="s-btn danger" id="resetConfirm">${TRASH}Reset brief</button></div>`;
+  openSheet('Reset the <em>brief</em>?', body, (root) => {
+    $('#resetConfirm', root).addEventListener('click', async () => {
+      await clearDraft();
+      draft = emptyDraft();
+      await setDraft(draft);
+      lastSig = sig(draft);
+      syncAdditionalData();
+      closeSheet();
+      toast('Brief reset');
+    });
+  }, 'reset');
+}
+
+// ---------- capture ----------
+async function recordBrief() {
+  clearInlineError();
+  let token = null; try { token = await getCloudToken(); } catch {}
+  if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) {
-      showInlineError('Switch to a regular web page to record.');
-      if (recBtn) { recBtn.disabled = false; recBtn.classList.remove('loading'); }
-      return;
-    }
-
-    // Tear down any leftover recording infrastructure first
-    try {
-      await chrome.runtime.sendMessage({ type: 'RESET_BEFORE_NEW_RECORDING' });
-    } catch {}
-
+    if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) { showInlineError('Switch to a regular web page to record.'); return; }
+    try { await chrome.runtime.sendMessage({ type: 'RESET_BEFORE_NEW_RECORDING' }); } catch {}
     await ensureContentScript(tab.id);
-
     const streamId = await new Promise((resolve, reject) => {
       chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-        if (chrome.runtime.lastError || !id) {
-          reject(new Error(chrome.runtime.lastError?.message || 'no_stream_id'));
-        } else {
-          resolve(id);
-        }
+        if (chrome.runtime.lastError || !id) reject(new Error(chrome.runtime.lastError?.message || 'no_stream_id')); else resolve(id);
       });
     });
-
-    await chrome.tabs.sendMessage(tab.id, {
-      type: 'INJECT_BAR',
-      streamId,
-      intent: 'brief',
-      mode: 'inbox',
-      itemId, // record for this specific pre-named brief
-    });
-
+    await chrome.tabs.sendMessage(tab.id, { type: 'INJECT_BAR', streamId, intent: 'brief', mode: 'inbox', itemId: draft.id });
     window.close();
-  } catch (err) {
-    console.error('[brief/popup] start failed:', err);
-    showInlineError(`Could not start: ${err?.message || err}`);
-    if (recBtn) { recBtn.disabled = false; recBtn.classList.remove('loading'); }
-  }
+  } catch (err) { console.error('[brief/popup] start failed:', err); showInlineError(`Could not start: ${err?.message || err}`); }
 }
 
-// Open the tickets page WITHOUT stacking up tabs:
-//  1. a /tickets tab is already open -> focus + reload it (the new ticket shows)
-//  2. any other Brief Cloud tab is open (e.g. /dashboard) -> reuse it, navigate
-//     it to /tickets, focus it (don't strand the user on a stale page or open a
-//     duplicate)
-//  3. nothing open -> a fresh tab
+async function takeScreenshot() {
+  clearInlineError();
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) { showInlineError('Switch to a regular web page to screenshot.'); return; }
+    const res = await chrome.runtime.sendMessage({ type: 'START_SHOT', itemId: draft.id });
+    if (res && res.ok === false) { showInlineError(res.error === 'unsupported_page' ? 'Can’t screenshot this page.' : `Couldn’t capture: ${res.error}`); return; }
+    window.close();
+  } catch (err) { showInlineError(`Couldn’t capture: ${err?.message || err}`); }
+}
+
+// ---------- filing ----------
+async function activePageContext() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return null;
+    return { url: tab.url, title: tab.title || null };
+  } catch { return null; }
+}
+function buildScreenshotFiles(d) {
+  return (d.screenshots || []).map((s) => ({ name: `screenshots/${s.id}.png`, blob: new Blob([dataUrlToBytes(s.dataUrl)], { type: 'image/png' }), contentType: 'image/png' }));
+}
+function buildOverrides(d) {
+  return {
+    title: d.name || '',
+    includeVideo: !!d.includeVideo,
+    transcript: d.transcript || '',
+    description: d.description || '',
+    extra: (d.extra || []).filter((p) => (p.key || '').trim() || (p.value || '').trim()),
+    screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
+  };
+}
+function buildBriefJsonAndMeta(d, page) {
+  const pageUrl = d.pageUrl || page?.url || null;
+  const pageTitle = d.pageTitle || page?.title || null;
+  const briefJson = {
+    id: d.id, name: d.name || '', createdAt: d.createdAt || Date.now(),
+    source: d.recording ? 'recording' : ((d.screenshots || []).length ? 'screenshot' : 'text'),
+    description: d.description || '', transcript: d.transcript || '', pageUrl, pageTitle,
+    hasRecording: !!d.recording,
+    screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
+    includeVideo: !!d.includeVideo,
+    extra: (d.extra || []).filter((p) => (p.key || '').trim() || (p.value || '').trim()),
+  };
+  const files = [{ name: 'brief.json', blob: new Blob([JSON.stringify(briefJson, null, 2)], { type: 'application/json' }), contentType: 'application/json' }];
+  const meta = { title: d.name || '', description: d.description || '', transcript: d.transcript || '', pageUrl, pageTitle, hasScreenshot: (d.screenshots || []).length > 0, keyframeCount: 0 };
+  return { files, meta };
+}
+function bcShowSentAndOpen() {
+  exportDone.hidden = false;
+  setTimeout(() => { openTicketsTab(); }, 1600);
+}
+function failFiling(err) {
+  filing = false;
+  setBrandSpin(false);
+  const label = createBtn.querySelector('.ctk-label');
+  if (label) label.textContent = 'Create ticket';
+  createBtn.disabled = false;
+  updateCreate();
+  if (err?.code === 'no_tracker') showInlineError('No tracker connected yet - link Linear or Jira, then try again.', { linkText: 'Connect a tracker →', url: `${APP_URL}/connections` });
+  else showInlineError(`Couldn’t send: ${err?.message || err}`);
+}
+async function fileBrief() {
+  clearInlineError();
+  if (!isReadyDraft(draft) || draft.uploading) return;
+  let token = null; try { token = await getCloudToken(); } catch {}
+  if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
+  if (bcTracker === null) { showInlineError('This account has no tracker connected - link Linear or Jira, then try again.', { linkText: 'Connect a tracker →', url: `${APP_URL}/connections` }); return; }
+
+  filing = true;
+  setBrandSpin(true);
+  createBtn.disabled = true;
+  const label = createBtn.querySelector('.ctk-label');
+  if (label) label.innerHTML = '<span class="btn-spin"></span> Filing…';
+
+  const uploadAndFile = async () => {
+    const shotFiles = buildScreenshotFiles(draft);
+    if (!draft.cloudBriefId) {
+      const page = await activePageContext();
+      const { files, meta } = buildBriefJsonAndMeta(draft, page);
+      const id = await uploadDraft([...files, ...shotFiles], meta);
+      await persist((d) => { d.cloudBriefId = id; });
+    } else if (shotFiles.length) {
+      await uploadFilesToDraft(draft.cloudBriefId, shotFiles);
+    }
+    await processBrief(draft.cloudBriefId, buildOverrides(draft));
+  };
+
+  try {
+    await uploadAndFile();
+  } catch (err) {
+    if (err?.status === 404 && draft.cloudBriefId) {
+      try { await persist((d) => { d.cloudBriefId = null; }); await uploadAndFile(); }
+      catch (err2) { return failFiling(err2); }
+    } else { return failFiling(err); }
+  }
+  await clearDraft();
+  draft = emptyDraft();
+  await setDraft(draft);
+  bcShowSentAndOpen();
+}
+
+// ---------- tickets tab + cloud button ----------
 async function openTicketsTab() {
   try {
     const ticketTabs = await chrome.tabs.query({ url: `${TICKETS_URL}*` });
@@ -203,8 +483,7 @@ async function openTicketsTab() {
       const tab = ticketTabs[0];
       await chrome.tabs.update(tab.id, { active: true });
       try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
-      chrome.tabs.reload(tab.id);
-      return;
+      chrome.tabs.reload(tab.id); return;
     }
     const appTabs = await chrome.tabs.query({ url: `${APP_URL}/*` });
     if (appTabs.length && appTabs[0].id != null) {
@@ -216,336 +495,18 @@ async function openTicketsTab() {
   } catch {}
   await chrome.tabs.create({ url: TICKETS_URL }).catch(() => {});
 }
-
-// "Brief Cloud" - open the web app. Pairing is automatic: if we don't have a
-// token yet, open the connect page (which mints + pushes a token when you're
-// signed in, then lands you on your tickets); if we already have one, go
-// straight to the tickets page (reusing an existing tab). No manual "connect"
-// step, no settings page.
 briefCloudBtn?.addEventListener('click', async () => {
-  let token = null;
-  try { token = await getCloudToken(); } catch {}
-  if (token) {
-    await openTicketsTab();
-  } else {
-    await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
-  }
+  let token = null; try { token = await getCloudToken(); } catch {}
+  if (token) await openTicketsTab();
+  else await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
   window.close();
 });
 
-// ---------- Inbox state + rendering ----------
-let inboxExpanded = false;
-
-async function getInbox() {
-  const { inbox } = await chrome.storage.local.get('inbox');
-  return Array.isArray(inbox) ? inbox : [];
-}
-async function setInbox(list) {
-  await chrome.storage.local.set({ inbox: list });
-  chrome.runtime.sendMessage({ type: 'INBOX_CHANGED' }).catch(() => {});
-}
-
-function genId() {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-// A brief is "ready" to export once it has ANY evidence: a recording, an
-// annotated screenshot, or a typed description.
-function isReady(b) {
-  return !!(b.hasRecording || b.recorded || b.screenshot || (b.description && b.description.trim()));
-}
-
-// SVG snippets
-const ICON_ARCHIVE = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>';
-const ICON_CAM = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
-const ICON_VIDEO = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2z"/><path d="M15 10l6-3v10l-6-3"/></svg>';
-// The brand 4-point star (✦), filled with currentColor so CSS can tint it. Used
-// as the live upload indicator on a brief - it spins while the recording uploads
-// in the background, instead of a "uploading…" / "upload failed" text label.
-const ICON_MARK = '<svg viewBox="0 0 128 128" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M64 16 C70 44, 84 58, 112 64 C84 70, 70 84, 64 112 C58 84, 44 70, 16 64 C44 58, 58 44, 64 16 Z"/></svg>';
-
-async function screenshotForItem(itemId, btn) {
-  clearInlineError();
-  if (btn) { btn.disabled = true; btn.classList.add('loading'); }
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) {
-      showInlineError('Switch to a regular web page to screenshot.');
-      if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
-      return;
-    }
-    const res = await chrome.runtime.sendMessage({ type: 'START_SHOT', itemId });
-    if (res && res.ok === false) {
-      showInlineError(res.error === 'unsupported_page' ? 'Can\u2019t screenshot this page.' : `Couldn\u2019t capture: ${res.error}`);
-      if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
-      return;
-    }
-    // The annotator overlay is now open on the page; close the popup so the
-    // user can draw. The screenshot is saved to storage when they hit Save.
-    window.close();
-  } catch (err) {
-    showInlineError(`Couldn\u2019t capture: ${err?.message || err}`);
-    if (btn) { btn.disabled = false; btn.classList.remove('loading'); }
-  }
-}
-
-function buildItem(b) {
-  const ready = isReady(b);
-  const li = document.createElement('li');
-  li.className = `brief-item ${ready ? 'ready' : 'draft'}`;
-  if (b.uploading) li.classList.add('uploading');
-  li.dataset.id = b.id;
-
-  // --- main row ---
-  const row = document.createElement('div');
-  row.className = 'brief-row';
-
-  const status = document.createElement('span');
-  status.className = 'brief-status';
-  status.title = ready ? 'Ready' : 'No evidence yet';
-
-  const input = document.createElement('input');
-  input.className = 'brief-name-input';
-  input.type = 'text';
-  input.maxLength = 60;
-  input.placeholder = 'Untitled brief';
-  input.value = b.name || '';
-  input.spellcheck = false;
-  input.addEventListener('blur', async () => {
-    const list = await getInbox();
-    const entry = list.find((x) => x.id === b.id);
-    if (entry && entry.name !== input.value.trim()) {
-      entry.name = input.value.trim();
-      await setInbox(list);
-    }
-  });
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-  });
-
-  // Capture controls. Compact icon buttons; they show what's been added.
-  const actions = document.createElement('span');
-  actions.className = 'brief-actions';
-
-  // The record button doubles as the background-upload indicator: while the
-  // recording uploads (offscreen), the camera icon is REPLACED by the brand ✦
-  // mark spinning in place; on failure it turns red (hover for the reason,
-  // click to re-record). It reverts to the camera icon once UPLOAD_RESULT lands.
-  const hasRec = !!(b.hasRecording || b.recorded);
-  const recBtn = document.createElement('button');
-  if (b.uploading) {
-    recBtn.className = 'cap-btn up-mark spinning';
-    recBtn.innerHTML = ICON_MARK;
-    recBtn.title = 'Uploading the recording…';
-    recBtn.disabled = true;
-  } else if (b.uploadFailed) {
-    recBtn.className = 'cap-btn up-mark failed';
-    recBtn.innerHTML = ICON_MARK;
-    recBtn.title = `Upload failed: ${b.uploadError || 'unknown error'} - click to re-record`;
-    recBtn.addEventListener('click', () => recordForItem(b.id, recBtn));
-  } else {
-    recBtn.className = 'cap-btn' + (hasRec ? ' done' : '');
-    recBtn.title = hasRec ? 'Re-record' : 'Record voice + screen';
-    recBtn.innerHTML = ICON_VIDEO;
-    recBtn.addEventListener('click', () => recordForItem(b.id, recBtn));
-  }
-  actions.appendChild(recBtn);
-
-  const shotBtn = document.createElement('button');
-  shotBtn.className = 'cap-btn' + (b.screenshot ? ' done' : '');
-  shotBtn.title = b.screenshot ? 'Retake screenshot' : 'Screenshot + draw';
-  shotBtn.innerHTML = ICON_CAM;
-  shotBtn.addEventListener('click', () => screenshotForItem(b.id, shotBtn));
-
-  actions.appendChild(shotBtn);
-
-  // Disclosure toggle (description + video + additional data).
-  const hasExtras = (b.description && b.description.trim()) || b.includeVideo || (Array.isArray(b.extra) && b.extra.length > 0);
-  const toggle = document.createElement('button');
-  toggle.className = 'brief-more' + (hasExtras ? ' has-extras' : '');
-  toggle.title = 'Details';
-  toggle.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
-
-  const archive = document.createElement('button');
-  archive.className = 'brief-archive';
-  archive.title = 'Archive';
-  archive.innerHTML = ICON_ARCHIVE;
-  archive.addEventListener('click', () => archiveItem(b.id, li));
-
-  row.appendChild(status);
-  row.appendChild(input);
-  row.appendChild(actions);
-  row.appendChild(toggle);
-  row.appendChild(archive);
-
-  // --- detail panel ---
-  const panel = buildDetailPanel(b);
-  toggle.addEventListener('click', () => toggleExpand(li, toggle));
-
-  li.appendChild(row);
-  li.appendChild(panel);
-  return li;
-}
-
-// Accordion: opening one brief closes the others. Sequenced so both panels
-// aren't expanded at full height at the same instant (which briefly overflowed
-// the list and flashed a scrollbar).
-function toggleExpand(li, toggle) {
-  const isOpen = li.classList.contains('expanded');
-
-  // Collapse any open panels first.
-  let hadOther = false;
-  briefList.querySelectorAll('.brief-item.expanded').forEach((other) => {
-    if (other !== li) hadOther = true;
-    other.classList.remove('expanded');
-    other.querySelector('.brief-more')?.classList.remove('open');
-  });
-
-  if (isOpen) return; // we were toggling this one closed
-
-  const open = () => {
-    li.classList.add('expanded');
-    toggle.classList.add('open');
-  };
-
-  // Prevent a transient scrollbar while panels animate: briefly lock overflow,
-  // restore it once the expand transition has settled.
-  briefList.classList.add('animating');
-  clearTimeout(briefList._animTimer);
-  briefList._animTimer = setTimeout(() => {
-    briefList.classList.remove('animating');
-    // If the freshly-opened panel sits below the fold, ease it into view now
-    // that heights are stable (no fighting the height transition).
-    if (li.classList.contains('expanded')) li.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, 320);
-
-  // If another panel was open, wait for its collapse to progress before
-  // expanding this one, so total height never spikes past the viewport.
-  if (hadOther) {
-    requestAnimationFrame(() => requestAnimationFrame(open));
-  } else {
-    open();
-  }
-}
-
-// Per-brief details: text description + attach-video + key/value data.
-function buildDetailPanel(b) {
-  const panel = document.createElement('div');
-  panel.className = 'brief-detail';
-
-  // One "Additional data" section holding the description + key/value fields.
-  const sectionTitle = document.createElement('div');
-  sectionTitle.className = 'opt-data-title';
-  sectionTitle.textContent = 'Additional data';
-  panel.appendChild(sectionTitle);
-
-  // Description textarea
-  const descWrap = document.createElement('div');
-  descWrap.className = 'opt-desc';
-  const desc = document.createElement('textarea');
-  desc.className = 'desc-input';
-  desc.rows = 3;
-  desc.placeholder = 'Describe the brief…';
-  desc.value = b.description || '';
-  desc.spellcheck = true;
-  let descTimer = null;
-  async function persistDesc() {
-    const list = await getInbox();
-    const entry = list.find((x) => x.id === b.id);
-    if (entry && (entry.description || '') !== desc.value) {
-      entry.description = desc.value;
-      await setInbox(list);
-      markExtras(b.id);
-      refreshStatus(b.id); // description alone makes a brief ready
-    }
-  }
-  // Persist as the user types (debounced) so a brief is saved even if they
-  // click Export or close the popup without blurring the field first.
-  desc.addEventListener('input', () => {
-    clearTimeout(descTimer);
-    descTimer = setTimeout(persistDesc, 250);
-  });
-  desc.addEventListener('blur', () => { clearTimeout(descTimer); persistDesc(); });
-  descWrap.appendChild(desc);
-  attachVoiceDictation(desc, descWrap, persistDesc);
-
-  // Attach-recording - only shown when a recording exists for this brief.
-  let attachWrap = null;
-  if (b.hasRecording || b.recorded) {
-    attachWrap = document.createElement('label');
-    attachWrap.className = 'opt-check';
-    const vid = document.createElement('input');
-    vid.type = 'checkbox';
-    vid.checked = !!b.includeVideo;
-    vid.addEventListener('change', async () => {
-      const list = await getInbox();
-      const entry = list.find((x) => x.id === b.id);
-      if (entry) { entry.includeVideo = vid.checked; await setInbox(list); markExtras(b.id); }
-    });
-    attachWrap.appendChild(vid);
-    attachWrap.appendChild(document.createTextNode(' Attach the recording to the ticket'));
-  }
-
-  // Key/value fields under the same section + a single "+ Add field".
-  const dataWrap = document.createElement('div');
-  dataWrap.className = 'opt-data';
-
-  const rows = document.createElement('div');
-  rows.className = 'kv-rows';
-  dataWrap.appendChild(rows);
-
-  const extra = Array.isArray(b.extra) ? b.extra.slice() : [];
-
-  async function persistExtra() {
-    const list = await getInbox();
-    const entry = list.find((x) => x.id === b.id);
-    if (entry) { entry.extra = extra.filter((p) => p.key.trim() || p.value.trim()); await setInbox(list); markExtras(b.id); }
-  }
-
-  function renderRows() {
-    rows.innerHTML = '';
-    extra.forEach((pair, i) => {
-      const r = document.createElement('div');
-      r.className = 'kv-row';
-      const k = document.createElement('input');
-      k.className = 'kv-key'; k.placeholder = 'Label'; k.value = pair.key; k.spellcheck = false;
-      k.addEventListener('input', () => { pair.key = k.value; persistExtra(); });
-      const v = document.createElement('input');
-      v.className = 'kv-val'; v.placeholder = 'Value'; v.value = pair.value; v.spellcheck = false;
-      v.addEventListener('input', () => { pair.value = v.value; persistExtra(); });
-      const del = document.createElement('button');
-      del.className = 'kv-del'; del.title = 'Remove'; del.textContent = '×';
-      del.addEventListener('click', async () => { extra.splice(i, 1); renderRows(); await persistExtra(); });
-      r.appendChild(k); r.appendChild(v); r.appendChild(del);
-      rows.appendChild(r);
-    });
-  }
-  renderRows();
-
-  const addKv = document.createElement('button');
-  addKv.className = 'kv-add';
-  addKv.innerHTML = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add field';
-  addKv.addEventListener('click', () => { extra.push({ key: '', value: '' }); renderRows(); });
-  dataWrap.appendChild(addKv);
-
-  panel.appendChild(descWrap);
-  if (attachWrap) panel.appendChild(attachWrap);
-  panel.appendChild(dataWrap);
-  return panel;
-}
-
-// Voice-to-text: a mic button pinned in the corner of a textarea. Records a
-// short note in the popup (the extension's own page, so getUserMedia works here
-// directly), transcribes it server-side, and APPENDS the result to the field so
-// the user doesn't have to type. Auto-stops at 60s; errors show a brief hint.
+// ---------- voice dictation (description + screenshot notes) ----------
 function attachVoiceDictation(textarea, container, onCommit) {
-  const MIC = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1.5a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0v-7a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg>';
+  const MIC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1.5a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0v-7a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg>';
   const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'desc-mic';
-  btn.title = 'Record a voice note';
-  btn.setAttribute('aria-label', 'Record a voice note');
-  btn.innerHTML = MIC;
+  btn.type = 'button'; btn.className = 'desc-mic'; btn.title = 'Record a voice note'; btn.setAttribute('aria-label', 'Record a voice note'); btn.innerHTML = MIC;
   container.appendChild(btn);
 
   let msgEl = null;
@@ -560,28 +521,19 @@ function attachVoiceDictation(textarea, container, onCommit) {
   let meterCtx = null, meterRaf = null;
   function setState(s) {
     state = s;
-    btn.classList.toggle('rec', s === 'recording');
-    btn.classList.toggle('busy', s === 'busy');
+    btn.classList.toggle('rec', s === 'recording'); btn.classList.toggle('busy', s === 'busy');
     btn.title = s === 'recording' ? 'Stop recording' : 'Record a voice note';
-    btn.innerHTML = s === 'recording' ? '<span class="mic-stop"></span>'
-      : s === 'busy' ? '<span class="mic-spin"></span>'
-      : MIC;
+    btn.innerHTML = s === 'recording' ? '<span class="mic-stop"></span>' : s === 'busy' ? '<span class="mic-spin"></span>' : MIC;
   }
-  function teardown() {
-    stopMeter();
-    if (capTimer) { clearTimeout(capTimer); capTimer = null; }
-    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
-    rec = null; chunks = [];
-  }
+  function teardown() { stopMeter(); if (capTimer) { clearTimeout(capTimer); capTimer = null; } if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } rec = null; chunks = []; }
 
-  // Live voice halo: an analyser on the recording stream drives a ring around
-  // the mic button that grows/brightens with volume, so it visibly "hears" you.
+  // Live voice halo: an analyser drives a ring around the mic that grows and
+  // brightens with your voice, so the button visibly "hears" you.
   function startMeter(s) {
     try {
       meterCtx = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = meterCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.85;
+      analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.85;
       meterCtx.createMediaStreamSource(s).connect(analyser);
       const data = new Uint8Array(analyser.frequencyBinCount);
       let lvl = 0;
@@ -591,10 +543,8 @@ function attachVoiceDictation(textarea, container, onCommit) {
         for (let i = 2; i < 28; i++) if (data[i] > peak) peak = data[i];
         const target = Math.min(1, Math.pow(peak / 255, 1.3));
         lvl += (target - lvl) * 0.18; // ease so the ring glides, never jumps
-        // Keep the halo small (max ~7px). .brief-item has overflow:hidden + 9px
-        // rounded corners (for the accordion), so a larger ring gets clipped.
-        const spread = (2 + lvl * 5).toFixed(2);
-        const alpha = (0.08 + lvl * 0.22).toFixed(3);
+        const spread = (2 + lvl * 6).toFixed(2);
+        const alpha = (0.1 + lvl * 0.28).toFixed(3);
         btn.style.boxShadow = `0 0 0 ${spread}px rgba(221, 105, 54, ${alpha})`;
         meterRaf = requestAnimationFrame(draw);
       };
@@ -603,524 +553,116 @@ function attachVoiceDictation(textarea, container, onCommit) {
   }
   function stopMeter() {
     if (meterRaf) cancelAnimationFrame(meterRaf);
-    meterRaf = null;
-    btn.style.boxShadow = '';
+    meterRaf = null; btn.style.boxShadow = '';
     if (meterCtx) { meterCtx.close().catch(() => {}); meterCtx = null; }
   }
 
   async function start() {
-    let s;
-    try { s = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-    catch { flash('Allow mic access'); return; }
+    let s; try { s = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { flash('Allow mic access'); return; }
     stream = s; chunks = [];
     const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-    try { rec = new MediaRecorder(stream, { mimeType: mime }); }
-    catch { teardown(); flash('Recording unavailable'); return; }
+    try { rec = new MediaRecorder(stream, { mimeType: mime }); } catch { teardown(); flash('Recording unavailable'); return; }
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    rec.onstop = onStop;
-    rec.start();
-    setState('recording');
-    startMeter(stream);
+    rec.onstop = onStop; rec.start(); setState('recording'); startMeter(stream);
     capTimer = setTimeout(() => { if (state === 'recording') stop(); }, 60000);
   }
-
-  function stop() {
-    if (capTimer) { clearTimeout(capTimer); capTimer = null; }
-    try { if (rec && rec.state !== 'inactive') rec.stop(); } catch {}
-  }
-
+  function stop() { if (capTimer) { clearTimeout(capTimer); capTimer = null; } try { if (rec && rec.state !== 'inactive') rec.stop(); } catch {} }
   async function onStop() {
-    const blob = new Blob(chunks, { type: 'audio/webm' });
-    teardown();
+    const blob = new Blob(chunks, { type: 'audio/webm' }); teardown();
     if (!blob.size) { setState('idle'); return; }
     setState('busy');
     try {
       const text = await transcribeNote(blob);
       if (text) {
         const cur = (textarea.value || '').trim();
-        // Programmatic value sets don't fire 'input', so persist explicitly.
         textarea.value = cur ? `${cur} ${text}` : text;
+        textarea.dispatchEvent(new Event('input'));
         textarea.focus();
         try { textarea.setSelectionRange(textarea.value.length, textarea.value.length); } catch {}
         await onCommit();
-      } else {
-        flash('Didn’t catch that');
-      }
-    } catch (err) {
-      console.warn('[brief/popup] dictation failed:', err);
-      flash('Transcription failed');
-    } finally {
-      setState('idle');
-    }
+      } else { flash('Didn’t catch that'); }
+    } catch (err) { console.warn('[brief/popup] dictation failed:', err); flash('Transcription failed'); }
+    finally { setState('idle'); }
   }
-
-  btn.addEventListener('click', () => {
-    if (state === 'recording') stop();
-    else if (state === 'idle') start();
-  });
+  btn.addEventListener('click', () => { if (state === 'recording') stop(); else if (state === 'idle') start(); });
 }
 
-// Re-mark the disclosure dot without a full re-render.
-function markExtras(id) {
-  const li = briefList.querySelector(`.brief-item[data-id="${id}"]`);
-  if (!li) return;
-  const toggle = li.querySelector('.brief-more');
-  getInbox().then((list) => {
-    const b = list.find((x) => x.id === id);
-    const has = b && ((b.description && b.description.trim()) || b.includeVideo || (Array.isArray(b.extra) && b.extra.length > 0));
-    if (toggle) toggle.classList.toggle('has-extras', !!has);
-  });
+// ---------- account status ----------
+async function bcRefresh() {
+  let token = null; try { token = await getCloudToken(); } catch {}
+  bcConnected = !!token;
+  if (!token) return;
+  try { const status = await fetchAccountStatus(); if (!status) return; bcConnected = status.connected; bcTracker = status.tracker; } catch {}
 }
 
-// Reflect ready/draft status (dot + class) without collapsing the open panel.
-function refreshStatus(id) {
-  const li = briefList.querySelector(`.brief-item[data-id="${id}"]`);
-  if (!li) return;
-  getInbox().then((list) => {
-    const b = list.find((x) => x.id === id);
-    if (!b) return;
-    const ready = isReady(b);
-    li.classList.toggle('ready', ready);
-    li.classList.toggle('draft', !ready);
-    const st = li.querySelector('.brief-status');
-    if (st) st.title = ready ? 'Ready' : 'No evidence yet';
-    updateChromeFromStorage();
-  });
-}
-async function updateChromeFromStorage() {
-  updateChrome(await getInbox());
-}
-
-async function archiveItem(id, li) {
-  if (li.classList.contains('swipe-out')) return; // guard double-clicks
-  li.classList.add('swipe-out');
-  const list = await getInbox();
-  const next = list.filter((x) => x.id !== id);
-  // We animate + remove this single row ourselves below; keep the storage
-  // listener from rebuilding the whole list and clobbering the swipe.
-  suppressInboxListener();
-  await setInbox(next);
-  // Remove ONLY this row when its exit animation ends - don't rebuild the whole
-  // list (a rebuild re-runs the entry animation on every remaining row, which
-  // is the flash/glitch). Update the header/export counts in place.
-  const done = () => {
-    li.remove();
-    updateChrome(next);
-    if (next.length === 0) {
-      briefList.hidden = true;
-      emptyState.hidden = false;
-    }
-  };
-  let fired = false;
-  const onEnd = () => { if (!fired) { fired = true; done(); } };
-  li.addEventListener('animationend', onEnd, { once: true });
-  // Fallback in case animationend doesn't fire (e.g. reduced-motion).
-  setTimeout(onEnd, 380);
-}
-
-function updateChrome(items) {
-  const ready = items.filter(isReady).length;
-  // Briefs whose recording is still uploading in the background can't be
-  // filed yet (the cloud draft id hasn't landed) - they gate the button.
-  const fileable = items.filter((b) => isReady(b) && !b.uploading).length;
-  const uploading = items.filter((b) => isReady(b) && b.uploading).length;
-
-  listHeader.hidden = items.length === 0;
-  if (ready > 0) {
-    recBadge.hidden = false;
-    recCount.textContent = String(ready);
-  } else {
-    recBadge.hidden = true;
-  }
-
-  // "Create ticket" is THE primary action whenever briefs are ready - never
-  // silently swapped for the local Export. Not paired (or the pairing died)?
-  // The click opens the pair page and the user tries again - tickets are the
-  // product, a zip download is not an acceptable stand-in.
-  if (ready > 0) {
-    if (bcCreateTicket) {
-      bcCreateTicket.classList.add('is-on');
-      // Reflect how many briefs will be filed (never while a send is running -
-      // the in-flight progress label owns the button then).
-      if (!bcCreateTicket.classList.contains('sending')) {
-        if (fileable === 0 && uploading > 0) {
-          bcCreateTicket.disabled = true;
-          bcCreateTicket.textContent = 'Uploading…';
-        } else {
-          bcCreateTicket.disabled = false;
-          bcCreateTicket.textContent = fileable > 1 ? `Create ${fileable} tickets` : 'Create ticket';
-        }
-      }
-    }
-    exportBtn.classList.remove('is-on');
-  } else {
-    exportBtn.classList.remove('is-on');
-    if (bcCreateTicket) bcCreateTicket.classList.remove('is-on');
-  }
-}
-
-async function refreshInbox({ expandBriefId = null } = {}) {
-  const items = await getInbox();
-  // Remember which briefs are expanded BEFORE we rebuild the list. Filing a
-  // ticket (writes cloudBriefId) and a background upload settling both trigger
-  // this refresh via storage.onChanged - without this, an open detail panel
-  // would snap shut under the user mid-interaction.
-  const expandedIds = new Set(
-    [...briefList.querySelectorAll('.brief-item.expanded')].map((el) => el.dataset.id)
-  );
-  briefList.innerHTML = '';
-  if (items.length === 0) {
-    briefList.hidden = true;
-    emptyState.hidden = false;
-    updateChrome(items);
+// ---------- wiring ----------
+gallery.addEventListener('click', async (e) => {
+  const rm = e.target.closest('[data-rm]');
+  if (rm) {
+    e.stopPropagation();
+    const id = rm.getAttribute('data-rm');
+    const tile = rm.closest('.tile');
+    if (tile) { tile.classList.add('removing'); await new Promise((r) => setTimeout(r, 230)); }
+    if (id === 'rec') { await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.includeVideo = false; }); toast('Recording removed'); }
+    else { await persist((d) => { d.screenshots = (d.screenshots || []).filter((x) => x.id !== id); }); toast('Screenshot removed'); }
+    renderGallery(); updateCreate(); lastSig = sig(draft);
     return;
   }
-  emptyState.hidden = true;
-  briefList.hidden = false;
-  items.forEach((b) => briefList.appendChild(buildItem(b)));
-  // Re-apply expanded state silently (no animation/scroll - this is a passive
-  // refresh, not a user click).
-  expandedIds.forEach((id) => {
-    const li = briefList.querySelector(`[data-id="${CSS.escape(id)}"]`);
-    if (li) {
-      li.classList.add('expanded');
-      li.querySelector('.brief-more')?.classList.add('open');
-    }
-  });
-  updateChrome(items);
+  if (e.target.closest('[data-add]')) return openAddChooser();
+  if (e.target.closest('[data-rec]')) return openRec();
+  const shot = e.target.closest('[data-shot]');
+  if (shot) return openShot(shot.getAttribute('data-shot'));
+});
+createBtn.addEventListener('click', fileBrief);
+resetBtn?.addEventListener('click', openReset);
 
-  // Auto-expand only when explicitly told which brief to expand (post-capture).
-  // Manual opens don't pass an id and the list stays collapsed.
-  if (expandBriefId) {
-    const li = briefList.querySelector(`[data-id="${CSS.escape(expandBriefId)}"]`);
-    const toggle = li?.querySelector('.brief-more');
-    if (li && toggle && !li.classList.contains('expanded')) {
-      toggleExpand(li, toggle);
-    }
-  }
-}
-
-// On open: render whatever's stored, and consume the post-capture signal if
-// background set one. The signal is a brief id stashed in chrome.storage by
-// `tryOpenPopup(briefId)` after a screenshot or recording finishes. We treat
-// it as fresh only when stashed in the last 30 seconds - defensive against
-// stale flags from a denied openPopup() that the user revisits hours later.
-(async function bootstrapInbox() {
-  let expandBriefId = null;
+// ---------- boot ----------
+(async function boot() {
+  await migrateInboxToDraft().catch(() => {});
+  const existing = await getDraft();
+  if (existing) draft = existing;
+  else { draft = emptyDraft(); await setDraft(draft); }
+  render();
+  initAdditionalData();
+  // After capturing a screenshot or recording, open its editor automatically so
+  // the user can add a note / review it right away.
   try {
-    const { pendingExpandBriefId, pendingExpandAt } = await chrome.storage.local.get([
-      'pendingExpandBriefId', 'pendingExpandAt',
-    ]);
-    if (pendingExpandBriefId && pendingExpandAt && Date.now() - pendingExpandAt < 30_000) {
-      expandBriefId = pendingExpandBriefId;
+    const { pendingOpen } = await chrome.storage.local.get('pendingOpen');
+    await chrome.storage.local.remove('pendingOpen');
+    if (pendingOpen && Date.now() - pendingOpen.at < 30000) {
+      if (pendingOpen.kind === 'shot' && (draft.screenshots || []).some((s) => s.id === pendingOpen.id)) openShot(pendingOpen.id);
+      else if (pendingOpen.kind === 'rec' && draft.recording) openRec();
     }
   } catch {}
-  // Always clear the flag - even if stale or missing - so a later manual
-  // open doesn't accidentally expand something.
-  try {
-    await chrome.storage.local.remove(['pendingExpandBriefId', 'pendingExpandAt']);
-  } catch {}
-  await refreshInbox({ expandBriefId });
+  bcRefresh();
 })();
 
-// ---------- Add a ticket ----------
-// Find the smallest unused "Brief N" so anonymous additions don't collide.
-function nextAutoBriefName(list) {
-  const used = new Set();
-  for (const b of list) {
-    const m = (b?.name || '').trim().match(/^brief\s+(\d+)$/i);
-    if (m) used.add(parseInt(m[1], 10));
-  }
-  let n = 1;
-  while (used.has(n)) n++;
-  return `Brief ${n}`;
-}
-
-addForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const list = await getInbox();
-  // Empty input → auto-name "Brief N" instead of bailing. The user clearly
-  // wanted to add something; making them go back to type a name is friction.
-  const name = addName.value.trim() || nextAutoBriefName(list);
-  list.push({ id: genId(), name, recorded: false, addedAt: Date.now() });
-  await setInbox(list);
-  addName.value = '';
-  await refreshInbox();
-  // Fast path: focus the new item's Record button
-  const last = briefList.lastElementChild;
-  last?.querySelector('.cap-btn')?.focus();
-});
-
-// Cloud-only: the local zip Export flow is gone. Briefs file as tickets via
-// Brief Cloud, full stop - when the pairing is missing the Create ticket
-// button opens the pair page instead of degrading to a download.
-function dataUrlToBytes(dataUrl) {
-  const b64 = dataUrl.split(',')[1] || '';
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}
-
-// ---------- Brief Cloud: "Create ticket" ----------
-//
-// What we can assemble from chrome.storage.local here in the popup:
-//   - brief.json: built from the stored inbox entry (same fields the local
-//     export's brief.json carries), since the recording webm/keyframes/
-//     transcript only ever lived in the on-disk zip written by bar.js and are
-//     not available in the popup context.
-//   - screenshot.png: the annotated screenshot dataURL, when present.
-function bcBuildFilesAndMeta(b, page) {
-  // Page context: the URL/title pinned when the screenshot was taken, else the
-  // tab the user is on now (passed in). A ticket should always carry where the
-  // issue happened.
-  const pageUrl = b.pageUrl || page?.url || null;
-  const pageTitle = b.pageTitle || page?.title || null;
-  const briefJson = {
-    id: b.id,
-    name: b.name || '',
-    createdAt: b.addedAt || Date.now(),
-    source: (b.hasRecording || b.recorded) ? 'recording' : (b.screenshot ? 'screenshot' : 'text'),
-    description: b.description || '',
-    pageUrl,
-    pageTitle,
-    hasRecording: !!(b.hasRecording || b.recorded),
-    hasScreenshot: !!b.screenshot,
-    screenshotAnnotated: !!b.screenshotAnnotated,
-    includeVideo: !!b.includeVideo,
-    extra: Array.isArray(b.extra) ? b.extra.filter((p) => p.key.trim() || p.value.trim()) : [],
-  };
-
-  const files = [
-    {
-      name: 'brief.json',
-      blob: new Blob([JSON.stringify(briefJson, null, 2)], { type: 'application/json' }),
-      contentType: 'application/json',
-    },
-  ];
-
-  if (b.screenshot) {
-    files.push({
-      name: 'screenshot.png',
-      blob: new Blob([dataUrlToBytes(b.screenshot)], { type: 'image/png' }),
-      contentType: 'image/png',
-    });
-  }
-
-  const meta = {
-    title: b.name || '',
-    description: b.description || '',
-    pageUrl,
-    pageTitle,
-    hasScreenshot: !!b.screenshot,
-    keyframeCount: 0,
-    transcript: undefined,
-  };
-
-  return { files, meta };
-}
-
-// The page the user is currently on - used as a fallback URL for text briefs
-// that were never tied to a screenshot. Null on extension/internal pages.
-async function activePageContext() {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return null;
-    return { url: tab.url, title: tab.title || null };
-  } catch {
-    return null;
-  }
-}
-
-async function bcRefresh() {
-  let token = null;
-  try { token = await getCloudToken(); } catch {}
-  bcConnected = !!token;
-  // No connect/disconnect UI - pairing is automatic via the Brief Cloud button.
-  // Re-evaluate which primary action (Create ticket vs Export) to show.
-  try { updateChrome(await getInbox()); } catch {}
-  if (!token) return;
-  // Validate the pairing + tracker in the background (don't block the UI).
-  // A dead token (account switched/revoked) flips us back to Export; an
-  // account with no tracker keeps the button but gates the click with an
-  // actionable "connect a tracker" message. null = network problem - keep
-  // the last-known state.
-  try {
-    const status = await fetchAccountStatus();
-    if (!status) return;
-    bcConnected = status.connected;
-    bcTracker = status.tracker;
-    updateChrome(await getInbox());
-  } catch {}
-}
-
-// Reuse the green "Copied to clipboard" success overlay (#exportDone) to
-// confirm a cloud submit, then send the user straight to their briefs page in a
-// new tab and close the popup - no link to click, no "filling" limbo.
-function bcShowSentAndOpen(count) {
-  const title = exportDone.querySelector('.export-done-title');
-  const sub = exportDone.querySelector('.export-done-sub');
-  if (title) title.textContent = count > 1 ? `${count} tickets queued` : 'Queued';
-  if (sub) sub.textContent = 'Opening your tickets…';
-  // Collapse the popup to a normal launcher height - otherwise the filed list
-  // still in the DOM keeps the popup tall and the confirmation floats in a big
-  // empty panel.
-  document.body.classList.add('done-active');
-  exportDone.hidden = false;
-  // Let the confirmation animation (fade-in + rise, ~0.4s) play and linger
-  // before switching tabs - openTicketsTab() activates another tab, which makes
-  // the popup lose focus and close instantly, cutting the overlay off.
-  setTimeout(() => { openTicketsTab(); }, 1600);
-}
-
-// File EVERY ready brief (the button says how many). Sends run sequentially so
-// the button can show honest progress; briefs that fail stay in the inbox.
-bcCreateTicket?.addEventListener('click', async () => {
-  clearInlineError();
-  const items = await getInbox();
-  // Skip briefs whose recording is still uploading in the background - they
-  // file once the upload lands (the button label reflects this).
-  const ready = items.filter((b) => isReady(b) && !b.uploading);
-  if (ready.length === 0) return;
-
-  // Not paired (or the pairing died and was cleared)? Open the pair page -
-  // it pushes a token for the signed-in account back to the extension; then
-  // Create ticket just works. NEVER fall back to a local export.
-  let token = null;
-  try { token = await getCloudToken(); } catch {}
-  if (!token) {
-    await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
-    window.close();
-    return;
-  }
-
-  // Pre-flight: the paired account has NO tracker connected - every filing
-  // would 409. Say so (with the fix) BEFORE uploading anything.
-  if (bcTracker === null) {
-    showInlineError('This account has no tracker connected - link Linear or Jira, then try again.', {
-      linkText: 'Connect a tracker →',
-      url: `${APP_URL}/connections`,
-    });
-    return;
-  }
-
-  bcCreateTicket.disabled = true;
-  bcCreateTicket.classList.add('sending');
-  // Filing writes cloudBriefId per brief (and removes sent ones at the end) -
-  // hold off the storage listener so the list doesn't flicker/rebuild mid-run.
-  bcFiling = true;
-
-  const sentIds = [];
-  let failure = null; // first error - shown after the loop
-  for (let i = 0; i < ready.length; i++) {
-    const b = ready[i];
-    bcCreateTicket.innerHTML =
-      '<span class="btn-spin"></span> ' +
-      (ready.length > 1 ? `Filing ${i + 1} of ${ready.length}…` : 'Filing…');
-    try {
-      // Recordings were already uploaded as a cloud draft on stop. Screenshot/
-      // text briefs upload here, once - the draft id is persisted on the inbox
-      // entry so a failed filing (e.g. no tracker yet) retries the SAME draft
-      // instead of uploading a duplicate.
-      if (!b.cloudBriefId) {
-        const page = await activePageContext();
-        const { files, meta } = bcBuildFilesAndMeta(b, page);
-        b.cloudBriefId = await uploadDraft(files, meta);
-        const list = await getInbox();
-        const entry = list.find((x) => x.id === b.id);
-        if (entry) {
-          entry.cloudBriefId = b.cloudBriefId;
-          await setInbox(list);
-        }
-      } else if (b.screenshot) {
-        // The draft already exists - a recording uploaded it on stop. That
-        // upload only carried whatever existed at recording-stop time, so a
-        // screenshot added AFTERWARDS was never in it (and this filing path
-        // skips uploadDraft entirely once a draft exists). Push the screenshot
-        // into the existing draft now so the ticket gets BOTH the recording and
-        // the screenshot. Idempotent (x-upsert), so it's harmless when the
-        // screenshot was already bundled in the recording draft.
-        await uploadFilesToDraft(b.cloudBriefId, [{
-          name: 'screenshot.png',
-          blob: new Blob([dataUrlToBytes(b.screenshot)], { type: 'image/png' }),
-          contentType: 'image/png',
-        }]);
-      }
-      // File it - kick off processing on the uploaded brief (passing its name
-      // so the dashboard can label it while filing, and the user's "attach the
-      // recording" toggle so the video is embedded only when they asked).
-      await processBrief(b.cloudBriefId, b.name, !!b.includeVideo);
-      sentIds.push(b.id);
-    } catch (err) {
-      // 404 = the stored draft belongs to a PREVIOUS account pairing (the
-      // user switched web accounts). Self-heal: re-upload the brief under the
-      // current account and retry once. (A recording uploaded under the old
-      // account can't be recovered - the ticket files from the popup's data.)
-      if (err?.status === 404 && b.cloudBriefId) {
-        try {
-          b.cloudBriefId = null;
-          const page = await activePageContext();
-          const { files, meta } = bcBuildFilesAndMeta(b, page);
-          b.cloudBriefId = await uploadDraft(files, meta);
-          const list = await getInbox();
-          const entry = list.find((x) => x.id === b.id);
-          if (entry) { entry.cloudBriefId = b.cloudBriefId; await setInbox(list); }
-          await processBrief(b.cloudBriefId, b.name, !!b.includeVideo);
-          sentIds.push(b.id);
-          continue;
-        } catch (err2) {
-          err = err2;
-        }
-      }
-      failure = failure || err;
-      // No tracker connected → every remaining brief would fail identically.
-      if (err?.code === 'no_tracker') break;
-    }
-  }
-
-  // Queued briefs leave the inbox; failed ones stay so nothing is lost.
-  if (sentIds.length) {
-    const after = await getInbox();
-    await setInbox(after.filter((x) => !sentIds.includes(x.id)));
-  }
-
-  if (!failure) {
-    // Sent briefs were just removed above (under suppression); the overlay
-    // shows and the popup closes shortly, so leave the listener suppressed.
-    bcShowSentAndOpen(sentIds.length);
-    return;
-  }
-
-  bcFiling = false; // done filing - the explicit refresh below shows what's left
-  bcCreateTicket.classList.remove('sending');
-  bcCreateTicket.disabled = false;
-  await refreshInbox(); // re-render what's left + restore the button label
-  if (failure?.code === 'no_tracker') {
-    showInlineError('No tracker connected yet - link Linear or Jira, then try again.', {
-      linkText: 'Connect a tracker →',
-      url: `${APP_URL}/connections`,
-    });
-  } else {
-    showInlineError(`Couldn’t send: ${failure?.message || failure}`);
-  }
-});
-
-bcRefresh();
-
-// Live-update the list while the popup is open when a BACKGROUND upload
-// settles (offscreen → background → inbox entry). Only re-render on
-// upload-state changes - the popup's own writes (debounced description
-// typing etc.) must not rebuild the list under the user's cursor.
+// Live updates when a BACKGROUND change settles (upload, transcript, poster).
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes.inbox) return;
-  // The popup's own animated writes manage the DOM themselves - don't rebuild
-  // the list out from under them (kills the archive swipe + filing flicker).
-  if (bcFiling || Date.now() < suppressInboxListenerUntil) return;
-  const sig = (l) =>
-    (Array.isArray(l) ? l : [])
-      .map((b) => [b.id, !!b.uploading, !!b.uploadFailed, b.cloudBriefId || ''].join(':'))
-      .join('|');
-  if (sig(changes.inbox.oldValue) !== sig(changes.inbox.newValue)) {
-    refreshInbox();
-  }
+  if (area !== 'local' || !changes.draft || filing) return;
+  getDraft().then((d) => {
+    // Storage is the source of truth. If it momentarily reads empty (e.g. mid
+    // reset, between clear and set), do NOT fabricate a fresh-id draft here -
+    // it would diverge from what's stored and silently break every later save.
+    if (!d) return;
+    if (sig(d) === lastSig) return;
+    draft = d;
+    render();
+    // If the recording sheet is open, patch it IN PLACE so a freshly-arrived
+    // transcript or poster shows without re-opening the sheet (which glitched).
+    if (currentSheet === 'rec') {
+      // When the transcribing state flips (transcribing -> ready/failed), rebuild
+      // the sheet once so the animation swaps to the editable field. Otherwise
+      // patch in place so a poster/transcript arriving doesn't disrupt the user.
+      const showingTranscribing = !!document.getElementById('trState');
+      if (showingTranscribing !== !!draft.transcribing) {
+        openRec();
+      } else {
+        const tf = document.getElementById('recTranscript');
+        if (tf && document.activeElement !== tf && draft.transcript && draft.transcript.trim()) tf.value = draft.transcript;
+        const pf = document.querySelector('#sheetBody .rec-poster');
+        if (pf && draft.recording?.poster) pf.src = draft.recording.poster;
+      }
+    }
+  });
 });

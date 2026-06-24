@@ -4,6 +4,7 @@
 // immune to page Permissions-Policy). The bar sends control messages via
 // background.js; the offscreen document uploads the finished draft itself.
 
+import { getDraft, setDraft, emptyDraft } from './draft.js';
 
 const SAVED_AUTODISMISS_MS = 5000;
 
@@ -341,36 +342,38 @@ document.getElementById('inboxCloseBtn')?.addEventListener('click', closeParent)
 // cloud id lands (background clears the flag via UPLOAD_RESULT).
 async function finishToInbox(id, intent, cloudBriefId, opts = {}) {
   try {
-    const { inbox } = await chrome.storage.local.get('inbox');
-    const list = Array.isArray(inbox) ? inbox : [];
-    const entry = list.find((b) => b.id === id);
-    if (entry) {
-      // Was added as a draft from the popup - flip it to recorded/ready.
-      entry.recorded = true;
-      entry.hasRecording = true;
-      entry.recordedAt = Date.now();
-      entry.intent = intent;
-      if (cloudBriefId) entry.cloudBriefId = cloudBriefId;
+    // One brief at a time: the recording belongs to the CURRENT draft (the popup
+    // started it with this id). Mark the recording landed; the upload +
+    // transcription run in the background and report back via the worker.
+    let d = await getDraft();
+    if (!d) { d = emptyDraft(); d.id = id; }
+    if (d.id === id) {
+      d.recording = { recordedAt: Date.now(), durationMs: 0 };
+      // A fresh recording defaults to "attach the video" ON. Set it here so it
+      // holds even on an older draft whose includeVideo predates that default
+      // (the user can still toggle it off in the recording sheet).
+      d.includeVideo = true;
+      if (cloudBriefId) d.cloudBriefId = cloudBriefId;
       if (opts.uploading) {
-        entry.uploading = true;
-        delete entry.uploadFailed;
-        delete entry.uploadError;
+        d.uploading = true;
+        d.uploadFailed = false;
+        d.uploadError = null;
+        d.transcribing = true;
+        // A new recording replaces any prior one (one recording per brief): the
+        // fresh upload sets a new cloud id, so clear the old id + transcript here
+        // and never file the stale draft.
+        d.cloudBriefId = null;
+        d.transcript = '';
+        d.transcriptFailed = false;
       }
-    } else {
-      // Fallback: recording started without a pre-named draft (shouldn't
-      // normally happen now, but keep the brief rather than lose it).
-      list.push({ id, intent, name: '', recorded: true, hasRecording: true, addedAt: Date.now(), recordedAt: Date.now(), cloudBriefId, ...(opts.uploading ? { uploading: true } : {}) });
+      await setDraft(d);
     }
-    await chrome.storage.local.set({ inbox: list });
-    chrome.runtime.sendMessage({ type: 'INBOX_CHANGED' }).catch(() => {});
-    // Best-effort: bring the user back to the brief to review/export. Chrome
-    // only allows openPopup in some versions/contexts; it silently no-ops
-    // otherwise (the toolbar badge still nudges).
-    // Carry the brief id along so background can tag this open as
-    // "post-capture" - popup uses it to auto-expand the right brief.
+    // Best-effort: bring the user back to the brief to review. Chrome only allows
+    // openPopup in some versions/contexts; it silently no-ops otherwise (the
+    // toolbar badge still nudges).
     chrome.runtime.sendMessage({ type: 'REOPEN_POPUP', briefId: id }).catch(() => {});
   } catch (err) {
-    console.warn('[brief/bar] inbox write failed:', err);
+    console.warn('[brief/bar] draft write failed:', err);
   }
   // No confirmation toast - just close the bar. The badge updates and (where
   // allowed) the popup reopens, so the user already sees the saved brief.

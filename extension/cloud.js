@@ -150,19 +150,20 @@ export async function uploadFilesToDraft(briefId, files, tokenOverride) {
 
 // Kick off processing (file the ticket) for an already-uploaded brief. The route
 // marks it queued and returns immediately (it files in the background), so this
-// resolves fast. `title` (optional) is the user-given brief name, shown on the
-// dashboard while filing.
+// resolves fast. `overrides` (optional) carries the user's edits made after
+// upload - { title, includeVideo, transcript, description, extra, screenshots } -
+// which the server applies over the capture-owned brief.json.
 //
 // Throws on any non-OK response. A 409 means no tracker is connected - the
 // thrown error carries `code: "no_tracker"` so the popup can show an
 // actionable "connect your tracker" message instead of a generic failure.
-export async function processBrief(briefId, title, includeVideo) {
+export async function processBrief(briefId, overrides = {}) {
   const token = await getCloudToken();
   if (!token) throw new Error("Not connected to Brief Cloud");
   const res = await fetch(`${APP_URL}/api/briefs/${briefId}/process`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ title: title || "", includeVideo: !!includeVideo }),
+    body: JSON.stringify(overrides || {}),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

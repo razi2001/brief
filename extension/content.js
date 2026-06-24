@@ -22,7 +22,7 @@
     if (message?.type === 'INJECT_BAR') {
       injectBar(message.streamId, message.intent || 'brief', message.mode || 'ship', message.itemId || '');
     } else if (message?.type === 'INJECT_SHOT') {
-      injectShot(message.itemId || '', message.dataUrl || '');
+      injectShot(message.itemId || '', message.dataUrl || '', message.pageUrl || '', message.pageTitle || '');
     } else if (message?.type === 'BRIEF_START') {
       active = true;
       startedAt = message.startedAt || Date.now();
@@ -37,9 +37,13 @@
   // ---------- Screenshot annotator overlay ----------
   let shotEl = null;
   let shotImg = '';
-  function injectShot(itemId, dataUrl) {
+  let shotPageUrl = '';
+  let shotPageTitle = '';
+  function injectShot(itemId, dataUrl, pageUrl, pageTitle) {
     if (shotEl) return;
     shotImg = dataUrl;
+    shotPageUrl = pageUrl || '';
+    shotPageTitle = pageTitle || '';
     const url = chrome.runtime.getURL('shot.html') + '#itemId=' + encodeURIComponent(itemId);
     shotEl = document.createElement('iframe');
     shotEl.id = '__brief_shot__';
@@ -66,9 +70,11 @@
       // hand the captured image into the overlay
       shotEl.contentWindow.postMessage({ app: 'brief-shot', type: 'image', dataUrl: shotImg }, '*');
     } else if (m.type === 'save') {
-      // Relay the annotated PNG to the background to store on the brief.
+      // Relay the annotated PNG (with its source page context) to the background
+      // to append to the current draft's screenshots.
       chrome.runtime.sendMessage({
         type: 'SHOT_SAVED', itemId: m.itemId, dataUrl: m.dataUrl, annotated: !!m.annotated,
+        pageUrl: shotPageUrl, pageTitle: shotPageTitle,
       }).catch(() => {});
       removeShot();
     } else if (m.type === 'cancel') {
@@ -82,6 +88,8 @@
       shotEl.remove();
       shotEl = null;
       shotImg = '';
+      shotPageUrl = '';
+      shotPageTitle = '';
     }
   }
 

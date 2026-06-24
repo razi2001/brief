@@ -631,8 +631,22 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
 
       let body = descriptionMarkdown;
       if (evidence.length) {
-        const names = evidence.map((e) => e.filename).join(", ");
-        body += `\n\nEvidence attached: ${names} (see the Attachments panel).`;
+        // Jira can't embed images inline via the API, so the screenshots live in
+        // the Attachments panel - but their descriptions belong in the body. List
+        // the agent's per-screenshot captions so each one is explained.
+        const imgs = evidence.filter((e) => e.contentType.startsWith("image/"));
+        let shotN = 0;
+        const lines = imgs.map((e) => {
+          shotN += 1;
+          const cap = e.caption && e.caption.trim() ? e.caption.trim() : "";
+          return cap ? `- Screenshot ${shotN}: ${cap}` : `- Screenshot ${shotN}`;
+        });
+        const hasRec = evidence.some((e) => !e.contentType.startsWith("image/"));
+        body += "\n\n## Evidence\n\n";
+        if (lines.length) body += lines.join("\n") + "\n\n";
+        body += hasRec
+          ? "Screenshots and the screen recording are in the Attachments panel."
+          : "Screenshots are in the Attachments panel.";
       }
 
       const baseFields: Record<string, unknown> = {

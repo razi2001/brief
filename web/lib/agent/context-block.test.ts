@@ -42,6 +42,37 @@ describe("buildContextBlock - network errors", () => {
   });
 });
 
+describe("buildContextBlock - reporter description (primary signal)", () => {
+  it("surfaces the typed description first, as the primary signal", () => {
+    const block = buildContextBlock({
+      description: "The Save button does nothing when I click it",
+      pageUrl: "https://app.example.com/settings",
+      transcript: "uh the save thing is broke",
+      events: [{ type: "console-error", args: ["TypeError: save is not a function"] }],
+    });
+    expect(block).toContain("REPORTER'S DESCRIPTION");
+    expect(block).toContain("The Save button does nothing when I click it");
+    // primary signal leads; narration and supporting errors come after it
+    expect(block.indexOf("REPORTER'S DESCRIPTION")).toBeLessThan(block.indexOf("SPOKEN NARRATION"));
+    expect(block.indexOf("SPOKEN NARRATION")).toBeLessThan(block.indexOf("SUPPORTING TECHNICAL CONTEXT"));
+  });
+
+  it("omits the description block when there is no typed description", () => {
+    const block = buildContextBlock({ pageUrl: "https://example.com" });
+    expect(block).not.toContain("REPORTER'S DESCRIPTION");
+  });
+});
+
+describe("buildContextBlock - errors demoted to supporting context", () => {
+  it("labels console/network errors as supporting context, not the headline", () => {
+    const block = buildContextBlock({
+      events: [{ type: "console-error", args: ["Boom"] }],
+    });
+    expect(block).toContain("SUPPORTING TECHNICAL CONTEXT");
+    expect(block).not.toContain("CONSOLE / RUNTIME ERRORS");
+  });
+});
+
 describe("buildContextBlock - narration", () => {
   it("surfaces the transcript under a 'transcribed audio' label and includes the text", () => {
     const block = buildContextBlock({ transcript: "the save button does nothing" });
@@ -53,5 +84,25 @@ describe("buildContextBlock - narration", () => {
   it("omits the narration block when there is no transcript", () => {
     const block = buildContextBlock({ pageUrl: "https://example.com" });
     expect(block).not.toContain("SPOKEN NARRATION");
+  });
+});
+
+describe("buildContextBlock - screenshots", () => {
+  it("surfaces screenshot captions as a labeled block", () => {
+    const block = buildContextBlock({
+      screenshots: [
+        { file: "screenshots/a.png", description: "Total ignores the promo code" },
+        { file: "screenshots/b.png", description: "" },
+        { file: "screenshots/c.png", description: "Error toast on submit" },
+      ],
+    });
+    expect(block).toContain("SCREENSHOTS");
+    expect(block).toContain("Total ignores the promo code");
+    expect(block).toContain("Error toast on submit");
+  });
+
+  it("omits the screenshots block when no caption has text", () => {
+    const block = buildContextBlock({ screenshots: [{ file: "x.png", description: "" }] });
+    expect(block).not.toContain("SCREENSHOTS");
   });
 });

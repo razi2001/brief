@@ -12,7 +12,7 @@
 // the bar shows "saved" right away and the upload runs in the background.
 // Background keeps this document alive until it reports OFFSCREEN_DONE.
 
-import { uploadDraft } from './cloud.js';
+import { uploadDraft, transcribeNote } from './cloud.js';
 
 let micStream = null;
 let tabStream = null;
@@ -32,6 +32,33 @@ const KEYFRAME_INTERVAL_MS = 2000;
 
 function log(...args) {
   console.log('[brief/offscreen]', ...args);
+}
+
+// Downscale a keyframe blob to a small JPEG data URL - used as the recording's
+// poster so the popup's recording tile shows a real frame (like the screenshots).
+function blobToDataUrl(blob) {
+  return new Promise((resolve) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = () => resolve(null);
+    fr.readAsDataURL(blob);
+  });
+}
+async function makePoster(blob) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const maxW = 320;
+    const scale = Math.min(1, maxW / bmp.width);
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = new OffscreenCanvas(w, h);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    const out = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.72 });
+    return await blobToDataUrl(out);
+  } catch (err) {
+    log('poster gen failed:', err?.message || err);
+    return null;
+  }
 }
 
 // ---------- Message router ----------
@@ -341,6 +368,15 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
     }
   } catch {}
 
+  // Poster (first keyframe, downscaled) so the popup's recording tile shows a
+  // real frame right away. Fail-soft: the popup falls back to a generic poster.
+  try {
+    if (frames && frames[0] && frames[0].blob) {
+      const poster = await makePoster(frames[0].blob);
+      if (poster) chrome.runtime.sendMessage({ type: 'RECORDING_POSTER', briefId, poster, durationMs }).catch(() => {});
+    }
+  } catch {}
+
   const keyframeEntries = [];
   const keyframeMeta = [];
   for (let i = 0; i < frames.length; i++) {
@@ -363,8 +399,12 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
     keyframes: keyframeMeta,
     events: meta.events || [],
     description: entry?.description || '',
-    hasScreenshot: !!entry?.screenshot,
-    screenshotAnnotated: !!entry?.screenshotAnnotated,
+    // Screenshots are uploaded by the popup at file time; record their metadata
+    // (captions) here so the server has it even before the override payload.
+    hasScreenshot: Array.isArray(entry?.screenshots) ? entry.screenshots.length > 0 : false,
+    screenshots: Array.isArray(entry?.screenshots)
+      ? entry.screenshots.map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated }))
+      : [],
     // The "attach the recording" toggle is OFF by default and may be flipped in
     // the popup after this point; the authoritative value is sent at file time.
     // This is just a frozen fallback for retries.
@@ -390,21 +430,14 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
     if (audioBlob && audioBlob.size) {
       files.push({ name: 'audio.webm', blob: audioBlob, contentType: 'audio/webm' });
     }
-    if (entry?.screenshot) {
-      try {
-        const b64 = entry.screenshot.split(',')[1] || '';
-        const bin = atob(b64);
-        const arr = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        files.push({ name: 'screenshot.png', blob: new Blob([arr], { type: 'image/png' }), contentType: 'image/png' });
-      } catch {}
-    }
+    // Screenshots are NOT bundled here - the popup uploads them at file time
+    // (uploadFilesToDraft), so a shot taken AFTER recording-stop is never dropped.
 
     const cloudMeta = {
       title: entry?.name || '',
       transcript: '',
       keyframeCount: keyframeEntries.length,
-      hasScreenshot: !!entry?.screenshot,
+      hasScreenshot: Array.isArray(entry?.screenshots) ? entry.screenshots.length > 0 : false,
       pageUrl: meta.pageUrl,
       pageTitle: meta.pageTitle,
       description: entry?.description || '',
@@ -427,6 +460,21 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
     if (!cloudBriefId) throw lastErr || new Error('upload failed');
     log('background upload done', cloudBriefId);
     await chrome.runtime.sendMessage({ type: 'UPLOAD_RESULT', briefId, cloudBriefId }).catch(() => {});
+
+    // Transcribe the audio-only track now so the popup can show + let the user
+    // correct the narration immediately. Independent of the upload result; the
+    // server still transcribes at file time if we send nothing.
+    try {
+      if (audioBlob && audioBlob.size && token) {
+        const text = await transcribeNote(audioBlob, token);
+        await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, transcript: text || '' }).catch(() => {});
+      } else {
+        await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, transcript: '' }).catch(() => {});
+      }
+    } catch (err) {
+      log('transcription failed:', err?.message || err);
+      await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, error: String(err?.message || err) }).catch(() => {});
+    }
   } catch (err) {
     console.warn('[brief/offscreen] cloud upload failed:', err);
     await chrome.runtime

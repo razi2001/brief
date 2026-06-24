@@ -1,6 +1,9 @@
 # Claude Code session data + worktrees (worktrees contain local .env.local secrets)
 .claude/
 
+# Superpowers brainstorming mockups (visual companion scratch)
+.superpowers/
+
 # Local env (belt-and-suspenders; web/.gitignore also covers this)
 .env
 .env.local

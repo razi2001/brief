@@ -372,8 +372,10 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
           const assetUrl = await api.uploadAsset({ filename: e.filename, contentType: e.contentType, bytes: e.bytes });
           if (e.contentType.startsWith("image/")) {
             imgN += 1;
-            // Human caption, never the raw filename.
-            embeds.push(`![Screenshot ${imgN}](${assetUrl})`);
+            // The agent's one-line description renders directly above the image,
+            // so each screenshot reads as "<what it shows>" then the picture.
+            const cap = e.caption && e.caption.trim() ? `${e.caption.trim()}\n\n` : "";
+            embeds.push(`${cap}![Screenshot ${imgN}](${assetUrl})`);
           } else {
             // Recording: a bare URL on its own line is enough - Linear renders it
             // as an inline player with its own link. Don't add a second link (that

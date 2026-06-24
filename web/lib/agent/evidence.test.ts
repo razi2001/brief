@@ -62,4 +62,14 @@ describe("buildEvidenceManifest", () => {
   it("returns empty for no evidence", () => {
     expect(buildEvidenceManifest([], true)).toBe("");
   });
+
+  it("appends a screenshot's caption to its manifest line", () => {
+    const withCaption: EvidenceItem[] = [
+      { name: "screenshots/a.png", kind: "screenshot", caption: "Total ignores the promo code" },
+      { name: "screenshots/b.png", kind: "screenshot" },
+    ];
+    const text = buildEvidenceManifest(withCaption, false);
+    expect(text).toContain('screenshots/a.png (annotated screenshot) - "Total ignores the promo code"');
+    expect(text).toMatch(/^- screenshots\/b\.png \(annotated screenshot\)$/m);
+  });
 });
