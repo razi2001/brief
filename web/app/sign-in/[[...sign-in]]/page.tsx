@@ -22,6 +22,39 @@ export default function Page() {
             or the post-OAuth handshake must win over the default. */}
         <SignIn fallbackRedirectUrl="/dashboard" signUpForceRedirectUrl="/welcome" />
       </div>
+      {/* Help first-timers understand Brief without touching the form above. */}
+      <div className="mt-8 flex items-center gap-3 text-sm tracking-wide text-muted">
+        <a
+          href="https://youtu.be/dmD8thJvMww"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 transition-colors hover:text-accent"
+        >
+          <span aria-hidden="true">🎬</span> Watch the demo
+        </a>
+        <span aria-hidden="true">&middot;</span>
+        <a
+          href="https://get-brief.app"
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 transition-colors hover:text-accent"
+        >
+          get-brief.app
+          <svg
+            viewBox="0 0 24 24"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.8}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M14 5h5v5M19 5l-9 9M12 5H7a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" />
+          </svg>
+        </a>
+      </div>
     </main>
   );
 }
