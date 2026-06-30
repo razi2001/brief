@@ -67,12 +67,12 @@ export default function BriefListRow({
   const isDraft = b.status === "drafted";
   const isProcessing = b.status === "processing" || b.status === "uploaded";
 
-  // A draft row opens its hosted brief page; a filed row opens the tracker ticket.
-  const href = isDraft
-    ? b.share_id
-      ? `/b/${b.share_id}`
-      : undefined
-    : ti?.url || b.ticket_url || undefined;
+  // The row opens the Brief page (canonical view) for both drafts and filed
+  // tickets; filed rows also get a "open in tracker" action. Old filed briefs
+  // without a share link fall back to opening the tracker directly.
+  const briefHref = b.share_id ? `/b/${b.share_id}` : undefined;
+  const trackerHref = ti?.url || b.ticket_url || undefined;
+  const href = briefHref || (isFiled ? trackerHref : undefined);
   const asLink = (isFiled || isDraft) && !!href;
 
   const title =
@@ -110,7 +110,7 @@ export default function BriefListRow({
       {asLink && (
         <a
           href={href}
-          target="_blank"
+          target={briefHref ? undefined : "_blank"}
           rel="noreferrer"
           aria-label={title}
           className="absolute inset-0"
@@ -228,6 +228,21 @@ export default function BriefListRow({
           until hover; hidden while a batch selection is active (the floating bar
           handles that), but the cell still holds its track. */}
       <div className="relative z-10 flex items-center justify-end gap-0.5">
+        {!anySelected && isFiled && trackerHref && (
+          <a
+            href={trackerHref}
+            target="_blank"
+            rel="noreferrer"
+            title={`Open in ${b.provider === "jira" ? "Jira" : "Linear"}`}
+            aria-label="Open in tracker"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-ink-2 focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M7 17 17 7" />
+              <path d="M8 7h9v9" />
+            </svg>
+          </a>
+        )}
         {!anySelected && (isFiled || isDraft) && b.share_id && (
           <CopyLinkButton path={`/b/${b.share_id}`} variant="icon" />
         )}
