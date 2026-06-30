@@ -429,7 +429,7 @@ function buildBriefJsonAndMeta(d, page) {
 function openBrief(shareId) {
   const t = exportDone.querySelector('.export-done-title');
   const s = exportDone.querySelector('.export-done-sub');
-  if (t) t.textContent = bcTracker ? 'Filing your ticket…' : 'Brief created';
+  if (t) t.textContent = 'Brief created';
   if (s) s.textContent = 'Opening your brief…';
   exportDone.hidden = false;
   setTimeout(() => {
@@ -480,11 +480,10 @@ async function createBrief() {
   let shareId = null;
   const run = async () => {
     await ensureUploaded();
-    // Tracker connected → file it. No tracker → just the Brief page (a draft)
-    // to copy / share / export later. Both return the brief's share token.
-    shareId = bcTracker
-      ? await processBrief(draft.cloudBriefId, buildOverrides(draft))
-      : await createDraft(draft.cloudBriefId, buildOverrides(draft));
+    // Always create ONE Brief (a draft + its page). The owner sends it to a
+    // tracker from the page when ready, so a capture is never two tickets at
+    // once - it's one Brief that progresses draft -> filed.
+    shareId = await createDraft(draft.cloudBriefId, buildOverrides(draft));
   };
 
   try {
