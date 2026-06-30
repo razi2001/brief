@@ -24,6 +24,9 @@ export type DashboardBrief = {
   updated_at?: string | null;
   ticket_url?: string | null;
   ticket_identifier?: string | null;
+  /** Agent-written ticket title (snapshot) - shown for drafts in the feed,
+   *  which have no live tracker ticket to read a title from. */
+  ticket_title?: string | null;
   /** Unguessable token for the public shareable brief page (/b/<share_id>). */
   share_id?: string | null;
   error?: string | null;

@@ -37,7 +37,7 @@ async function loadGuidance(userId: string): Promise<string> {
 async function loadBriefInput(
   admin: SupabaseClient,
   prefix: string,
-  opts: { includeVideo?: boolean; overrides?: BriefOverrides },
+  opts: { includeVideo?: boolean; overrides?: BriefOverrides; lean?: boolean },
 ): Promise<{ input: BriefInput; names: string[]; includeVideo: boolean }> {
   const dl = async (p: string) => {
     const { data } = await admin.storage.from("briefs").download(p);
@@ -49,60 +49,64 @@ async function loadBriefInput(
   // are authoritative over the capture-owned brief.json.
   const json = mergeBriefOverrides(rawJson, opts.overrides);
 
-  // Use the supplied (edited) transcript when present; only transcribe
-  // server-side when the popup didn't give us one. Fail-soft.
-  if (typeof json.transcript === "string" && json.transcript.trim()) {
-    // already set by the merge - skip the OpenAI call
-  } else {
-    let audioInput: { bytes: Buffer; filename: string; contentType: string } | null = null;
-    const audioBuf = await dl(`${prefix}/audio.webm`);
-    if (audioBuf) {
-      audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
-    } else {
-      const recBuf = await dl(`${prefix}/recording.webm`);
-      if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
-        audioInput = { bytes: recBuf, filename: "recording.webm", contentType: "video/webm" };
-      }
-    }
-    const transcript = await transcribeAudio(audioInput);
-    if (transcript) json.transcript = transcript;
-  }
-
   const images: BriefInput["images"] = [];
   const files: BriefInput["evidence"]["files"] = [];
   const items: BriefInput["evidence"]["items"] = [];
-
   const includeVideo = opts.includeVideo ?? !!json.includeVideo;
 
-  // Keyframe timestamps (filename → ms into the capture) for the storyboard.
-  const tsByFile = new Map<string, number>();
-  for (const k of Array.isArray(json.keyframes) ? json.keyframes : []) {
-    const file = String(k?.file ?? "").split("/").pop();
-    if (file && typeof k?.timestamp === "number") tsByFile.set(file, k.timestamp);
-  }
+  // `lean` = export of an already-written ticket: skip transcription and the
+  // keyframe vision storyboard (we're routing + attaching evidence, not
+  // rewriting). This is what makes export fast - no Whisper, no keyframe
+  // downloads, no vision tokens.
+  let frames: Array<{ name: string; filename: string; timestampMs?: number; bytes: Buffer }> = [];
 
-  // Keyframes: download all, keep only the perceptually-distinct ones (capped).
+  // Always list the keyframes (cheap) so the caller can clean them up after
+  // filing, even on a lean export that doesn't read them.
   const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
   const names = (kf ?? []).map((o) => o.name).sort();
-  const downloaded = await Promise.all(
-    names.map(async (n) => {
-      const bytes = await dl(`${prefix}/keyframes/${n}`);
-      const filename = n.split("/").pop() || n;
-      return bytes ? { name: n, filename, timestampMs: tsByFile.get(filename), bytes } : null;
-    }),
-  );
-  const frames = selectDistinctFrames(downloaded.filter((f): f is NonNullable<typeof f> => !!f));
-  for (const f of frames) {
-    images.push({
-      name: f.name,
-      dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}`,
-      timestampMs: f.timestampMs,
-    });
+
+  if (!opts.lean) {
+    // Transcribe only when the popup didn't give us an edited transcript. Fail-soft.
+    if (!(typeof json.transcript === "string" && json.transcript.trim())) {
+      let audioInput: { bytes: Buffer; filename: string; contentType: string } | null = null;
+      const audioBuf = await dl(`${prefix}/audio.webm`);
+      if (audioBuf) {
+        audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
+      } else {
+        const recBuf = await dl(`${prefix}/recording.webm`);
+        if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
+          audioInput = { bytes: recBuf, filename: "recording.webm", contentType: "video/webm" };
+        }
+      }
+      const transcript = await transcribeAudio(audioInput);
+      if (transcript) json.transcript = transcript;
+    }
+
+    // Keyframe storyboard (vision): download all, keep the perceptually-distinct.
+    const tsByFile = new Map<string, number>();
+    for (const k of Array.isArray(json.keyframes) ? json.keyframes : []) {
+      const file = String(k?.file ?? "").split("/").pop();
+      if (file && typeof k?.timestamp === "number") tsByFile.set(file, k.timestamp);
+    }
+    const downloaded = await Promise.all(
+      names.map(async (n) => {
+        const bytes = await dl(`${prefix}/keyframes/${n}`);
+        const filename = n.split("/").pop() || n;
+        return bytes ? { name: n, filename, timestampMs: tsByFile.get(filename), bytes } : null;
+      }),
+    );
+    frames = selectDistinctFrames(downloaded.filter((f): f is NonNullable<typeof f> => !!f));
+    for (const f of frames) {
+      images.push({
+        name: f.name,
+        dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}`,
+        timestampMs: f.timestampMs,
+      });
+    }
   }
 
-  // Screenshots: each uploaded as screenshots/<id>.png with a user caption; plus
-  // a legacy top-level screenshot.png. Each becomes a model image + attachable
-  // evidence with its caption resolved from the (merged) brief.json screenshots[].
+  // Screenshots: attachable evidence (always); shown to the model as vision only
+  // when writing (skipped in lean export).
   const shotMeta = Array.isArray((json as any).screenshots) ? (json as any).screenshots : [];
   const shotPaths: string[] = [];
   const { data: shotList } = await admin.storage.from("briefs").list(`${prefix}/screenshots`, { limit: 200 });
@@ -115,7 +119,7 @@ async function loadBriefInput(
     if (!b) continue;
     const filename = rel.split("/").pop() || rel;
     const caption = captionForScreenshot(rel, shotMeta);
-    images.push({ name: rel, dataUrl: `data:image/png;base64,${b.toString("base64")}`, caption });
+    if (!opts.lean) images.push({ name: rel, dataUrl: `data:image/png;base64,${b.toString("base64")}`, caption });
     files.push({ filename, contentType: "image/png", bytes: b });
     items.push({ name: filename, kind: "screenshot", caption });
     shotFilenames.push(filename);
@@ -174,7 +178,14 @@ async function loadBriefInput(
 export async function processBriefById(
   userId: string,
   briefId: string,
-  opts: { includeVideo?: boolean; overrides?: BriefOverrides; provider?: "linear" | "jira" } = {},
+  opts: {
+    includeVideo?: boolean;
+    overrides?: BriefOverrides;
+    provider?: "linear" | "jira";
+    // Export of a draft the reporter already iterated on: file the stored
+    // title/body verbatim (only route + set fields), don't rewrite.
+    useExistingContent?: boolean;
+  } = {},
 ): Promise<ProcessResult> {
   const admin = createAdminSupabase();
   const { data: brief } = await admin
@@ -223,13 +234,25 @@ export async function processBriefById(
     const { input, names, includeVideo } = await loadBriefInput(admin, prefix, {
       includeVideo: opts.includeVideo,
       overrides: opts.overrides,
+      // Export of a finalized draft: skip transcription + keyframe vision (the
+      // ticket is already written; we only route + attach evidence).
+      lean: !!opts.useExistingContent,
     });
 
     console.log(
       `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} screenshots=${input.evidence.items.filter((i) => i.kind === "screenshot").length} includeVideo=${includeVideo} attachable=${input.evidence.files.length} fallback=${input.evidence.fallback.length}`,
     );
 
-    const result = await processBrief(input, tracker, guidance);
+    // Exporting a draft the reporter finalized: file their exact title/body.
+    const fixed =
+      opts.useExistingContent && (brief.ticket_body || brief.ticket_title)
+        ? {
+            title: ((brief.ticket_title as string | null) || (brief.title as string | null) || "").trim(),
+            description: ((brief.ticket_body as string | null) || "").trim(),
+          }
+        : undefined;
+
+    const result = await processBrief(input, tracker, guidance, fixed);
 
     const filedPatch = {
       status: "filed",

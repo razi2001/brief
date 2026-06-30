@@ -64,21 +64,30 @@ export default function BriefListRow({
   const ti = b.ticket ?? null;
   const isFiled = b.status === "filed";
   const isFailed = b.status === "failed";
+  const isDraft = b.status === "drafted";
   const isProcessing = b.status === "processing" || b.status === "uploaded";
 
-  const href = ti?.url || b.ticket_url || undefined;
-  const asLink = isFiled && !!href;
+  // A draft row opens its hosted brief page; a filed row opens the tracker ticket.
+  const href = isDraft
+    ? b.share_id
+      ? `/b/${b.share_id}`
+      : undefined
+    : ti?.url || b.ticket_url || undefined;
+  const asLink = (isFiled || isDraft) && !!href;
 
   const title =
     ti?.title ||
+    (isDraft ? b.ticket_title || undefined : undefined) ||
     b.title ||
     (isFailed
       ? "Couldn't file this one"
       : isProcessing
         ? "Writing the ticket…"
-        : b.source_kind
-          ? `${b.source_kind} brief`
-          : "Untitled brief");
+        : isDraft
+          ? "Untitled draft"
+          : b.source_kind
+            ? `${b.source_kind} brief`
+            : "Untitled brief");
 
   // Checkbox is faint until you hover the row; it stays visible once it's
   // checked or while any selection is active. Clicking it selects (never navigates).
@@ -145,6 +154,8 @@ export default function BriefListRow({
             <TrackerLogo kind={b.provider ?? "linear"} size={13} />
             <span className="truncate">{b.ticket_identifier}</span>
           </span>
+        ) : isDraft ? (
+          <span className="font-mono text-[0.625rem] uppercase tracking-wide text-muted">draft</span>
         ) : (
           <span className="font-mono text-[0.625rem] text-muted/50">—</span>
         )}
@@ -169,6 +180,10 @@ export default function BriefListRow({
         ) : isFailed ? (
           <StatusBadge color="#c62828" title="Didn't file">
             didn&apos;t file
+          </StatusBadge>
+        ) : isDraft ? (
+          <StatusBadge color="#8a8378" title="Draft - not filed">
+            draft
           </StatusBadge>
         ) : (
           <StatusBadge color={ti?.stateColor || "#2e7d32"} title={ti?.stateName || "Filed"}>
@@ -213,7 +228,7 @@ export default function BriefListRow({
           until hover; hidden while a batch selection is active (the floating bar
           handles that), but the cell still holds its track. */}
       <div className="relative z-10 flex items-center justify-end gap-0.5">
-        {!anySelected && isFiled && b.share_id && (
+        {!anySelected && (isFiled || isDraft) && b.share_id && (
           <CopyLinkButton path={`/b/${b.share_id}`} variant="icon" />
         )}
         {!anySelected && (

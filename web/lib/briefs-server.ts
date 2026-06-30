@@ -249,6 +249,7 @@ export async function attachTicketInfo(
       updated_at: b.updated_at ?? null,
       ticket_url: b.ticket_url ?? null,
       ticket_identifier: b.ticket_identifier ?? null,
+      ticket_title: b.ticket_title ?? null,
       share_id: b.share_id ?? null,
       error: b.error ?? null,
       provider,

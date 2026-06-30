@@ -42,6 +42,7 @@ export default async function BriefsPage() {
     filed: active.filter((b) => b.status === "filed").length,
     processing: active.filter((b) => b.status === "processing").length,
     failed: active.filter((b) => b.status === "failed").length,
+    drafted: active.filter((b) => b.status === "drafted").length,
   };
 
   return (

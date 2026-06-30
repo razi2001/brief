@@ -66,15 +66,17 @@ const COL_STORE_KEY = "tickets:colw:v5";
 // absorbs the change automatically.
 type ResizeSpec = { inc?: ColKey; dec?: ColKey };
 
-export type Counts = { filed: number; processing: number; failed: number };
+export type Counts = { filed: number; processing: number; failed: number; drafted: number };
 
 // Synthetic (non-tracker-state) filter keys.
 const KEY_PROCESSING = "__processing";
 const KEY_FILED = "__filed"; // filed briefs with no live tracker state
 const KEY_FAILED = "__failed"; // briefs that couldn't file (shown with a Retry)
+const KEY_DRAFT = "__drafted"; // written up but not filed - opens the brief page
 
 function filterKeyOf(b: DashboardBrief): string {
   if (b.status === "failed") return KEY_FAILED;
+  if (b.status === "drafted") return KEY_DRAFT;
   if (b.status === "processing" || b.status === "uploaded") return KEY_PROCESSING;
   if (b.status === "filed") {
     return b.ticket?.stateName ? `state:${b.ticket.stateName}` : KEY_FILED;
@@ -87,9 +89,11 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   let hasBareFiled = false;
   let hasProcessing = false;
   let hasFailed = false;
+  let hasDraft = false;
 
   for (const b of briefs) {
     if (b.status === "failed") hasFailed = true;
+    else if (b.status === "drafted") hasDraft = true;
     else if (b.status === "processing" || b.status === "uploaded") hasProcessing = true;
     else if (b.status === "filed") {
       if (b.ticket?.stateName) {
@@ -109,6 +113,7 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
 
   const opts: FilterOption[] = [...states.values()];
   if (hasBareFiled) opts.push({ key: KEY_FILED, label: "Filed", color: "#2e7d32" });
+  if (hasDraft) opts.push({ key: KEY_DRAFT, label: "Draft", color: "#8a8378" });
   if (hasProcessing)
     opts.push({ key: KEY_PROCESSING, label: "In progress", color: "#dd6936" });
   if (hasFailed)
@@ -136,6 +141,7 @@ function EmptyState({ filtered }: { filtered: boolean }) {
 function SummaryLine({ counts }: { counts: Counts }) {
   const parts: { color: string; text: string; pulse?: boolean }[] = [];
   if (counts.filed > 0) parts.push({ color: "#2e7d32", text: `${counts.filed} filed` });
+  if (counts.drafted > 0) parts.push({ color: "#8a8378", text: `${counts.drafted} draft${counts.drafted > 1 ? "s" : ""}` });
   if (counts.processing > 0)
     parts.push({ color: "#dd6936", text: `${counts.processing} in progress`, pulse: true });
   if (counts.failed > 0)
@@ -224,16 +230,13 @@ export default function BriefsFeed({
   };
 
   // Hidden from the feed:
-  //  - uploaded: a not-yet-filed draft the user files from the extension.
-  //  - drafted: written up but not filed - lives on its own brief page, where
-  //    the owner exports it to a tracker (not in this filed-tickets feed yet).
+  //  - uploaded: a not-yet-filed capture the user is still composing in the
+  //    extension (no written-up ticket yet).
   //  - archived (this session): archive = delete, so it drops out immediately
   //    (the server already excludes archived briefs from the fetch).
+  // Drafts (written up, not filed) DO show - their row opens the brief page.
   const liveBriefs = useMemo(
-    () =>
-      briefs.filter(
-        (b) => b.status !== "uploaded" && b.status !== "drafted" && !archivedIds.has(b.id),
-      ),
+    () => briefs.filter((b) => b.status !== "uploaded" && !archivedIds.has(b.id)),
     [briefs, archivedIds],
   );
 
@@ -421,6 +424,7 @@ export default function BriefsFeed({
       const k = filterKeyOf(b);
       if (k === KEY_PROCESSING) next.processing = Math.max(0, next.processing + delta);
       else if (k === KEY_FAILED) next.failed = Math.max(0, next.failed + delta);
+      else if (k === KEY_DRAFT) next.drafted = Math.max(0, next.drafted + delta);
       else next.filed = Math.max(0, next.filed + delta);
     };
     for (const b of briefs) {

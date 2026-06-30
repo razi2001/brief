@@ -33,7 +33,15 @@ export interface FileResult {
   summary: string;
 }
 
-export async function processBrief(brief: BriefInput, tracker: Tracker, instructions?: string): Promise<FileResult> {
+export async function processBrief(
+  brief: BriefInput,
+  tracker: Tracker,
+  instructions?: string,
+  // When provided (export of a draft the reporter already iterated on), the agent
+  // files THIS title + description verbatim and only routes/sets fields - it does
+  // not rewrite the content.
+  fixed?: { title: string; description: string },
+): Promise<FileResult> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = process.env.AGENT_MODEL || "gpt-4o";
   const noun = tracker.targetNoun; // "team" | "project"
@@ -43,6 +51,9 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
     `\n\nTOOLING: You drive the tracker through tools, MCP-style. search_issues(query) looks up EXISTING issues so you can route and label by precedent - call it before picking a ${noun}. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${tracker.kind === "linear" ? ", and projects" : ", issue types, and custom fields (with their field ids and allowed values)"} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional labels/priority/state/assignee${tracker.kind === "linear" ? "/project" : ""}/comment/custom_fields). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once. The comment is posted on the issue after it's created; it's separate from the description. Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system uploads and embeds your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
     (prefs
       ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice), workflow state/status, assignee, project, labels, priority, custom fields, wording, format, and what to include. Pass each through the matching tool parameter - do not just mention it in the description - and VERIFY it landed via get_issue, repairing with update_issue. They never override the banned-vocabulary or evidence rules.\n${prefs}`
+      : "") +
+    (fixed
+      ? `\n\nALREADY-WRITTEN TICKET - DO NOT REWRITE. The reporter has finalized this ticket's title and description (they iterated on it themselves). Your ONLY job is to route it: pick the right ${noun} (use search_issues for precedent), set labels/priority/state/assignee${tracker.kind === "linear" ? "/project" : ""}/custom fields per precedent and the user's preferences, and attach the right evidence. When you call create_issue, pass the EXACT title and description below, byte for byte - do NOT rewrite, rephrase, summarize, translate, re-section, or "improve" them. The banned-vocabulary rule does not apply to their text; file it as written.\n\nTITLE:\n${fixed.title}\n\nDESCRIPTION:\n${fixed.description}`
       : "");
 
   const customFieldsParam = {
@@ -385,10 +396,14 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                 const evidenceFiles = brief.evidence.files
                   .filter((f) => chosen.includes(f.filename))
                   .map((f) => ({ ...f, caption: captionByName.get(f.filename) }));
+                // When exporting an already-written draft, file the reporter's
+                // title/description verbatim - never the model's rewrite.
+                const issueTitle = fixed ? fixed.title : args.title;
+                const issueDescription = fixed ? fixed.description : args.description;
                 created = await tracker.fileIssue({
                   targetId: args.targetId,
-                  title: args.title,
-                  descriptionMarkdown: args.description,
+                  title: issueTitle,
+                  descriptionMarkdown: issueDescription,
                   labels: Array.isArray(args.labels)
                     ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
                     : undefined,
@@ -403,7 +418,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                   evidence: evidenceFiles,
                 });
                 descriptionMarkdown =
-                  typeof args.description === "string" ? args.description : "";
+                  typeof issueDescription === "string" ? issueDescription : "";
                 result = created;
               }
               break;

@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { TrackerLogo } from "./TrackerLogo";
 
+const ACCENT_PILL =
+  "inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-cream transition hover:brightness-95 disabled:opacity-60";
+
 /**
- * Owner-only export controls on a drafted brief's page. Files the draft to the
- * chosen tracker (POST /api/briefs/:id/export, owner-checked server-side), then
- * reloads so the page re-renders as a filed ticket. Only trackers the owner has
- * connected are offered.
+ * Owner-only export controls on a drafted brief. Files the draft to the chosen
+ * tracker (POST /api/briefs/:id/export, owner-checked), then reloads. Rendered
+ * as compact accent pills so they sit inline in the ticket's action toolbar.
+ * Only trackers the owner has connected are offered.
  */
 export default function ExportButtons({
   briefId,
@@ -46,39 +49,30 @@ export default function ExportButtons({
 
   if (!linear && !jira) {
     return (
-      <p className="text-xs text-muted">
-        Connect Linear or Jira in Brief Cloud to export this draft.
-      </p>
+      <a
+        href="/connections"
+        className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink"
+      >
+        Connect a tracker to export →
+      </a>
     );
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2">
-        {linear && (
-          <button
-            type="button"
-            disabled={!!busy}
-            onClick={() => exportTo("linear")}
-            className="btn-accent disabled:opacity-60"
-          >
-            <TrackerLogo kind="linear" size={14} />
-            {busy === "linear" ? "Filing…" : "Export to Linear"}
-          </button>
-        )}
-        {jira && (
-          <button
-            type="button"
-            disabled={!!busy}
-            onClick={() => exportTo("jira")}
-            className="btn-accent disabled:opacity-60"
-          >
-            <TrackerLogo kind="jira" size={14} />
-            {busy === "jira" ? "Filing…" : "Export to Jira"}
-          </button>
-        )}
-      </div>
-      {err && <p className="text-xs text-[#c62828]">{err}</p>}
-    </div>
+    <>
+      {linear && (
+        <button type="button" disabled={!!busy} onClick={() => exportTo("linear")} className={ACCENT_PILL}>
+          <TrackerLogo kind="linear" size={13} />
+          {busy === "linear" ? "Filing…" : "Export to Linear"}
+        </button>
+      )}
+      {jira && (
+        <button type="button" disabled={!!busy} onClick={() => exportTo("jira")} className={ACCENT_PILL}>
+          <TrackerLogo kind="jira" size={13} />
+          {busy === "jira" ? "Filing…" : "Export to Jira"}
+        </button>
+      )}
+      {err && <span className="text-xs text-[#c62828]">{err}</span>}
+    </>
   );
 }
