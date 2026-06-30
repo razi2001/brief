@@ -16,7 +16,6 @@ const descField = $('#descField');
 const kvList = $('#kvList');
 const addFieldBtn = $('#addFieldBtn');
 const createBtn = $('#createBtn');
-const draftBtn = $('#draftBtn');
 const briefCloudBtn = $('#briefCloudBtn');
 const brandMark = $('#brandMark');
 const scrim = $('#scrim');
@@ -205,25 +204,12 @@ function initAdditionalData() {
 function updateCreate() {
   if (filing) return;
   const label = createBtn.querySelector('.ctk-label');
-  const dlabel = draftBtn?.querySelector('.dft-label');
   if (draft.uploading) {
     createBtn.disabled = true;
     if (label) label.textContent = 'Uploading…'; else createBtn.textContent = 'Uploading…';
-    if (draftBtn) { draftBtn.disabled = true; if (dlabel) dlabel.textContent = 'Uploading…'; }
   } else {
-    const ready = isReadyDraft(draft);
-    const noTracker = bcTracker === null;
-    createBtn.disabled = !ready;
-    // With no tracker connected the primary action just makes the Brief page
-    // (no filing, no blocking) - so it reads "Create brief". With a tracker it
-    // files the ticket. The secondary "Save as draft" is redundant when there's
-    // no tracker (the primary already does it), so hide it then.
-    if (label) label.textContent = noTracker ? 'Create brief' : 'Create ticket';
-    if (draftBtn) {
-      draftBtn.hidden = noTracker;
-      draftBtn.disabled = !ready;
-      if (dlabel) dlabel.textContent = 'Save as draft';
-    }
+    createBtn.disabled = !isReadyDraft(draft);
+    if (label) label.textContent = 'Create Brief';
   }
 }
 
@@ -440,19 +426,26 @@ function buildBriefJsonAndMeta(d, page) {
   const meta = { title: d.name || '', description: d.description || '', transcript: d.transcript || '', pageUrl, pageTitle, hasScreenshot: (d.screenshots || []).length > 0, keyframeCount: 0 };
   return { files, meta };
 }
-function bcShowSentAndOpen() {
+function openBrief(shareId) {
+  const t = exportDone.querySelector('.export-done-title');
+  const s = exportDone.querySelector('.export-done-sub');
+  if (t) t.textContent = bcTracker ? 'Filing your ticket…' : 'Brief created';
+  if (s) s.textContent = 'Opening your brief…';
   exportDone.hidden = false;
-  setTimeout(() => { openTicketsTab(); }, 1600);
+  setTimeout(() => {
+    if (shareId) chrome.tabs.create({ url: briefPageUrl(shareId) }).catch(() => {});
+    else openTicketsTab();
+    window.close();
+  }, 1200);
 }
-function failFiling(err) {
+function failCreate(err) {
   filing = false;
   setBrandSpin(false);
   const label = createBtn.querySelector('.ctk-label');
-  if (label) label.textContent = 'Create ticket';
+  if (label) label.textContent = 'Create Brief';
   createBtn.disabled = false;
   updateCreate();
-  if (err?.code === 'no_tracker') showInlineError('No tracker connected yet - link Linear or Jira, then try again.', { linkText: 'Connect a tracker →', url: `${APP_URL}/connections` });
-  else showInlineError(`Couldn’t send: ${err?.message || err}`);
+  showInlineError(`Couldn’t create brief: ${err?.message || err}`);
 }
 // Ensure the brief is uploaded as a cloud draft (creates it + uploads brief.json
 // and screenshots on first send, or pushes new screenshots into an existing
@@ -469,97 +462,43 @@ async function ensureUploaded() {
   }
 }
 
-async function fileBrief() {
+// One action. Always creates the Brief page; if a tracker is connected it also
+// files the ticket (the brief page becomes the linked record). Either way we
+// land on the brief page, which shows the "writing…" state and resolves itself.
+async function createBrief() {
   clearInlineError();
   if (!isReadyDraft(draft) || draft.uploading) return;
   let token = null; try { token = await getCloudToken(); } catch {}
   if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
-  // No tracker connected? Don't block - just make the Brief page (a draft). The
-  // owner can export to Linear/Jira later, or copy/share it as is.
-  if (bcTracker === null) { return saveDraft(); }
 
   filing = true;
   setBrandSpin(true);
   createBtn.disabled = true;
-  if (draftBtn) draftBtn.disabled = true;
   const label = createBtn.querySelector('.ctk-label');
-  if (label) label.innerHTML = '<span class="btn-spin"></span> Filing…';
-
-  const uploadAndFile = async () => {
-    await ensureUploaded();
-    await processBrief(draft.cloudBriefId, buildOverrides(draft));
-  };
-
-  try {
-    await uploadAndFile();
-  } catch (err) {
-    if (err?.status === 404 && draft.cloudBriefId) {
-      try { await persist((d) => { d.cloudBriefId = null; }); await uploadAndFile(); }
-      catch (err2) { return failFiling(err2); }
-    } else { return failFiling(err); }
-  }
-  await clearDraft();
-  draft = emptyDraft();
-  await setDraft(draft);
-  bcShowSentAndOpen();
-}
-
-// "Save as draft": write the ticket up WITHOUT filing it to a tracker (so it
-// works for people who don't use Linear/Jira). Same upload as filing; then
-// createDraft() returns the brief's share token and we open its page.
-function failDraft(err) {
-  filing = false;
-  setBrandSpin(false);
-  const dlabel = draftBtn?.querySelector('.dft-label');
-  if (dlabel) dlabel.textContent = 'Save as draft';
-  if (draftBtn) draftBtn.disabled = false;
-  createBtn.disabled = false;
-  updateCreate();
-  showInlineError(`Couldn’t save draft: ${err?.message || err}`);
-}
-function bcShowDraftSavedAndOpen(shareId) {
-  const t = exportDone.querySelector('.export-done-title');
-  const s = exportDone.querySelector('.export-done-sub');
-  if (t) t.textContent = 'Draft saved';
-  if (s) s.textContent = 'Opening your brief…';
-  exportDone.hidden = false;
-  setTimeout(() => {
-    if (shareId) chrome.tabs.create({ url: briefPageUrl(shareId) }).catch(() => {});
-    window.close();
-  }, 1400);
-}
-async function saveDraft() {
-  clearInlineError();
-  if (!isReadyDraft(draft) || draft.uploading) return;
-  let token = null; try { token = await getCloudToken(); } catch {}
-  if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
-  // No tracker gating - a draft needs none.
-
-  filing = true;
-  setBrandSpin(true);
-  if (draftBtn) draftBtn.disabled = true;
-  createBtn.disabled = true;
-  const dlabel = draftBtn?.querySelector('.dft-label');
-  if (dlabel) dlabel.innerHTML = '<span class="btn-spin"></span> Saving…';
+  if (label) label.innerHTML = '<span class="btn-spin"></span> Creating…';
 
   let shareId = null;
-  const uploadAndDraft = async () => {
+  const run = async () => {
     await ensureUploaded();
-    shareId = await createDraft(draft.cloudBriefId, buildOverrides(draft));
+    // Tracker connected → file it. No tracker → just the Brief page (a draft)
+    // to copy / share / export later. Both return the brief's share token.
+    shareId = bcTracker
+      ? await processBrief(draft.cloudBriefId, buildOverrides(draft))
+      : await createDraft(draft.cloudBriefId, buildOverrides(draft));
   };
 
   try {
-    await uploadAndDraft();
+    await run();
   } catch (err) {
     if (err?.status === 404 && draft.cloudBriefId) {
-      try { await persist((d) => { d.cloudBriefId = null; }); await uploadAndDraft(); }
-      catch (err2) { return failDraft(err2); }
-    } else { return failDraft(err); }
+      try { await persist((d) => { d.cloudBriefId = null; }); await run(); }
+      catch (err2) { return failCreate(err2); }
+    } else { return failCreate(err); }
   }
   await clearDraft();
   draft = emptyDraft();
   await setDraft(draft);
-  bcShowDraftSavedAndOpen(shareId);
+  openBrief(shareId);
 }
 
 // ---------- tickets tab + cloud button ----------
@@ -700,8 +639,7 @@ gallery.addEventListener('click', async (e) => {
   const shot = e.target.closest('[data-shot]');
   if (shot) return openShot(shot.getAttribute('data-shot'));
 });
-createBtn.addEventListener('click', fileBrief);
-draftBtn?.addEventListener('click', saveDraft);
+createBtn.addEventListener('click', createBrief);
 resetBtn?.addEventListener('click', openReset);
 
 // ---------- boot ----------

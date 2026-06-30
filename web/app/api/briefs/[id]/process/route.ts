@@ -1,4 +1,5 @@
 import { NextRequest, after } from "next/server";
+import { randomBytes } from "crypto";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { processBriefById } from "@/lib/agent/run-processing";
 import { createAdminSupabase } from "@/lib/supabase/server";
@@ -56,28 +57,35 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     screenshots: Array.isArray(body?.screenshots) ? body.screenshots : undefined,
   };
 
-  // Mark it queued (processing) right away, scoped to the caller, so the
-  // dashboard shows it as "in progress" the instant the user lands there - then
-  // respond immediately. The agent run (download → write → file) happens in the
-  // background via after(), so the extension popup never waits on it.
+  // Mark it queued (processing) right away, scoped to the caller, and mint the
+  // share token NOW (preserving an existing one) so the extension can open the
+  // brief page immediately - it shows the "writing…" state and resolves into the
+  // filed ticket. The agent run happens in the background via after().
   const admin = createAdminSupabase();
-  const { data: brief } = await admin
+  const { data: existing } = await admin
+    .from("briefs")
+    .select("id, share_id")
+    .eq("id", id)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!existing) return jsonCors({ error: "not found" }, { status: 404 });
+
+  const shareId = (existing.share_id as string | null) || randomBytes(9).toString("base64url");
+  await admin
     .from("briefs")
     .update({
       status: "processing",
       updated_at: new Date().toISOString(),
+      share_id: shareId,
       ...(title ? { title } : {}),
     })
     .eq("id", id)
-    .eq("user_id", userId)
-    .select("id")
-    .maybeSingle();
-  if (!brief) return jsonCors({ error: "not found" }, { status: 404 });
+    .eq("user_id", userId);
 
   after(async () => {
     // Errors are handled inside processBriefById (it flips the row to 'failed').
     await processBriefById(userId, id, { includeVideo, overrides }).catch(() => {});
   });
 
-  return jsonCors({ queued: true });
+  return jsonCors({ queued: true, shareId });
 }

@@ -172,6 +172,10 @@ export async function processBrief(briefId, overrides = {}) {
     err.status = res.status;
     throw err;
   }
+  // The brief's share token, so the popup can open its hosted page (which shows
+  // the "writing…" state and resolves into the filed ticket).
+  const body = await res.json().catch(() => ({}));
+  return body?.shareId || null;
 }
 
 // Write an already-uploaded brief up as a DRAFT (no tracker, no filing). The
