@@ -2,27 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=360, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <title>Brief</title>
     <link rel="stylesheet" href="fonts.css" />
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main id="app">
-      <header class="head">
-        <span class="brand">
-          <svg class="mark" viewBox="0 0 128 128" width="38" height="38" aria-hidden="true">
+    <main class="app" id="app">
+      <header class="header">
+        <span class="mark" id="brandMark" aria-hidden="true">
+          <svg viewBox="0 0 128 128" width="34" height="34">
             <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
             <path fill="#f5f1e8" d="
               M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
               M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z
-              M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z
-            "/>
-            <path fill="#f5f1e8" d="
-              M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88
-              C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z
-            "/>
+              M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z"/>
+            <path fill="#f5f1e8" d="M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88 C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z"/>
             <g fill="#ffffff">
               <ellipse cx="84" cy="40" rx="8" ry="7"/>
               <ellipse cx="95" cy="35" rx="10" ry="9"/>
@@ -30,57 +26,64 @@
               <rect x="80" y="38" width="28" height="9" rx="4"/>
             </g>
           </svg>
-          <span class="head-title">What's the <em>brief</em>?</span>
         </span>
-        <button id="briefCloudBtn" class="gear" title="Brief Cloud" aria-label="Open Brief Cloud">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-          </svg>
-        </button>
+        <h1 class="title">What's the <em>brief</em>?</h1>
+        <div class="header-actions">
+          <button class="hbtn reset-btn" id="resetBtn" type="button" aria-label="Reset brief" title="Reset brief">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+          <button class="hbtn cloud-btn" id="briefCloudBtn" aria-label="Open Brief Cloud" title="Brief Cloud">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.6A3.5 3.5 0 0 1 18 18Z"/></svg>
+          </button>
+        </div>
       </header>
 
-      <!-- Name a brief, then record it from the list -->
-      <form id="addForm" class="add-row" autocomplete="off">
-        <input id="addName" class="add-input" type="text" maxlength="60" placeholder="Name it…" spellcheck="false" />
-        <button type="submit" id="addBtn" class="add-btn" title="Add brief">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-      </form>
+      <div class="err-bar" id="errBar"></div>
 
-      <!-- Section label + recorded count (quiet, notification-style) -->
-      <div id="listHeader" class="list-header" hidden>
-        <span class="list-title">Briefs</span>
-        <span id="recBadge" class="rec-badge" hidden><span id="recCount">0</span> ready</span>
-      </div>
+      <section class="part">
+        <div class="part-label">Evidence <span class="count" id="evCount">0</span></div>
+        <div class="gallery" id="gallery"></div>
+      </section>
 
-      <!-- The list of briefs (drafts + recorded) -->
-      <ul id="briefList" class="brief-list" hidden></ul>
-
-      <!-- Empty state (minimal) -->
-      <div id="emptyState" class="empty-state"></div>
-
-      <!-- Brief Cloud: file a ticket directly (primary action when connected) -->
-      <button id="bc-create-ticket" class="export-btn">Create ticket</button>
-
-      <!-- Save as a draft instead: writes the ticket + a shareable page, no
-           tracker needed. The path for people who don't use Linear/Jira. -->
-      <button id="bc-create-draft" class="draft-btn">Save as draft</button>
-
-      <!-- Export action - only when at least one brief is recorded -->
-      <button id="exportBtn" class="export-btn">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span>Export <span id="exportCount">0</span></span>
-      </button>
-
-      <!-- Export-success overlay -->
-      <div id="exportDone" class="export-done" hidden>
-        <div class="export-done-inner">
-          <span class="export-done-check">✓</span>
-          <p class="export-done-title">Copied to clipboard</p>
-          <p class="export-done-sub">Paste it into your coding agent now</p>
+      <section class="part">
+        <div class="part-label">Additional data</div>
+        <div class="ai-wrap" id="descWrap">
+          <textarea class="ai-field has-mic" id="descField" placeholder="Describe the brief…" spellcheck="true"></textarea>
         </div>
+        <div class="sheet-fields" id="kvList"></div>
+        <button class="addfield" id="addFieldBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Add field</button>
+      </section>
+
+      <div class="create-wrap">
+        <button class="create" id="createBtn" type="button"><span class="ctk-label">Create ticket</span></button>
+        <button class="draft-btn" id="draftBtn" type="button"><span class="dft-label">Save as draft</span></button>
       </div>
     </main>
+
+    <div class="scrim" id="scrim"></div>
+
+    <div class="sheet" id="sheet" role="dialog" aria-modal="true">
+      <div class="handle"></div>
+      <div class="sheet-head">
+        <div class="sheet-title" id="sheetTitle"></div>
+        <button class="sheet-action" id="sheetAction" type="button" hidden></button>
+        <button class="sheet-close" id="sheetClose" aria-label="Close" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="sheet-body" id="sheetBody"></div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <div id="exportDone" class="export-done" hidden>
+      <div class="export-done-inner">
+        <span class="export-done-check">✓</span>
+        <p class="export-done-title">Queued</p>
+        <p class="export-done-sub">Opening your tickets…</p>
+      </div>
+    </div>
+
     <script type="module" src="popup.js"></script>
   </body>
 </html>

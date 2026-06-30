@@ -37,9 +37,24 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // popup passes it now (at file time) for the dashboard to show while filing.
   // `includeVideo` is the user's "attach the recording" toggle, also only known
   // at file time (set in the popup after the draft was uploaded).
-  const body = await req.json().catch(() => ({}) as { title?: string; includeVideo?: boolean });
+  const body = (await req.json().catch(() => ({}))) as {
+    title?: string;
+    includeVideo?: boolean;
+    transcript?: string;
+    description?: string;
+    extra?: Array<{ key: string; value: string }>;
+    screenshots?: Array<{ file: string; description?: string; annotated?: boolean }>;
+  };
   const title = (body?.title ?? "").toString().trim();
   const includeVideo = body?.includeVideo === true;
+  const overrides = {
+    title: title || undefined,
+    includeVideo,
+    transcript: typeof body?.transcript === "string" ? body.transcript : undefined,
+    description: typeof body?.description === "string" ? body.description : undefined,
+    extra: Array.isArray(body?.extra) ? body.extra : undefined,
+    screenshots: Array.isArray(body?.screenshots) ? body.screenshots : undefined,
+  };
 
   // Mark it queued (processing) right away, scoped to the caller, so the
   // dashboard shows it as "in progress" the instant the user lands there - then
@@ -61,7 +76,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   after(async () => {
     // Errors are handled inside processBriefById (it flips the row to 'failed').
-    await processBriefById(userId, id, { includeVideo }).catch(() => {});
+    await processBriefById(userId, id, { includeVideo, overrides }).catch(() => {});
   });
 
   return jsonCors({ queued: true });

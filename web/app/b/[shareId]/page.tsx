@@ -43,19 +43,35 @@ async function loadBrief(shareId: string): Promise<ShareRow | null> {
   return (data as ShareRow | null) ?? null;
 }
 
-/** Signed URLs (1h) for the evidence still kept in storage for this brief. */
-async function loadMedia(prefix: string): Promise<{ screenshot?: string; recording?: string }> {
+/** Signed URLs (1h) for the evidence still kept in storage for this brief.
+ *  Screenshots are stored under screenshots/<id>.png (multiple, each captioned),
+ *  with a legacy top-level screenshot.png; the recording is kept when attached. */
+async function loadMedia(
+  prefix: string,
+): Promise<{ screenshots: string[]; recording?: string }> {
   const admin = createAdminSupabase();
-  const { data } = await admin.storage.from("briefs").list(prefix);
-  const names = new Set((data ?? []).map((o) => o.name));
-  const out: { screenshot?: string; recording?: string } = {};
-  if (names.has("screenshot.png")) {
-    const { data: s } = await admin.storage.from("briefs").createSignedUrl(`${prefix}/screenshot.png`, 3600);
-    if (s?.signedUrl) out.screenshot = s.signedUrl;
+  const sign = async (p: string) => {
+    const { data } = await admin.storage.from("briefs").createSignedUrl(p, 3600);
+    return data?.signedUrl ?? null;
+  };
+  const out: { screenshots: string[]; recording?: string } = { screenshots: [] };
+
+  // Multiple screenshots under screenshots/.
+  const { data: shotList } = await admin.storage.from("briefs").list(`${prefix}/screenshots`);
+  for (const o of (shotList ?? []).map((o) => o.name).sort()) {
+    const url = await sign(`${prefix}/screenshots/${o}`);
+    if (url) out.screenshots.push(url);
   }
-  if (names.has("recording.webm")) {
-    const { data: r } = await admin.storage.from("briefs").createSignedUrl(`${prefix}/recording.webm`, 3600);
-    if (r?.signedUrl) out.recording = r.signedUrl;
+
+  // Root: legacy single screenshot + the recording.
+  const { data: rootList } = await admin.storage.from("briefs").list(prefix);
+  const rootNames = new Set((rootList ?? []).map((o) => o.name));
+  if (rootNames.has("screenshot.png")) {
+    const url = await sign(`${prefix}/screenshot.png`);
+    if (url) out.screenshots.push(url);
+  }
+  if (rootNames.has("recording.webm")) {
+    out.recording = (await sign(`${prefix}/recording.webm`)) ?? undefined;
   }
   return out;
 }
@@ -242,18 +258,19 @@ export default async function SharePage({
             <p className="text-sm text-muted">No description.</p>
           )}
 
-          {(media.screenshot || media.recording) && (
+          {(media.screenshots.length > 0 || media.recording) && (
             <section className="mt-8">
               <h2 className="mb-3 font-mono text-xs uppercase tracking-wider text-muted">Evidence</h2>
               <div className="flex flex-col gap-4">
-                {media.screenshot && (
+                {media.screenshots.map((src, i) => (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={media.screenshot}
-                    alt="Screenshot"
+                    key={i}
+                    src={src}
+                    alt={`Screenshot ${i + 1}`}
                     className="w-full rounded-lg border border-hairline"
                   />
-                )}
+                ))}
                 {media.recording && (
                   <video
                     src={media.recording}

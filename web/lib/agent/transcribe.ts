@@ -9,7 +9,7 @@ export interface TranscribeInput {
 export interface TranscribeDeps {
   /** Injectable for tests; defaults to a real OpenAI transcription call. */
   create?: (args: Record<string, unknown>) => Promise<unknown>;
-  /** Override the model; defaults to TRANSCRIBE_MODEL env or gpt-4o-mini-transcribe. */
+  /** Override the model; defaults to TRANSCRIBE_MODEL env or gpt-4o-transcribe. */
   model?: string;
 }
 
@@ -23,7 +23,7 @@ export async function transcribeAudio(
   deps: TranscribeDeps = {},
 ): Promise<string | null> {
   if (!input || !input.bytes || input.bytes.length === 0) return null;
-  const model = deps.model || process.env.TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
+  const model = deps.model || process.env.TRANSCRIBE_MODEL || "gpt-4o-transcribe";
   const client = deps.create ? null : new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const create: (args: Record<string, unknown>) => Promise<unknown> =
     deps.create ||

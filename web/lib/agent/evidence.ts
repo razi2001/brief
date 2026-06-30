@@ -13,6 +13,8 @@ export interface EvidenceItem {
   kind: EvidenceKind;
   /** Position in the capture (keyframes), for correlating with the narration. */
   timestampMs?: number;
+  /** User's note for a screenshot - their intent, surfaced to the agent. */
+  caption?: string;
 }
 
 function fmtTs(ms: number): string {
@@ -39,7 +41,8 @@ export function buildEvidenceManifest(items: EvidenceItem[], includeVideo: boole
 
   const lines = attachable.map((i) => {
     const ts = i.timestampMs !== undefined ? ` at ${fmtTs(i.timestampMs)}` : "";
-    return `- ${i.name} (${KIND_LABEL[i.kind]}${ts})`;
+    const cap = i.caption && i.caption.trim() ? ` - "${i.caption.trim()}"` : "";
+    return `- ${i.name} (${KIND_LABEL[i.kind]}${ts})${cap}`;
   });
   const hasAttachableRecording = attachable.some((i) => i.kind === "recording");
   let text =

@@ -96,7 +96,10 @@ export interface IssueInput {
    * Resolved fields (labels/priority/state/assignee/project) always win.
    */
   extraFields?: Record<string, unknown>;
-  evidence: Array<{ filename: string; contentType: string; bytes: Buffer }>;
+  // Each evidence file, optionally with a one-line human caption the agent wrote
+  // for it. The adapter renders the caption directly above the embedded image
+  // (Linear) or in the body next to the attachment reference (Jira).
+  evidence: Array<{ filename: string; contentType: string; bytes: Buffer; caption?: string }>;
 }
 
 /** A partial update applied after creation (the agent's repair loop). */

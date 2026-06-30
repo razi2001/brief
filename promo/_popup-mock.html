@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=360, initial-scale=1" />
     <meta name="color-scheme" content="light" />
     <!-- Renders the REAL Brief Cloud popup with the actual extension stylesheet
          and sample data, isolated in its own document so popup.css's html/body
@@ -10,107 +11,94 @@
     <link rel="stylesheet" href="../extension/fonts.css" />
     <link rel="stylesheet" href="../extension/popup.css" />
     <style>
-      html, body { background: transparent; }
+      /* Override popup.css's html/body rules (width:360px, opacity:0 gate) so the
+         popup renders reliably as a standalone framed shot. */
+      html, body { width:auto !important; max-width:none !important; margin:0 !important;
+        background: transparent !important; opacity:1 !important; }
       /* Round the popup's corners for the framed device shot. */
-      #app { border-radius: 16px; background: var(--cream); }
+      #app { width:360px; border-radius: 16px; background: var(--cream); overflow: hidden; }
+      /* Mic chip (matches .desc-mic, inlined so the mock needs no JS). */
+      .mock-mic { position:absolute; top:8px; right:8px; width:28px; height:28px; border:0; border-radius:50%;
+        background:rgba(26,22,18,.05); color:var(--muted); display:grid; place-items:center; }
+      .mock-mic svg { width:14px; height:14px; }
     </style>
   </head>
   <body class="ready">
-    <main id="app">
-      <header class="head">
-        <span class="brand">
-          <svg class="mark" viewBox="0 0 128 128" width="38" height="38" aria-hidden="true">
-            <defs>
-              <linearGradient id="tile" x1="20" y1="6" x2="112" y2="124" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stop-color="#f08147"/><stop offset="0.52" stop-color="#dd6936"/><stop offset="1" stop-color="#bd4f1c"/>
-              </linearGradient>
-            </defs>
-            <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#tile)"/>
-            <g fill="#f7f3ea">
-              <path d="M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z"/>
-              <path d="M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88 C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z"/>
-            </g>
-            <g fill="#ffffff">
-              <ellipse cx="84" cy="40" rx="8" ry="7"/><ellipse cx="95" cy="35" rx="10" ry="9"/><ellipse cx="104" cy="40" rx="7" ry="6"/><rect x="80" y="38" width="28" height="9" rx="4"/>
-            </g>
+    <main class="app" id="app">
+      <header class="header">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 128 128" width="34" height="34">
+            <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
+            <path fill="#f5f1e8" d="M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z"/>
+            <path fill="#f5f1e8" d="M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88 C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z"/>
+            <g fill="#ffffff"><ellipse cx="84" cy="40" rx="8" ry="7"/><ellipse cx="95" cy="35" rx="10" ry="9"/><ellipse cx="104" cy="40" rx="7" ry="6"/><rect x="80" y="38" width="28" height="9" rx="4"/></g>
           </svg>
-          <span class="head-title">What's the <em>brief</em>?</span>
         </span>
-        <button class="gear" title="Brief Cloud" aria-label="Open Brief Cloud">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-          </svg>
-        </button>
+        <h1 class="title">What's the <em>brief</em>?</h1>
+        <div class="header-actions">
+          <button class="hbtn reset-btn" type="button" aria-label="Reset brief">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/></svg>
+          </button>
+          <button class="hbtn cloud-btn" type="button" aria-label="Open Brief Cloud">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.6A3.5 3.5 0 0 1 18 18Z"/></svg>
+          </button>
+        </div>
       </header>
 
-      <form class="add-row" autocomplete="off">
-        <input class="add-input" type="text" placeholder="Name it…" value="" spellcheck="false" />
-        <button type="button" class="add-btn" title="Add brief">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        </button>
-      </form>
-
-      <div class="list-header">
-        <span class="list-title">Briefs</span>
-        <span class="rec-badge">2 ready</span>
-      </div>
-
-      <ul class="brief-list">
-        <!-- collapsed, recorded -->
-        <li class="brief-item recorded">
-          <div class="brief-row">
-            <span class="brief-status"></span>
-            <input class="brief-name-input" value="Checkout total is wrong" readonly />
-            <span class="brief-actions">
-              <button class="cap-btn done" title="Recorded">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-              </button>
-              <button class="cap-btn" title="Screenshot">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              </button>
-            </span>
-            <button class="brief-more" title="More"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
-            <button class="brief-archive" title="Archive"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg></button>
-          </div>
-        </li>
-
-        <!-- expanded, recorded -->
-        <li class="brief-item recorded expanded">
-          <div class="brief-row">
-            <span class="brief-status"></span>
-            <input class="brief-name-input" value="Colour contrast on marketing site" readonly />
-            <span class="brief-actions">
-              <button class="cap-btn done" title="Recorded">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-              </button>
-              <button class="cap-btn done" title="Screenshot">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-              </button>
-            </span>
-            <button class="brief-more open has-extras" title="More"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>
-            <button class="brief-archive" title="Archive"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg></button>
-          </div>
-          <div class="brief-detail">
-            <label class="opt-desc">
-              <div class="desc-input" style="white-space:pre-wrap;">The CTA text fails contrast on the cream hero. Said it aloud while scrolling the pricing page.</div>
-            </label>
-            <label class="opt-check"><input type="checkbox" checked /> Attach the recording to the ticket</label>
-            <div class="opt-data">
-              <div class="opt-data-title">Additional data</div>
-              <div class="kv-rows">
-                <div class="kv-row">
-                  <div class="kv-key" style="display:flex;align-items:center;">environment</div>
-                  <div class="kv-val" style="display:flex;align-items:center;">production</div>
-                  <button class="kv-del" title="Remove">×</button>
-                </div>
-              </div>
-              <button class="kv-add" type="button">+ Add field</button>
+      <section class="part">
+        <div class="part-label">Evidence <span class="count">2</span></div>
+        <div class="gallery">
+          <div class="tile shot">
+            <span class="badge">1</span>
+            <button class="remove" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            <div class="thumb">
+              <svg viewBox="0 0 120 90" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
+                <rect width="120" height="90" fill="#fbfaf7"/><rect width="120" height="13" fill="#ece6d6"/>
+                <circle cx="8" cy="6.5" r="2" fill="#dd6936"/>
+                <rect x="10" y="26" width="62" height="5" rx="2" fill="#d9d2c4"/><rect x="10" y="38" width="86" height="5" rx="2" fill="#d9d2c4"/>
+                <rect x="10" y="56" width="48" height="7" rx="2" fill="#e7c9b8"/>
+                <ellipse cx="62" cy="59" rx="30" ry="11" fill="none" stroke="#dd2d2d" stroke-width="1.6"/>
+              </svg>
             </div>
+            <div class="note-strip"><span class="ntxt">Coupon rejects a valid code</span></div>
           </div>
-        </li>
-      </ul>
+          <div class="tile rec">
+            <button class="remove" aria-label="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+            <div class="thumb">
+              <svg viewBox="0 0 120 90" preserveAspectRatio="xMidYMid slice" width="100%" height="100%">
+                <rect width="120" height="90" fill="#2a2622"/><rect width="120" height="13" fill="#1f1b18"/>
+                <rect x="10" y="28" width="72" height="5" rx="2" fill="#5a5249"/><rect x="10" y="40" width="94" height="5" rx="2" fill="#4a433b"/><rect x="10" y="52" width="58" height="5" rx="2" fill="#4a433b"/>
+              </svg>
+              <span class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>
+            </div>
+            <div class="rec-foot"><span class="updot"></span>Recording</div>
+          </div>
+          <div class="tile add">
+            <span class="plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+            <span class="add-lbl">Add</span>
+          </div>
+        </div>
+      </section>
 
-      <button class="export-btn is-on">Create ticket</button>
+      <section class="part">
+        <div class="part-label">Additional data</div>
+        <div class="ai-wrap">
+          <textarea class="ai-field has-mic" readonly>Coupon SAVE20 returns "invalid" at checkout, but it's active in the dashboard. Started this morning.</textarea>
+          <button class="mock-mic" type="button" aria-label="Record a voice note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1.5a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0v-7a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/></svg></button>
+        </div>
+        <div class="sheet-fields">
+          <div class="sheet-field">
+            <input class="k" value="environment" readonly />
+            <input class="v" value="production" readonly />
+            <button class="fx" aria-label="Remove field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+          </div>
+        </div>
+        <button class="addfield" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Add field</button>
+      </section>
+
+      <div class="create-wrap">
+        <button class="create" type="button"><span class="ctk-label">Create ticket</span></button>
+      </div>
     </main>
   </body>
 </html>
