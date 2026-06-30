@@ -466,3 +466,47 @@ a {
 .ticket-prose th { background: var(--color-cream-2); font-weight: 700; color: var(--color-ink); }
 .ticket-prose[contenteditable]:focus { outline: none; }
 .ticket-prose[contenteditable] { caret-color: var(--color-accent); }
+
+/* ── Skeleton placeholders (brief page "writing" state) ──────────────────────
+   Same layout shell as the finished ticket, so the page never blanks and the
+   resolved content drops in with no layout shift. */
+.sk {
+  position: relative;
+  overflow: hidden;
+  background: rgba(26, 22, 18, 0.06);
+  border-radius: 7px;
+}
+.sk::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 253, 248, 0.65), transparent);
+  animation: sk-sweep 1.5s ease-in-out infinite;
+}
+@keyframes sk-sweep {
+  100% { transform: translateX(100%); }
+}
+
+/* Gentle fade+rise for the brief page article (writing AND resolved share the
+   same animation, so the skeleton -> ticket transition reads as continuous). */
+@keyframes brief-page-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.brief-page-in {
+  animation: brief-page-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Soft pulsing dot for the "writing…" indicator. */
+@keyframes brief-writing-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.writing-dot { animation: brief-writing-pulse 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sk::after,
+  .writing-dot { animation: none; }
+  .brief-page-in { animation: none; }
+}

@@ -212,11 +212,18 @@ function updateCreate() {
     if (draftBtn) { draftBtn.disabled = true; if (dlabel) dlabel.textContent = 'Uploading…'; }
   } else {
     const ready = isReadyDraft(draft);
+    const noTracker = bcTracker === null;
     createBtn.disabled = !ready;
-    if (label) label.textContent = 'Create ticket';
-    // "Save as draft" needs NO tracker, so it's available whenever the brief is
-    // ready - the path for people who don't use Linear/Jira.
-    if (draftBtn) { draftBtn.disabled = !ready; if (dlabel) dlabel.textContent = 'Save as draft'; }
+    // With no tracker connected the primary action just makes the Brief page
+    // (no filing, no blocking) - so it reads "Create brief". With a tracker it
+    // files the ticket. The secondary "Save as draft" is redundant when there's
+    // no tracker (the primary already does it), so hide it then.
+    if (label) label.textContent = noTracker ? 'Create brief' : 'Create ticket';
+    if (draftBtn) {
+      draftBtn.hidden = noTracker;
+      draftBtn.disabled = !ready;
+      if (dlabel) dlabel.textContent = 'Save as draft';
+    }
   }
 }
 
@@ -467,7 +474,9 @@ async function fileBrief() {
   if (!isReadyDraft(draft) || draft.uploading) return;
   let token = null; try { token = await getCloudToken(); } catch {}
   if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
-  if (bcTracker === null) { showInlineError('This account has no tracker connected - link Linear or Jira, then try again.', { linkText: 'Connect a tracker →', url: `${APP_URL}/connections` }); return; }
+  // No tracker connected? Don't block - just make the Brief page (a draft). The
+  // owner can export to Linear/Jira later, or copy/share it as is.
+  if (bcTracker === null) { return saveDraft(); }
 
   filing = true;
   setBrandSpin(true);
@@ -670,7 +679,7 @@ async function bcRefresh() {
   let token = null; try { token = await getCloudToken(); } catch {}
   bcConnected = !!token;
   if (!token) return;
-  try { const status = await fetchAccountStatus(); if (!status) return; bcConnected = status.connected; bcTracker = status.tracker; } catch {}
+  try { const status = await fetchAccountStatus(); if (!status) return; bcConnected = status.connected; bcTracker = status.tracker; updateCreate(); } catch {}
 }
 
 // ---------- wiring ----------

@@ -116,27 +116,90 @@ function CenterCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+function BackLink() {
+  return (
+    <a
+      href="/tickets"
+      className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted no-underline transition-colors hover:text-ink"
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M19 12H5M12 19l-7-7 7-7" />
+      </svg>
+      All tickets
+    </a>
+  );
+}
+
+const ARTICLE_CLASS =
+  "brief-page-in rounded-2xl border border-hairline bg-[#fffdf8] px-6 py-8 shadow-[0_1px_3px_rgba(26,22,18,0.05),0_14px_40px_-20px_rgba(26,22,18,0.18)] sm:px-12 sm:py-11";
+
+/** One shimmering placeholder bar. */
+function Bar({ w, h = 14, className = "" }: { w: string; h?: number; className?: string }) {
+  return <div className={`sk ${className}`} style={{ width: w, height: h }} />;
+}
+
 export default async function SharePage({ params }: { params: Promise<{ shareId: string }> }) {
   const { shareId } = await params;
   const brief = await loadBrief(shareId);
   if (!brief) notFound();
 
-  // ── In progress: writing the draft, or filing an already-written one ──
+  const viewerId = await getUserId();
+
+  // ── In progress: writing the draft, or filing an already-written one. Same
+  // shell as the finished ticket (real title + evidence already shown, body
+  // shimmering in) so there's no blank wait and no layout shift on resolve. ──
   if (brief.status === "processing" || brief.status === "uploaded") {
-    // A body already exists → this is an export being filed, not a fresh write.
     const filing = !!brief.ticket_body;
+    const media = await loadMedia(brief.storage_prefix, "brief");
     return (
-      <CenterCard>
+      <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
         <PollReload />
-        <BrandMark size={32} />
-        <span className="h-7 w-7 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
-        <p className="font-display text-2xl text-ink">{filing ? "Filing your ticket…" : "Writing this up…"}</p>
-        <p className="max-w-xs text-sm text-muted">
-          {filing
-            ? "Pushing this to your tracker and attaching the evidence. This page updates on its own in a moment."
-            : `Brief is turning ${brief.title ? `"${brief.title}"` : "your capture"} into a clean ticket. This page updates on its own in a moment.`}
-        </p>
-      </CenterCard>
+        {viewerId && <BackLink />}
+        <article className={ARTICLE_CLASS}>
+          {/* status */}
+          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
+            {filing ? "Filing your ticket…" : "Brief is writing this ticket…"}
+          </div>
+
+          {/* title - real name if we have it, else a skeleton */}
+          {brief.title ? (
+            <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{brief.title}</h1>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              <Bar w="78%" h={30} />
+              <Bar w="46%" h={30} />
+            </div>
+          )}
+
+          {/* body skeleton */}
+          <div className="mt-8 flex flex-col gap-3">
+            <Bar w="100%" /><Bar w="94%" /><Bar w="71%" />
+            <div className="h-3" />
+            <Bar w="34%" h={11} className="opacity-70" />
+            <Bar w="88%" /><Bar w="60%" />
+            <div className="h-3" />
+            <div className="sk" style={{ width: "100%", height: 84, borderRadius: 12 }} />
+            <div className="h-3" />
+            <Bar w="80%" /><Bar w="50%" />
+          </div>
+
+          {/* evidence - already uploaded, show it for real */}
+          {media.length > 0 && (
+            <div className="mt-9 flex flex-col gap-4">
+              {media.map((a, i) =>
+                a.kind === "image" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={i} src={a.url} alt="" className="w-full rounded-xl border border-hairline" />
+                ) : (
+                  <video key={i} src={a.url} controls className="w-full rounded-xl border border-hairline bg-ink" />
+                ),
+              )}
+            </div>
+          )}
+        </article>
+        <BriefFooter />
+      </main>
     );
   }
 
@@ -156,7 +219,6 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   if (brief.status !== "filed" && brief.status !== "drafted") notFound();
 
   const isDraft = brief.status === "drafted";
-  const viewerId = await getUserId();
   const isOwner = !!viewerId && viewerId === brief.user_id;
 
   let hasLinear = false;
@@ -177,18 +239,8 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
 
   return (
     <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
-      {viewerId && (
-        <a
-          href="/tickets"
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted no-underline transition-colors hover:text-ink"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M19 12H5M12 19l-7-7 7-7" />
-          </svg>
-          All tickets
-        </a>
-      )}
-      <article className="rounded-2xl border border-hairline bg-[#fffdf8] px-6 py-8 shadow-[0_1px_3px_rgba(26,22,18,0.05),0_14px_40px_-20px_rgba(26,22,18,0.18)] sm:px-12 sm:py-11">
+      {viewerId && <BackLink />}
+      <article className={ARTICLE_CLASS}>
       {/* ── Meta strip ── */}
       <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted">
         <span className="inline-flex items-center gap-1.5 text-ink-2">
