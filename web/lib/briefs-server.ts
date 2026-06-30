@@ -25,12 +25,13 @@ export type BriefRow = {
   ticket_title: string | null;
   ticket_state_name: string | null;
   ticket_state_color: string | null;
+  share_id: string | null;
   error: string | null;
   archived_at: string | null;
 };
 
 export const BRIEF_COLUMNS =
-  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, error, archived_at";
+  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, share_id, error, archived_at";
 
 /**
  * How long a brief may keep trying before we give up on it. A brief flips to
@@ -248,6 +249,7 @@ export async function attachTicketInfo(
       updated_at: b.updated_at ?? null,
       ticket_url: b.ticket_url ?? null,
       ticket_identifier: b.ticket_identifier ?? null,
+      share_id: b.share_id ?? null,
       error: b.error ?? null,
       provider,
       ticket,

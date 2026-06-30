@@ -21,6 +21,9 @@ export interface FileResult {
   ticketUrl: string;
   ticketIdentifier: string;
   ticketTitle: string;
+  /** The markdown body the agent wrote for the ticket, persisted so the
+   *  shareable brief page can render the same "perfect ticket". */
+  descriptionMarkdown: string;
   /** Final workflow state right after filing (post verify/repair), if readable. */
   ticketState?: { name: string; color: string | null };
   summary: string;
@@ -252,6 +255,11 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
       ? (v as Record<string, unknown>)
       : undefined;
 
+  // The markdown body the agent wrote on create_issue - captured here so the
+  // caller can persist it for the shareable brief page (it's never read back
+  // from the tracker, and update_issue can't change it).
+  let descriptionMarkdown = "";
+
   const runLoop = async (userContent: any[]): Promise<IssueResult> => {
     const messages: any[] = [
       { role: "system", content: sys },
@@ -331,6 +339,8 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
                   extraFields: obj(args.custom_fields),
                   evidence: evidenceFiles,
                 });
+                descriptionMarkdown =
+                  typeof args.description === "string" ? args.description : "";
                 result = created;
               }
               break;
@@ -402,6 +412,7 @@ export async function processBrief(brief: BriefInput, tracker: Tracker, instruct
     ticketUrl: created.url,
     ticketIdentifier: created.identifier,
     ticketTitle: finalTitle,
+    descriptionMarkdown,
     ticketState,
     summary: finalTitle || "filed",
   };

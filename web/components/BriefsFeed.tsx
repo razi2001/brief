@@ -225,10 +225,15 @@ export default function BriefsFeed({
 
   // Hidden from the feed:
   //  - uploaded: a not-yet-filed draft the user files from the extension.
+  //  - drafted: written up but not filed - lives on its own brief page, where
+  //    the owner exports it to a tracker (not in this filed-tickets feed yet).
   //  - archived (this session): archive = delete, so it drops out immediately
   //    (the server already excludes archived briefs from the fetch).
   const liveBriefs = useMemo(
-    () => briefs.filter((b) => b.status !== "uploaded" && !archivedIds.has(b.id)),
+    () =>
+      briefs.filter(
+        (b) => b.status !== "uploaded" && b.status !== "drafted" && !archivedIds.has(b.id),
+      ),
     [briefs, archivedIds],
   );
 

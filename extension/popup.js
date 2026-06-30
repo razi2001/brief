@@ -7,7 +7,7 @@
 //   2. Slow path (no cache): probe getUserMedia synchronously. If granted,
 //      reveal and cache. If not, redirect to permission page.
 
-import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, uploadFilesToDraft, processBrief, transcribeNote } from './cloud.js';
+import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, uploadFilesToDraft, processBrief, createDraft, briefPageUrl, transcribeNote } from './cloud.js';
 
 const briefCloudBtn = document.getElementById('briefCloudBtn');
 const briefList = document.getElementById('briefList');
@@ -22,6 +22,7 @@ const exportBtn = document.getElementById('exportBtn');
 const exportCount = document.getElementById('exportCount');
 const exportDone = document.getElementById('exportDone');
 const bcCreateTicket = document.getElementById('bc-create-ticket');
+const bcCreateDraft = document.getElementById('bc-create-draft');
 let bcConnected = false;
 // Which tracker the paired account has: "linear" | "jira" | null (none) |
 // undefined (not checked yet / offline - assume OK, the process route is the
@@ -752,10 +753,26 @@ function updateChrome(items) {
         }
       }
     }
+    // "Save as draft" is always available - it needs no tracker, so it's the
+    // path for people who don't use Linear/Jira. Same gating as filing only on
+    // the upload-in-progress case (a brief still uploading has no cloud id yet).
+    if (bcCreateDraft) {
+      bcCreateDraft.classList.add('is-on');
+      if (!bcCreateDraft.classList.contains('sending')) {
+        if (fileable === 0 && uploading > 0) {
+          bcCreateDraft.disabled = true;
+          bcCreateDraft.textContent = 'Uploading…';
+        } else {
+          bcCreateDraft.disabled = false;
+          bcCreateDraft.textContent = fileable > 1 ? `Save ${fileable} drafts` : 'Save as draft';
+        }
+      }
+    }
     exportBtn.classList.remove('is-on');
   } else {
     exportBtn.classList.remove('is-on');
     if (bcCreateTicket) bcCreateTicket.classList.remove('is-on');
+    if (bcCreateDraft) bcCreateDraft.classList.remove('is-on');
   }
 }
 
@@ -1103,6 +1120,132 @@ bcCreateTicket?.addEventListener('click', async () => {
   } else {
     showInlineError(`Couldn’t send: ${failure?.message || failure}`);
   }
+});
+
+// ---------- Brief Cloud: "Save as draft" ----------
+//
+// Drafts write the ticket up WITHOUT filing it to a tracker (so it works for
+// people who don't use Linear/Jira). The brief uploads exactly like the ticket
+// path; then createDraft() kicks off the write and returns the brief's share
+// token, so we open its page (which shows "writing this up", then the ticket).
+
+// Ensure a brief is uploaded as a cloud draft, returning its cloud id. Mirrors
+// the upload half of the Create-ticket loop: create the draft on first send, or
+// push a late-added screenshot into an existing draft.
+async function ensureBriefUploaded(b) {
+  if (!b.cloudBriefId) {
+    const page = await activePageContext();
+    const { files, meta } = bcBuildFilesAndMeta(b, page);
+    b.cloudBriefId = await uploadDraft(files, meta);
+    const list = await getInbox();
+    const entry = list.find((x) => x.id === b.id);
+    if (entry) { entry.cloudBriefId = b.cloudBriefId; await setInbox(list); }
+  } else if (b.screenshot) {
+    await uploadFilesToDraft(b.cloudBriefId, [{
+      name: 'screenshot.png',
+      blob: new Blob([dataUrlToBytes(b.screenshot)], { type: 'image/png' }),
+      contentType: 'image/png',
+    }]);
+  }
+  return b.cloudBriefId;
+}
+
+// Re-upload a brief under the current pairing - self-heal when a stored draft id
+// belongs to a previous account (404).
+async function reuploadBrief(b) {
+  b.cloudBriefId = null;
+  const page = await activePageContext();
+  const { files, meta } = bcBuildFilesAndMeta(b, page);
+  b.cloudBriefId = await uploadDraft(files, meta);
+  const list = await getInbox();
+  const entry = list.find((x) => x.id === b.id);
+  if (entry) { entry.cloudBriefId = b.cloudBriefId; await setInbox(list); }
+  return b.cloudBriefId;
+}
+
+// Reuse the success overlay to confirm a draft, then open the brief's page (the
+// first one when several were saved) and close the popup.
+function bcShowDraftSavedAndOpen(count, shareId) {
+  const title = exportDone.querySelector('.export-done-title');
+  const sub = exportDone.querySelector('.export-done-sub');
+  if (title) title.textContent = count > 1 ? `${count} drafts saved` : 'Draft saved';
+  if (sub) sub.textContent = 'Opening your brief…';
+  document.body.classList.add('done-active');
+  exportDone.hidden = false;
+  setTimeout(() => {
+    if (shareId) chrome.tabs.create({ url: briefPageUrl(shareId) }).catch(() => {});
+    window.close();
+  }, 1400);
+}
+
+// Save EVERY ready brief as a draft (the button says how many). No tracker
+// required. Sequential, with honest progress; failures stay in the inbox.
+bcCreateDraft?.addEventListener('click', async () => {
+  clearInlineError();
+  const items = await getInbox();
+  const ready = items.filter((b) => isReady(b) && !b.uploading);
+  if (ready.length === 0) return;
+
+  // Drafts still need a pairing (to upload + own the brief), but NO tracker.
+  let token = null;
+  try { token = await getCloudToken(); } catch {}
+  if (!token) {
+    await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
+    window.close();
+    return;
+  }
+
+  bcCreateDraft.disabled = true;
+  bcCreateDraft.classList.add('sending');
+  bcFiling = true;
+
+  const savedIds = [];
+  let firstShareId = null;
+  let failure = null;
+  for (let i = 0; i < ready.length; i++) {
+    const b = ready[i];
+    bcCreateDraft.innerHTML =
+      '<span class="btn-spin"></span> ' +
+      (ready.length > 1 ? `Saving ${i + 1} of ${ready.length}…` : 'Saving…');
+    try {
+      await ensureBriefUploaded(b);
+      const shareId = await createDraft(b.cloudBriefId, b.name);
+      if (!firstShareId) firstShareId = shareId;
+      savedIds.push(b.id);
+    } catch (err) {
+      // 404 = the stored draft belongs to a previous account pairing - re-upload
+      // under the current account and retry once.
+      if (err?.status === 404 && b.cloudBriefId) {
+        try {
+          await reuploadBrief(b);
+          const shareId = await createDraft(b.cloudBriefId, b.name);
+          if (!firstShareId) firstShareId = shareId;
+          savedIds.push(b.id);
+          continue;
+        } catch (err2) {
+          err = err2;
+        }
+      }
+      failure = failure || err;
+    }
+  }
+
+  // Saved briefs leave the inbox; failed ones stay so nothing is lost.
+  if (savedIds.length) {
+    const after = await getInbox();
+    await setInbox(after.filter((x) => !savedIds.includes(x.id)));
+  }
+
+  if (!failure && firstShareId) {
+    bcShowDraftSavedAndOpen(savedIds.length, firstShareId);
+    return;
+  }
+
+  bcFiling = false;
+  bcCreateDraft.classList.remove('sending');
+  bcCreateDraft.disabled = false;
+  await refreshInbox();
+  if (failure) showInlineError(`Couldn’t save draft: ${failure?.message || failure}`);
 });
 
 bcRefresh();

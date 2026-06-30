@@ -2,6 +2,7 @@
 
 import RetryButton from "./RetryButton";
 import ArchiveButton from "./ArchiveButton";
+import CopyLinkButton from "./CopyLinkButton";
 import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
 import Elapsed from "./Elapsed";
@@ -212,6 +213,9 @@ export default function BriefListRow({
           until hover; hidden while a batch selection is active (the floating bar
           handles that), but the cell still holds its track. */}
       <div className="relative z-10 flex items-center justify-end gap-0.5">
+        {!anySelected && isFiled && b.share_id && (
+          <CopyLinkButton path={`/b/${b.share_id}`} variant="icon" />
+        )}
         {!anySelected && (
           <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
         )}

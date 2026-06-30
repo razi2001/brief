@@ -178,11 +178,20 @@ export default function PrivacyPage() {
       <Section title="How long we keep it">
         <p>
           Brief media (recording, audio, screenshots, keyframes) is uploaded to
-          storage only so the ticket can be written, and the source files are
-          removed once the brief has been filed. A record of the ticket you filed
-          (its title and status, and the link to it in your tracker) is kept in
-          your account so your Brief Cloud feed can show it. You can delete or
-          archive briefs from the web app.
+          storage so the ticket can be written. Once the brief has been filed,
+          the audio track and the sampled keyframes are removed. The screenshot
+          is kept, and the recording is kept only when you chose the &quot;attach
+          the recording&quot; option, so the brief&apos;s own page can show the
+          same evidence; everything else is deleted. A record of the ticket you
+          filed (its title, status, the written-up text, and the link to it in
+          your tracker) is kept in your account so your Brief Cloud feed and the
+          brief&apos;s page can show it.
+        </p>
+        <p className="mt-3">
+          Every filed brief gets a private page at an unguessable web address
+          (and that address is never indexed by search engines). Anyone with the
+          link can view the ticket and its kept evidence, so only share it with
+          people you trust. You can delete or archive briefs from the web app.
         </p>
       </Section>
 

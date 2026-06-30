@@ -24,6 +24,8 @@ export type DashboardBrief = {
   updated_at?: string | null;
   ticket_url?: string | null;
   ticket_identifier?: string | null;
+  /** Unguessable token for the public shareable brief page (/b/<share_id>). */
+  share_id?: string | null;
   error?: string | null;
   /** Which tracker this brief was filed to (inferred from ticket_url). */
   provider?: "linear" | "jira";

@@ -172,3 +172,31 @@ export async function processBrief(briefId, title, includeVideo) {
     throw err;
   }
 }
+
+// Write an already-uploaded brief up as a DRAFT (no tracker, no filing). The
+// route mints the brief's share token and returns it immediately, so the popup
+// can open the brief's page (which shows a "writing this up" state and resolves
+// into the finished ticket). Unlike processBrief, this needs NO tracker - it's
+// the path for people who don't use Linear/Jira. Returns the share id.
+export async function createDraft(briefId, title) {
+  const token = await getCloudToken();
+  if (!token) throw new Error("Not connected to Brief Cloud");
+  const res = await fetch(`${APP_URL}/api/briefs/${briefId}/draft`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ title: title || "" }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const err = new Error(body?.message || body?.error || `draft failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const body = await res.json().catch(() => ({}));
+  return body?.shareId || null;
+}
+
+// Absolute URL of a brief's hosted page.
+export function briefPageUrl(shareId) {
+  return `${APP_URL}/b/${shareId}`;
+}

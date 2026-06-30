@@ -31,7 +31,7 @@
   --tk-status: 5.5rem;     /* tracker state / "filing…" / "didn't file"   */
   --tk-assignee: 9rem;     /* assignee avatar + name (roomier)            */
   --tk-upd: 4rem;          /* fits the "UPDATED" header label             */
-  --tk-actions: 1.75rem;   /* exactly the archive icon button (28px)      */
+  --tk-actions: 3.5rem;    /* copy-link + archive icon buttons (2 × 28px)  */
 }
 
 body {

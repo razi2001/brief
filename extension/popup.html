@@ -59,8 +59,12 @@
       <!-- Empty state (minimal) -->
       <div id="emptyState" class="empty-state"></div>
 
-      <!-- Brief Cloud: create a ticket directly (primary action when connected) -->
+      <!-- Brief Cloud: file a ticket directly (primary action when connected) -->
       <button id="bc-create-ticket" class="export-btn">Create ticket</button>
+
+      <!-- Save as a draft instead: writes the ticket + a shareable page, no
+           tracker needed. The path for people who don't use Linear/Jira. -->
+      <button id="bc-create-draft" class="draft-btn">Save as draft</button>
 
       <!-- Export action - only when at least one brief is recorded -->
       <button id="exportBtn" class="export-btn">

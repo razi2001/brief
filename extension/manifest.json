@@ -49,7 +49,8 @@
   ],
   "externally_connectable": {
     "matches": [
-      "https://cloud.get-brief.app/*"
+      "https://cloud.get-brief.app/*",
+      "http://localhost:3000/*"
     ]
   },
   "web_accessible_resources": [

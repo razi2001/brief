@@ -527,6 +527,50 @@ body.ready { opacity: 1; }
   animation: btn-spin 0.7s linear infinite;
 }
 
+/* ---------- Secondary "Save as draft" button ----------
+   Same collapse mechanics as .export-btn (so it tucks away with no phantom
+   gap), but a quiet outline style - it's the secondary action. Needs NO
+   tracker, so it stays available even when "Create ticket" is gated. */
+.draft-btn {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  overflow: hidden;
+  opacity: 0;
+  max-height: 0;
+  padding: 0 14px;
+  margin-top: -13px;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, max-height 0.24s ease, transform 0.2s ease,
+              padding 0.2s ease, margin 0.2s ease, background 0.15s, color 0.15s,
+              border-color 0.15s;
+}
+.draft-btn.is-on {
+  opacity: 1;
+  max-height: 48px;
+  padding: 10px 14px;
+  margin-top: 2px;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.draft-btn:hover { background: rgba(26, 22, 18, 0.04); color: var(--ink); border-color: var(--accent); }
+.draft-btn:active { transform: translateY(1px); }
+.draft-btn.sending { pointer-events: none; }
+.draft-btn .btn-spin {
+  width: 13px; height: 13px;
+  border: 2px solid rgba(221, 105, 54, 0.3);
+  border-top-color: var(--accent);
+}
+
 /* ---------- Empty state ---------- */
 .empty-state {
   text-align: center;
