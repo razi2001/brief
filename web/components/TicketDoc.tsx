@@ -87,6 +87,7 @@ export default function TicketDoc({
   assets,
   hasLinear,
   hasJira,
+  filing = false,
 }: {
   briefId: string;
   shareId: string;
@@ -100,7 +101,12 @@ export default function TicketDoc({
   assets: AssetMeta[];
   hasLinear: boolean;
   hasJira: boolean;
+  /** Being filed to a tracker right now: read-only + a "Filing…" indicator, but
+   *  the full header/toolbar stays (no stripped-down page). */
+  filing?: boolean;
 }) {
+  // Editing is allowed only for the owner, and not while it's being filed.
+  const canEdit = isOwner && !filing;
   const initialHtml = useMemo(() => mdToHtml(initialBody), [initialBody]);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -123,7 +129,7 @@ export default function TicketDoc({
 
   // Owner: a formatting bubble that follows the text selection (Notion-style).
   useEffect(() => {
-    if (!isOwner) return;
+    if (!canEdit) return;
     const update = () => {
       const sel = window.getSelection();
       const body = bodyRef.current;
@@ -142,7 +148,7 @@ export default function TicketDoc({
       document.removeEventListener("selectionchange", update);
       window.removeEventListener("scroll", hide, true);
     };
-  }, [isOwner]);
+  }, [canEdit]);
 
   function currentMarkdown(): string {
     const title = (isOwner && titleRef.current ? titleRef.current.innerText : savedTitle.current).trim() || "Untitled";
@@ -241,7 +247,13 @@ export default function TicketDoc({
             <span className="text-muted">{ICON.external}</span>
           </a>
         )}
-        {isOwner && status !== "idle" && (
+        {filing && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
+            Filing to your tracker…
+          </span>
+        )}
+        {canEdit && status !== "idle" && (
           <span className={`ml-0.5 text-xs ${status === "error" ? "text-[#c62828]" : "text-muted"}`}>
             {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "Couldn't save"}
           </span>
@@ -251,10 +263,10 @@ export default function TicketDoc({
       {/* Title (editable in place for the owner) */}
       <h1
         ref={titleRef}
-        contentEditable={isOwner}
+        contentEditable={canEdit}
         suppressContentEditableWarning
-        onInput={scheduleSave}
-        onBlur={isOwner ? flushSave : undefined}
+        onInput={canEdit ? scheduleSave : undefined}
+        onBlur={canEdit ? flushSave : undefined}
         onKeyDown={(e) => {
           if (e.key === "Enter") { e.preventDefault(); bodyRef.current?.focus(); }
         }}
@@ -267,15 +279,15 @@ export default function TicketDoc({
           Frozen after mount (see EditableBody) so edits are never wiped. */}
       <EditableBody
         html={initialHtml}
-        editable={isOwner}
+        editable={canEdit}
         innerRef={bodyRef}
-        onInput={isOwner ? scheduleSave : undefined}
-        onBlur={isOwner ? flushSave : undefined}
-        onKeyDown={isOwner ? onBodyKeyDown : undefined}
+        onInput={canEdit ? scheduleSave : undefined}
+        onBlur={canEdit ? flushSave : undefined}
+        onKeyDown={canEdit ? onBodyKeyDown : undefined}
       />
 
       {/* Floating selection toolbar (owner) */}
-      {isOwner && bubble && (
+      {canEdit && bubble && (
         <div className="fixed z-50 -translate-x-1/2" style={{ top: bubble.y, left: bubble.left }}>
           <div className="flex items-center gap-0.5 rounded-lg border border-[rgba(245,241,232,0.14)] bg-ink p-1 shadow-[0_8px_28px_rgba(26,22,18,0.35)]">
             <button type="button" title="Heading" className={`${bubbleBtn} text-[0.8125rem] font-bold`} onMouseDown={noMouseSteal} onClick={() => format("heading")}>H</button>

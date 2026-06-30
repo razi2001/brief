@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { TrackerLogo } from "./TrackerLogo";
 
 const ACCENT_PILL =
@@ -23,6 +24,7 @@ export default function ExportButtons({
 }) {
   const [busy, setBusy] = useState<null | "linear" | "jira">(null);
   const [err, setErr] = useState("");
+  const router = useRouter();
 
   async function exportTo(provider: "linear" | "jira") {
     setBusy(provider);
@@ -35,7 +37,9 @@ export default function ExportButtons({
         body: JSON.stringify({ provider }),
       });
       if (res.ok) {
-        window.location.reload();
+        // Soft refresh: the page re-renders into the in-place "Filing…" state
+        // (toolbar/content intact) and polls itself to the filed view.
+        router.refresh();
         return;
       }
       const j = (await res.json().catch(() => ({}))) as { error?: string };

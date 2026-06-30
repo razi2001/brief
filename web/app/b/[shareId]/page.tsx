@@ -4,7 +4,6 @@ import { getUserId } from "@/lib/auth";
 import { getTrackerContext } from "@/lib/briefs-server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
-import { mdToHtml } from "@/lib/md-html";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
 import DownloadButton from "@/components/DownloadButton";
@@ -149,22 +148,6 @@ function StatusPill({ children }: { children: React.ReactNode }) {
   );
 }
 
-function EvidenceBlock({ media }: { media: Asset[] }) {
-  if (!media.length) return null;
-  return (
-    <div className="mt-9 flex flex-col gap-4">
-      {media.map((a, i) =>
-        a.kind === "image" ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={i} src={a.url} alt="" className="w-full rounded-xl border border-hairline" />
-        ) : (
-          <video key={i} src={a.url} controls className="w-full rounded-xl border border-hairline bg-ink" />
-        ),
-      )}
-    </div>
-  );
-}
-
 export default async function SharePage({ params }: { params: Promise<{ shareId: string }> }) {
   const { shareId } = await params;
   const brief = await loadBrief(shareId);
@@ -172,32 +155,12 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
 
   const viewerId = await getUserId();
 
-  if (brief.status === "processing" || brief.status === "uploaded") {
-    const media = await loadMedia(brief.storage_prefix, "brief");
-
-    // Filing an already-written brief (export): the ticket exists, so show it
-    // for real (read-only) with a quiet "Filing…" pill - NO skeleton and NO
-    // page-level animation, so exporting doesn't make the whole page shimmer.
-    if (brief.ticket_body) {
-      return (
-        <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
-          <PollReload />
-          {viewerId && <BackLink />}
-          <article className={ARTICLE_BASE}>
-            <StatusPill>Filing to your tracker…</StatusPill>
-            <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">
-              {brief.ticket_title || brief.title || "Bug report"}
-            </h1>
-            <div className="ticket-prose mt-6" dangerouslySetInnerHTML={{ __html: mdToHtml(brief.ticket_body) }} />
-            <EvidenceBlock media={media} />
-          </article>
-          <BriefFooter />
-        </main>
-      );
-    }
-
-    // Writing a fresh capture: real title + evidence shown immediately; the body
-    // is written line by line (staggered skeleton + a blinking caret).
+  // ── Still being written (fresh capture, no body yet): the body is written
+  // line by line. Evidence is intentionally NOT shown here - a lone screenshot
+  // under a skeleton reads as broken. (Filing an already-written brief goes
+  // through the normal render below with a "Filing…" indicator, so the full
+  // header/toolbar stay.) ──
+  if ((brief.status === "processing" || brief.status === "uploaded") && !brief.ticket_body) {
     return (
       <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
         <PollReload />
@@ -229,7 +192,6 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
               <span className="writing-caret" />
             </span>
           </div>
-          <EvidenceBlock media={media} />
         </article>
         <BriefFooter />
       </main>
@@ -249,7 +211,11 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
     );
   }
 
-  if (brief.status !== "filed" && brief.status !== "drafted") notFound();
+  // Past the writing/failed branches, a 'processing'/'uploaded' brief HAS a body
+  // → it's being filed (export). Render the full page (header + toolbar intact)
+  // with a "Filing…" indicator and poll to the filed view - no stripped page.
+  const filing = brief.status === "processing" || brief.status === "uploaded";
+  if (!filing && brief.status !== "filed" && brief.status !== "drafted") notFound();
 
   const isDraft = brief.status === "drafted";
   const isOwner = !!viewerId && viewerId === brief.user_id;
@@ -266,8 +232,12 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   const assets = await loadMedia(brief.storage_prefix, idBase);
   const provider = providerOf(brief.ticket_url);
   const providerName = provider === "jira" ? "Jira" : "Linear";
-  const stateName = isDraft ? "Draft · not filed" : brief.ticket_state_name || "Filed";
-  const stateColor = isDraft ? "#8a8378" : brief.ticket_state_color || "#2e7d32";
+  const stateName = filing
+    ? "Filing…"
+    : isDraft
+      ? "Draft · not filed"
+      : brief.ticket_state_name || "Filed";
+  const stateColor = filing ? "#dd6936" : isDraft ? "#8a8378" : brief.ticket_state_color || "#2e7d32";
   const reported = formatDate(brief.created_at);
 
   return (
@@ -294,12 +264,16 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         )}
       </div>
 
+      {/* Poll to the filed view while an export is in flight (soft refresh). */}
+      {filing && <PollReload />}
+
       {/* ── Ticket: toolbar + title + body (owner can edit) ── */}
       <TicketDoc
         briefId={brief.id}
         shareId={shareId}
         isOwner={isOwner}
         isDraft={isDraft}
+        filing={filing}
         ticketUrl={brief.ticket_url}
         provider={provider}
         providerName={providerName}
