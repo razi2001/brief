@@ -228,6 +228,20 @@ export default function BriefListRow({
           until hover; hidden while a batch selection is active (the floating bar
           handles that), but the cell still holds its track. */}
       <div className="relative z-10 flex items-center justify-end gap-0.5">
+        {!anySelected && briefHref && (
+          <a
+            href={briefHref}
+            target="_blank"
+            rel="noreferrer"
+            title="Open in Brief"
+            aria-label="Open in Brief"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+              <path d="M12 3l1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9z" />
+            </svg>
+          </a>
+        )}
         {!anySelected && isFiled && trackerHref && (
           <a
             href={trackerHref}

@@ -31,7 +31,7 @@
   --tk-status: 5.5rem;     /* tracker state / "filing…" / "didn't file"   */
   --tk-assignee: 9rem;     /* assignee avatar + name (roomier)            */
   --tk-upd: 4rem;          /* fits the "UPDATED" header label             */
-  --tk-actions: 5.5rem;    /* open-in-tracker + copy-link + archive (3 × 28px) */
+  --tk-actions: 7.25rem;   /* open-in-Brief + tracker + copy-link + archive (4 × 28px) */
 }
 
 body {
