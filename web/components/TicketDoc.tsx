@@ -1,9 +1,48 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ExportButtons from "./ExportButtons";
 import { TrackerLogo } from "./TrackerLogo";
 import { mdToHtml, htmlToMarkdown } from "@/lib/md-html";
+
+/**
+ * The editable body. Server-rendered (no flash) and then NEVER re-rendered - the
+ * contentEditable DOM is the browser's after mount, so re-applying the HTML on a
+ * parent re-render (e.g. the auto-save status flipping) would wipe live edits.
+ * That was the "saving, then resets to old version" bug. The always-equal
+ * comparator freezes it after mount; handlers read refs so staleness is harmless.
+ */
+const EditableBody = memo(
+  function EditableBody({
+    html,
+    editable,
+    innerRef,
+    onInput,
+    onBlur,
+    onKeyDown,
+  }: {
+    html: string;
+    editable: boolean;
+    innerRef: React.RefObject<HTMLDivElement | null>;
+    onInput?: () => void;
+    onBlur?: () => void;
+    onKeyDown?: (e: React.KeyboardEvent) => void;
+  }) {
+    return (
+      <div
+        ref={innerRef}
+        contentEditable={editable}
+        suppressContentEditableWarning
+        onInput={onInput}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
+        className="ticket-prose mt-6 outline-none"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  },
+  () => true,
+);
 
 const SVG = (d: React.ReactNode) => (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -224,16 +263,15 @@ export default function TicketDoc({
         {initialTitle}
       </h1>
 
-      {/* Body - server-rendered (no flash); editable in place for the owner. */}
-      <div
-        ref={bodyRef}
-        contentEditable={isOwner}
-        suppressContentEditableWarning
+      {/* Body - server-rendered (no flash); editable in place for the owner.
+          Frozen after mount (see EditableBody) so edits are never wiped. */}
+      <EditableBody
+        html={initialHtml}
+        editable={isOwner}
+        innerRef={bodyRef}
         onInput={isOwner ? scheduleSave : undefined}
         onBlur={isOwner ? flushSave : undefined}
         onKeyDown={isOwner ? onBodyKeyDown : undefined}
-        className="ticket-prose mt-6 outline-none"
-        dangerouslySetInnerHTML={{ __html: initialHtml }}
       />
 
       {/* Floating selection toolbar (owner) */}

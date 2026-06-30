@@ -4,6 +4,7 @@ import { getUserId } from "@/lib/auth";
 import { getTrackerContext } from "@/lib/briefs-server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
+import { mdToHtml } from "@/lib/md-html";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
 import DownloadButton from "@/components/DownloadButton";
@@ -130,12 +131,38 @@ function BackLink() {
   );
 }
 
-const ARTICLE_CLASS =
-  "brief-page-in rounded-2xl border border-hairline bg-[#fffdf8] px-6 py-8 shadow-[0_1px_3px_rgba(26,22,18,0.05),0_14px_40px_-20px_rgba(26,22,18,0.18)] sm:px-12 sm:py-11";
+const ARTICLE_BASE =
+  "rounded-2xl border border-hairline bg-[#fffdf8] px-6 py-8 shadow-[0_1px_3px_rgba(26,22,18,0.05),0_14px_40px_-20px_rgba(26,22,18,0.18)] sm:px-12 sm:py-11";
+const ARTICLE_CLASS = `brief-page-in ${ARTICLE_BASE}`;
 
-/** One shimmering placeholder bar. */
-function Bar({ w, h = 14, className = "" }: { w: string; h?: number; className?: string }) {
-  return <div className={`sk ${className}`} style={{ width: w, height: h }} />;
+/** One skeleton bar that rises in (staggered) - reads as a line being written. */
+function Bar({ w, h = 14, delay = 0 }: { w: string; h?: number; delay?: number }) {
+  return <div className="sk sk-rise" style={{ width: w, height: h, animationDelay: `${delay}ms` }} />;
+}
+
+function StatusPill({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2">
+      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
+      {children}
+    </div>
+  );
+}
+
+function EvidenceBlock({ media }: { media: Asset[] }) {
+  if (!media.length) return null;
+  return (
+    <div className="mt-9 flex flex-col gap-4">
+      {media.map((a, i) =>
+        a.kind === "image" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={i} src={a.url} alt="" className="w-full rounded-xl border border-hairline" />
+        ) : (
+          <video key={i} src={a.url} controls className="w-full rounded-xl border border-hairline bg-ink" />
+        ),
+      )}
+    </div>
+  );
 }
 
 export default async function SharePage({ params }: { params: Promise<{ shareId: string }> }) {
@@ -145,58 +172,64 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
 
   const viewerId = await getUserId();
 
-  // ── In progress: writing the draft, or filing an already-written one. Same
-  // shell as the finished ticket (real title + evidence already shown, body
-  // shimmering in) so there's no blank wait and no layout shift on resolve. ──
   if (brief.status === "processing" || brief.status === "uploaded") {
-    const filing = !!brief.ticket_body;
     const media = await loadMedia(brief.storage_prefix, "brief");
+
+    // Filing an already-written brief (export): the ticket exists, so show it
+    // for real (read-only) with a quiet "Filing…" pill - NO skeleton and NO
+    // page-level animation, so exporting doesn't make the whole page shimmer.
+    if (brief.ticket_body) {
+      return (
+        <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
+          <PollReload />
+          {viewerId && <BackLink />}
+          <article className={ARTICLE_BASE}>
+            <StatusPill>Filing to your tracker…</StatusPill>
+            <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">
+              {brief.ticket_title || brief.title || "Bug report"}
+            </h1>
+            <div className="ticket-prose mt-6" dangerouslySetInnerHTML={{ __html: mdToHtml(brief.ticket_body) }} />
+            <EvidenceBlock media={media} />
+          </article>
+          <BriefFooter />
+        </main>
+      );
+    }
+
+    // Writing a fresh capture: real title + evidence shown immediately; the body
+    // is written line by line (staggered skeleton + a blinking caret).
     return (
       <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
         <PollReload />
         {viewerId && <BackLink />}
         <article className={ARTICLE_CLASS}>
-          {/* status */}
-          <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2">
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
-            {filing ? "Filing your ticket…" : "Brief is writing this ticket…"}
-          </div>
-
-          {/* title - real name if we have it, else a skeleton */}
+          <StatusPill>Brief is writing this ticket…</StatusPill>
           {brief.title ? (
             <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{brief.title}</h1>
           ) : (
             <div className="flex flex-col gap-2.5">
               <Bar w="78%" h={30} />
-              <Bar w="46%" h={30} />
+              <Bar w="46%" h={30} delay={80} />
             </div>
           )}
-
-          {/* body skeleton */}
           <div className="mt-8 flex flex-col gap-3">
-            <Bar w="100%" /><Bar w="94%" /><Bar w="71%" />
+            <Bar w="100%" delay={120} />
+            <Bar w="94%" delay={200} />
+            <Bar w="71%" delay={280} />
             <div className="h-3" />
-            <Bar w="34%" h={11} className="opacity-70" />
-            <Bar w="88%" /><Bar w="60%" />
+            <Bar w="34%" h={11} delay={380} />
+            <Bar w="88%" delay={460} />
+            <Bar w="60%" delay={540} />
             <div className="h-3" />
-            <div className="sk" style={{ width: "100%", height: 84, borderRadius: 12 }} />
+            <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms" }} />
             <div className="h-3" />
-            <Bar w="80%" /><Bar w="50%" />
+            <Bar w="80%" delay={760} />
+            <span className="inline-flex items-center gap-1">
+              <Bar w="42%" delay={840} />
+              <span className="writing-caret" />
+            </span>
           </div>
-
-          {/* evidence - already uploaded, show it for real */}
-          {media.length > 0 && (
-            <div className="mt-9 flex flex-col gap-4">
-              {media.map((a, i) =>
-                a.kind === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={i} src={a.url} alt="" className="w-full rounded-xl border border-hairline" />
-                ) : (
-                  <video key={i} src={a.url} controls className="w-full rounded-xl border border-hairline bg-ink" />
-                ),
-              )}
-            </div>
-          )}
+          <EvidenceBlock media={media} />
         </article>
         <BriefFooter />
       </main>
