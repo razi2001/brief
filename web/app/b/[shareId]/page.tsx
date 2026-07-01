@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getUserId } from "@/lib/auth";
-import { getTrackerContext } from "@/lib/briefs-server";
+import { getTrackerContext, attachTicketInfo, type BriefRow } from "@/lib/briefs-server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
 import BrandMark from "@/components/BrandMark";
@@ -9,6 +9,16 @@ import TicketDoc from "@/components/TicketDoc";
 import DownloadButton from "@/components/DownloadButton";
 import PollReload from "@/components/PollReload";
 import LiveWriter from "@/components/LiveWriter";
+import ProgressCycler from "@/components/ProgressCycler";
+
+// Illustrative progress steps shown while the AI writes the draft (see the
+// "writing" state). Not a live trace - just a natural, moving status.
+const WRITING_STEPS = [
+  "Reading your evidence…",
+  "Pulling out what happened…",
+  "Structuring the report…",
+  "Writing it up clearly…",
+];
 
 // Signed media URLs expire, so never cache the rendered page.
 export const dynamic = "force-dynamic";
@@ -140,15 +150,6 @@ function Bar({ w, h = 14, delay = 0 }: { w: string; h?: number; delay?: number }
   return <div className="sk sk-rise" style={{ width: w, height: h, animationDelay: `${delay}ms` }} />;
 }
 
-function StatusPill({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2">
-      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
-      {children}
-    </div>
-  );
-}
-
 export default async function SharePage({ params }: { params: Promise<{ shareId: string }> }) {
   const { shareId } = await params;
   const brief = await loadBrief(shareId);
@@ -167,7 +168,9 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
         {viewerId && <BackLink />}
         <article className={ARTICLE_CLASS}>
-          <StatusPill>Brief is writing this ticket…</StatusPill>
+          <div className="mb-7">
+            <ProgressCycler messages={WRITING_STEPS} />
+          </div>
           {ownerWriting ? (
             // The owner watches it stream in, token by token.
             <LiveWriter briefId={brief.id} fallbackTitle={brief.title} />
@@ -242,12 +245,55 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   const assets = await loadMedia(brief.storage_prefix, idBase);
   const provider = providerOf(brief.ticket_url);
   const providerName = provider === "jira" ? "Jira" : "Linear";
+
+  // Filed → mirror the tracker LIVE: title and status can change in Linear/Jira
+  // after filing (moved to "Duplicate", renamed, closed…). Fetch the current
+  // state using the OWNER's token (server-side, so it works for any viewer) and
+  // fall back to the stored snapshot if the tracker/token is unavailable.
+  // attachTicketInfo also writes the fresh snapshot back for the next load.
+  let live: { title: string; stateName: string; stateColor: string } | null = null;
+  if (brief.status === "filed" && brief.ticket_identifier) {
+    const row = {
+      id: brief.id,
+      status: brief.status,
+      title: brief.title,
+      source_kind: brief.source_kind,
+      created_at: brief.created_at,
+      updated_at: null,
+      ticket_url: brief.ticket_url,
+      ticket_identifier: brief.ticket_identifier,
+      ticket_title: brief.ticket_title,
+      ticket_state_name: brief.ticket_state_name,
+      ticket_state_color: brief.ticket_state_color,
+      share_id: null,
+      error: null,
+      archived_at: null,
+      seq: null,
+    } satisfies BriefRow;
+    const [merged] = await attachTicketInfo(
+      brief.user_id,
+      [row],
+      provider === "linear",
+      provider === "jira",
+      1,
+      createAdminSupabase(),
+    );
+    if (merged?.ticket) {
+      live = { title: merged.ticket.title, stateName: merged.ticket.stateName, stateColor: merged.ticket.stateColor };
+    }
+  }
+
+  const ticketTitle = (live?.title || brief.ticket_title || brief.title || "Bug report").trim() || "Bug report";
   const stateName = filing
     ? "Filing…"
     : isDraft
       ? "Draft · not filed"
-      : brief.ticket_state_name || "Filed";
-  const stateColor = filing ? "#dd6936" : isDraft ? "#8a8378" : brief.ticket_state_color || "#2e7d32";
+      : live?.stateName || brief.ticket_state_name || "Filed";
+  const stateColor = filing
+    ? "#dd6936"
+    : isDraft
+      ? "#8a8378"
+      : live?.stateColor || brief.ticket_state_color || "#2e7d32";
   const reported = formatDate(brief.created_at);
 
   return (
@@ -287,7 +333,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         ticketUrl={brief.ticket_url}
         provider={provider}
         providerName={providerName}
-        initialTitle={brief.ticket_title || brief.title || "Bug report"}
+        initialTitle={ticketTitle}
         initialBody={brief.ticket_body || ""}
         assets={assets.map((a) => ({ filename: a.filename, kind: a.kind }))}
         hasLinear={hasLinear}

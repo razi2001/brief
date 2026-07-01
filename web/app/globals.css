@@ -311,6 +311,22 @@ a {
   animation: brief-dot-pulse 1.8s ease-in-out infinite;
 }
 
+/* Cycling status text (ProgressCycler): each message fades + lifts in as it swaps. */
+@keyframes status-swap {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.status-swap {
+  display: inline-block;
+  animation: status-swap 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
 /* ── Ambient cloud background ───────────────────────────────────────── */
 
 /* Ported faithfully from get-brief.app: soft SVG cloud shapes drifting in
@@ -531,6 +547,7 @@ a {
   .sk::after,
   .sk-rise,
   .writing-caret,
+  .status-swap,
   .writing-dot { animation: none; }
   .sk-rise { opacity: 1; }
   .brief-page-in { animation: none; }

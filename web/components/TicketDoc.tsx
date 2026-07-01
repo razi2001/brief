@@ -3,7 +3,19 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ExportButtons from "./ExportButtons";
 import { TrackerLogo } from "./TrackerLogo";
+import ProgressCycler from "./ProgressCycler";
 import { mdToHtml, htmlToMarkdown } from "@/lib/md-html";
+
+// Illustrative progress steps while the draft is filed to a tracker. Not a live
+// trace - a natural, moving status so the wait reads as work being done.
+const FILING_STEPS = [
+  "Connecting to your tracker…",
+  "Checking the workspace…",
+  "Finding the right team…",
+  "Choosing the right labels…",
+  "Setting the priority…",
+  "Creating the ticket…",
+];
 
 /**
  * The editable body. Server-rendered (no flash) and then NEVER re-rendered - the
@@ -106,8 +118,10 @@ export default function TicketDoc({
    *  the full header/toolbar stays (no stripped-down page). */
   filing?: boolean;
 }) {
-  // Editing is allowed only for the owner, and not while it's being filed.
-  const canEdit = isOwner && !filing;
+  // Editing is allowed only for the owner, and only while it's still a draft.
+  // Once filed, the page is a live read-only mirror of the tracker ticket (the
+  // owner edits it in Linear/Jira), so local edits can't drift from the source.
+  const canEdit = isOwner && isDraft && !filing;
   const initialHtml = useMemo(() => mdToHtml(initialBody), [initialBody]);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -255,12 +269,7 @@ export default function TicketDoc({
           {copied === "md" ? ICON.check : ICON.md}
           {copied === "md" ? "Copied" : "Copy Markdown"}
         </button>
-        {filing && (
-          <span className="inline-flex items-center gap-1.5 text-xs text-muted">
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
-            Filing to your tracker…
-          </span>
-        )}
+        {filing && <ProgressCycler messages={FILING_STEPS} className="text-xs" />}
         {canEdit && status !== "idle" && (
           <span className={`ml-0.5 text-xs ${status === "error" ? "text-[#c62828]" : "text-muted"}`}>
             {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "Couldn't save"}
