@@ -500,6 +500,7 @@ async function createBrief() {
   filing = true;
   setBrandSpin(true);
   createBtn.disabled = true;
+  if (createMenuBtn) createMenuBtn.disabled = true;
   const label = createBtn.querySelector('.ctk-label');
   if (label) label.innerHTML = '<span class="btn-spin"></span> Creating…';
 

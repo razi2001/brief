@@ -139,7 +139,7 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
   box-shadow:0 3px 14px rgba(221,105,54,.24); }
 .create:hover { background:#c95e2c; box-shadow:0 5px 20px rgba(221,105,54,.3); }
 .create:active { transform:translateY(1px); box-shadow:0 2px 8px rgba(221,105,54,.2); }
-.create:disabled { opacity:.45; cursor:default; box-shadow:none; }
+.create:disabled { opacity:.45; cursor:default; box-shadow:none; pointer-events:none; }
 .create svg { width:17px; height:17px; }
 
 /* Split: primary "Create ticket" + a caret that opens "Save as draft". */
@@ -148,7 +148,7 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
   border-radius:0 12px 12px 0; padding:0 11px; cursor:pointer; display:flex; align-items:center;
   box-shadow:0 3px 14px rgba(221,105,54,.24); transition:background var(--t); }
 .create-caret:hover { background:#c95e2c; }
-.create-caret:disabled { opacity:.45; cursor:default; }
+.create-caret:disabled { opacity:.45; cursor:default; pointer-events:none; }
 .create-caret svg { width:15px; height:15px; }
 .create-menu { position:absolute; right:18px; bottom:64px; min-width:186px; background:#fffdf8; border:1px solid var(--hairline);
   border-radius:11px; box-shadow:0 10px 28px rgba(26,22,18,.16); padding:5px; z-index:30;
