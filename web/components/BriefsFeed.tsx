@@ -54,11 +54,11 @@ const COL_VAR: Record<ColKey, string> = {
   assignee: "--tk-assignee",
   upd: "--tk-upd",
 };
-const COL_DEFAULTS: Record<ColKey, number> = { id: 96, status: 88, assignee: 144, upd: 64 };
+const COL_DEFAULTS: Record<ColKey, number> = { id: 124, status: 88, assignee: 144, upd: 64 };
 const COL_MIN: Record<ColKey, number> = { id: 56, status: 56, assignee: 64, upd: 48 };
 const COL_MAX: Record<ColKey, number> = { id: 220, status: 200, assignee: 300, upd: 120 };
 // Bumped suffix so the rebalanced defaults take effect over any older saved widths.
-const COL_STORE_KEY = "tickets:colw:v5";
+const COL_STORE_KEY = "tickets:colw:v6";
 
 // A handle is a divider between two columns. Dragging right grows `inc` and/or
 // shrinks `dec`; the dragged edge tracks the cursor (drag right → the column on

@@ -72,10 +72,12 @@ export default function BriefListRow({
   // without a share link fall back to opening the tracker directly.
   const briefHref = b.share_id ? `/b/${b.share_id}` : undefined;
   const trackerHref = ti?.url || b.ticket_url || undefined;
-  const href = briefHref || (isFiled ? trackerHref : undefined);
-  // The whole row opens the Brief page (the hub) for anything with one - draft,
-  // filing, or filed; a filed row with no share link falls back to the tracker.
+  // Row click opens the brief's PRIMARY home: once it's filed, that's the
+  // tracker ticket (prioritized, new tab); before then it's the Brief page. The
+  // id-cell logos still open each home explicitly.
+  const href = isFiled ? trackerHref || briefHref : briefHref;
   const asLink = !!href;
+  const hrefExternal = !!href && href !== briefHref; // tracker link → new tab
   const providerName = b.provider === "jira" ? "Jira" : "Linear";
 
   const title =
@@ -113,9 +115,9 @@ export default function BriefListRow({
       {asLink && (
         <a
           href={href}
-          target={briefHref ? undefined : "_blank"}
+          target={hrefExternal ? "_blank" : undefined}
           rel="noreferrer"
-          aria-label={title}
+          aria-label={hrefExternal ? `${title} — open in ${providerName}` : title}
           className="absolute inset-0"
         />
       )}
@@ -153,17 +155,17 @@ export default function BriefListRow({
             <RetryButton briefId={b.id} />
           </span>
         ) : !isFailed && b.ticket_identifier ? (
-          // Filed → both homes: the Brief logo opens the Brief page, the tracker
-          // logo + id open the ticket in Linear/Jira. Each is its own click target.
-          <span className="inline-flex min-w-0 items-center gap-1.5">
+          // Filed → both homes as tappable chips: the Brief logo opens the Brief
+          // page, the tracker chip (logo + id + ↗) opens the ticket in Linear/Jira.
+          <span className="inline-flex min-w-0 items-center gap-1">
             {briefHref && (
               <a
                 href={briefHref}
-                title="Open in Brief"
-                aria-label="Open in Brief"
-                className="relative z-10 flex shrink-0 items-center transition-opacity hover:opacity-70"
+                title="Open the Brief page"
+                aria-label="Open the Brief page"
+                className="relative z-10 flex shrink-0 items-center rounded-md bg-cream-2/70 p-1 transition-colors hover:bg-accent/15"
               >
-                <BrandMark size={13} className="rounded-[3px]" />
+                <BrandMark size={14} className="rounded-[3px]" />
               </a>
             )}
             {trackerHref ? (
@@ -173,13 +175,16 @@ export default function BriefListRow({
                 rel="noreferrer"
                 title={`Open in ${providerName}`}
                 aria-label={`Open in ${providerName}`}
-                className="relative z-10 inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-accent transition-opacity hover:opacity-70"
+                className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-accent transition-colors hover:bg-accent/15"
               >
                 <TrackerLogo kind={b.provider ?? "linear"} size={13} />
                 <span className="truncate">{b.ticket_identifier}</span>
+                <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70" aria-hidden="true">
+                  <path d="M7 17 17 7M8 7h9v9" />
+                </svg>
               </a>
             ) : (
-              <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-accent">
+              <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-accent">
                 <TrackerLogo kind={b.provider ?? "linear"} size={13} />
                 <span className="truncate">{b.ticket_identifier}</span>
               </span>
@@ -187,20 +192,20 @@ export default function BriefListRow({
           </span>
         ) : isDraft || isProcessing ? (
           // No tracker id yet → its own Brief identity (brief-N), the way Linear
-          // shows ENG-1. The logo + number open the Brief page.
+          // shows ENG-1. The chip opens the Brief page.
           briefHref ? (
             <a
               href={briefHref}
-              title="Open in Brief"
-              aria-label="Open in Brief"
-              className="relative z-10 inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-ink-2 transition-colors hover:text-ink"
+              title="Open the Brief page"
+              aria-label="Open the Brief page"
+              className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-ink-2 transition-colors hover:bg-accent/15 hover:text-ink"
             >
-              <BrandMark size={13} className="shrink-0 rounded-[3px]" />
+              <BrandMark size={14} className="shrink-0 rounded-[3px]" />
               <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
             </a>
           ) : (
-            <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-ink-2">
-              <BrandMark size={13} className="shrink-0 rounded-[3px]" />
+            <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-ink-2">
+              <BrandMark size={14} className="shrink-0 rounded-[3px]" />
               <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
             </span>
           )

@@ -27,7 +27,7 @@
      even when a cell is empty. The header row and BriefListRow both build
      their grid from these, so they can never drift apart. */
   --tk-check: 2.25rem;     /* leading checkbox column                     */
-  --tk-id: 6rem;           /* tracker logo + identifier (e.g. RAZ-188)    */
+  --tk-id: 7.75rem;        /* brief logo + tracker logo + id chips        */
   --tk-status: 5.5rem;     /* tracker state / "filing…" / "didn't file"   */
   --tk-assignee: 9rem;     /* assignee avatar + name (roomier)            */
   --tk-upd: 4rem;          /* fits the "UPDATED" header label             */
@@ -142,7 +142,7 @@ a {
     .ticket-grid {
       grid-template-columns:
         var(--tk-check)
-        5rem
+        6.75rem
         minmax(0, 1fr)
         4.75rem
         var(--tk-actions);
