@@ -2,7 +2,6 @@
 
 import RetryButton from "./RetryButton";
 import ArchiveButton from "./ArchiveButton";
-import CopyLinkButton from "./CopyLinkButton";
 import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
 import BrandMark from "./BrandMark";
@@ -74,7 +73,10 @@ export default function BriefListRow({
   const briefHref = b.share_id ? `/b/${b.share_id}` : undefined;
   const trackerHref = ti?.url || b.ticket_url || undefined;
   const href = briefHref || (isFiled ? trackerHref : undefined);
-  const asLink = (isFiled || isDraft) && !!href;
+  // The whole row opens the Brief page (the hub) for anything with one - draft,
+  // filing, or filed; a filed row with no share link falls back to the tracker.
+  const asLink = !!href;
+  const providerName = b.provider === "jira" ? "Jira" : "Linear";
 
   const title =
     ti?.title ||
@@ -151,16 +153,57 @@ export default function BriefListRow({
             <RetryButton briefId={b.id} />
           </span>
         ) : !isFailed && b.ticket_identifier ? (
-          <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-accent">
-            <TrackerLogo kind={b.provider ?? "linear"} size={13} />
-            <span className="truncate">{b.ticket_identifier}</span>
+          // Filed → both homes: the Brief logo opens the Brief page, the tracker
+          // logo + id open the ticket in Linear/Jira. Each is its own click target.
+          <span className="inline-flex min-w-0 items-center gap-1.5">
+            {briefHref && (
+              <a
+                href={briefHref}
+                title="Open in Brief"
+                aria-label="Open in Brief"
+                className="relative z-10 flex shrink-0 items-center transition-opacity hover:opacity-70"
+              >
+                <BrandMark size={13} className="rounded-[3px]" />
+              </a>
+            )}
+            {trackerHref ? (
+              <a
+                href={trackerHref}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open in ${providerName}`}
+                aria-label={`Open in ${providerName}`}
+                className="relative z-10 inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-accent transition-opacity hover:opacity-70"
+              >
+                <TrackerLogo kind={b.provider ?? "linear"} size={13} />
+                <span className="truncate">{b.ticket_identifier}</span>
+              </a>
+            ) : (
+              <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-accent">
+                <TrackerLogo kind={b.provider ?? "linear"} size={13} />
+                <span className="truncate">{b.ticket_identifier}</span>
+              </span>
+            )}
           </span>
-        ) : (isDraft || isProcessing) ? (
-          // No tracker id yet → its own Brief identity, the way Linear shows ENG-1.
-          <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-ink-2">
-            <BrandMark size={13} className="shrink-0 rounded-[3px]" />
-            <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
-          </span>
+        ) : isDraft || isProcessing ? (
+          // No tracker id yet → its own Brief identity (brief-N), the way Linear
+          // shows ENG-1. The logo + number open the Brief page.
+          briefHref ? (
+            <a
+              href={briefHref}
+              title="Open in Brief"
+              aria-label="Open in Brief"
+              className="relative z-10 inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-ink-2 transition-colors hover:text-ink"
+            >
+              <BrandMark size={13} className="shrink-0 rounded-[3px]" />
+              <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
+            </a>
+          ) : (
+            <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-ink-2">
+              <BrandMark size={13} className="shrink-0 rounded-[3px]" />
+              <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
+            </span>
+          )
         ) : (
           <span className="font-mono text-[0.625rem] text-muted/50">—</span>
         )}
@@ -229,42 +272,12 @@ export default function BriefListRow({
         {relativeTime(b.created_at)}
       </span>
 
-      {/* 7 · Row action - Archive is the only removal (acts like delete). Faint
-          until hover; hidden while a batch selection is active (the floating bar
-          handles that), but the cell still holds its track. */}
+      {/* 7 · Row action - Archive is the only removal (acts like delete). The
+          logos in the ID cell handle opening (Brief page / tracker), so this is
+          the single hover action. Faint until hover; hidden while a batch
+          selection is active (the floating bar handles that); the cell still
+          holds its track. */}
       <div className="relative z-10 flex items-center justify-end gap-0.5">
-        {!anySelected && briefHref && (
-          <a
-            href={briefHref}
-            target="_blank"
-            rel="noreferrer"
-            title="Open in Brief"
-            aria-label="Open in Brief"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-accent focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
-              <path d="M12 3l1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9z" />
-            </svg>
-          </a>
-        )}
-        {!anySelected && isFiled && trackerHref && (
-          <a
-            href={trackerHref}
-            target="_blank"
-            rel="noreferrer"
-            title={`Open in ${b.provider === "jira" ? "Jira" : "Linear"}`}
-            aria-label="Open in tracker"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-ink-2 focus-visible:opacity-100 group-hover:opacity-100"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M7 17 17 7" />
-              <path d="M8 7h9v9" />
-            </svg>
-          </a>
-        )}
-        {!anySelected && (isFiled || isDraft) && b.share_id && (
-          <CopyLinkButton path={`/b/${b.share_id}`} variant="icon" />
-        )}
         {!anySelected && (
           <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
         )}
