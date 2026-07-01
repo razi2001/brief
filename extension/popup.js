@@ -208,20 +208,18 @@ function updateCreate() {
   if (filing) return;
   const label = createBtn.querySelector('.ctk-label');
   const noTracker = bcTracker === null;
-  if (draft.uploading) {
-    createBtn.disabled = true;
-    if (label) label.textContent = 'Uploading…'; else createBtn.textContent = 'Uploading…';
-    if (createMenuBtn) createMenuBtn.hidden = true;
-  } else {
-    const ready = isReadyDraft(draft);
-    createBtn.disabled = !ready;
-    // Tracker connected → the default action files directly ("Create ticket"),
-    // with "Save as draft" behind the caret. No tracker → the default IS the
-    // draft ("Create draft"), no caret.
-    if (label) label.textContent = noTracker ? 'Create draft' : 'Create ticket';
-    // Caret ("Save as draft") only once we know a tracker is connected. While
-    // status is still unknown (bcTracker === undefined) keep it hidden.
-    if (createMenuBtn) createMenuBtn.hidden = !bcTracker || !ready;
+  const uploading = !!draft.uploading;
+  const ready = isReadyDraft(draft);
+  createBtn.disabled = uploading || !ready;
+  // Tracker connected → default action files directly ("Create ticket"), with
+  // "Save as draft" behind the caret. No tracker → the default IS the draft.
+  if (label) label.textContent = uploading ? 'Uploading…' : noTracker ? 'Create draft' : 'Create ticket';
+  // The caret is part of the button's shape: show it whenever a tracker is
+  // connected (not while status is still unknown), and let it disable ALONGSIDE
+  // the primary rather than popping in/out with readiness.
+  if (createMenuBtn) {
+    createMenuBtn.hidden = !bcTracker;
+    createMenuBtn.disabled = uploading || !ready;
   }
 }
 
