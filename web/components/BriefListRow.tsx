@@ -5,6 +5,7 @@ import ArchiveButton from "./ArchiveButton";
 import CopyLinkButton from "./CopyLinkButton";
 import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
+import BrandMark from "./BrandMark";
 import Elapsed from "./Elapsed";
 import type { DashboardBrief } from "@/lib/brief-types";
 
@@ -154,8 +155,12 @@ export default function BriefListRow({
             <TrackerLogo kind={b.provider ?? "linear"} size={13} />
             <span className="truncate">{b.ticket_identifier}</span>
           </span>
-        ) : isDraft ? (
-          <span className="font-mono text-[0.625rem] uppercase tracking-wide text-muted">draft</span>
+        ) : (isDraft || isProcessing) ? (
+          // No tracker id yet → its own Brief identity, the way Linear shows ENG-1.
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-ink-2">
+            <BrandMark size={13} className="shrink-0 rounded-[3px]" />
+            <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
+          </span>
         ) : (
           <span className="font-mono text-[0.625rem] text-muted/50">—</span>
         )}

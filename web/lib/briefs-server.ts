@@ -28,10 +28,12 @@ export type BriefRow = {
   share_id: string | null;
   error: string | null;
   archived_at: string | null;
+  /** Per-user sequential number ("brief-N"), assigned at creation (0007). */
+  seq: number | null;
 };
 
 export const BRIEF_COLUMNS =
-  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, share_id, error, archived_at";
+  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, share_id, error, archived_at, seq";
 
 /**
  * How long a brief may keep trying before we give up on it. A brief flips to
@@ -252,6 +254,7 @@ export async function attachTicketInfo(
       ticket_title: b.ticket_title ?? null,
       share_id: b.share_id ?? null,
       error: b.error ?? null,
+      seq: b.seq ?? null,
       provider,
       ticket,
     };

@@ -29,6 +29,8 @@ export type DashboardBrief = {
   ticket_title?: string | null;
   /** Unguessable token for the public shareable brief page (/b/<share_id>). */
   share_id?: string | null;
+  /** Per-user sequential number, shown as "brief-N" for briefs with no tracker id. */
+  seq?: number | null;
   error?: string | null;
   /** Which tracker this brief was filed to (inferred from ticket_url). */
   provider?: "linear" | "jira";
