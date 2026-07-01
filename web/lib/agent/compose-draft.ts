@@ -10,6 +10,56 @@ export interface DraftResult {
 }
 
 /**
+ * Build messages for the STREAMING draft write: same writing rules, but the
+ * model outputs the ticket as plain Markdown (a "# title" line, a blank line,
+ * then the body) instead of a tool call - so the tokens can be streamed live to
+ * the brief page as it writes. Routing/fields are applied later at export.
+ */
+export function buildStreamMessages(brief: BriefInput, instructions?: string): { system: string; user: any[] } {
+  const prefs = (instructions ?? "").trim();
+  const system =
+    SYSTEM_PROMPT +
+    `\n\nOUTPUT FORMAT: You are writing the ticket as a draft (no tracker, no tools). Output ONLY the ticket as Markdown: the FIRST line is "# " followed by a concise, specific title; then a blank line; then the Markdown body, following the WRITE IT LIKE A TEAMMATE rules and the BANNED VOCABULARY. Do not wrap it in code fences. Write nothing before the title or after the body.` +
+    (prefs
+      ? `\n\nUSER TICKET PREFERENCES - apply the ones about WORDING, FORMAT, required sections, tone, or what to include (ignore routing/assignee/status/label/field prefs):\n${prefs}`
+      : "");
+
+  const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
+  const tail: any[] = [];
+  const ctxBlock = buildContextBlock(brief.json);
+  if (ctxBlock) tail.push({ type: "text", text: ctxBlock });
+  const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
+  tail.push({
+    type: "text",
+    text:
+      "CORRELATE EVERYTHING before writing. Cross-reference every signal you have - " +
+      (frameCount ? `the ${frameCount} time-ordered screen frames, ` : "") +
+      "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the console errors, and the URL. Build one coherent account; trust the screenshots/console/events over the narration. ALWAYS include the page URL in the ticket (an Environment/Context line) when present.",
+  });
+  const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
+  if (manifest) tail.push({ type: "text", text: manifest });
+  tail.push({ type: "text", text: "Write the ticket now as Markdown, starting with the # title line." });
+
+  const user = brief.images.length
+    ? [briefText, ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })), ...tail]
+    : [briefText, ...tail];
+  return { system, user };
+}
+
+/** Split streamed/whole Markdown into a title (first "# " line) + body. */
+export function parseDraftMarkdown(md: string): DraftResult {
+  const text = (md || "").replace(/\r\n/g, "\n").trim();
+  const m = /^#\s+(.+)$/m.exec(text);
+  if (m) {
+    const title = m[1].trim();
+    const body = text.slice(m.index + m[0].length).trim();
+    return { title: title || "Untitled", descriptionMarkdown: body };
+  }
+  // No heading - treat the whole thing as the body.
+  return { title: "Untitled", descriptionMarkdown: text };
+}
+
+/**
  * Write-only counterpart to processBrief: turn the captured evidence into the
  * best possible ticket TITLE + Markdown BODY, WITHOUT filing it to any tracker.
  *

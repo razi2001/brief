@@ -34,7 +34,7 @@ async function loadGuidance(userId: string): Promise<string> {
  * Returns the resolved `includeVideo` plus the raw keyframe `names` (the filing
  * path needs them to clean up storage afterwards).
  */
-async function loadBriefInput(
+export async function loadBriefInput(
   admin: SupabaseClient,
   prefix: string,
   opts: { includeVideo?: boolean; overrides?: BriefOverrides; lean?: boolean },

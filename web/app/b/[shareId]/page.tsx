@@ -8,6 +8,7 @@ import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
 import DownloadButton from "@/components/DownloadButton";
 import PollReload from "@/components/PollReload";
+import LiveWriter from "@/components/LiveWriter";
 
 // Signed media URLs expire, so never cache the rendered page.
 export const dynamic = "force-dynamic";
@@ -161,37 +162,46 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   // through the normal render below with a "Filing…" indicator, so the full
   // header/toolbar stay.) ──
   if ((brief.status === "processing" || brief.status === "uploaded") && !brief.ticket_body) {
+    const ownerWriting = !!viewerId && viewerId === brief.user_id;
     return (
       <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
-        <PollReload />
         {viewerId && <BackLink />}
         <article className={ARTICLE_CLASS}>
           <StatusPill>Brief is writing this ticket…</StatusPill>
-          {brief.title ? (
-            <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{brief.title}</h1>
+          {ownerWriting ? (
+            // The owner watches it stream in, token by token.
+            <LiveWriter briefId={brief.id} fallbackTitle={brief.title} />
           ) : (
-            <div className="flex flex-col gap-2.5">
-              <Bar w="78%" h={30} />
-              <Bar w="46%" h={30} delay={80} />
-            </div>
+            // Everyone else: skeleton + soft poll until the owner's write lands.
+            <>
+              <PollReload />
+              {brief.title ? (
+                <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{brief.title}</h1>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  <Bar w="78%" h={30} />
+                  <Bar w="46%" h={30} delay={80} />
+                </div>
+              )}
+              <div className="mt-8 flex flex-col gap-3">
+                <Bar w="100%" delay={120} />
+                <Bar w="94%" delay={200} />
+                <Bar w="71%" delay={280} />
+                <div className="h-3" />
+                <Bar w="34%" h={11} delay={380} />
+                <Bar w="88%" delay={460} />
+                <Bar w="60%" delay={540} />
+                <div className="h-3" />
+                <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms" }} />
+                <div className="h-3" />
+                <Bar w="80%" delay={760} />
+                <span className="inline-flex items-center gap-1">
+                  <Bar w="42%" delay={840} />
+                  <span className="writing-caret" />
+                </span>
+              </div>
+            </>
           )}
-          <div className="mt-8 flex flex-col gap-3">
-            <Bar w="100%" delay={120} />
-            <Bar w="94%" delay={200} />
-            <Bar w="71%" delay={280} />
-            <div className="h-3" />
-            <Bar w="34%" h={11} delay={380} />
-            <Bar w="88%" delay={460} />
-            <Bar w="60%" delay={540} />
-            <div className="h-3" />
-            <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms" }} />
-            <div className="h-3" />
-            <Bar w="80%" delay={760} />
-            <span className="inline-flex items-center gap-1">
-              <Bar w="42%" delay={840} />
-              <span className="writing-caret" />
-            </span>
-          </div>
         </article>
         <BriefFooter />
       </main>
