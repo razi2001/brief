@@ -51,6 +51,7 @@ const SVG = (d: React.ReactNode) => (
 );
 const ICON = {
   link: SVG(<><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5" /><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5" /></>),
+  share: SVG(<><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" /></>),
   md: SVG(<><rect x="4" y="5" width="16" height="14" rx="2" /><path d="M7 15V9l2.5 3L12 9v6M16 9v4m0 0 1.6-1.6M16 13l-1.6-1.6" /></>),
   check: SVG(<path d="M5 12l5 5L20 6" />),
   code: SVG(<><path d="m8 8-4 4 4 4" /><path d="m16 8 4 4-4 4" /></>),
@@ -229,16 +230,9 @@ export default function TicketDoc({
 
   return (
     <div>
-      {/* Action toolbar - copy + export/open + auto-save status */}
+      {/* Action toolbar - primary (export/open) + share + copy + save status */}
       <div className="mb-7 flex flex-wrap items-center gap-2">
-        <button type="button" className={PILL} onClick={() => copy("link", `${window.location.origin}/b/${shareId}`)}>
-          {copied === "link" ? ICON.check : ICON.link}
-          {copied === "link" ? "Copied" : "Copy link"}
-        </button>
-        <button type="button" className={PILL} onClick={() => copy("md", currentMarkdown())}>
-          {copied === "md" ? ICON.check : ICON.md}
-          {copied === "md" ? "Copied" : "Copy Markdown"}
-        </button>
+        {/* Primary action: file the draft, or jump to the filed ticket. */}
         {isOwner && isDraft && <ExportButtons briefId={briefId} linear={hasLinear} jira={hasJira} />}
         {!isDraft && ticketUrl && (
           <a className={PILL} href={ticketUrl} target="_blank" rel="noreferrer">
@@ -247,6 +241,20 @@ export default function TicketDoc({
             <span className="text-muted">{ICON.external}</span>
           </a>
         )}
+        {/* The public shareable link - sits right next to the primary action. */}
+        <button
+          type="button"
+          className={PILL}
+          title="Shareable link — anyone with it can view this brief"
+          onClick={() => copy("link", `${window.location.origin}/b/${shareId}`)}
+        >
+          {copied === "link" ? ICON.check : ICON.share}
+          {copied === "link" ? "Link copied" : "Share link"}
+        </button>
+        <button type="button" className={PILL} onClick={() => copy("md", currentMarkdown())}>
+          {copied === "md" ? ICON.check : ICON.md}
+          {copied === "md" ? "Copied" : "Copy Markdown"}
+        </button>
         {filing && (
           <span className="inline-flex items-center gap-1.5 text-xs text-muted">
             <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-hairline border-t-accent" aria-hidden />
