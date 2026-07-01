@@ -16,6 +16,9 @@ const descField = $('#descField');
 const kvList = $('#kvList');
 const addFieldBtn = $('#addFieldBtn');
 const createBtn = $('#createBtn');
+const createMenuBtn = $('#createMenuBtn');
+const createMenu = $('#createMenu');
+const draftItem = $('#draftItem');
 const briefCloudBtn = $('#briefCloudBtn');
 const brandMark = $('#brandMark');
 const scrim = $('#scrim');
@@ -204,12 +207,21 @@ function initAdditionalData() {
 function updateCreate() {
   if (filing) return;
   const label = createBtn.querySelector('.ctk-label');
+  const noTracker = bcTracker === null;
   if (draft.uploading) {
     createBtn.disabled = true;
     if (label) label.textContent = 'Uploading…'; else createBtn.textContent = 'Uploading…';
+    if (createMenuBtn) createMenuBtn.hidden = true;
   } else {
-    createBtn.disabled = !isReadyDraft(draft);
-    if (label) label.textContent = 'Create Brief';
+    const ready = isReadyDraft(draft);
+    createBtn.disabled = !ready;
+    // Tracker connected → the default action files directly ("Create ticket"),
+    // with "Save as draft" behind the caret. No tracker → the default IS the
+    // draft ("Create draft"), no caret.
+    if (label) label.textContent = noTracker ? 'Create draft' : 'Create ticket';
+    // Caret ("Save as draft") only once we know a tracker is connected. While
+    // status is still unknown (bcTracker === undefined) keep it hidden.
+    if (createMenuBtn) createMenuBtn.hidden = !bcTracker || !ready;
   }
 }
 
@@ -441,12 +453,25 @@ function openBrief(shareId) {
 function failCreate(err) {
   filing = false;
   setBrandSpin(false);
-  const label = createBtn.querySelector('.ctk-label');
-  if (label) label.textContent = 'Create Brief';
   createBtn.disabled = false;
-  updateCreate();
+  if (createMenuBtn) createMenuBtn.disabled = false;
+  updateCreate(); // restores the right label ("Create ticket" / "Create draft") + caret
   showInlineError(`Couldn’t create brief: ${err?.message || err}`);
 }
+
+// Direct-file confirmation: the ticket was queued to the tracker and is written
+// in the background; land on /tickets where it appears (writing -> filed). A
+// filed ticket isn't a draft, so there's no Brief page to open.
+function showFiledAndOpen() {
+  const t = exportDone.querySelector('.export-done-title');
+  const s = exportDone.querySelector('.export-done-sub');
+  const tracker = bcTracker === 'jira' ? 'Jira' : bcTracker === 'linear' ? 'Linear' : 'your tracker';
+  if (t) t.textContent = `Filing to ${tracker}`;
+  if (s) s.textContent = 'Opening your tickets…';
+  exportDone.hidden = false;
+  setTimeout(() => { openTicketsTab(); window.close(); }, 1200);
+}
+function closeCreateMenu() { if (createMenu) createMenu.hidden = true; }
 // Ensure the brief is uploaded as a cloud draft (creates it + uploads brief.json
 // and screenshots on first send, or pushes new screenshots into an existing
 // draft). Shared by filing and "save as draft".
@@ -467,6 +492,7 @@ async function ensureUploaded() {
 // land on the brief page, which shows the "writing…" state and resolves itself.
 async function createBrief() {
   clearInlineError();
+  closeCreateMenu();
   if (!isReadyDraft(draft) || draft.uploading) return;
   let token = null; try { token = await getCloudToken(); } catch {}
   if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
@@ -498,6 +524,58 @@ async function createBrief() {
   draft = emptyDraft();
   await setDraft(draft);
   openBrief(shareId);
+}
+
+// The primary "Create ticket" action. With a tracker connected we file directly
+// (queued, written in the background) and land on /tickets. With no tracker the
+// primary IS the draft. If we don't yet know the tracker status (fast click on
+// open), resolve it first so we route correctly.
+async function primaryCreate() {
+  if (bcTracker === undefined) {
+    try {
+      const st = await fetchAccountStatus();
+      if (st) { bcConnected = st.connected; bcTracker = st.tracker; }
+    } catch { /* fall through: treat as draft, which always works */ }
+    updateCreate();
+  }
+  if (bcTracker) fileTicket();
+  else createBrief();
+}
+
+// File the brief DIRECTLY to the connected tracker (Linear/Jira). The /process
+// route queues it and writes it in the background; we don't open a Brief page
+// (a filed ticket isn't a draft) - we land on /tickets where it shows up.
+async function fileTicket() {
+  clearInlineError();
+  closeCreateMenu();
+  if (!isReadyDraft(draft) || draft.uploading) return;
+  let token = null; try { token = await getCloudToken(); } catch {}
+  if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
+
+  filing = true;
+  setBrandSpin(true);
+  createBtn.disabled = true;
+  if (createMenuBtn) createMenuBtn.disabled = true;
+  const label = createBtn.querySelector('.ctk-label');
+  if (label) label.innerHTML = '<span class="btn-spin"></span> Filing…';
+
+  const run = async () => {
+    await ensureUploaded();
+    await processBrief(draft.cloudBriefId, buildOverrides(draft));
+  };
+
+  try {
+    await run();
+  } catch (err) {
+    if (err?.status === 404 && draft.cloudBriefId) {
+      try { await persist((d) => { d.cloudBriefId = null; }); await run(); }
+      catch (err2) { return failCreate(err2); }
+    } else { return failCreate(err); }
+  }
+  await clearDraft();
+  draft = emptyDraft();
+  await setDraft(draft);
+  showFiledAndOpen();
 }
 
 // ---------- tickets tab + cloud button ----------
@@ -638,7 +716,12 @@ gallery.addEventListener('click', async (e) => {
   const shot = e.target.closest('[data-shot]');
   if (shot) return openShot(shot.getAttribute('data-shot'));
 });
-createBtn.addEventListener('click', createBrief);
+createBtn.addEventListener('click', primaryCreate);
+createMenuBtn?.addEventListener('click', (e) => { e.stopPropagation(); if (createMenu) createMenu.hidden = !createMenu.hidden; });
+draftItem?.addEventListener('click', createBrief);
+document.addEventListener('click', (e) => {
+  if (createMenu && !createMenu.hidden && !e.target.closest('.create-wrap')) closeCreateMenu();
+});
 resetBtn?.addEventListener('click', openReset);
 
 // ---------- boot ----------

@@ -130,8 +130,9 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 .addfield svg { width:12px; height:12px; }
 
 /* ---------- CREATE ---------- */
-.create-wrap { padding:18px 18px 16px; }
-.create { width:100%; border:none; border-radius:12px; cursor:pointer; background:var(--accent); color:var(--cream);
+.create-wrap { padding:18px 18px 16px; position:relative; }
+.create-split { display:flex; }
+.create { flex:1; width:auto; border:none; border-radius:12px; cursor:pointer; background:var(--accent); color:var(--cream);
   font-family:var(--mono); font-size:13.5px; font-weight:500; letter-spacing:.01em; padding:14px;
   display:flex; align-items:center; justify-content:center; gap:9px;
   transition:transform var(--t), background var(--t), box-shadow var(--t), opacity var(--t);
@@ -140,19 +141,23 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 .create:active { transform:translateY(1px); box-shadow:0 2px 8px rgba(221,105,54,.2); }
 .create:disabled { opacity:.45; cursor:default; box-shadow:none; }
 .create svg { width:17px; height:17px; }
+
+/* Split: primary "Create ticket" + a caret that opens "Save as draft". */
+.create-split:has(.create-caret:not([hidden])) .create { border-top-right-radius:0; border-bottom-right-radius:0; }
+.create-caret { border:none; border-left:1px solid rgba(255,253,248,.22); background:var(--accent); color:var(--cream);
+  border-radius:0 12px 12px 0; padding:0 11px; cursor:pointer; display:flex; align-items:center;
+  box-shadow:0 3px 14px rgba(221,105,54,.24); transition:background var(--t); }
+.create-caret:hover { background:#c95e2c; }
+.create-caret:disabled { opacity:.45; cursor:default; }
+.create-caret svg { width:15px; height:15px; }
+.create-menu { position:absolute; left:18px; right:18px; bottom:62px; background:#fffdf8; border:1px solid var(--hairline);
+  border-radius:12px; box-shadow:0 12px 32px rgba(26,22,18,.2); padding:6px; z-index:30; }
+.cm-item { display:flex; align-items:center; gap:8px; width:100%; text-align:left; border:none; background:transparent;
+  padding:9px 10px; border-radius:8px; font-family:var(--mono); font-size:12.5px; color:var(--ink-2); cursor:pointer; }
+.cm-item:hover { background:rgba(26,22,18,.05); color:var(--ink); }
+.cm-item svg { width:15px; height:15px; }
 .btn-spin { display:inline-block; width:15px; height:15px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
-
-/* Secondary "Save as draft" - quieter than .create. Needs NO tracker, so it's
-   the path for people who don't use Linear/Jira. */
-.draft-btn { width:100%; margin-top:8px; border:1px solid var(--hairline); border-radius:12px; cursor:pointer;
-  background:transparent; color:var(--ink-2); font-family:var(--mono); font-size:12.5px; font-weight:500;
-  padding:11px 14px; display:flex; align-items:center; justify-content:center; gap:8px;
-  transition:transform var(--t), background var(--t), color var(--t), border-color var(--t); }
-.draft-btn:hover { background:rgba(26,22,18,.04); color:var(--ink); border-color:var(--accent); }
-.draft-btn:active { transform:translateY(1px); }
-.draft-btn:disabled { opacity:.45; cursor:default; }
-.draft-btn .btn-spin { width:13px; height:13px; border-color:rgba(221,105,54,.3); border-top-color:var(--accent); }
 
 /* ---------- SHEETS ---------- */
 .scrim { position:fixed; inset:0; background:rgba(26,22,18,.42); opacity:0; visibility:hidden;
