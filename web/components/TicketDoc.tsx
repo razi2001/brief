@@ -133,6 +133,9 @@ export default function TicketDoc({
   const [copied, setCopied] = useState<"" | "link" | "md">("");
   // Floating selection toolbar position (viewport coords), or null when hidden.
   const [bubble, setBubble] = useState<{ y: number; left: number } | null>(null);
+  // The chat assistant is streaming a rewrite into the doc (editing locked).
+  const [aiEditing, setAiEditing] = useState(false);
+  const preEdit = useRef<{ titleText: string; html: string } | null>(null);
 
   // The body is server-rendered via dangerouslySetInnerHTML (so it paints
   // immediately - no flash of empty content), and React never re-applies it
@@ -141,6 +144,106 @@ export default function TicketDoc({
   useEffect(() => {
     if (bodyRef.current) savedHtml.current = bodyRef.current.innerHTML;
   }, []);
+
+  // ── Chat assistant bridge ──────────────────────────────────────────────
+  // TicketChat is a separate client island (the sidebar), so it coordinates
+  // with the editor over window events: it asks for the current doc, streams
+  // the model's rewrite in live (caret trailing), then finalizes with a soft
+  // "settled" flash on the blocks that changed. A failed stream restores the
+  // pre-edit snapshot so a half-rewrite is never left behind.
+  useEffect(() => {
+    if (!canEdit) return;
+
+    const lock = () => {
+      if (preEdit.current) return;
+      preEdit.current = {
+        titleText: titleRef.current?.innerText ?? "",
+        html: bodyRef.current?.innerHTML ?? "",
+      };
+      setAiEditing(true);
+      if (bodyRef.current) bodyRef.current.contentEditable = "false";
+      if (titleRef.current) titleRef.current.contentEditable = "false";
+    };
+    const unlock = () => {
+      preEdit.current = null;
+      setAiEditing(false);
+      if (bodyRef.current) bodyRef.current.contentEditable = "true";
+      if (titleRef.current) titleRef.current.contentEditable = "true";
+    };
+
+    const onGet = (e: Event) => {
+      const d = (e as CustomEvent).detail as { reply?: (doc: { title: string; body: string }) => void };
+      d?.reply?.({
+        title: (titleRef.current?.innerText || "").trim(),
+        body: bodyRef.current ? htmlToMarkdown(bodyRef.current) : "",
+      });
+    };
+
+    const onStream = (e: Event) => {
+      const d = (e as CustomEvent).detail as { title: string | null; body: string };
+      const body = bodyRef.current;
+      if (!body) return;
+      lock();
+      if (d.title && titleRef.current && titleRef.current.innerText !== d.title) {
+        titleRef.current.innerText = d.title;
+      }
+      body.innerHTML = mdToHtml(d.body) + '<span class="writing-caret"></span>';
+    };
+
+    const onDone = (e: Event) => {
+      const d = (e as CustomEvent).detail as { title: string | null; body: string };
+      const body = bodyRef.current;
+      if (!body || !preEdit.current) return;
+
+      // Old top-level blocks, so we can flash only what actually changed.
+      const tmp = document.createElement("div");
+      tmp.innerHTML = preEdit.current.html;
+      const oldBlocks = new Set(Array.from(tmp.children).map((el) => el.outerHTML));
+      const titleChanged = !!d.title && d.title !== preEdit.current.titleText.trim();
+
+      if (d.title && titleRef.current) titleRef.current.innerText = d.title;
+      body.innerHTML = mdToHtml(d.body);
+      Array.from(body.children).forEach((el) => {
+        if (!oldBlocks.has(el.outerHTML)) el.classList.add("blk-new");
+      });
+      if (titleChanged) titleRef.current?.classList.add("blk-new");
+
+      // The route persisted the revision; align the save baseline so autosave
+      // doesn't re-post, and show the honest "Saved" tick.
+      if (d.title) savedTitle.current = d.title;
+      savedHtml.current = body.innerHTML;
+      setStatus("saved");
+      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 2000);
+
+      unlock();
+      // Let the settle animation finish, then drop the marker classes.
+      setTimeout(() => {
+        body.querySelectorAll(".blk-new").forEach((el) => el.classList.remove("blk-new"));
+        titleRef.current?.classList.remove("blk-new");
+        savedHtml.current = body.innerHTML;
+      }, 3000);
+    };
+
+    const onCancel = () => {
+      const snap = preEdit.current;
+      if (snap && bodyRef.current) {
+        bodyRef.current.innerHTML = snap.html;
+        if (titleRef.current) titleRef.current.innerText = snap.titleText;
+      }
+      unlock();
+    };
+
+    window.addEventListener("brief:doc:get", onGet);
+    window.addEventListener("brief:doc:stream", onStream);
+    window.addEventListener("brief:doc:done", onDone);
+    window.addEventListener("brief:doc:cancel", onCancel);
+    return () => {
+      window.removeEventListener("brief:doc:get", onGet);
+      window.removeEventListener("brief:doc:stream", onStream);
+      window.removeEventListener("brief:doc:done", onDone);
+      window.removeEventListener("brief:doc:cancel", onCancel);
+    };
+  }, [canEdit]);
 
   // Owner: a formatting bubble that follows the text selection (Notion-style).
   useEffect(() => {
@@ -270,7 +373,13 @@ export default function TicketDoc({
           {copied === "md" ? "Copied" : "Copy Markdown"}
         </button>
         {filing && <ProgressCycler messages={FILING_STEPS} className="text-xs" />}
-        {canEdit && status !== "idle" && (
+        {aiEditing && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-accent">
+            <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />
+            Assistant is editing…
+          </span>
+        )}
+        {canEdit && !aiEditing && status !== "idle" && (
           <span className={`ml-0.5 text-xs ${status === "error" ? "text-[#c62828]" : "text-muted"}`}>
             {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "Couldn't save"}
           </span>
@@ -304,7 +413,7 @@ export default function TicketDoc({
       />
 
       {/* Floating selection toolbar (owner) */}
-      {canEdit && bubble && (
+      {canEdit && !aiEditing && bubble && (
         <div className="fixed z-50 -translate-x-1/2" style={{ top: bubble.y, left: bubble.left }}>
           <div className="flex items-center gap-0.5 rounded-lg border border-[rgba(245,241,232,0.14)] bg-ink p-1 shadow-[0_8px_28px_rgba(26,22,18,0.35)]">
             <button type="button" title="Heading" className={`${bubbleBtn} text-[0.8125rem] font-bold`} onMouseDown={noMouseSteal} onClick={() => format("heading")}>H</button>

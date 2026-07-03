@@ -10,6 +10,7 @@ import DownloadButton from "@/components/DownloadButton";
 import PollReload from "@/components/PollReload";
 import LiveWriter from "@/components/LiveWriter";
 import ProgressCycler from "@/components/ProgressCycler";
+import TicketChat from "@/components/TicketChat";
 
 // Illustrative progress steps shown while the AI writes the draft (see the
 // "writing" state). Not a live trace - just a natural, moving status.
@@ -145,9 +146,15 @@ const ARTICLE_BASE =
   "rounded-2xl border border-hairline bg-[#fffdf8] px-6 py-8 shadow-[0_1px_3px_rgba(26,22,18,0.05),0_14px_40px_-20px_rgba(26,22,18,0.18)] sm:px-12 sm:py-11";
 const ARTICLE_CLASS = `brief-page-in ${ARTICLE_BASE}`;
 
-/** One skeleton bar that rises in (staggered) - reads as a line being written. */
+/** One skeleton bar that rises in (staggered) - reads as a line being written.
+ *  --skd staggers the slow sheen too, so the bars shimmer in sequence. */
 function Bar({ w, h = 14, delay = 0 }: { w: string; h?: number; delay?: number }) {
-  return <div className="sk sk-rise" style={{ width: w, height: h, animationDelay: `${delay}ms` }} />;
+  return (
+    <div
+      className="sk sk-rise"
+      style={{ width: w, height: h, animationDelay: `${delay}ms`, "--skd": `${delay * 2}ms` } as React.CSSProperties}
+    />
+  );
 }
 
 export default async function SharePage({ params }: { params: Promise<{ shareId: string }> }) {
@@ -195,7 +202,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
                 <Bar w="88%" delay={460} />
                 <Bar w="60%" delay={540} />
                 <div className="h-3" />
-                <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms" }} />
+                <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms", "--skd": "1280ms" } as React.CSSProperties} />
                 <div className="h-3" />
                 <Bar w="80%" delay={760} />
                 <span className="inline-flex items-center gap-1">
@@ -296,9 +303,19 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       : live?.stateColor || brief.ticket_state_color || "#2e7d32";
   const reported = formatDate(brief.created_at);
 
+  // Owner iterating on a draft gets the assistant rail: doc left, chat right
+  // (stacked below on small screens). The container widens so the doc keeps
+  // its reading width.
+  const showChat = isOwner && isDraft && !filing;
+
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
+    <main
+      className={`mx-auto w-full px-4 py-10 font-sans sm:px-6 sm:py-12 ${
+        showChat ? "max-w-[76rem]" : "max-w-5xl"
+      }`}
+    >
       {viewerId && <BackLink />}
+      <div className={showChat ? "lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-5" : undefined}>
       <article className={ARTICLE_CLASS}>
       {/* ── Meta strip ── */}
       <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted">
@@ -362,6 +379,9 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         </section>
       )}
       </article>
+
+      {showChat && <TicketChat briefId={brief.id} />}
+      </div>
 
       <BriefFooter />
     </main>

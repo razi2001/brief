@@ -4,9 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { mdToHtml } from "@/lib/md-html";
 
-/** A skeleton bar that rises in (staggered) - reads as a line being written. */
+/** A skeleton bar that rises in (staggered) - reads as a line being written.
+ *  --skd staggers the slow sheen too, so the bars shimmer in sequence. */
 function Bar({ w, h = 14, delay = 0 }: { w: string; h?: number; delay?: number }) {
-  return <div className="sk sk-rise" style={{ width: w, height: h, animationDelay: `${delay}ms` }} />;
+  return (
+    <div
+      className="sk sk-rise"
+      style={{ width: w, height: h, animationDelay: `${delay}ms`, "--skd": `${delay * 2}ms` } as React.CSSProperties}
+    />
+  );
 }
 
 /** The pre-stream placeholder: a document taking shape, not a blank card. */
@@ -30,7 +36,7 @@ function WritingSkeleton({ title }: { title?: string | null }) {
         <Bar w="88%" delay={460} />
         <Bar w="60%" delay={540} />
         <div className="h-3" />
-        <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms" }} />
+        <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms", "--skd": "1280ms" } as React.CSSProperties} />
         <div className="h-3" />
         <Bar w="80%" delay={760} />
         <span className="inline-flex items-center gap-1">
