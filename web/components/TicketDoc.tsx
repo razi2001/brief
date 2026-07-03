@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ExportButtons from "./ExportButtons";
 import { TrackerLogo } from "./TrackerLogo";
 import ProgressCycler from "./ProgressCycler";
+import { CURSOR_SENTINEL } from "@/lib/chat-stream";
 import { mdToHtml, htmlToMarkdown } from "@/lib/md-html";
 
 // Illustrative progress steps while the draft is filed to a tracker. Not a live
@@ -180,8 +181,9 @@ export default function TicketDoc({
     };
 
     const onStream = (e: Event) => {
-      // caret:false → targeted edits applied in place (instant block swaps);
-      // caret:true → a full rewrite streaming top-to-bottom (typing caret).
+      // Targeted edits carry a CURSOR_SENTINEL where the assistant is typing -
+      // the caret renders mid-document, riding the insertion point. A full
+      // rewrite (caret:true) streams top-to-bottom with the caret at the end.
       const d = (e as CustomEvent).detail as { title: string | null; body: string; caret?: boolean };
       const body = bodyRef.current;
       if (!body) return;
@@ -189,7 +191,15 @@ export default function TicketDoc({
       if (d.title && titleRef.current && titleRef.current.innerText !== d.title) {
         titleRef.current.innerText = d.title;
       }
-      body.innerHTML = mdToHtml(d.body) + (d.caret === false ? "" : '<span class="writing-caret"></span>');
+      let html = mdToHtml(d.body);
+      if (html.includes(CURSOR_SENTINEL)) {
+        html = html.replace(CURSOR_SENTINEL, '<span class="writing-caret"></span>');
+      } else if (d.caret !== false) {
+        html += '<span class="writing-caret"></span>';
+      }
+      body.innerHTML = html;
+      // Keep the assistant's typing position in view, gently.
+      body.querySelector(".writing-caret")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     };
 
     const onDone = (e: Event) => {
@@ -204,7 +214,7 @@ export default function TicketDoc({
       const titleChanged = !!d.title && d.title !== preEdit.current.titleText.trim();
 
       if (d.title && titleRef.current) titleRef.current.innerText = d.title;
-      body.innerHTML = mdToHtml(d.body);
+      body.innerHTML = mdToHtml(d.body.split(CURSOR_SENTINEL).join(""));
       Array.from(body.children).forEach((el) => {
         if (!oldBlocks.has(el.outerHTML)) el.classList.add("blk-new");
       });

@@ -1,25 +1,30 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { applyEdit, parseAssistantStream } from "@/lib/chat-stream";
+import { useRef, useState } from "react";
+import { CURSOR_SENTINEL, locateEdit, parseAssistantStream, type EditOp } from "@/lib/chat-stream";
 
 /**
- * The brief page's assistant: a chat rail for iterating on the draft fast
- * ("tighten it", "add repro steps", "translate to English"). Powered by a fast
- * model. The model answers with TARGETED edits that are applied to the doc in
- * place, one by one, as they stream in - a collaborator touching just the
- * lines you asked about, not retyping the page. Full rewrites only happen for
- * restructures.
+ * The brief page's assistant rail - NOT a chat. One command box: tell it what
+ * to change ("tighten it", "add repro steps") and the edits TYPE THEMSELVES
+ * into the document at the right spot, caret riding the insertion point, like
+ * a collaborator writing mid-page. Below the box, a quiet activity log of what
+ * each instruction did ("✓ 2 edits"). Each instruction is independent - it
+ * acts on the document as it stands now.
  *
  * Talks to TicketDoc (a separate client island) via window events:
- *   brief:doc:get    → asks the editor for the current title/body markdown
- *   brief:doc:stream → applies a revision (caret:false = in-place edit swap,
- *                      caret:true = full rewrite streaming with a caret)
+ *   brief:doc:get    → current title/body markdown
+ *   brief:doc:stream → partial doc; CURSOR_SENTINEL marks the typing position
  *   brief:doc:done   → final content: settle animation + save baseline update
  *   brief:doc:cancel → restore the pre-edit snapshot (stream failed midway)
  */
 type Activity = { edits: number; failed: number; rewrote: boolean; retitled: boolean };
-type Msg = { role: "user" | "assistant"; content: string; activity?: Activity };
+type Run = {
+  instruction: string;
+  note: string;
+  activity?: Activity;
+  error?: boolean;
+  live?: boolean;
+};
 
 const SUGGESTIONS = ["Tighten it up", "Add repro steps", "More technical", "Friendlier tone"];
 
@@ -36,9 +41,10 @@ function activityLabel(a: Activity): string {
   const parts: string[] = [];
   if (a.edits > 0) parts.push(`${a.edits} edit${a.edits > 1 ? "s" : ""}`);
   if (a.retitled) parts.push("title");
-  if (!parts.length) return "";
   return parts.join(" · ");
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const SPARK = (
   <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
@@ -47,47 +53,71 @@ const SPARK = (
 );
 
 export default function TicketChat({ briefId }: { briefId: string }) {
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [runs, setRuns] = useState<Run[]>([]); // newest first
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  // Live view of the in-flight assistant turn.
-  const [liveNote, setLiveNote] = useState("");
-  const [liveEditing, setLiveEditing] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const cancelled = useRef(false);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, liveNote, liveEditing]);
+  const patchLiveRun = (patch: Partial<Run>) =>
+    setRuns((prev) => (prev.length ? [{ ...prev[0], ...patch }, ...prev.slice(1)] : prev));
 
   async function send(text: string) {
     const q = text.trim();
     if (!q || busy) return;
     setInput("");
     setBusy(true);
-    setLiveNote("");
-    setLiveEditing(false);
-    const history: Msg[] = [...messages, { role: "user", content: q }];
-    setMessages(history);
+    cancelled.current = false;
+    setRuns((prev) => [{ instruction: q, note: "", live: true }, ...prev]);
 
     const doc = await currentDoc();
-    // The working copy the streamed ops mutate, block by block.
-    let workingTitle: string | null = null;
-    let workingBody = doc.body;
-    let appliedCount = 0;
-    let okCount = 0;
-    let failedCount = 0;
+    // The working copy the streamed ops mutate. Mutated ONLY inside the typing
+    // queue, so edits land in order even when the model outruns the animation.
+    const state = { body: doc.body, title: null as string | null, ok: 0, fail: 0 };
     let rewrote = false;
     let hadChange = false;
-    let note = "";
+    let finalTicket: { title: string | null; body: string } | null = null;
+    let queue: Promise<void> = Promise.resolve();
+
+    const dispatchStream = (bodyMd: string) =>
+      window.dispatchEvent(
+        new CustomEvent("brief:doc:stream", {
+          detail: { title: state.title, body: bodyMd, caret: false },
+        }),
+      );
+
+    // Type one edit into the doc: the replacement reveals a few characters at
+    // a time at its own position, sentinel caret riding along.
+    const typeEdit = async (op: EditOp) => {
+      if (cancelled.current) return;
+      const loc = locateEdit(state.body, op);
+      if (!loc) {
+        state.fail++;
+        return;
+      }
+      hadChange = true;
+      const before = state.body.slice(0, loc.index);
+      const after = state.body.slice(loc.index + loc.length);
+      const text = op.replace;
+      const chunk = Math.max(2, Math.ceil(text.length / 50)); // ≤ ~0.9s per edit
+      for (let k = chunk; k < text.length; k += chunk) {
+        if (cancelled.current) return;
+        dispatchStream(before + text.slice(0, k) + CURSOR_SENTINEL + after);
+        await sleep(18);
+      }
+      state.body = before + text + after;
+      state.ok++;
+      dispatchStream(state.body);
+    };
+
     try {
       const res = await fetch(`/api/briefs/${briefId}/chat`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
+        // One instruction, no conversation - it acts on the current doc.
         body: JSON.stringify({
-          messages: history.map((m) => ({ role: m.role, content: m.content })),
+          messages: [{ role: "user", content: q }],
           title: doc.title,
           body: doc.body,
         }),
@@ -97,82 +127,64 @@ export default function TicketChat({ briefId }: { briefId: string }) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let acc = "";
-      let finalTicket: { title: string | null; body: string } | null = null;
+      let queuedEdits = 0;
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
         const p = parseAssistantStream(acc);
-        note = p.note;
-        setLiveNote(p.note);
+        patchLiveRun({ note: p.note });
 
         if (p.ticket) {
-          // Full rewrite: stream it top-to-bottom with the typing caret.
+          // Full rewrite: stream it top-to-bottom with the trailing caret.
           rewrote = true;
           hadChange = true;
           finalTicket = p.ticket;
-          setLiveEditing(true);
           window.dispatchEvent(
             new CustomEvent("brief:doc:stream", { detail: { ...p.ticket, caret: true } }),
           );
           continue;
         }
 
-        // Targeted ops: apply each completed edit ONCE, in place.
-        let touched = false;
-        while (appliedCount < p.edits.length) {
-          const r = applyEdit(workingBody, p.edits[appliedCount]);
-          workingBody = r.md;
-          if (r.ok) {
-            okCount++;
-            touched = true;
-          } else {
-            failedCount++;
-          }
-          appliedCount++;
+        // Queue newly-completed ops; the typewriter plays them in order.
+        while (queuedEdits < p.edits.length) {
+          const op = p.edits[queuedEdits++];
+          queue = queue.then(() => typeEdit(op));
         }
-        if (p.title && p.title !== workingTitle) {
-          workingTitle = p.title;
-          touched = true;
-        }
-        if (touched) {
-          hadChange = true;
-          setLiveEditing(true);
-          window.dispatchEvent(
-            new CustomEvent("brief:doc:stream", {
-              detail: { title: workingTitle, body: workingBody, caret: false },
-            }),
-          );
+        if (p.title && p.title !== state.title) {
+          const t = p.title;
+          queue = queue.then(() => {
+            state.title = t;
+            hadChange = true;
+            dispatchStream(state.body);
+          });
         }
       }
 
-      // Finalize: hand the editor the complete result (settle + save baseline).
+      await queue; // let the typing animation finish
+
       if (hadChange) {
         window.dispatchEvent(
           new CustomEvent("brief:doc:done", {
-            detail: finalTicket ?? { title: workingTitle, body: workingBody },
+            detail: finalTicket ?? { title: state.title, body: state.body },
           }),
         );
       }
-      const activity: Activity = { edits: okCount, failed: failedCount, rewrote, retitled: !!workingTitle };
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: note || (hadChange ? "Done." : "…"),
-          activity: hadChange || failedCount > 0 ? activity : undefined,
-        },
-      ]);
+      const p = parseAssistantStream(acc);
+      patchLiveRun({
+        live: false,
+        note: p.note,
+        activity:
+          hadChange || state.fail > 0
+            ? { edits: state.ok, failed: state.fail, rewrote, retitled: !!state.title }
+            : undefined,
+      });
     } catch {
+      cancelled.current = true;
       if (hadChange) window.dispatchEvent(new CustomEvent("brief:doc:cancel"));
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: "Something went wrong - try again." },
-      ]);
+      patchLiveRun({ live: false, error: true, note: "" });
     } finally {
       setBusy(false);
-      setLiveNote("");
-      setLiveEditing(false);
       inputRef.current?.focus();
     }
   }
@@ -187,15 +199,15 @@ export default function TicketChat({ briefId }: { briefId: string }) {
   return (
     <aside className="card chat-pop mt-5 flex max-h-[80vh] flex-col p-0 font-sans lg:sticky lg:top-6 lg:mt-0">
       {/* Header */}
-      <div className="flex h-11 items-center gap-2 border-b border-hairline px-4">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-4">
         <span className="text-accent">{SPARK}</span>
         <span className="text-[0.8125rem] font-medium text-ink">Assistant</span>
-        {messages.length > 0 && !busy && (
+        {runs.length > 0 && !busy && (
           <button
             type="button"
-            onClick={() => setMessages([])}
-            title="Clear conversation"
-            aria-label="Clear conversation"
+            onClick={() => setRuns([])}
+            title="Clear history"
+            aria-label="Clear history"
             className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -206,82 +218,8 @@ export default function TicketChat({ briefId }: { briefId: string }) {
         )}
       </div>
 
-      {/* Thread */}
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-3.5 py-4">
-        {messages.length === 0 && !busy && (
-          <div className="flex flex-wrap gap-1.5">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => void send(s)}
-                className="rounded-md border border-hairline bg-cream/50 px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-ink"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {messages.map((m, i) =>
-          m.role === "user" ? (
-            <div key={i} className="chat-pop flex justify-end">
-              <div className="max-w-[88%] rounded-lg bg-ink px-2.5 py-1.5 text-[0.8125rem] leading-relaxed text-cream">
-                {m.content}
-              </div>
-            </div>
-          ) : (
-            <div key={i} className="chat-pop flex gap-2">
-              <span className="mt-1 shrink-0 text-accent/80">{SPARK}</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[0.8125rem] leading-relaxed text-ink-2">{m.content}</p>
-                {m.activity && (activityLabel(m.activity) || m.activity.failed > 0) && (
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {activityLabel(m.activity) && (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-hairline bg-cream/60 px-1.5 py-0.5 text-[0.6875rem] text-ink-2">
-                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#2e7d32" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M5 12l5 5L20 6" />
-                        </svg>
-                        {activityLabel(m.activity)}
-                      </span>
-                    )}
-                    {m.activity.failed > 0 && (
-                      <span className="text-[0.6875rem] text-muted">
-                        {m.activity.failed} couldn&apos;t apply
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          ),
-        )}
-
-        {/* In-flight assistant turn */}
-        {busy && (
-          <div className="chat-pop flex gap-2">
-            <span className="mt-1 shrink-0 text-accent/80">{SPARK}</span>
-            <div className="min-w-0 flex-1">
-              {liveNote ? (
-                <p className="text-[0.8125rem] leading-relaxed text-ink-2">{liveNote}</p>
-              ) : (
-                <span className="chat-think inline-flex items-center gap-1 py-1.5">
-                  <i /><i /><i />
-                </span>
-              )}
-              {liveEditing && (
-                <span className="mt-1.5 inline-flex items-center gap-1.5 text-[0.6875rem] text-accent">
-                  <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-                  Editing the ticket…
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Composer */}
-      <div className="border-t border-hairline p-3">
+      {/* Command box */}
+      <div className="shrink-0 p-3">
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
@@ -289,8 +227,9 @@ export default function TicketChat({ briefId }: { briefId: string }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             rows={1}
-            placeholder="Ask for changes…"
-            className="max-h-28 min-h-[36px] flex-1 resize-none rounded-lg border border-hairline bg-white/70 px-2.5 py-2 text-[0.8125rem] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(221,105,54,0.12)]"
+            disabled={busy}
+            placeholder="Tell it what to change…"
+            className="max-h-28 min-h-[36px] flex-1 resize-none rounded-lg border border-hairline bg-white/70 px-2.5 py-2 text-[0.8125rem] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(221,105,54,0.12)] disabled:opacity-60"
           />
           <button
             type="button"
@@ -304,7 +243,70 @@ export default function TicketChat({ briefId }: { briefId: string }) {
             </svg>
           </button>
         </div>
+        {runs.length === 0 && !busy && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => void send(s)}
+                className="rounded-md border border-hairline bg-cream/50 px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-ink"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Activity log (newest first) */}
+      {runs.length > 0 && (
+        <div className="flex-1 space-y-4 overflow-y-auto border-t border-hairline px-4 py-3.5">
+          {runs.map((r, i) => (
+            <div key={runs.length - i} className={i === 0 ? "chat-pop" : undefined}>
+              <p className="text-[0.8125rem] font-medium leading-snug text-ink">{r.instruction}</p>
+              {r.live ? (
+                <div className="mt-1">
+                  {r.note ? (
+                    <p className="text-xs leading-relaxed text-muted">{r.note}</p>
+                  ) : (
+                    <span className="chat-think inline-flex items-center gap-1 py-1">
+                      <i /><i /><i />
+                    </span>
+                  )}
+                  <span className="mt-1 inline-flex items-center gap-1.5 text-[0.6875rem] text-accent">
+                    <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+                    Editing…
+                  </span>
+                </div>
+              ) : (
+                <div className="mt-1">
+                  {r.note && <p className="text-xs leading-relaxed text-muted">{r.note}</p>}
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                    {r.error ? (
+                      <span className="text-[0.6875rem] text-[#c62828]">Didn&apos;t go through - try again</span>
+                    ) : r.activity && activityLabel(r.activity) ? (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-hairline bg-cream/60 px-1.5 py-0.5 text-[0.6875rem] text-ink-2">
+                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#2e7d32" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M5 12l5 5L20 6" />
+                        </svg>
+                        {activityLabel(r.activity)}
+                      </span>
+                    ) : (
+                      !r.note && <span className="text-[0.6875rem] text-muted">No changes</span>
+                    )}
+                    {r.activity && r.activity.failed > 0 && (
+                      <span className="text-[0.6875rem] text-muted">
+                        {r.activity.failed} couldn&apos;t apply
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </aside>
   );
 }

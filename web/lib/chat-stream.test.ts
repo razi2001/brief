@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyEdit,
   applyEdits,
+  locateEdit,
   parseAssistantStream,
   splitTicketMd,
   stripPartialClose,
@@ -104,6 +105,26 @@ describe("parseAssistantStream", () => {
     // And the final prefix parses identically to the one-shot parse.
     const last = parseAssistantStream(FULL);
     expect(last.ticket?.body.endsWith("`WELCOME10`")).toBe(true);
+  });
+});
+
+describe("locateEdit", () => {
+  const DOC = "Intro line.\n\n## Steps\n\n1. one\n2. two";
+
+  it("finds the exact position and length", () => {
+    expect(locateEdit(DOC, { find: "## Steps", replace: "x" })).toEqual({
+      index: DOC.indexOf("## Steps"),
+      length: 8,
+    });
+  });
+
+  it("falls back to the trimmed needle position", () => {
+    const loc = locateEdit(DOC, { find: "  Intro line.  ", replace: "x" });
+    expect(loc).toEqual({ index: 0, length: "Intro line.".length });
+  });
+
+  it("returns null when nothing matches", () => {
+    expect(locateEdit(DOC, { find: "nope", replace: "x" })).toBeNull();
   });
 });
 

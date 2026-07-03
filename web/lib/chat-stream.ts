@@ -50,19 +50,31 @@ export function splitTicketMd(md: string): { title: string | null; body: string 
   return { title: t[1].trim(), body: md.slice(t.index + t[0].length).replace(/^\s+/, "").trimEnd() };
 }
 
-/** Apply one targeted edit. Exact match first; falls back to the trimmed
- *  needle so cosmetic whitespace drift doesn't fail the op. First occurrence
- *  only - <find> is required to be unique-with-context. */
-export function applyEdit(md: string, op: EditOp): { md: string; ok: boolean } {
-  const tryOne = (needle: string): string | null => {
+/** Where in the doc a targeted edit lands. Exact match first; falls back to
+ *  the trimmed needle so cosmetic whitespace drift doesn't fail the op. First
+ *  occurrence only - <find> is required to be unique-with-context. Exposed so
+ *  the client can TYPE the replacement in at the right spot (mid-doc caret). */
+export function locateEdit(md: string, op: EditOp): { index: number; length: number } | null {
+  const tryOne = (needle: string): { index: number; length: number } | null => {
     if (!needle) return null;
     const i = md.indexOf(needle);
     if (i === -1) return null;
-    return md.slice(0, i) + op.replace + md.slice(i + needle.length);
+    return { index: i, length: needle.length };
   };
-  const out = tryOne(op.find) ?? tryOne(op.find.trim());
-  return out === null ? { md, ok: false } : { md: out, ok: true };
+  return tryOne(op.find) ?? tryOne(op.find.trim());
 }
+
+/** Apply one targeted edit (see locateEdit for matching rules). */
+export function applyEdit(md: string, op: EditOp): { md: string; ok: boolean } {
+  const loc = locateEdit(md, op);
+  if (!loc) return { md, ok: false };
+  return { md: md.slice(0, loc.index) + op.replace + md.slice(loc.index + loc.length), ok: true };
+}
+
+/** Private-use sentinel marking the live typing position inside streamed
+ *  markdown. Survives mdToHtml's escaping untouched; the editor swaps it for
+ *  the blinking caret span, so the caret rides mid-document as edits type in. */
+export const CURSOR_SENTINEL = "\uE000";
 
 /** Apply edits in stream order; unmatched ops are skipped (and counted). */
 export function applyEdits(md: string, ops: EditOp[]): { md: string; applied: number; failed: number } {
