@@ -24,6 +24,8 @@ type Run = {
   activity?: Activity;
   error?: boolean;
   live?: boolean;
+  /** The doc is actively being typed into (shows the "Editing…" pulse). */
+  editing?: boolean;
 };
 
 const SUGGESTIONS = ["Tighten it up", "Add repro steps", "More technical", "Friendlier tone"];
@@ -46,10 +48,28 @@ function activityLabel(a: Activity): string {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const SPARK = (
-  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
-    <path d="M12 3l1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9z" />
-  </svg>
+const CLOUD_PATH = <path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.6A3.5 3.5 0 0 1 18 18Z" />;
+
+/** The assistant's face: a little cloud, gently floating, spark twinkling. */
+const CloudMark = (
+  <span className="assistant-cloud relative text-accent" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {CLOUD_PATH}
+    </svg>
+    <svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" className="assistant-spark absolute -right-1 -top-0.5">
+      <path d="M12 3l1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9z" />
+    </svg>
+  </span>
+);
+
+/** Thinking = the cloud raining tiny drops. */
+const CloudThink = (
+  <span className="cloud-think" aria-label="Thinking">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {CLOUD_PATH}
+    </svg>
+    <i /><i /><i />
+  </span>
 );
 
 export default function TicketChat({ briefId }: { briefId: string }) {
@@ -96,6 +116,7 @@ export default function TicketChat({ briefId }: { briefId: string }) {
         return;
       }
       hadChange = true;
+      patchLiveRun({ editing: true });
       const before = state.body.slice(0, loc.index);
       const after = state.body.slice(loc.index + loc.length);
       const text = op.replace;
@@ -139,6 +160,7 @@ export default function TicketChat({ briefId }: { briefId: string }) {
           // Full rewrite: stream it top-to-bottom with the trailing caret.
           rewrote = true;
           hadChange = true;
+          patchLiveRun({ editing: true });
           finalTicket = p.ticket;
           window.dispatchEvent(
             new CustomEvent("brief:doc:stream", { detail: { ...p.ticket, caret: true } }),
@@ -156,6 +178,7 @@ export default function TicketChat({ briefId }: { briefId: string }) {
           queue = queue.then(() => {
             state.title = t;
             hadChange = true;
+            patchLiveRun({ editing: true });
             dispatchStream(state.body);
           });
         }
@@ -199,8 +222,8 @@ export default function TicketChat({ briefId }: { briefId: string }) {
   return (
     <aside className="card chat-pop mt-5 flex max-h-[80vh] flex-col p-0 font-sans lg:sticky lg:top-6 lg:mt-0">
       {/* Header */}
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-hairline px-4">
-        <span className="text-accent">{SPARK}</span>
+      <div className="flex h-11 shrink-0 items-center gap-2.5 border-b border-hairline px-4">
+        {CloudMark}
         <span className="text-[0.8125rem] font-medium text-ink">Assistant</span>
         {runs.length > 0 && !busy && (
           <button
@@ -219,7 +242,7 @@ export default function TicketChat({ briefId }: { briefId: string }) {
       </div>
 
       {/* Command box */}
-      <div className="shrink-0 p-3">
+      <div className="shrink-0 px-4 py-3">
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
@@ -270,14 +293,14 @@ export default function TicketChat({ briefId }: { briefId: string }) {
                   {r.note ? (
                     <p className="text-xs leading-relaxed text-muted">{r.note}</p>
                   ) : (
-                    <span className="chat-think inline-flex items-center gap-1 py-1">
-                      <i /><i /><i />
-                    </span>
+                    CloudThink
                   )}
-                  <span className="mt-1 inline-flex items-center gap-1.5 text-[0.6875rem] text-accent">
-                    <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-                    Editing…
-                  </span>
+                  {r.editing && (
+                    <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem] text-accent">
+                      <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+                      Editing…
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="mt-1">
