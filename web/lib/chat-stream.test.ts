@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseAssistantStream, splitTicketMd, stripPartialClose } from "./chat-stream";
+import {
+  applyEdit,
+  applyEdits,
+  parseAssistantStream,
+  splitTicketMd,
+  stripPartialClose,
+} from "./chat-stream";
 
 const FULL =
   "<note>Tightened it up.</note>\n<ticket>\n# Checkout 500 on WELCOME10\n\nApplying the coupon fails.\n\n## Steps\n\n1. Apply `WELCOME10`\n</ticket>";
@@ -52,6 +58,39 @@ describe("parseAssistantStream", () => {
     expect(parseAssistantStream("<note>Done.</no").note).toBe("Done.");
   });
 
+  it("parses targeted edits (completed blocks only)", () => {
+    const s =
+      "<note>Two tweaks.</note>\n" +
+      "<edit><find>old line</find><replace>new line</replace></edit>\n" +
+      "<edit><find>gone</find><replace></replace></edit>\n" +
+      "<edit><find>still stream";
+    const p = parseAssistantStream(s);
+    expect(p.edits).toEqual([
+      { find: "old line", replace: "new line" },
+      { find: "gone", replace: "" },
+    ]);
+    expect(p.ticket).toBeNull();
+  });
+
+  it("parses a title-only change", () => {
+    const p = parseAssistantStream("<note>Renamed.</note><title>Sharper title</title>");
+    expect(p.title).toBe("Sharper title");
+    expect(p.edits).toEqual([]);
+  });
+
+  it("hides a partial <edit>/<title> opener at the end of a streaming note", () => {
+    expect(parseAssistantStream("<note>Done. <ed").note).toBe("Done.");
+    expect(parseAssistantStream("<note>Done. <tit").note).toBe("Done.");
+  });
+
+  it("keeps multi-line find/replace content intact", () => {
+    const s =
+      "<note>ok</note><edit><find>\n## Steps\n\n1. one\n</find><replace>\n## Steps to reproduce\n\n1. one\n2. two\n</replace></edit>";
+    const p = parseAssistantStream(s);
+    expect(p.edits[0].find).toBe("## Steps\n\n1. one");
+    expect(p.edits[0].replace).toBe("## Steps to reproduce\n\n1. one\n2. two");
+  });
+
   it("streams the ticket body incrementally without partial close tags", () => {
     // Simulate every prefix of the full stream - no prefix may ever leak a
     // tag fragment into the doc body.
@@ -65,5 +104,46 @@ describe("parseAssistantStream", () => {
     // And the final prefix parses identically to the one-shot parse.
     const last = parseAssistantStream(FULL);
     expect(last.ticket?.body.endsWith("`WELCOME10`")).toBe(true);
+  });
+});
+
+describe("applyEdit / applyEdits", () => {
+  const DOC = "Intro line.\n\n## Steps\n\n1. one\n2. two\n\n## Expected\n\nIt works.";
+
+  it("replaces the first exact match", () => {
+    const r = applyEdit(DOC, { find: "## Expected\n\nIt works.", replace: "## Expected\n\nThe discount applies." });
+    expect(r.ok).toBe(true);
+    expect(r.md).toContain("The discount applies.");
+    expect(r.md).toContain("## Steps");
+  });
+
+  it("falls back to the trimmed needle", () => {
+    const r = applyEdit(DOC, { find: "  Intro line.  ", replace: "Better intro." });
+    expect(r.ok).toBe(true);
+    expect(r.md.startsWith("Better intro.")).toBe(true);
+  });
+
+  it("deletes when replace is empty", () => {
+    const r = applyEdit(DOC, { find: "\n2. two", replace: "" });
+    expect(r.ok).toBe(true);
+    expect(r.md).not.toContain("2. two");
+  });
+
+  it("reports an unmatched find without altering the doc", () => {
+    const r = applyEdit(DOC, { find: "not in the doc", replace: "x" });
+    expect(r.ok).toBe(false);
+    expect(r.md).toBe(DOC);
+  });
+
+  it("applies a sequence and counts failures", () => {
+    const r = applyEdits(DOC, [
+      { find: "1. one", replace: "1. Add an item" },
+      { find: "missing", replace: "x" },
+      { find: "It works.", replace: "Order completes." },
+    ]);
+    expect(r.applied).toBe(2);
+    expect(r.failed).toBe(1);
+    expect(r.md).toContain("1. Add an item");
+    expect(r.md).toContain("Order completes.");
   });
 });

@@ -180,14 +180,16 @@ export default function TicketDoc({
     };
 
     const onStream = (e: Event) => {
-      const d = (e as CustomEvent).detail as { title: string | null; body: string };
+      // caret:false → targeted edits applied in place (instant block swaps);
+      // caret:true → a full rewrite streaming top-to-bottom (typing caret).
+      const d = (e as CustomEvent).detail as { title: string | null; body: string; caret?: boolean };
       const body = bodyRef.current;
       if (!body) return;
       lock();
       if (d.title && titleRef.current && titleRef.current.innerText !== d.title) {
         titleRef.current.innerText = d.title;
       }
-      body.innerHTML = mdToHtml(d.body) + '<span class="writing-caret"></span>';
+      body.innerHTML = mdToHtml(d.body) + (d.caret === false ? "" : '<span class="writing-caret"></span>');
     };
 
     const onDone = (e: Event) => {

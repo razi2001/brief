@@ -6,7 +6,7 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
-import DownloadButton from "@/components/DownloadButton";
+import EvidenceCard from "@/components/EvidenceCard";
 import PollReload from "@/components/PollReload";
 import LiveWriter from "@/components/LiveWriter";
 import ProgressCycler from "@/components/ProgressCycler";
@@ -49,7 +49,13 @@ async function loadBrief(shareId: string): Promise<ShareRow | null> {
   return (data as ShareRow | null) ?? null;
 }
 
-type Asset = { url: string; filename: string; kind: "image" | "video" };
+type Asset = {
+  url: string;
+  filename: string;
+  kind: "image" | "video";
+  /** Storage-relative path - the owner's remove control targets this. */
+  path: string;
+};
 
 /** Signed URLs (1h) for the evidence still kept in storage for this brief. */
 async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
@@ -64,18 +70,18 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
   let n = 0;
   for (const o of (shotList ?? []).map((o) => o.name).sort()) {
     const url = await sign(`${prefix}/screenshots/${o}`);
-    if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image" });
+    if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: `screenshots/${o}` });
   }
 
   const { data: rootList } = await admin.storage.from("briefs").list(prefix);
   const rootNames = new Set((rootList ?? []).map((o) => o.name));
   if (rootNames.has("screenshot.png")) {
     const url = await sign(`${prefix}/screenshot.png`);
-    if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image" });
+    if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: "screenshot.png" });
   }
   if (rootNames.has("recording.webm")) {
     const url = await sign(`${prefix}/recording.webm`);
-    if (url) assets.push({ url, filename: `${idBase}-recording.webm`, kind: "video" });
+    if (url) assets.push({ url, filename: `${idBase}-recording.webm`, kind: "video", path: "recording.webm" });
   }
   return assets;
 }
@@ -365,15 +371,16 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
           </h2>
           <div className="flex flex-col gap-4">
             {assets.map((a, i) => (
-              <div key={i} className="group/ev relative overflow-hidden rounded-xl border border-hairline bg-cream/40">
-                <DownloadButton url={a.url} filename={a.filename} />
-                {a.kind === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={a.url} alt={`Evidence ${i + 1}`} className="w-full" />
-                ) : (
-                  <video src={a.url} controls className="w-full bg-ink" />
-                )}
-              </div>
+              <EvidenceCard
+                key={a.path}
+                briefId={brief.id}
+                url={a.url}
+                filename={a.filename}
+                path={a.path}
+                kind={a.kind}
+                canRemove={isOwner}
+                index={i}
+              />
             ))}
           </div>
         </section>

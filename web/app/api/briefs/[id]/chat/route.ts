@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import OpenAI from "openai";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { applyEdits, parseAssistantStream } from "@/lib/chat-stream";
 
 export const maxDuration = 120;
 
@@ -9,31 +10,37 @@ export const maxDuration = 120;
  * The brief page's chat assistant: fast, streaming iteration on a DRAFT ticket.
  * The client sends the chat history plus the CURRENT document (including any
  * unsaved inline edits); the model streams back a short note and - when the
- * request is an edit - the complete revised ticket, which the client renders
- * into the editor live, token by token. The route persists the final revision
- * so the draft is never left behind what the user saw.
- *
- * Response format (raw text stream, parsed by the client):
- *   <note>one or two short sentences</note>
- *   <ticket>
- *   # Title
- *   body markdown…
- *   </ticket>          ← omitted entirely when no change is needed
+ * turn changes the ticket - TARGETED edits that the client applies to the doc
+ * in place, block by block, as they arrive. A full <ticket> rewrite exists but
+ * only for restructures. The route re-applies the same ops to the same base
+ * doc (shared lib/chat-stream) and persists the result, so what the user saw
+ * is exactly what's saved.
  */
 const FORMAT_RULES = `You are Brief's ticket assistant. You help the reporter iterate on a bug-report ticket quickly.
 
-ALWAYS answer in exactly this format:
+ALWAYS answer in exactly this format - a note, then zero or more change operations:
 <note>one or two short sentences replying to the user (plain text, no markdown)</note>
+
+For changes, prefer TARGETED edits (one per change):
+<edit><find>exact text copied VERBATIM from the current body</find><replace>the replacement text</replace></edit>
+
+To change only the title:
+<title>the new title</title>
+
+ONLY for a full restructure where targeted edits can't express the change, output the complete ticket instead:
 <ticket>
-# <the ticket title>
-<the complete ticket body in clean markdown>
+# <title>
+<complete body markdown>
 </ticket>
 
 Rules:
-- If the user asks for ANY change to the ticket (content, tone, structure, length, language), output the COMPLETE revised ticket inside <ticket>. Preserve everything they didn't ask to change verbatim.
-- If the user only asks a question (no change wanted), omit the <ticket> block entirely.
+- Prefer the SMALLEST targeted edits. Never rewrite the whole ticket when <edit> blocks can express the change.
+- <find> must match the current body exactly (copy it verbatim, include enough surrounding lines to be unique). Keep it as short as uniqueness allows.
+- To add content, <find> the neighboring text and repeat it in <replace> together with the addition.
+- To delete content, use an empty <replace></replace>.
+- If the user only asks a question, reply with the <note> alone - no operations.
 - Body markdown: "##" section headings, "-" lists, \`inline code\`, fenced blocks for logs. No H1 in the body (the title is the H1).
-- Never output anything outside the tags. Never wrap the whole answer in code fences.`;
+- Never output anything outside the tags. Never wrap the answer in code fences.`;
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -75,14 +82,31 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   let persisted = false;
   const persist = async (full: string) => {
     if (persisted) return;
-    const m = /<ticket>\s*([\s\S]*?)\s*<\/ticket>/.exec(full);
-    if (!m) return; // question-only turn: nothing to save
+    // Recompute the final document with the SAME pure lib the client uses, so
+    // the saved draft matches what streamed into the editor.
+    const p = parseAssistantStream(full);
+    let newTitle = title;
+    let newBody = docBody;
+    let changed = false;
+    if (p.ticket && p.ticketComplete && p.ticket.body) {
+      newTitle = p.ticket.title ?? title;
+      newBody = p.ticket.body;
+      changed = true;
+    } else {
+      if (p.edits.length) {
+        const r = applyEdits(docBody, p.edits);
+        if (r.applied > 0) {
+          newBody = r.md;
+          changed = true;
+        }
+      }
+      if (p.title) {
+        newTitle = p.title;
+        changed = true;
+      }
+    }
+    if (!changed || !newBody.trim()) return; // question-only turn: nothing to save
     persisted = true;
-    const md = m[1].trim();
-    const t = /^#\s+(.+)$/m.exec(md);
-    const newTitle = t ? t[1].trim() : title;
-    const newBody = t ? md.slice(t.index + t[0].length).trim() : md;
-    if (!newBody) return;
     await admin
       .from("briefs")
       .update({ ticket_title: newTitle || null, ticket_body: newBody, updated_at: new Date().toISOString() })
