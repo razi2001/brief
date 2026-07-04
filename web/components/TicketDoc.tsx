@@ -60,8 +60,10 @@ const ICON = {
   external: SVG(<><path d="M7 17 17 7" /><path d="M8 7h9v9" /></>),
 };
 
-const PILL =
-  "inline-flex items-center gap-1.5 rounded-full border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink disabled:opacity-60";
+// Secondary actions: quiet ghost buttons so they never compete with the accent
+// primary (Export / Connect). Borderless at rest, subtle bg on hover.
+const BTN_GHOST =
+  "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted no-underline transition-colors hover:bg-cream-2/70 hover:text-ink disabled:opacity-60";
 
 type AssetMeta = { filename: string; kind: "image" | "video" };
 
@@ -375,42 +377,53 @@ export default function TicketDoc({
 
   return (
     <div>
-      {/* Action toolbar - primary (export/open) + share + copy + save status */}
-      <div className="mb-7 flex flex-wrap items-center gap-2">
-        {/* Primary action: file the draft, or jump to the filed ticket. */}
+      {/* Action toolbar - one accent primary, then quiet ghost secondaries. */}
+      <div className="mb-8 flex flex-wrap items-center gap-1">
+        {/* Primary: export the draft, or open the filed ticket. */}
         {isOwner && isDraft && <ExportButtons briefId={briefId} linear={hasLinear} jira={hasJira} />}
         {!isDraft && ticketUrl && (
-          <a className={PILL} href={ticketUrl} target="_blank" rel="noreferrer">
+          <a
+            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-cream/50 px-3 py-1.5 text-xs font-medium text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink"
+            href={ticketUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
             <TrackerLogo kind={provider} size={13} />
             Open in {providerName}
             <span className="text-muted">{ICON.external}</span>
           </a>
         )}
-        {/* The public shareable link - sits right next to the primary action. */}
+
+        {/* Thin divider between the primary and the quiet secondaries. */}
+        {((isOwner && isDraft) || (!isDraft && ticketUrl)) && (
+          <span className="mx-1.5 h-4 w-px bg-hairline" aria-hidden />
+        )}
+
         <button
           type="button"
-          className={PILL}
+          className={BTN_GHOST}
           title="Shareable link — anyone with it can view this brief"
           onClick={() => copy("link", `${window.location.origin}/b/${shareId}`)}
         >
           {copied === "link" ? ICON.check : ICON.share}
-          {copied === "link" ? "Link copied" : "Share link"}
+          {copied === "link" ? "Link copied" : "Share"}
         </button>
-        <button type="button" className={PILL} onClick={() => copy("md", currentMarkdown())}>
+        <button type="button" className={BTN_GHOST} title="Copy as Markdown" onClick={() => copy("md", currentMarkdown())}>
           {copied === "md" ? ICON.check : ICON.md}
-          {copied === "md" ? "Copied" : "Copy Markdown"}
+          {copied === "md" ? "Copied" : "Markdown"}
         </button>
+
         {/* Owner's filing status lives in the assistant rail; visitors (no
             rail) get the moving status here in the toolbar. */}
-        {filing && !isOwner && <ProgressCycler messages={FILING_STEPS} className="text-xs" />}
+        {filing && !isOwner && <ProgressCycler messages={FILING_STEPS} className="ml-1 text-xs" />}
         {aiEditing && (
-          <span className="inline-flex items-center gap-1.5 text-xs text-accent">
+          <span className="ml-1 inline-flex items-center gap-1.5 text-xs text-accent">
             <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />
             Assistant is editing…
           </span>
         )}
         {canEdit && !aiEditing && status !== "idle" && (
-          <span className={`ml-0.5 text-xs ${status === "error" ? "text-[#c62828]" : "text-muted"}`}>
+          <span className={`ml-1 text-xs ${status === "error" ? "text-[#c62828]" : "text-muted"}`}>
             {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "Couldn't save"}
           </span>
         )}

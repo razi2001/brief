@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TrackerLogo } from "./TrackerLogo";
 
-const ACCENT_PILL =
-  "inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-cream transition hover:brightness-95 disabled:opacity-60";
+// Primary action: solid accent, clearly the main thing to do.
+const BTN_PRIMARY =
+  "inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-cream shadow-[0_1px_2px_rgba(221,105,54,0.25)] transition hover:brightness-95 disabled:opacity-60";
 
 /**
  * Owner-only export controls on a drafted brief. Files the draft to the chosen
@@ -52,12 +53,17 @@ export default function ExportButtons({
   }
 
   if (!linear && !jira) {
+    // No tracker yet → a clear accent-outline CTA (distinct from the solid
+    // "Export" primary, but still obviously the thing to do next).
     return (
       <a
         href="/connections"
-        className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-accent/35 bg-accent/[0.07] px-3 py-1.5 text-xs font-medium text-accent no-underline transition-colors hover:bg-accent/[0.13]"
       >
-        Connect a tracker to export →
+        Connect a tracker
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M5 12h14M13 6l6 6-6 6" />
+        </svg>
       </a>
     );
   }
@@ -65,13 +71,13 @@ export default function ExportButtons({
   return (
     <>
       {linear && (
-        <button type="button" disabled={!!busy} onClick={() => exportTo("linear")} className={ACCENT_PILL}>
+        <button type="button" disabled={!!busy} onClick={() => exportTo("linear")} className={BTN_PRIMARY}>
           <TrackerLogo kind="linear" size={13} />
           {busy === "linear" ? "Filing…" : "Export to Linear"}
         </button>
       )}
       {jira && (
-        <button type="button" disabled={!!busy} onClick={() => exportTo("jira")} className={ACCENT_PILL}>
+        <button type="button" disabled={!!busy} onClick={() => exportTo("jira")} className={BTN_PRIMARY}>
           <TrackerLogo kind="jira" size={13} />
           {busy === "jira" ? "Filing…" : "Export to Jira"}
         </button>

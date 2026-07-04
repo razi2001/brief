@@ -250,7 +250,7 @@ export default function TicketChat({
   const working = mode === "writing" || mode === "filing" || (mode === "ready" && busy);
 
   return (
-    <aside className="ai-float chat-pop mt-5 flex max-h-[80vh] flex-col overflow-hidden rounded-2xl border border-hairline bg-[#fffdf9]/85 p-0 font-sans backdrop-blur-sm lg:sticky lg:top-6 lg:mt-0">
+    <aside className="ai-float chat-pop mt-5 overflow-hidden rounded-2xl border border-hairline bg-[#fffdf9]/90 font-sans transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.10),0_18px_44px_-20px_rgba(26,22,18,0.24)] lg:sticky lg:top-6 lg:mt-0">
       {mode === "filed" ? (
         // The quiet record: where it lives now.
         <div className="flex flex-col gap-3 p-4">
@@ -274,18 +274,12 @@ export default function TicketChat({
           )}
         </div>
       ) : (
-        <div className="p-3.5">
-          {/* The command input IS the assistant - a single Notion-style field,
-              sparkle inside, no heavy header bar. */}
-          <div
-            className={`group flex items-end gap-2 rounded-xl border bg-white/70 px-3 py-2.5 transition-[border-color,box-shadow] ${
-              composerDisabled
-                ? "border-hairline"
-                : "border-hairline focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.12)]"
-            }`}
-          >
+        <>
+          {/* The input IS the assistant - it lives directly in the card (no
+              box-in-box); the whole card gets the focus ring. */}
+          <div className="group flex items-end gap-2.5 px-3.5 py-3">
             <Spark
-              className={`mt-0.5 shrink-0 ${working ? "ai-spark text-accent" : "text-muted transition-colors group-focus-within:text-accent"}`}
+              className={`mt-1 shrink-0 ${working ? "ai-spark text-accent" : "text-muted transition-colors group-focus-within:text-accent"}`}
             />
             <textarea
               ref={inputRef}
@@ -301,14 +295,16 @@ export default function TicketChat({
                     ? "Filing to your tracker…"
                     : "Ask AI to edit the ticket…"
               }
-              className="max-h-32 min-h-[22px] flex-1 resize-none bg-transparent text-[0.8125rem] leading-relaxed text-ink outline-none placeholder:text-muted disabled:opacity-70"
+              className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[0.8125rem] leading-relaxed text-ink outline-none placeholder:text-muted disabled:opacity-70"
             />
             <button
               type="button"
               onClick={() => void send(input)}
               disabled={composerDisabled || !input.trim()}
               aria-label="Send"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent text-cream transition hover:brightness-95 disabled:opacity-30"
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition ${
+                input.trim() && !composerDisabled ? "bg-accent text-cream hover:brightness-95" : "bg-cream-2 text-muted/50"
+              }`}
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M12 19V5M5 12l7-7 7 7" />
@@ -318,13 +314,13 @@ export default function TicketChat({
 
           {/* Idle → gentle prompts. */}
           {showChips && (
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1 border-t border-hairline px-3 py-2.5">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => void send(s)}
-                  className="rounded-md border border-hairline bg-cream/40 px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-ink"
+                  className="rounded-md px-2 py-1 text-xs text-muted transition-colors hover:bg-accent/10 hover:text-accent"
                 >
                   {s}
                 </button>
@@ -334,7 +330,7 @@ export default function TicketChat({
 
           {/* Working → a clean shimmer + a moving status line (no mascot). */}
           {working && (
-            <div className="mt-3">
+            <div className="border-t border-hairline px-4 py-3.5">
               <div className="ai-bar" />
               <div className="mt-2.5">
                 {mode === "ready" ? (
@@ -362,7 +358,7 @@ export default function TicketChat({
 
           {/* Result of the last instruction → one line, undoable. */}
           {mode === "ready" && !busy && last && (
-            <div className="mt-3 border-t border-hairline pt-3">
+            <div className="border-t border-hairline px-4 py-3">
               {last.kind === "edit" ? (
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-2">
@@ -400,7 +396,7 @@ export default function TicketChat({
               )}
             </div>
           )}
-        </div>
+        </>
       )}
     </aside>
   );
