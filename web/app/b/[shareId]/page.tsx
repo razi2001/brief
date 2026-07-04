@@ -9,17 +9,8 @@ import TicketDoc from "@/components/TicketDoc";
 import EvidenceCard from "@/components/EvidenceCard";
 import PollReload from "@/components/PollReload";
 import LiveWriter from "@/components/LiveWriter";
-import ProgressCycler from "@/components/ProgressCycler";
-import TicketChat from "@/components/TicketChat";
-
-// Illustrative progress steps shown while the AI writes the draft (see the
-// "writing" state). Not a live trace - just a natural, moving status.
-const WRITING_STEPS = [
-  "Reading your evidence…",
-  "Pulling out what happened…",
-  "Structuring the report…",
-  "Writing it up clearly…",
-];
+import ProgressCycler, { WRITING_STEPS } from "@/components/ProgressCycler";
+import TicketChat, { type ChatMode } from "@/components/TicketChat";
 
 // Signed media URLs expire, so never cache the rendered page.
 export const dynamic = "force-dynamic";
@@ -170,60 +161,6 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
 
   const viewerId = await getUserId();
 
-  // ── Still being written (fresh capture, no body yet): the body is written
-  // line by line. Evidence is intentionally NOT shown here - a lone screenshot
-  // under a skeleton reads as broken. (Filing an already-written brief goes
-  // through the normal render below with a "Filing…" indicator, so the full
-  // header/toolbar stay.) ──
-  if ((brief.status === "processing" || brief.status === "uploaded") && !brief.ticket_body) {
-    const ownerWriting = !!viewerId && viewerId === brief.user_id;
-    return (
-      <main className="mx-auto w-full max-w-5xl px-4 py-10 font-sans sm:px-6 sm:py-12">
-        {viewerId && <BackLink />}
-        <article className={ARTICLE_CLASS}>
-          <div className="mb-7">
-            <ProgressCycler messages={WRITING_STEPS} />
-          </div>
-          {ownerWriting ? (
-            // The owner watches it stream in, token by token.
-            <LiveWriter briefId={brief.id} fallbackTitle={brief.title} />
-          ) : (
-            // Everyone else: skeleton + soft poll until the owner's write lands.
-            <>
-              <PollReload />
-              {brief.title ? (
-                <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{brief.title}</h1>
-              ) : (
-                <div className="flex flex-col gap-2.5">
-                  <Bar w="78%" h={30} />
-                  <Bar w="46%" h={30} delay={80} />
-                </div>
-              )}
-              <div className="mt-8 flex flex-col gap-3">
-                <Bar w="100%" delay={120} />
-                <Bar w="94%" delay={200} />
-                <Bar w="71%" delay={280} />
-                <div className="h-3" />
-                <Bar w="34%" h={11} delay={380} />
-                <Bar w="88%" delay={460} />
-                <Bar w="60%" delay={540} />
-                <div className="h-3" />
-                <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms", "--skd": "1280ms" } as React.CSSProperties} />
-                <div className="h-3" />
-                <Bar w="80%" delay={760} />
-                <span className="inline-flex items-center gap-1">
-                  <Bar w="42%" delay={840} />
-                  <span className="writing-caret" />
-                </span>
-              </div>
-            </>
-          )}
-        </article>
-        <BriefFooter />
-      </main>
-    );
-  }
-
   // ── Couldn't be written ──
   if (brief.status === "failed") {
     return (
@@ -237,14 +174,22 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
     );
   }
 
-  // Past the writing/failed branches, a 'processing'/'uploaded' brief HAS a body
-  // → it's being filed (export). Render the full page (header + toolbar intact)
-  // with a "Filing…" indicator and poll to the filed view - no stripped page.
-  const filing = brief.status === "processing" || brief.status === "uploaded";
-  if (!filing && brief.status !== "filed" && brief.status !== "drafted") notFound();
+  // One unified layout for every other state, so the page NEVER reflows as a
+  // brief moves through its life:
+  //   writing → no body yet: the doc streams in / skeleton
+  //   filing  → body present, being exported: full doc + status
+  //   drafted / filed → the document
+  // The OWNER always gets the assistant rail (it's the author - present from
+  // the first frame, so nothing ever pops in and shifts the page). Visitors
+  // always get the centered document, and never a rail.
+  const writing = (brief.status === "processing" || brief.status === "uploaded") && !brief.ticket_body;
+  const filing = (brief.status === "processing" || brief.status === "uploaded") && !!brief.ticket_body;
+  if (!writing && !filing && brief.status !== "filed" && brief.status !== "drafted") notFound();
 
   const isDraft = brief.status === "drafted";
   const isOwner = !!viewerId && viewerId === brief.user_id;
+  const withRail = isOwner;
+  const railMode: ChatMode = writing ? "writing" : isDraft ? "ready" : filing ? "filing" : "filed";
 
   let hasLinear = false;
   let hasJira = false;
@@ -255,7 +200,9 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   }
 
   const idBase = (brief.ticket_identifier || "brief").toLowerCase();
-  const assets = await loadMedia(brief.storage_prefix, idBase);
+  // No evidence while writing - a lone screenshot under a skeleton reads as
+  // broken (and signing URLs for a page that won't show them is waste).
+  const assets = writing ? [] : await loadMedia(brief.storage_prefix, idBase);
   const provider = providerOf(brief.ticket_url);
   const providerName = provider === "jira" ? "Jira" : "Linear";
 
@@ -309,85 +256,130 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       : live?.stateColor || brief.ticket_state_color || "#2e7d32";
   const reported = formatDate(brief.created_at);
 
-  // Owner iterating on a draft gets the assistant rail: doc left, chat right
-  // (stacked below on small screens). The container widens so the doc keeps
-  // its reading width.
-  const showChat = isOwner && isDraft && !filing;
-
   return (
     <main
       className={`mx-auto w-full px-4 py-10 font-sans sm:px-6 sm:py-12 ${
-        showChat ? "max-w-[76rem]" : "max-w-5xl"
+        withRail ? "max-w-[76rem]" : "max-w-5xl"
       }`}
     >
       {viewerId && <BackLink />}
-      <div className={showChat ? "lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-5" : undefined}>
+      <div className={withRail ? "lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-5" : undefined}>
       <article className={ARTICLE_CLASS}>
-      {/* ── Meta strip ── */}
-      <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted">
-        <span className="inline-flex items-center gap-1.5 text-ink-2">
-          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: stateColor }} />
-          {stateName}
-        </span>
-        {!isDraft && brief.ticket_identifier && (
+      {writing ? (
+        isOwner ? (
+          // The owner watches their ticket stream in, token by token. The
+          // rail (mode="writing") narrates - no status pill over the doc.
+          <LiveWriter briefId={brief.id} fallbackTitle={brief.title} />
+        ) : (
+          // Visitors: moving status + skeleton + soft poll until the write lands.
           <>
-            <span className="text-hairline">·</span>
-            <span className="text-accent">{brief.ticket_identifier}</span>
+            <div className="mb-7">
+              <ProgressCycler messages={WRITING_STEPS} />
+            </div>
+            <PollReload />
+            {brief.title ? (
+              <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{brief.title}</h1>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                <Bar w="78%" h={30} />
+                <Bar w="46%" h={30} delay={80} />
+              </div>
+            )}
+            <div className="mt-8 flex flex-col gap-3">
+              <Bar w="100%" delay={120} />
+              <Bar w="94%" delay={200} />
+              <Bar w="71%" delay={280} />
+              <div className="h-3" />
+              <Bar w="34%" h={11} delay={380} />
+              <Bar w="88%" delay={460} />
+              <Bar w="60%" delay={540} />
+              <div className="h-3" />
+              <div className="sk sk-rise" style={{ width: "100%", height: 84, borderRadius: 12, animationDelay: "640ms", "--skd": "1280ms" } as React.CSSProperties} />
+              <div className="h-3" />
+              <Bar w="80%" delay={760} />
+              <span className="inline-flex items-center gap-1">
+                <Bar w="42%" delay={840} />
+                <span className="writing-caret" />
+              </span>
+            </div>
           </>
-        )}
-        {reported && (
-          <>
-            <span className="text-hairline">·</span>
-            <span>{reported}</span>
-          </>
-        )}
-      </div>
-
-      {/* Poll to the filed view while an export is in flight (soft refresh). */}
-      {filing && <PollReload />}
-
-      {/* ── Ticket: toolbar + title + body (owner can edit) ── */}
-      <TicketDoc
-        briefId={brief.id}
-        shareId={shareId}
-        isOwner={isOwner}
-        isDraft={isDraft}
-        filing={filing}
-        ticketUrl={brief.ticket_url}
-        provider={provider}
-        providerName={providerName}
-        initialTitle={ticketTitle}
-        initialBody={brief.ticket_body || ""}
-        assets={assets.map((a) => ({ filename: a.filename, kind: a.kind }))}
-        hasLinear={hasLinear}
-        hasJira={hasJira}
-      />
-
-      {/* ── Evidence ── */}
-      {assets.length > 0 && (
-        <section className="mt-10">
-          <h2 className="mb-3 font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted">
-            Evidence
-          </h2>
-          <div className="flex flex-col gap-4">
-            {assets.map((a, i) => (
-              <EvidenceCard
-                key={a.path}
-                briefId={brief.id}
-                url={a.url}
-                filename={a.filename}
-                path={a.path}
-                kind={a.kind}
-                canRemove={isOwner}
-                index={i}
-              />
-            ))}
+        )
+      ) : (
+        <>
+          {/* ── Meta strip ── */}
+          <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted">
+            <span className="inline-flex items-center gap-1.5 text-ink-2">
+              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: stateColor }} />
+              {stateName}
+            </span>
+            {!isDraft && brief.ticket_identifier && (
+              <>
+                <span className="text-hairline">·</span>
+                <span className="text-accent">{brief.ticket_identifier}</span>
+              </>
+            )}
+            {reported && (
+              <>
+                <span className="text-hairline">·</span>
+                <span>{reported}</span>
+              </>
+            )}
           </div>
-        </section>
+
+          {/* Poll to the filed view while an export is in flight (soft refresh). */}
+          {filing && <PollReload />}
+
+          {/* ── Ticket: toolbar + title + body (owner can edit) ── */}
+          <TicketDoc
+            briefId={brief.id}
+            shareId={shareId}
+            isOwner={isOwner}
+            isDraft={isDraft}
+            filing={filing}
+            ticketUrl={brief.ticket_url}
+            provider={provider}
+            providerName={providerName}
+            initialTitle={ticketTitle}
+            initialBody={brief.ticket_body || ""}
+            assets={assets.map((a) => ({ filename: a.filename, kind: a.kind }))}
+            hasLinear={hasLinear}
+            hasJira={hasJira}
+          />
+
+          {/* ── Evidence ── */}
+          {assets.length > 0 && (
+            <section className="mt-10">
+              <h2 className="mb-3 font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted">
+                Evidence
+              </h2>
+              <div className="flex flex-col gap-4">
+                {assets.map((a, i) => (
+                  <EvidenceCard
+                    key={a.path}
+                    briefId={brief.id}
+                    url={a.url}
+                    filename={a.filename}
+                    path={a.path}
+                    kind={a.kind}
+                    canRemove={isOwner}
+                    index={i}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
       )}
       </article>
 
-      {showChat && <TicketChat briefId={brief.id} />}
+      {withRail && (
+        <TicketChat
+          briefId={brief.id}
+          mode={railMode}
+          ticketUrl={brief.ticket_url}
+          providerName={providerName}
+        />
+      )}
       </div>
 
       <BriefFooter />

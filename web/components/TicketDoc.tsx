@@ -3,20 +3,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ExportButtons from "./ExportButtons";
 import { TrackerLogo } from "./TrackerLogo";
-import ProgressCycler from "./ProgressCycler";
+import ProgressCycler, { FILING_STEPS } from "./ProgressCycler";
 import { CURSOR_SENTINEL } from "@/lib/chat-stream";
 import { mdToHtml, htmlToMarkdown } from "@/lib/md-html";
-
-// Illustrative progress steps while the draft is filed to a tracker. Not a live
-// trace - a natural, moving status so the wait reads as work being done.
-const FILING_STEPS = [
-  "Connecting to your tracker…",
-  "Checking the workspace…",
-  "Finding the right team…",
-  "Choosing the right labels…",
-  "Setting the priority…",
-  "Creating the ticket…",
-];
 
 /**
  * The editable body. Server-rendered (no flash) and then NEVER re-rendered - the
@@ -384,7 +373,9 @@ export default function TicketDoc({
           {copied === "md" ? ICON.check : ICON.md}
           {copied === "md" ? "Copied" : "Copy Markdown"}
         </button>
-        {filing && <ProgressCycler messages={FILING_STEPS} className="text-xs" />}
+        {/* Owner's filing status lives in the assistant rail; visitors (no
+            rail) get the moving status here in the toolbar. */}
+        {filing && !isOwner && <ProgressCycler messages={FILING_STEPS} className="text-xs" />}
         {aiEditing && (
           <span className="inline-flex items-center gap-1.5 text-xs text-accent">
             <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />

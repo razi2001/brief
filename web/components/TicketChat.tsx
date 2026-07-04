@@ -1,15 +1,23 @@
 "use client";
 
 import { useRef, useState } from "react";
+import ProgressCycler, { FILING_STEPS, WRITING_STEPS } from "./ProgressCycler";
+import { TrackerLogo } from "./TrackerLogo";
 import { CURSOR_SENTINEL, locateEdit, parseAssistantStream, type EditOp } from "@/lib/chat-stream";
 
 /**
- * The brief page's assistant rail - NOT a chat. One command box: tell it what
- * to change ("tighten it", "add repro steps") and the edits TYPE THEMSELVES
- * into the document at the right spot, caret riding the insertion point, like
- * a collaborator writing mid-page. Below the box, a quiet activity log of what
- * each instruction did ("✓ 2 edits"). Each instruction is independent - it
- * acts on the document as it stands now.
+ * The assistant rail - the AUTHOR of the ticket, present on the owner's brief
+ * from the first frame so the layout never reflows around it. Four moods:
+ *
+ *   writing → it's writing the draft: raining cloud + cycling status, composer
+ *             parked ("Writing your ticket…")
+ *   ready   → the handoff: one command box; tell it what to change and the
+ *             edits TYPE THEMSELVES into the doc, caret riding the insertion
+ *             point; a quiet activity log below ("✓ 2 edits")
+ *   filing  → it's filing to the tracker: same presence, filing status
+ *   filed   → the record: "Filed to Linear" + open link, composer gone
+ *
+ * Instructions are independent - each acts on the document as it stands now.
  *
  * Talks to TicketDoc (a separate client island) via window events:
  *   brief:doc:get    → current title/body markdown
@@ -17,6 +25,7 @@ import { CURSOR_SENTINEL, locateEdit, parseAssistantStream, type EditOp } from "
  *   brief:doc:done   → final content: settle animation + save baseline update
  *   brief:doc:cancel → restore the pre-edit snapshot (stream failed midway)
  */
+export type ChatMode = "writing" | "ready" | "filing" | "filed";
 type Activity = { edits: number; failed: number; rewrote: boolean; retitled: boolean };
 type Run = {
   instruction: string;
@@ -72,7 +81,17 @@ const CloudThink = (
   </span>
 );
 
-export default function TicketChat({ briefId }: { briefId: string }) {
+export default function TicketChat({
+  briefId,
+  mode = "ready",
+  ticketUrl,
+  providerName = "Linear",
+}: {
+  briefId: string;
+  mode?: ChatMode;
+  ticketUrl?: string | null;
+  providerName?: string;
+}) {
   const [runs, setRuns] = useState<Run[]>([]); // newest first
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,7 +103,7 @@ export default function TicketChat({ briefId }: { briefId: string }) {
 
   async function send(text: string) {
     const q = text.trim();
-    if (!q || busy) return;
+    if (!q || busy || mode !== "ready") return;
     setInput("");
     setBusy(true);
     cancelled.current = false;
@@ -241,49 +260,92 @@ export default function TicketChat({ briefId }: { briefId: string }) {
         )}
       </div>
 
-      {/* Command box */}
-      <div className="shrink-0 px-4 py-3">
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={1}
-            disabled={busy}
-            placeholder="Tell it what to change…"
-            className="max-h-28 min-h-[36px] flex-1 resize-none rounded-lg border border-hairline bg-white/70 px-2.5 py-2 text-[0.8125rem] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(221,105,54,0.12)] disabled:opacity-60"
-          />
-          <button
-            type="button"
-            onClick={() => void send(input)}
-            disabled={busy || !input.trim()}
-            aria-label="Send"
-            className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-lg bg-accent text-cream transition hover:brightness-95 disabled:opacity-40"
-          >
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 19V5M5 12l7-7 7 7" />
-            </svg>
-          </button>
+      {/* Filed → the quiet record: where it lives now. */}
+      {mode === "filed" ? (
+        <div className="flex flex-col gap-3 px-4 py-4">
+          <span className="inline-flex items-center gap-2 text-[0.8125rem] text-ink-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-[#2e7d32]" aria-hidden />
+            Filed to {providerName}
+          </span>
+          {ticketUrl && (
+            <a
+              href={ticketUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink"
+            >
+              <TrackerLogo kind={providerName.toLowerCase()} size={13} />
+              Open in {providerName}
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-muted" aria-hidden="true">
+                <path d="M7 17 17 7M8 7h9v9" />
+              </svg>
+            </a>
+          )}
         </div>
-        {runs.length === 0 && !busy && (
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {SUGGESTIONS.map((s) => (
+      ) : (
+        <>
+          {/* Command box - parked while the assistant itself is working. */}
+          <div className="shrink-0 px-4 py-3">
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+                rows={1}
+                disabled={busy || mode !== "ready"}
+                placeholder={
+                  mode === "writing"
+                    ? "Writing your ticket…"
+                    : mode === "filing"
+                      ? "Filing…"
+                      : "Tell it what to change…"
+                }
+                className="max-h-28 min-h-[36px] flex-1 resize-none rounded-lg border border-hairline bg-white/70 px-2.5 py-2 text-[0.8125rem] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(221,105,54,0.12)] disabled:opacity-60"
+              />
               <button
-                key={s}
                 type="button"
-                onClick={() => void send(s)}
-                className="rounded-md border border-hairline bg-cream/50 px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-ink"
+                onClick={() => void send(input)}
+                disabled={busy || mode !== "ready" || !input.trim()}
+                aria-label="Send"
+                className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-lg bg-accent text-cream transition hover:brightness-95 disabled:opacity-40"
               >
-                {s}
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
               </button>
-            ))}
+            </div>
+            {mode === "ready" && runs.length === 0 && !busy && (
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => void send(s)}
+                    className="rounded-md border border-hairline bg-cream/50 px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-ink"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* The assistant at work: raining cloud + a natural moving status. */}
+          {(mode === "writing" || mode === "filing") && (
+            <div className="flex flex-col gap-1.5 border-t border-hairline px-4 py-4">
+              {CloudThink}
+              <ProgressCycler
+                messages={mode === "writing" ? WRITING_STEPS : FILING_STEPS}
+                className="text-xs"
+              />
+            </div>
+          )}
+        </>
+      )}
 
       {/* Activity log (newest first) */}
-      {runs.length > 0 && (
+      {mode === "ready" && runs.length > 0 && (
         <div className="flex-1 space-y-4 overflow-y-auto border-t border-hairline px-4 py-3.5">
           {runs.map((r, i) => (
             <div key={runs.length - i} className={i === 0 ? "chat-pop" : undefined}>

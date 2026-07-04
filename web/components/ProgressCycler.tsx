@@ -2,6 +2,25 @@
 
 import { useEffect, useState } from "react";
 
+/** Illustrative steps while the AI writes the draft. Not a live trace - a
+ *  natural, moving status. Shared by the assistant rail and the visitor view. */
+export const WRITING_STEPS = [
+  "Reading your evidence…",
+  "Pulling out what happened…",
+  "Structuring the report…",
+  "Writing it up clearly…",
+];
+
+/** Illustrative steps while the draft is filed to a tracker. */
+export const FILING_STEPS = [
+  "Connecting to your tracker…",
+  "Checking the workspace…",
+  "Finding the right team…",
+  "Choosing the right labels…",
+  "Setting the priority…",
+  "Creating the ticket…",
+];
+
 /**
  * A gentle status line that cycles through plausible progress messages while a
  * long action runs (writing the draft, filing to a tracker). No boxy spinner -
