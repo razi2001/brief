@@ -257,13 +257,16 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   const reported = formatDate(brief.created_at);
 
   return (
+    <>
+    {/* The document is always centered at a comfortable reading width - the
+        layout NEVER changes between visitor/owner or draft/filed. The assistant
+        is a floating panel (below), so it reserves no column and leaves no empty
+        space beside the doc. Extra bottom padding on owner drafts clears the
+        floating panel. */}
     <main
-      className={`mx-auto w-full px-4 py-10 font-sans sm:px-6 sm:py-12 ${
-        withRail ? "max-w-[76rem]" : "max-w-5xl"
-      }`}
+      className={`mx-auto w-full max-w-3xl px-4 py-10 font-sans sm:px-6 sm:py-12 ${withRail ? "pb-44 sm:pb-48" : ""}`}
     >
       {viewerId && <BackLink />}
-      <div className={withRail ? "lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-5" : undefined}>
       {/* The writing state doesn't fade in - only the resolved ticket does, so
           the writing→ready hand-off is ONE gentle settle, not two page fades
           ("loaded twice"). */}
@@ -375,17 +378,18 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       )}
       </article>
 
-      {withRail && (
-        <TicketChat
-          briefId={brief.id}
-          mode={railMode}
-          ticketUrl={brief.ticket_url}
-          providerName={providerName}
-        />
-      )}
-      </div>
-
       <BriefFooter />
     </main>
+
+    {/* Floating assistant - fixed to the viewport, reserves no layout column. */}
+    {withRail && (
+      <TicketChat
+        briefId={brief.id}
+        mode={railMode}
+        ticketUrl={brief.ticket_url}
+        providerName={providerName}
+      />
+    )}
+    </>
   );
 }

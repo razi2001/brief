@@ -250,7 +250,7 @@ export default function TicketChat({
   const working = mode === "writing" || mode === "filing" || (mode === "ready" && busy);
 
   return (
-    <aside className="ai-float chat-pop mt-5 overflow-hidden rounded-2xl border border-hairline bg-[#fffdf9]/90 font-sans transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.10),0_18px_44px_-20px_rgba(26,22,18,0.24)] lg:sticky lg:top-6 lg:mt-0">
+    <aside className="ai-float chat-pop fixed inset-x-4 bottom-4 z-40 overflow-hidden rounded-2xl border border-hairline bg-[#fffdf9]/95 font-sans backdrop-blur-md transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.10),0_20px_50px_-18px_rgba(26,22,18,0.30)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[370px]">
       {mode === "filed" ? (
         // The quiet record: where it lives now.
         <div className="flex flex-col gap-3 p-4">
