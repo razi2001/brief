@@ -7,52 +7,43 @@ import { CURSOR_SENTINEL, locateEdit, parseAssistantStream, type EditOp } from "
 
 /**
  * The assistant rail - the AUTHOR of the ticket, present on the owner's brief
- * from the first frame so the layout never reflows around it. Four moods:
+ * from the first frame so the layout never reflows around it.
  *
- *   writing → it's writing the draft: raining cloud + cycling status, composer
- *             parked ("Writing your ticket…")
- *   ready   → the handoff: one command box; tell it what to change and the
- *             edits TYPE THEMSELVES into the doc, caret riding the insertion
- *             point; a quiet activity log below ("✓ 2 edits")
- *   filing  → it's filing to the tracker: same presence, filing status
- *   filed   → the record: "Filed to Linear" + open link, composer gone
+ * It's a COMMAND TOOL, not a chat transcript: you tell it what to change, the
+ * edits type themselves into the document, and the rail shows exactly ONE
+ * status line - the current thing - which replaces itself each run. The
+ * document is the record of what happened; the only "history" worth keeping is
+ * the ability to UNDO the last change, which lives right here.
  *
- * Instructions are independent - each acts on the document as it stands now.
+ * Four moods:
+ *   writing → it's writing the draft: raining cloud + cycling status
+ *   ready   → command box; edits type into the doc; last change is undoable
+ *   filing  → it's filing to the tracker: filing status
+ *   filed   → the record: "Filed to Linear" + open link
  *
  * Talks to TicketDoc (a separate client island) via window events:
  *   brief:doc:get    → current title/body markdown
  *   brief:doc:stream → partial doc; CURSOR_SENTINEL marks the typing position
- *   brief:doc:done   → final content: settle animation + save baseline update
+ *   brief:doc:done   → final content: settle animation + save baseline
+ *   brief:doc:set    → set to a snapshot (undo/redo), flash + baseline
  *   brief:doc:cancel → restore the pre-edit snapshot (stream failed midway)
  */
 export type ChatMode = "writing" | "ready" | "filing" | "filed";
-type Activity = { edits: number; failed: number; rewrote: boolean; retitled: boolean };
-type Run = {
-  instruction: string;
-  note: string;
-  activity?: Activity;
-  error?: boolean;
-  live?: boolean;
-  /** The doc is actively being typed into (shows the "Editing…" pulse). */
-  editing?: boolean;
-};
+
+type Doc = { title: string; body: string };
+type Last =
+  | { kind: "edit"; summary: string; before: Doc; after: Doc }
+  | { kind: "answer"; text: string }
+  | { kind: "none"; text: string }
+  | { kind: "error" };
 
 const SUGGESTIONS = ["Tighten it up", "Add repro steps", "More technical", "Friendlier tone"];
 
-function currentDoc(): Promise<{ title: string; body: string }> {
+function currentDoc(): Promise<Doc> {
   return new Promise((resolve) => {
     window.dispatchEvent(new CustomEvent("brief:doc:get", { detail: { reply: resolve } }));
-    // If no editor answered (shouldn't happen), don't hang the send.
     setTimeout(() => resolve({ title: "", body: "" }), 400);
   });
-}
-
-function activityLabel(a: Activity): string {
-  if (a.rewrote) return "Rewrote the ticket";
-  const parts: string[] = [];
-  if (a.edits > 0) parts.push(`${a.edits} edit${a.edits > 1 ? "s" : ""}`);
-  if (a.retitled) parts.push("title");
-  return parts.join(" · ");
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -73,7 +64,7 @@ const CloudMark = (
 
 /** Thinking = the cloud raining tiny drops. */
 const CloudThink = (
-  <span className="cloud-think" aria-label="Thinking">
+  <span className="cloud-think" aria-label="Working">
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       {CLOUD_PATH}
     </svg>
@@ -92,14 +83,38 @@ export default function TicketChat({
   ticketUrl?: string | null;
   providerName?: string;
 }) {
-  const [runs, setRuns] = useState<Run[]>([]); // newest first
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [liveNote, setLiveNote] = useState("");
+  const [editingDoc, setEditingDoc] = useState(false);
+  const [last, setLast] = useState<Last | null>(null);
+  const [undone, setUndone] = useState(false);
+  const [undoBusy, setUndoBusy] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
 
-  const patchLiveRun = (patch: Partial<Run>) =>
-    setRuns((prev) => (prev.length ? [{ ...prev[0], ...patch }, ...prev.slice(1)] : prev));
+  async function persistDoc(doc: Doc) {
+    await fetch(`/api/briefs/${briefId}/edit`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: doc.title, body: doc.body }),
+    });
+  }
+
+  async function undoRedo(to: Doc, nextUndone: boolean) {
+    if (undoBusy) return;
+    setUndoBusy(true);
+    window.dispatchEvent(new CustomEvent("brief:doc:set", { detail: to }));
+    try {
+      await persistDoc(to);
+      setUndone(nextUndone);
+    } catch {
+      /* leave state as-is; the doc still shows the attempted content */
+    } finally {
+      setUndoBusy(false);
+    }
+  }
 
   async function send(text: string) {
     const q = text.trim();
@@ -107,26 +122,26 @@ export default function TicketChat({
     setInput("");
     setBusy(true);
     cancelled.current = false;
-    setRuns((prev) => [{ instruction: q, note: "", live: true }, ...prev]);
+    setLiveNote("");
+    setEditingDoc(false);
+    setLast(null);
+    setUndone(false);
 
-    const doc = await currentDoc();
-    // The working copy the streamed ops mutate. Mutated ONLY inside the typing
-    // queue, so edits land in order even when the model outruns the animation.
-    const state = { body: doc.body, title: null as string | null, ok: 0, fail: 0 };
+    const before = await currentDoc();
+    const state = { body: before.body, title: null as string | null, ok: 0, fail: 0 };
     let rewrote = false;
     let hadChange = false;
     let finalTicket: { title: string | null; body: string } | null = null;
     let queue: Promise<void> = Promise.resolve();
+    let note = "";
 
     const dispatchStream = (bodyMd: string) =>
       window.dispatchEvent(
-        new CustomEvent("brief:doc:stream", {
-          detail: { title: state.title, body: bodyMd, caret: false },
-        }),
+        new CustomEvent("brief:doc:stream", { detail: { title: state.title, body: bodyMd, caret: false } }),
       );
 
-    // Type one edit into the doc: the replacement reveals a few characters at
-    // a time at its own position, sentinel caret riding along.
+    // Type one edit into the doc: the replacement reveals a few chars at a time
+    // at its own position, caret riding along.
     const typeEdit = async (op: EditOp) => {
       if (cancelled.current) return;
       const loc = locateEdit(state.body, op);
@@ -135,17 +150,17 @@ export default function TicketChat({
         return;
       }
       hadChange = true;
-      patchLiveRun({ editing: true });
-      const before = state.body.slice(0, loc.index);
-      const after = state.body.slice(loc.index + loc.length);
-      const text = op.replace;
-      const chunk = Math.max(2, Math.ceil(text.length / 50)); // ≤ ~0.9s per edit
-      for (let k = chunk; k < text.length; k += chunk) {
+      setEditingDoc(true);
+      const b = state.body.slice(0, loc.index);
+      const a = state.body.slice(loc.index + loc.length);
+      const t = op.replace;
+      const chunk = Math.max(2, Math.ceil(t.length / 50));
+      for (let k = chunk; k < t.length; k += chunk) {
         if (cancelled.current) return;
-        dispatchStream(before + text.slice(0, k) + CURSOR_SENTINEL + after);
+        dispatchStream(b + t.slice(0, k) + CURSOR_SENTINEL + a);
         await sleep(18);
       }
-      state.body = before + text + after;
+      state.body = b + t + a;
       state.ok++;
       dispatchStream(state.body);
     };
@@ -155,41 +170,32 @@ export default function TicketChat({
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        // One instruction, no conversation - it acts on the current doc.
-        body: JSON.stringify({
-          messages: [{ role: "user", content: q }],
-          title: doc.title,
-          body: doc.body,
-        }),
+        body: JSON.stringify({ messages: [{ role: "user", content: q }], title: before.title, body: before.body }),
       });
       if (!res.ok || !res.body) throw new Error(String(res.status));
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let acc = "";
-      let queuedEdits = 0;
+      let queued = 0;
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
         acc += decoder.decode(value, { stream: true });
         const p = parseAssistantStream(acc);
-        patchLiveRun({ note: p.note });
+        note = p.note;
+        setLiveNote(p.note);
 
         if (p.ticket) {
-          // Full rewrite: stream it top-to-bottom with the trailing caret.
           rewrote = true;
           hadChange = true;
-          patchLiveRun({ editing: true });
+          setEditingDoc(true);
           finalTicket = p.ticket;
-          window.dispatchEvent(
-            new CustomEvent("brief:doc:stream", { detail: { ...p.ticket, caret: true } }),
-          );
+          window.dispatchEvent(new CustomEvent("brief:doc:stream", { detail: { ...p.ticket, caret: true } }));
           continue;
         }
-
-        // Queue newly-completed ops; the typewriter plays them in order.
-        while (queuedEdits < p.edits.length) {
-          const op = p.edits[queuedEdits++];
+        while (queued < p.edits.length) {
+          const op = p.edits[queued++];
           queue = queue.then(() => typeEdit(op));
         }
         if (p.title && p.title !== state.title) {
@@ -197,36 +203,36 @@ export default function TicketChat({
           queue = queue.then(() => {
             state.title = t;
             hadChange = true;
-            patchLiveRun({ editing: true });
+            setEditingDoc(true);
             dispatchStream(state.body);
           });
         }
       }
-
-      await queue; // let the typing animation finish
+      await queue;
 
       if (hadChange) {
-        window.dispatchEvent(
-          new CustomEvent("brief:doc:done", {
-            detail: finalTicket ?? { title: state.title, body: state.body },
-          }),
-        );
+        const after: Doc = finalTicket
+          ? { title: finalTicket.title || before.title, body: finalTicket.body }
+          : { title: state.title || before.title, body: state.body };
+        window.dispatchEvent(new CustomEvent("brief:doc:done", { detail: finalTicket ?? { title: state.title, body: state.body } }));
+        const bits: string[] = [];
+        if (rewrote) bits.push("Rewrote the ticket");
+        else if (state.ok > 0) bits.push(`${state.ok} change${state.ok > 1 ? "s" : ""}`);
+        if (!rewrote && state.title) bits.push("title");
+        setLast({ kind: "edit", summary: bits.join(" · ") || "Updated", before, after });
+      } else if (note) {
+        setLast({ kind: "answer", text: note });
+      } else {
+        setLast({ kind: "none", text: "No changes needed." });
       }
-      const p = parseAssistantStream(acc);
-      patchLiveRun({
-        live: false,
-        note: p.note,
-        activity:
-          hadChange || state.fail > 0
-            ? { edits: state.ok, failed: state.fail, rewrote, retitled: !!state.title }
-            : undefined,
-      });
     } catch {
       cancelled.current = true;
       if (hadChange) window.dispatchEvent(new CustomEvent("brief:doc:cancel"));
-      patchLiveRun({ live: false, error: true, note: "" });
+      setLast({ kind: "error" });
     } finally {
       setBusy(false);
+      setLiveNote("");
+      setEditingDoc(false);
       inputRef.current?.focus();
     }
   }
@@ -238,30 +244,19 @@ export default function TicketChat({
     }
   }
 
+  const showChips = mode === "ready" && !busy && !last;
+  const composerDisabled = busy || mode !== "ready";
+
   return (
-    <aside className="card chat-pop mt-5 flex max-h-[80vh] flex-col p-0 font-sans lg:sticky lg:top-6 lg:mt-0">
+    <aside className="card chat-pop mt-5 flex max-h-[80vh] flex-col overflow-hidden p-0 font-sans lg:sticky lg:top-6 lg:mt-0">
       {/* Header */}
       <div className="flex h-11 shrink-0 items-center gap-2.5 border-b border-hairline px-4">
         {CloudMark}
         <span className="text-[0.8125rem] font-medium text-ink">Assistant</span>
-        {runs.length > 0 && !busy && (
-          <button
-            type="button"
-            onClick={() => setRuns([])}
-            title="Clear history"
-            aria-label="Clear history"
-            className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
-          >
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-          </button>
-        )}
       </div>
 
-      {/* Filed → the quiet record: where it lives now. */}
       {mode === "filed" ? (
+        // The quiet record: where it lives now.
         <div className="flex flex-col gap-3 px-4 py-4">
           <span className="inline-flex items-center gap-2 text-[0.8125rem] text-ink-2">
             <span className="inline-block h-2 w-2 rounded-full bg-[#2e7d32]" aria-hidden />
@@ -284,7 +279,7 @@ export default function TicketChat({
         </div>
       ) : (
         <>
-          {/* Command box - parked while the assistant itself is working. */}
+          {/* Command box */}
           <div className="shrink-0 px-4 py-3">
             <div className="flex items-end gap-2">
               <textarea
@@ -293,20 +288,16 @@ export default function TicketChat({
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
                 rows={1}
-                disabled={busy || mode !== "ready"}
+                disabled={composerDisabled}
                 placeholder={
-                  mode === "writing"
-                    ? "Writing your ticket…"
-                    : mode === "filing"
-                      ? "Filing…"
-                      : "Tell it what to change…"
+                  mode === "writing" ? "Writing your ticket…" : mode === "filing" ? "Filing…" : "Tell it what to change…"
                 }
                 className="max-h-28 min-h-[36px] flex-1 resize-none rounded-lg border border-hairline bg-white/70 px-2.5 py-2 text-[0.8125rem] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(221,105,54,0.12)] disabled:opacity-60"
               />
               <button
                 type="button"
                 onClick={() => void send(input)}
-                disabled={busy || mode !== "ready" || !input.trim()}
+                disabled={composerDisabled || !input.trim()}
                 aria-label="Send"
                 className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-lg bg-accent text-cream transition hover:brightness-95 disabled:opacity-40"
               >
@@ -315,7 +306,7 @@ export default function TicketChat({
                 </svg>
               </button>
             </div>
-            {mode === "ready" && runs.length === 0 && !busy && (
+            {showChips && (
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {SUGGESTIONS.map((s) => (
                   <button
@@ -331,66 +322,73 @@ export default function TicketChat({
             )}
           </div>
 
-          {/* The assistant at work: raining cloud + a natural moving status. */}
+          {/* One status line - replaces itself each run. */}
           {(mode === "writing" || mode === "filing") && (
             <div className="flex flex-col gap-1.5 border-t border-hairline px-4 py-4">
               {CloudThink}
-              <ProgressCycler
-                messages={mode === "writing" ? WRITING_STEPS : FILING_STEPS}
-                className="text-xs"
-              />
+              <ProgressCycler messages={mode === "writing" ? WRITING_STEPS : FILING_STEPS} className="text-xs" />
+            </div>
+          )}
+
+          {mode === "ready" && busy && (
+            <div className="flex items-start gap-3 border-t border-hairline px-4 py-4">
+              {CloudThink}
+              <div className="min-w-0 flex-1 pt-0.5">
+                {liveNote ? (
+                  <p className="text-xs leading-relaxed text-ink-2">{liveNote}</p>
+                ) : (
+                  <p className="text-xs text-muted">Thinking…</p>
+                )}
+                {editingDoc && (
+                  <span className="mt-1.5 inline-flex items-center gap-1.5 text-[0.6875rem] text-accent">
+                    <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+                    Writing into your ticket…
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {mode === "ready" && !busy && last && (
+            <div className="border-t border-hairline px-4 py-3.5">
+              {last.kind === "edit" ? (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-2">
+                    {undone ? (
+                      <>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted" aria-hidden="true">
+                          <path d="M9 14 4 9l5-5" /><path d="M4 9h11a5 5 0 0 1 0 10h-1" />
+                        </svg>
+                        <span className="truncate text-muted">Reverted</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#2e7d32" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+                          <path d="M5 12l5 5L20 6" />
+                        </svg>
+                        <span className="truncate">{last.summary}</span>
+                      </>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => undoRedo(undone ? last.after : last.before, !undone)}
+                    disabled={undoBusy}
+                    className="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent/10 disabled:opacity-50"
+                  >
+                    {undone ? "Redo" : "Undo"}
+                  </button>
+                </div>
+              ) : last.kind === "answer" ? (
+                <p className="text-[0.8125rem] leading-relaxed text-ink-2">{last.text}</p>
+              ) : last.kind === "none" ? (
+                <p className="text-xs text-muted">{last.text}</p>
+              ) : (
+                <p className="text-xs text-[#c62828]">That didn&apos;t go through - try again.</p>
+              )}
             </div>
           )}
         </>
-      )}
-
-      {/* Activity log (newest first) */}
-      {mode === "ready" && runs.length > 0 && (
-        <div className="flex-1 space-y-4 overflow-y-auto border-t border-hairline px-4 py-3.5">
-          {runs.map((r, i) => (
-            <div key={runs.length - i} className={i === 0 ? "chat-pop" : undefined}>
-              <p className="text-[0.8125rem] font-medium leading-snug text-ink">{r.instruction}</p>
-              {r.live ? (
-                <div className="mt-1">
-                  {r.note ? (
-                    <p className="text-xs leading-relaxed text-muted">{r.note}</p>
-                  ) : (
-                    CloudThink
-                  )}
-                  {r.editing && (
-                    <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem] text-accent">
-                      <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-                      Editing…
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="mt-1">
-                  {r.note && <p className="text-xs leading-relaxed text-muted">{r.note}</p>}
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    {r.error ? (
-                      <span className="text-[0.6875rem] text-[#c62828]">Didn&apos;t go through - try again</span>
-                    ) : r.activity && activityLabel(r.activity) ? (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-hairline bg-cream/60 px-1.5 py-0.5 text-[0.6875rem] text-ink-2">
-                        <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#2e7d32" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M5 12l5 5L20 6" />
-                        </svg>
-                        {activityLabel(r.activity)}
-                      </span>
-                    ) : (
-                      !r.note && <span className="text-[0.6875rem] text-muted">No changes</span>
-                    )}
-                    {r.activity && r.activity.failed > 0 && (
-                      <span className="text-[0.6875rem] text-muted">
-                        {r.activity.failed} couldn&apos;t apply
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
       )}
     </aside>
   );

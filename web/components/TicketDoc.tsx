@@ -234,11 +234,33 @@ export default function TicketDoc({
       unlock();
     };
 
+    // Undo / redo from the rail: set the doc to a known snapshot, flash the
+    // whole body so the restored content is legible, and align the baseline
+    // (the rail persists it via /edit, so autosave must not double-post).
+    const onSet = (e: Event) => {
+      const d = (e as CustomEvent).detail as { title: string | null; body: string };
+      const body = bodyRef.current;
+      if (!body) return;
+      if (d.title && titleRef.current) titleRef.current.innerText = d.title;
+      body.innerHTML = mdToHtml(d.body);
+      body.classList.add("blk-new");
+      if (d.title) savedTitle.current = d.title;
+      savedHtml.current = body.innerHTML;
+      setStatus("saved");
+      setTimeout(() => setStatus((s) => (s === "saved" ? "idle" : s)), 2000);
+      setTimeout(() => {
+        body.classList.remove("blk-new");
+        savedHtml.current = body.innerHTML;
+      }, 2600);
+    };
+
     window.addEventListener("brief:doc:get", onGet);
     window.addEventListener("brief:doc:stream", onStream);
     window.addEventListener("brief:doc:done", onDone);
     window.addEventListener("brief:doc:cancel", onCancel);
+    window.addEventListener("brief:doc:set", onSet);
     return () => {
+      window.removeEventListener("brief:doc:set", onSet);
       window.removeEventListener("brief:doc:get", onGet);
       window.removeEventListener("brief:doc:stream", onStream);
       window.removeEventListener("brief:doc:done", onDone);
