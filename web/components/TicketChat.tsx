@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import ProgressCycler, { FILING_STEPS, WRITING_STEPS } from "./ProgressCycler";
 import { TrackerLogo } from "./TrackerLogo";
 import { CURSOR_SENTINEL, locateEdit, parseAssistantStream, type EditOp } from "@/lib/chat-stream";
@@ -93,6 +93,7 @@ export default function TicketChat({
   const [last, setLast] = useState<Last | null>(null);
   const [undone, setUndone] = useState(false);
   const [undoBusy, setUndoBusy] = useState(false);
+  const [open, setOpen] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
   // A little conversational memory (last few turns) so follow-ups like "shorter"
@@ -100,6 +101,21 @@ export default function TicketChat({
   // transcript. Not the document (the route always gets the live doc); just the
   // recent back-and-forth.
   const history = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
+
+  // After a change lands, keep the "N changes · Undo" line briefly (long enough
+  // to catch a mistake), then relax back to the suggestions so the panel is
+  // ready for the next edit rather than parked on Undo forever. Undo/redo
+  // resets the timer (dep on `undone`). Answers/errors stay until the next
+  // instruction (they're content worth reading).
+  useEffect(() => {
+    if (last?.kind !== "edit" && last?.kind !== "none") return;
+    const ms = last.kind === "edit" ? 7000 : 3500;
+    const t = setTimeout(() => {
+      setLast(null);
+      setUndone(false);
+    }, ms);
+    return () => clearTimeout(t);
+  }, [last, undone]);
 
   async function persistDoc(doc: Doc) {
     await fetch(`/api/briefs/${briefId}/edit`, {
@@ -267,8 +283,40 @@ export default function TicketChat({
 
   const working = mode === "writing" || mode === "filing" || (mode === "ready" && busy);
 
+  // Minimized → a small pill in the corner (with a live twinkle while working).
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="ai-float chat-pop fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full border border-[rgba(26,22,18,0.16)] bg-[#fffdf8] px-4 py-2.5 text-[0.8125rem] font-medium text-ink transition hover:bg-cream-2/40"
+      >
+        <Spark className={working ? "ai-spark text-accent" : "text-accent"} />
+        Assistant
+      </button>
+    );
+  }
+
   return (
     <aside className="ai-float chat-pop fixed inset-x-4 bottom-4 z-40 overflow-hidden rounded-2xl border border-[rgba(26,22,18,0.16)] bg-[#fffdf8] font-sans transition-[border-color,box-shadow] focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.12),0_26px_60px_-14px_rgba(26,22,18,0.4)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[370px]">
+      {/* Slim header: identity + minimize (the only chrome). */}
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-hairline pl-3.5 pr-2">
+        <span className="inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-ink-2">
+          <Spark className={working ? "ai-spark text-accent" : "text-accent"} size={12} />
+          Assistant
+        </span>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          aria-label="Minimize assistant"
+          title="Minimize"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      </div>
       {mode === "filed" ? (
         // The quiet record: where it lives now.
         <div className="flex flex-col gap-3 p-4">
@@ -293,12 +341,9 @@ export default function TicketChat({
         </div>
       ) : (
         <>
-          {/* The input IS the assistant - it lives directly in the card (no
-              box-in-box); the whole card gets the focus ring. */}
-          <div className="group flex items-end gap-2.5 px-3.5 py-3">
-            <Spark
-              className={`mt-1 shrink-0 ${working ? "ai-spark text-accent" : "text-muted transition-colors group-focus-within:text-accent"}`}
-            />
+          {/* The input lives directly in the card (no box-in-box); the whole
+              card gets the focus ring. */}
+          <div className="flex items-end gap-2.5 px-3.5 py-3">
             <textarea
               ref={inputRef}
               value={input}
