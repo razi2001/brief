@@ -92,6 +92,11 @@ export default function TicketChat({
   const [undoBusy, setUndoBusy] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
+  // A little conversational memory (last few turns) so follow-ups like "shorter"
+  // or "do the same for Expected" have context - even though the UI shows no
+  // transcript. Not the document (the route always gets the live doc); just the
+  // recent back-and-forth.
+  const history = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
 
   async function persistDoc(doc: Doc) {
     await fetch(`/api/briefs/${briefId}/edit`, {
@@ -166,11 +171,15 @@ export default function TicketChat({
     };
 
     try {
+      // Send the last 2 turns of context + this instruction. The route always
+      // also gets the CURRENT document, so this is purely for referential
+      // follow-ups ("shorter", "same for Expected", "undo that phrasing").
+      const messages = [...history.current.slice(-4), { role: "user" as const, content: q }];
       const res = await fetch(`/api/briefs/${briefId}/chat`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "user", content: q }], title: before.title, body: before.body }),
+        body: JSON.stringify({ messages, title: before.title, body: before.body }),
       });
       if (!res.ok || !res.body) throw new Error(String(res.status));
 
@@ -225,6 +234,12 @@ export default function TicketChat({
       } else {
         setLast({ kind: "none", text: "No changes needed." });
       }
+      // Remember this turn for follow-up context (kept short).
+      history.current = [
+        ...history.current,
+        { role: "user" as const, content: q },
+        { role: "assistant" as const, content: note || (hadChange ? "Applied the requested change." : "No change made.") },
+      ].slice(-8);
     } catch {
       cancelled.current = true;
       if (hadChange) window.dispatchEvent(new CustomEvent("brief:doc:cancel"));

@@ -187,8 +187,13 @@ export default function TicketDoc({
         html += '<span class="writing-caret"></span>';
       }
       body.innerHTML = html;
-      // Keep the assistant's typing position in view, gently.
-      body.querySelector(".writing-caret")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      // Keep the assistant's typing position in view, gently. Guarded: a throw
+      // here (e.g. a runtime without scrollIntoView) would abort the edit mid-
+      // stream and cancel the whole thing.
+      const caret = body.querySelector(".writing-caret");
+      if (caret && typeof caret.scrollIntoView === "function") {
+        caret.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
     };
 
     const onDone = (e: Event) => {
