@@ -37,7 +37,25 @@ type Last =
   | { kind: "none"; text: string }
   | { kind: "error" };
 
-const SUGGESTIONS = ["Tighten it up", "Add repro steps", "More technical", "Friendlier tone"];
+// Three starter actions. The chip shows a short LABEL; the model gets the
+// fuller PROMPT behind it (so the instruction is precise without a long chip).
+const SUGGESTIONS: { label: string; prompt: string }[] = [
+  {
+    label: "Improve layout",
+    prompt:
+      "Improve the formatting and layout: clear section headings, tight bullet or numbered lists, and code formatting for anything technical. Keep the same information.",
+  },
+  {
+    label: "Make it concise",
+    prompt:
+      "Rewrite this as a short, simple ticket - a sentence or two on the problem plus only the essential detail. Drop the Expected / Actual / Context / Steps scaffolding unless it's genuinely needed.",
+  },
+  {
+    label: "More technical",
+    prompt:
+      "Make it more technical and specific: name the likely component or area, use precise terminology, and add the details an engineer needs to start.",
+  },
+];
 
 function currentDoc(): Promise<Doc> {
   return new Promise((resolve) => {
@@ -250,7 +268,7 @@ export default function TicketChat({
   const working = mode === "writing" || mode === "filing" || (mode === "ready" && busy);
 
   return (
-    <aside className="ai-float chat-pop fixed inset-x-4 bottom-4 z-40 overflow-hidden rounded-2xl border border-hairline bg-[#fffdf9]/95 font-sans backdrop-blur-md transition-[border-color,box-shadow] focus-within:border-accent/50 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.10),0_20px_50px_-18px_rgba(26,22,18,0.30)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[370px]">
+    <aside className="ai-float chat-pop fixed inset-x-4 bottom-4 z-40 overflow-hidden rounded-2xl border border-[rgba(26,22,18,0.16)] bg-[#fffdf8] font-sans transition-[border-color,box-shadow] focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.12),0_26px_60px_-14px_rgba(26,22,18,0.4)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[370px]">
       {mode === "filed" ? (
         // The quiet record: where it lives now.
         <div className="flex flex-col gap-3 p-4">
@@ -317,12 +335,12 @@ export default function TicketChat({
             <div className="flex flex-wrap gap-1 border-t border-hairline px-3 py-2.5">
               {SUGGESTIONS.map((s) => (
                 <button
-                  key={s}
+                  key={s.label}
                   type="button"
-                  onClick={() => void send(s)}
-                  className="rounded-md px-2 py-1 text-xs text-muted transition-colors hover:bg-accent/10 hover:text-accent"
+                  onClick={() => void send(s.prompt)}
+                  className="rounded-md px-2 py-1 text-xs text-ink-2 transition-colors hover:bg-accent/10 hover:text-accent"
                 >
-                  {s}
+                  {s.label}
                 </button>
               ))}
             </div>
