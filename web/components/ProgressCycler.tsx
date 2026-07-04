@@ -32,10 +32,13 @@ export default function ProgressCycler({
   messages,
   intervalMs = 2600,
   className = "",
+  bare = false,
 }: {
   messages: string[];
   intervalMs?: number;
   className?: string;
+  /** Hide the leading pulse dot (the caller supplies its own indicator). */
+  bare?: boolean;
 }) {
   const [i, setI] = useState(0);
   useEffect(() => {
@@ -46,7 +49,7 @@ export default function ProgressCycler({
 
   return (
     <span className={`inline-flex items-center gap-2 text-sm text-ink-2 ${className}`}>
-      <span className="dot-pulse h-2 w-2 shrink-0 rounded-full bg-accent" aria-hidden />
+      {!bare && <span className="dot-pulse h-2 w-2 shrink-0 rounded-full bg-accent" aria-hidden />}
       {/* key change re-triggers the fade each time the message swaps */}
       <span key={i} className="status-swap">
         {messages[i]}

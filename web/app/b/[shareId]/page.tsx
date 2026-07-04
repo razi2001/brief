@@ -264,7 +264,10 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
     >
       {viewerId && <BackLink />}
       <div className={withRail ? "lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:items-start lg:gap-5" : undefined}>
-      <article className={ARTICLE_CLASS}>
+      {/* The writing state doesn't fade in - only the resolved ticket does, so
+          the writing→ready hand-off is ONE gentle settle, not two page fades
+          ("loaded twice"). */}
+      <article className={writing ? ARTICLE_BASE : ARTICLE_CLASS}>
       {writing ? (
         isOwner ? (
           // The owner watches their ticket stream in, token by token. The

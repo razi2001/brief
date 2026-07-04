@@ -75,7 +75,7 @@ describe("assistant undo/redo", () => {
     expect(doc.textContent).toContain("old value");
 
     // Fire an instruction.
-    const input = getByPlaceholderText("Tell it what to change…") as HTMLTextAreaElement;
+    const input = getByPlaceholderText("Ask AI to edit the ticket…") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "change old to new" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -119,7 +119,7 @@ describe("assistant undo/redo", () => {
     const { container, getByPlaceholderText, findByText } = mountDraft("Original body text.");
     const doc = container.querySelector(".ticket-prose") as HTMLElement;
 
-    const input = getByPlaceholderText("Tell it what to change…") as HTMLTextAreaElement;
+    const input = getByPlaceholderText("Ask AI to edit the ticket…") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "restructure it" } });
     fireEvent.keyDown(input, { key: "Enter" });
 

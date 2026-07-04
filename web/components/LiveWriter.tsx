@@ -65,11 +65,21 @@ export default function LiveWriter({
   const router = useRouter();
   const [text, setText] = useState("");
   const started = useRef(false);
+  const refreshed = useRef(false);
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
     const ctrl = new AbortController();
+    // Exactly one refresh, ever - the persisted draft is committed before the
+    // stream closes, so a single soft refresh lands on the finished ticket.
+    // (Guards against a stray second refresh that read as "the page loaded
+    // twice".)
+    const settle = () => {
+      if (refreshed.current) return;
+      refreshed.current = true;
+      router.refresh();
+    };
     (async () => {
       try {
         const res = await fetch(`/api/briefs/${briefId}/stream`, {
@@ -78,7 +88,7 @@ export default function LiveWriter({
           signal: ctrl.signal,
         });
         if (!res.ok || res.status === 204 || !res.body) {
-          router.refresh();
+          settle();
           return;
         }
         const reader = res.body.getReader();
@@ -90,10 +100,9 @@ export default function LiveWriter({
           acc += decoder.decode(value, { stream: true });
           setText(acc);
         }
-        // Stream finished → load the persisted, parsed draft (real toolbar/evidence).
-        router.refresh();
+        settle();
       } catch {
-        router.refresh();
+        settle();
       }
     })();
     return () => ctrl.abort();

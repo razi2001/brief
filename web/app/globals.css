@@ -558,39 +558,42 @@ a {
 }
 .chat-pop { animation: chat-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
-/* The assistant's little cloud: floats gently in the header, and while it
-   thinks it RAINS tiny accent drops - the on-brand "working" indicator. */
-@keyframes cloud-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2.5px); }
+/* Assistant panel: a soft floating card (Notion/Linear feel). */
+.ai-float {
+  box-shadow:
+    0 1px 2px rgba(26, 22, 18, 0.04),
+    0 16px 40px -18px rgba(26, 22, 18, 0.22);
 }
-.assistant-cloud { display: inline-flex; animation: cloud-float 3.6s ease-in-out infinite; }
 
-@keyframes spark-twinkle {
+/* The AI spark - a gentle twinkle, the one bit of life (no mascot). */
+@keyframes ai-twinkle {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.78); }
+  50% { opacity: 0.55; transform: scale(0.82); }
 }
-.assistant-spark { animation: spark-twinkle 2.2s ease-in-out infinite; transform-origin: center; }
+.ai-spark { animation: ai-twinkle 2.4s ease-in-out infinite; transform-origin: center; }
 
-/* Thinking = a raining cloud. The drops fall from under the cloud, staggered. */
-.cloud-think { position: relative; display: inline-block; width: 30px; height: 30px; color: var(--color-accent); }
-.cloud-think svg { position: absolute; top: 0; left: 0; }
-.cloud-think i {
-  position: absolute;
-  top: 16px;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--color-accent);
-  animation: cloud-rain 1.15s ease-in infinite;
+/* Indeterminate shimmer bar while the assistant works. */
+.ai-bar {
+  position: relative;
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(221, 105, 54, 0.12);
+  overflow: hidden;
 }
-.cloud-think i:nth-child(2) { left: 7px; }
-.cloud-think i:nth-child(3) { left: 13px; animation-delay: 0.38s; }
-.cloud-think i:nth-child(4) { left: 19px; animation-delay: 0.76s; }
-@keyframes cloud-rain {
-  0% { transform: translateY(0); opacity: 0; }
-  25% { opacity: 0.9; }
-  100% { transform: translateY(10px); opacity: 0; }
+.ai-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgba(221, 105, 54, 0.9), transparent);
+  animation: ai-sweep 1.2s ease-in-out infinite;
+}
+@keyframes ai-sweep {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
 }
 
 /* Blinking caret at the end of the writing skeleton (the "live typing" cue). */
@@ -615,9 +618,8 @@ a {
   .status-swap,
   .blk-new,
   .chat-pop,
-  .assistant-cloud,
-  .assistant-spark,
-  .cloud-think i,
+  .ai-spark,
+  .ai-bar::after,
   .writing-dot { animation: none; }
   .sk-rise { opacity: 1; }
   .brief-page-in { animation: none; }

@@ -48,29 +48,14 @@ function currentDoc(): Promise<Doc> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const CLOUD_PATH = <path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.6A3.5 3.5 0 0 1 18 18Z" />;
-
-/** The assistant's face: a little cloud, gently floating, spark twinkling. */
-const CloudMark = (
-  <span className="assistant-cloud relative text-accent" aria-hidden="true">
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      {CLOUD_PATH}
-    </svg>
-    <svg viewBox="0 0 24 24" width="9" height="9" fill="currentColor" className="assistant-spark absolute -right-1 -top-0.5">
+/** The AI signifier - a sparkle (matches the Brief mark), not a mascot. */
+function Spark({ className = "", size = 14 }: { className?: string; size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" className={className} aria-hidden="true">
       <path d="M12 3l1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9z" />
     </svg>
-  </span>
-);
-
-/** Thinking = the cloud raining tiny drops. */
-const CloudThink = (
-  <span className="cloud-think" aria-label="Working">
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      {CLOUD_PATH}
-    </svg>
-    <i /><i /><i />
-  </span>
-);
+  );
+}
 
 export default function TicketChat({
   briefId,
@@ -262,17 +247,13 @@ export default function TicketChat({
   const showChips = mode === "ready" && !busy && !last;
   const composerDisabled = busy || mode !== "ready";
 
-  return (
-    <aside className="card chat-pop mt-5 flex max-h-[80vh] flex-col overflow-hidden p-0 font-sans lg:sticky lg:top-6 lg:mt-0">
-      {/* Header */}
-      <div className="flex h-11 shrink-0 items-center gap-2.5 border-b border-hairline px-4">
-        {CloudMark}
-        <span className="text-[0.8125rem] font-medium text-ink">Assistant</span>
-      </div>
+  const working = mode === "writing" || mode === "filing" || (mode === "ready" && busy);
 
+  return (
+    <aside className="ai-float chat-pop mt-5 flex max-h-[80vh] flex-col overflow-hidden rounded-2xl border border-hairline bg-[#fffdf9]/85 p-0 font-sans backdrop-blur-sm lg:sticky lg:top-6 lg:mt-0">
       {mode === "filed" ? (
         // The quiet record: where it lives now.
-        <div className="flex flex-col gap-3 px-4 py-4">
+        <div className="flex flex-col gap-3 p-4">
           <span className="inline-flex items-center gap-2 text-[0.8125rem] text-ink-2">
             <span className="inline-block h-2 w-2 rounded-full bg-[#2e7d32]" aria-hidden />
             Filed to {providerName}
@@ -293,69 +274,84 @@ export default function TicketChat({
           )}
         </div>
       ) : (
-        <>
-          {/* Command box */}
-          <div className="shrink-0 px-4 py-3">
-            <div className="flex items-end gap-2">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                rows={1}
-                disabled={composerDisabled}
-                placeholder={
-                  mode === "writing" ? "Writing your ticket…" : mode === "filing" ? "Filing…" : "Tell it what to change…"
-                }
-                className="max-h-28 min-h-[36px] flex-1 resize-none rounded-lg border border-hairline bg-white/70 px-2.5 py-2 text-[0.8125rem] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] placeholder:text-muted focus:border-accent focus:shadow-[0_0_0_3px_rgba(221,105,54,0.12)] disabled:opacity-60"
-              />
-              <button
-                type="button"
-                onClick={() => void send(input)}
-                disabled={composerDisabled || !input.trim()}
-                aria-label="Send"
-                className="flex h-[36px] w-[36px] shrink-0 items-center justify-center rounded-lg bg-accent text-cream transition hover:brightness-95 disabled:opacity-40"
-              >
-                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 19V5M5 12l7-7 7 7" />
-                </svg>
-              </button>
-            </div>
-            {showChips && (
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => void send(s)}
-                    className="rounded-md border border-hairline bg-cream/50 px-2.5 py-1.5 text-xs text-ink-2 transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-ink"
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-            )}
+        <div className="p-3.5">
+          {/* The command input IS the assistant - a single Notion-style field,
+              sparkle inside, no heavy header bar. */}
+          <div
+            className={`group flex items-end gap-2 rounded-xl border bg-white/70 px-3 py-2.5 transition-[border-color,box-shadow] ${
+              composerDisabled
+                ? "border-hairline"
+                : "border-hairline focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.12)]"
+            }`}
+          >
+            <Spark
+              className={`mt-0.5 shrink-0 ${working ? "ai-spark text-accent" : "text-muted transition-colors group-focus-within:text-accent"}`}
+            />
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              rows={1}
+              disabled={composerDisabled}
+              placeholder={
+                mode === "writing"
+                  ? "Writing your ticket…"
+                  : mode === "filing"
+                    ? "Filing to your tracker…"
+                    : "Ask AI to edit the ticket…"
+              }
+              className="max-h-32 min-h-[22px] flex-1 resize-none bg-transparent text-[0.8125rem] leading-relaxed text-ink outline-none placeholder:text-muted disabled:opacity-70"
+            />
+            <button
+              type="button"
+              onClick={() => void send(input)}
+              disabled={composerDisabled || !input.trim()}
+              aria-label="Send"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent text-cream transition hover:brightness-95 disabled:opacity-30"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            </button>
           </div>
 
-          {/* One status line - replaces itself each run. */}
-          {(mode === "writing" || mode === "filing") && (
-            <div className="flex flex-col gap-1.5 border-t border-hairline px-4 py-4">
-              {CloudThink}
-              <ProgressCycler messages={mode === "writing" ? WRITING_STEPS : FILING_STEPS} className="text-xs" />
+          {/* Idle → gentle prompts. */}
+          {showChips && (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => void send(s)}
+                  className="rounded-md border border-hairline bg-cream/40 px-2.5 py-1 text-xs text-ink-2 transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-ink"
+                >
+                  {s}
+                </button>
+              ))}
             </div>
           )}
 
-          {mode === "ready" && busy && (
-            <div className="flex items-start gap-3 border-t border-hairline px-4 py-4">
-              {CloudThink}
-              <div className="min-w-0 flex-1 pt-0.5">
-                {liveNote ? (
-                  <p className="text-xs leading-relaxed text-ink-2">{liveNote}</p>
+          {/* Working → a clean shimmer + a moving status line (no mascot). */}
+          {working && (
+            <div className="mt-3">
+              <div className="ai-bar" />
+              <div className="mt-2.5">
+                {mode === "ready" ? (
+                  liveNote ? (
+                    <p className="text-xs leading-relaxed text-ink-2">{liveNote}</p>
+                  ) : (
+                    <p className="text-xs text-muted">Thinking…</p>
+                  )
                 ) : (
-                  <p className="text-xs text-muted">Thinking…</p>
+                  <ProgressCycler
+                    bare
+                    messages={mode === "writing" ? WRITING_STEPS : FILING_STEPS}
+                    className="text-xs"
+                  />
                 )}
                 {editingDoc && (
-                  <span className="mt-1.5 inline-flex items-center gap-1.5 text-[0.6875rem] text-accent">
+                  <span className="mt-1.5 flex items-center gap-1.5 text-[0.6875rem] text-accent">
                     <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
                     Writing into your ticket…
                   </span>
@@ -364,8 +360,9 @@ export default function TicketChat({
             </div>
           )}
 
+          {/* Result of the last instruction → one line, undoable. */}
           {mode === "ready" && !busy && last && (
-            <div className="border-t border-hairline px-4 py-3.5">
+            <div className="mt-3 border-t border-hairline pt-3">
               {last.kind === "edit" ? (
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-ink-2">
@@ -403,7 +400,7 @@ export default function TicketChat({
               )}
             </div>
           )}
-        </>
+        </div>
       )}
     </aside>
   );
