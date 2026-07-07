@@ -17,7 +17,7 @@
 // externally_connectable.matches in manifest.json. background.js already trusts
 // APP_URL as a pairing origin, so no other change is needed. Never commit the
 // localhost entry into the package you upload to the Web Store.
-export const ENV = "local"; // "local" | "prod"  ← LOCAL DEV: revert to "prod" before publishing
+export const ENV = "prod"; // "local" | "prod"  ← LOCAL DEV: revert to "prod" before publishing
 
 export const APP_URLS = {
   local: "http://localhost:3000",
