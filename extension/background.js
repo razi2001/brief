@@ -144,7 +144,36 @@ const STATE = {
   activeTabAtStart: null,
 };
 
+// Open a URL from the SERVICE WORKER instead of the popup. The popup dies the
+// moment it loses focus, taking its timers with it - so a "show the
+// confirmation, then open the brief" delay run in the popup silently dropped
+// the tab whenever the user clicked away. The worker outlives the popup, so the
+// link always opens. An already-open tab on that URL is focused + reloaded
+// rather than duplicated.
+async function openOrFocusTab(url) {
+  try {
+    const [existing] = await chrome.tabs.query({ url });
+    if (existing?.id != null) {
+      await chrome.tabs.update(existing.id, { active: true });
+      try { await chrome.windows.update(existing.windowId, { focused: true }); } catch {}
+      chrome.tabs.reload(existing.id);
+      return;
+    }
+  } catch { /* fall through to a plain create */ }
+  try { await chrome.tabs.create({ url }); } catch (err) { console.error('[brief/background] open tab:', err); }
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // ---------- Open a tab on the popup's behalf ----------
+  if (message?.type === 'OPEN_TAB' && typeof message.url === 'string') {
+    const { url } = message;
+    const delay = Math.min(Math.max(Number(message.delayMs) || 0, 0), 3000);
+    if (delay) setTimeout(() => { openOrFocusTab(url); }, delay);
+    else openOrFocusTab(url);
+    sendResponse({ ok: true });
+    return false;
+  }
+
   // ---------- Bar → Offscreen relay ----------
   // Bar can't message offscreen directly (different documents, no shared
   // context). Background routes by `target: 'offscreen'`.

@@ -436,17 +436,26 @@ function buildBriefJsonAndMeta(d, page) {
   const meta = { title: d.name || '', description: d.description || '', transcript: d.transcript || '', pageUrl, pageTitle, hasScreenshot: (d.screenshots || []).length > 0, keyframeCount: 0 };
   return { files, meta };
 }
-function openBrief(shareId) {
+// Land on the Brief page for what we just created - ALWAYS, whether it was
+// drafted or filed straight to the tracker. The page handles every state
+// (writing / filing / drafted / filed), so it's the one link that's never
+// wrong. /tickets is only the fallback for when the server didn't hand back a
+// share token.
+function openBrief(shareId, title = 'Brief created') {
   const t = exportDone.querySelector('.export-done-title');
   const s = exportDone.querySelector('.export-done-sub');
-  if (t) t.textContent = 'Brief created';
-  if (s) s.textContent = 'Opening your brief…';
+  if (t) t.textContent = title;
+  if (s) s.textContent = shareId ? 'Opening your brief…' : 'Opening your tickets…';
   exportDone.hidden = false;
-  setTimeout(() => {
-    if (shareId) chrome.tabs.create({ url: briefPageUrl(shareId) }).catch(() => {});
-    else openTicketsTab();
-    window.close();
-  }, 1200);
+  const url = shareId ? briefPageUrl(shareId) : TICKETS_URL;
+  // Hand the open to the background worker NOW, with the confirmation delay.
+  // The popup is destroyed the instant it loses focus and its timers go with
+  // it, so opening the tab from here after a delay silently did nothing
+  // whenever the user clicked away first. The worker survives that.
+  chrome.runtime
+    .sendMessage({ type: 'OPEN_TAB', url, delayMs: 1200 })
+    .catch(() => { chrome.tabs.create({ url }).catch(() => {}); });
+  setTimeout(() => window.close(), 1200);
 }
 function failCreate(err) {
   filing = false;
@@ -458,16 +467,12 @@ function failCreate(err) {
 }
 
 // Direct-file confirmation: the ticket was queued to the tracker and is written
-// in the background; land on /tickets where it appears (writing -> filed). A
-// filed ticket isn't a draft, so there's no Brief page to open.
-function showFiledAndOpen() {
-  const t = exportDone.querySelector('.export-done-title');
-  const s = exportDone.querySelector('.export-done-sub');
+// in the background. Open the capture's Brief page - it shows the "Filing…"
+// state and resolves itself into the filed ticket, so the Brief link works for
+// a directly-filed capture exactly like it does for a draft.
+function showFiledAndOpen(shareId) {
   const tracker = bcTracker === 'jira' ? 'Jira' : bcTracker === 'linear' ? 'Linear' : 'your tracker';
-  if (t) t.textContent = `Filing to ${tracker}`;
-  if (s) s.textContent = 'Opening your tickets…';
-  exportDone.hidden = false;
-  setTimeout(() => { openTicketsTab(); window.close(); }, 1200);
+  openBrief(shareId, `Filing to ${tracker}`);
 }
 function closeCreateMenu() { if (createMenu) createMenu.hidden = true; }
 // Ensure the brief is uploaded as a cloud draft (creates it + uploads brief.json
@@ -558,9 +563,12 @@ async function fileTicket() {
   const label = createBtn.querySelector('.ctk-label');
   if (label) label.innerHTML = '<span class="btn-spin"></span> Filing…';
 
+  // /process hands back the brief's share token so we can land on its Brief
+  // page (never a dead end, even while the tracker ticket is still being made).
+  let shareId = null;
   const run = async () => {
     await ensureUploaded();
-    await processBrief(draft.cloudBriefId, buildOverrides(draft));
+    shareId = await processBrief(draft.cloudBriefId, buildOverrides(draft));
   };
 
   try {
@@ -574,7 +582,7 @@ async function fileTicket() {
   await clearDraft();
   draft = emptyDraft();
   await setDraft(draft);
-  showFiledAndOpen();
+  showFiledAndOpen(shareId);
 }
 
 // ---------- tickets tab + cloud button ----------
