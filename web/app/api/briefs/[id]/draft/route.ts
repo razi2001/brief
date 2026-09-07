@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { randomBytes } from "crypto";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { mergeBriefOverrides } from "@/lib/agent/overrides";
+import { briefPhase } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 
@@ -44,11 +45,26 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const admin = createAdminSupabase();
   const { data: existing } = await admin
     .from("briefs")
-    .select("id, share_id, storage_prefix")
+    .select("id, share_id, storage_prefix, status, ticket_body, ticket_url, filing_started_at")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
   if (!existing) return jsonCors({ error: "not found" }, { status: 404 });
+
+  // Never re-draft a capture that is already filed or on its way to a tracker -
+  // turning it back into a draft is what re-offered Export and produced a
+  // second ticket.
+  const phase = briefPhase(existing);
+  if (phase === "filed" || phase === "filing") {
+    return jsonCors(
+      {
+        error: "already_filed",
+        message: "This capture already has a ticket - open it in Brief.",
+        shareId: existing.share_id,
+      },
+      { status: 409 },
+    );
+  }
 
   // Merge the popup's edits into the stored brief.json so the streaming write
   // (which reads brief.json fresh) uses them - the recording path uploads

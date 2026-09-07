@@ -2,6 +2,7 @@ import { NextRequest, after } from "next/server";
 import { randomBytes } from "crypto";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { processBriefById } from "@/lib/agent/run-processing";
+import { claimFiling } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import { getLinearToken } from "@/lib/linear";
@@ -64,23 +65,32 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const admin = createAdminSupabase();
   const { data: existing } = await admin
     .from("briefs")
-    .select("id, share_id")
+    .select("id, share_id, ticket_url")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
   if (!existing) return jsonCors({ error: "not found" }, { status: 404 });
 
   const shareId = (existing.share_id as string | null) || randomBytes(9).toString("base64url");
-  await admin
-    .from("briefs")
-    .update({
-      status: "processing",
-      updated_at: new Date().toISOString(),
-      share_id: shareId,
-      ...(title ? { title } : {}),
-    })
-    .eq("id", id)
-    .eq("user_id", userId);
+  // Take the filing claim in the same write that marks it queued. It fails when
+  // this capture already has a ticket, or another run is filing it - so a
+  // re-submit can never file a second ticket for the same brief.
+  const claimed = await claimFiling(admin, userId, id, {
+    share_id: shareId,
+    ...(title ? { title } : {}),
+  });
+  if (!claimed) {
+    return jsonCors(
+      {
+        error: "already_filed",
+        message: existing.ticket_url
+          ? "This capture was already filed - open it in Brief."
+          : "This capture is being filed right now.",
+        shareId,
+      },
+      { status: 409 },
+    );
+  }
 
   after(async () => {
     // Errors are handled inside processBriefById (it flips the row to 'failed').

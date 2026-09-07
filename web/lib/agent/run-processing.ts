@@ -10,6 +10,7 @@ import { composeDraftTicket } from "@/lib/agent/compose-draft";
 import { transcribeAudio } from "@/lib/agent/transcribe";
 import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides } from "@/lib/agent/overrides";
 import { getUserSettings } from "@/lib/settings";
+import { briefPhase, releaseFiling } from "@/lib/brief-filing";
 
 export type ProcessResult =
   | { ok: true; result: { ticketUrl: string; ticketIdentifier: string; summary: string } }
@@ -169,6 +170,12 @@ export async function loadBriefInput(
  * Orchestrates FILING a single brief: resolve the tracker, download media, run
  * the agent, mark the row 'filed' + clean up on success, or 'failed' on error.
  *
+ * CALLERS MUST HOLD THE FILING CLAIM (claimFiling, lib/brief-filing.ts) before
+ * calling this - that's what stops a capture becoming two tickets. This function
+ * releases the claim when it fails WITHOUT creating a ticket, so a retry works
+ * immediately; once a ticket exists the row keeps its ticket_url and can never
+ * be filed again.
+ *
  * `opts.provider` pins the tracker (used by the brief page's export action so a
  * draft files to the chosen tracker); unset = Linear preferred, Jira fallback.
  * The brief's existing share_id is preserved so a draft's link stays stable
@@ -211,14 +218,10 @@ export async function processBriefById(
     }
   }
   if (!tracker) {
-    await admin
-      .from("briefs")
-      .update({
-        status: "failed",
-        error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", briefId);
+    await releaseFiling(admin, userId, briefId, {
+      status: "failed",
+      error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
+    });
     return {
       ok: false,
       status: 409,
@@ -228,7 +231,6 @@ export async function processBriefById(
 
   const guidance = await loadGuidance(userId);
 
-  await admin.from("briefs").update({ status: "processing" }).eq("id", briefId);
   try {
     const prefix = brief.storage_prefix as string;
     const { input, names, includeVideo } = await loadBriefInput(admin, prefix, {
@@ -263,34 +265,54 @@ export async function processBriefById(
     // Reuse the brief's share token if it has one (e.g. it was a draft) so the
     // public link stays stable across export; otherwise mint one.
     const shareId = (brief.share_id as string | null) || randomBytes(9).toString("base64url");
-    const { error: updErr } = await admin
-      .from("briefs")
-      .update({
-        ...filedPatch,
-        ticket_title: result.ticketTitle || null,
-        ticket_state_name: result.ticketState?.name ?? null,
-        ticket_state_color: result.ticketState?.color ?? null,
-        ticket_body: result.descriptionMarkdown || null,
-        share_id: shareId,
-      })
-      .eq("id", briefId);
-    if (updErr) await admin.from("briefs").update(filedPatch).eq("id", briefId);
+    // THE TICKET NOW EXISTS. Everything below is bookkeeping - it must never
+    // throw out to the catch, because marking the brief failed/retryable here
+    // would file a duplicate on the next run. Recording ticket_url is the one
+    // thing worth retrying: it's the permanent "already filed" guard.
+    try {
+      const { error: updErr } = await admin
+        .from("briefs")
+        .update({
+          ...filedPatch,
+          ticket_title: result.ticketTitle || null,
+          ticket_state_name: result.ticketState?.name ?? null,
+          ticket_state_color: result.ticketState?.color ?? null,
+          ticket_body: result.descriptionMarkdown || null,
+          share_id: shareId,
+        })
+        .eq("id", briefId);
+      if (updErr) await admin.from("briefs").update(filedPatch).eq("id", briefId);
+    } catch (e) {
+      console.error(`[process] brief ${briefId} filed as ${result.ticketIdentifier} but the row didn't update:`, e);
+      try {
+        await admin.from("briefs").update(filedPatch).eq("id", briefId);
+      } catch {
+        /* the ticket exists either way; the claim stays held so nothing re-files */
+      }
+    }
 
     // Clean up internal/large media, but KEEP the screenshots and (when the
     // reporter chose to attach it) the recording, so the shareable brief page
     // can embed them. brief.json, the audio track, and the sampled keyframes
-    // are never shown on the page.
-    const toDelete: string[] = [
-      `${prefix}/brief.json`,
-      `${prefix}/audio.webm`,
-      ...names.map((n) => `${prefix}/keyframes/${n}`),
-    ];
-    if (!includeVideo) toDelete.push(`${prefix}/recording.webm`);
-    await admin.storage.from("briefs").remove(toDelete);
+    // are never shown on the page. Best-effort: the ticket is already filed.
+    try {
+      const toDelete: string[] = [
+        `${prefix}/brief.json`,
+        `${prefix}/audio.webm`,
+        ...names.map((n) => `${prefix}/keyframes/${n}`),
+      ];
+      if (!includeVideo) toDelete.push(`${prefix}/recording.webm`);
+      await admin.storage.from("briefs").remove(toDelete);
+    } catch (e) {
+      console.warn(`[process] brief ${briefId}: media cleanup failed (ticket is filed):`, e);
+    }
 
     return { ok: true, result };
   } catch (e: any) {
-    await admin.from("briefs").update({ status: "failed", error: String(e?.message ?? e) }).eq("id", briefId);
+    // Nothing was filed (the throw is from before create_issue, or from a run
+    // that never created one) - fail the brief AND hand the claim back so the
+    // owner can retry straight away.
+    await releaseFiling(admin, userId, briefId, { status: "failed", error: String(e?.message ?? e) });
     return { ok: false, status: 500, error: String(e?.message ?? e) };
   }
 }
@@ -317,11 +339,30 @@ export async function draftBriefById(
     .maybeSingle();
   if (!brief) return { ok: false, status: 404, error: "not found" };
 
+  // Only ever write over a brief that is still being written up. A brief that
+  // is being FILED (or is filed) must not be turned back into a draft - that's
+  // what re-offered "Export" on an already-filed capture and produced a second
+  // ticket.
+  if (briefPhase(brief) !== "writing") {
+    return { ok: false, status: 409, error: "not a draft in progress" };
+  }
+
   const guidance = await loadGuidance(userId);
+
+  // Every write below is scoped to a brief that is STILL an unfiled, unclaimed
+  // draft, so a filing run that starts mid-write always wins.
+  const draftWrite = (patch: Record<string, unknown>) =>
+    admin
+      .from("briefs")
+      .update(patch)
+      .eq("id", briefId)
+      .eq("user_id", userId)
+      .is("ticket_url", null)
+      .is("filing_started_at", null);
 
   // 'processing' while the model writes (the page shows "writing the ticket…");
   // recoverOrphans only times out 'processing', never 'drafted'.
-  await admin.from("briefs").update({ status: "processing" }).eq("id", briefId);
+  await draftWrite({ status: "processing" });
   try {
     const prefix = brief.storage_prefix as string;
     const { input } = await loadBriefInput(admin, prefix, { overrides: opts.overrides });
@@ -329,16 +370,13 @@ export async function draftBriefById(
 
     const shareId = (brief.share_id as string | null) || randomBytes(9).toString("base64url");
     const draftedPatch = { status: "drafted", updated_at: new Date().toISOString() };
-    const { error: updErr } = await admin
-      .from("briefs")
-      .update({
-        ...draftedPatch,
-        ticket_title: draft.title || null,
-        ticket_body: draft.descriptionMarkdown || null,
-        share_id: shareId,
-      })
-      .eq("id", briefId);
-    if (updErr) await admin.from("briefs").update(draftedPatch).eq("id", briefId);
+    const { error: updErr } = await draftWrite({
+      ...draftedPatch,
+      ticket_title: draft.title || null,
+      ticket_body: draft.descriptionMarkdown || null,
+      share_id: shareId,
+    });
+    if (updErr) await draftWrite(draftedPatch);
 
     // Keep ALL media: export re-runs the full filing agent, which needs the
     // brief.json/keyframes/etc. Storage is cleaned up at filing time instead.
@@ -347,7 +385,7 @@ export async function draftBriefById(
       result: { ticketUrl: "", ticketIdentifier: "", summary: draft.title || "drafted" },
     };
   } catch (e: any) {
-    await admin.from("briefs").update({ status: "failed", error: String(e?.message ?? e) }).eq("id", briefId);
+    await draftWrite({ status: "failed", error: String(e?.message ?? e) });
     return { ok: false, status: 500, error: String(e?.message ?? e) };
   }
 }

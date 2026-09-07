@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { loadBriefInput, draftBriefById } from "@/lib/agent/run-processing";
+import { briefPhase } from "@/lib/brief-filing";
 import { buildStreamMessages, parseDraftMarkdown } from "@/lib/agent/compose-draft";
 import { getUserSettings } from "@/lib/settings";
 
@@ -23,15 +24,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const admin = createAdminSupabase();
   const { data: brief } = await admin
     .from("briefs")
-    .select("id, status, storage_prefix, ticket_body, share_id")
+    .select("id, status, storage_prefix, ticket_body, ticket_url, filing_started_at, share_id")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
   if (!brief) return new Response("not found", { status: 404 });
-  // Already written, or not in a writing state → nothing to stream.
-  if (brief.ticket_body || (brief.status !== "processing" && brief.status !== "uploaded")) {
-    return new Response(null, { status: 204 });
-  }
+  // Already written, already filed, or BEING FILED → nothing to stream.
+  // Filing a capture straight from the extension also leaves it 'processing'
+  // with no body; drafting over that run flipped the brief back to 'drafted'
+  // and re-offered Export, which filed a second ticket. The filing claim is
+  // what tells the two apart.
+  if (briefPhase(brief) !== "writing") return new Response(null, { status: 204 });
 
   const { ticketGuidance, role } = await getUserSettings(userId);
   const guidance = [role ? `The reporter's role: ${role}.` : "", ticketGuidance].filter(Boolean).join("\n");
@@ -64,7 +67,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       updated_at: new Date().toISOString(),
     };
     if (shareId) patch.share_id = shareId;
-    await admin.from("briefs").update(patch).eq("id", id).eq("user_id", userId);
+    // The row can move on during the ~20s write (an export or a direct filing
+    // run starting). Never turn a filed/filing brief back into a draft.
+    await admin
+      .from("briefs")
+      .update(patch)
+      .eq("id", id)
+      .eq("user_id", userId)
+      .is("ticket_url", null)
+      .is("filing_started_at", null);
   };
 
   const stream = new ReadableStream({
@@ -97,8 +108,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   });
 
   after(async () => {
-    const { data } = await admin.from("briefs").select("status, ticket_body").eq("id", id).maybeSingle();
-    if (data && !data.ticket_body && (data.status === "processing" || data.status === "uploaded")) {
+    const { data } = await admin
+      .from("briefs")
+      .select("status, ticket_body, ticket_url, filing_started_at")
+      .eq("id", id)
+      .maybeSingle();
+    if (data && briefPhase(data) === "writing") {
       await draftBriefById(userId, id).catch(() => {});
     }
   });

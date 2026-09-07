@@ -4,12 +4,13 @@ import { getUserId } from "@/lib/auth";
 import { getTrackerContext, attachTicketInfo, type BriefRow } from "@/lib/briefs-server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
+import { briefPhase } from "@/lib/brief-filing";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
 import EvidenceCard from "@/components/EvidenceCard";
 import PollReload from "@/components/PollReload";
 import LiveWriter from "@/components/LiveWriter";
-import ProgressCycler, { WRITING_STEPS } from "@/components/ProgressCycler";
+import ProgressCycler, { WRITING_STEPS, FILING_STEPS } from "@/components/ProgressCycler";
 import TicketChat, { type ChatMode } from "@/components/TicketChat";
 
 // Signed media URLs expire, so never cache the rendered page.
@@ -28,11 +29,12 @@ type ShareRow = {
   ticket_state_name: string | null;
   ticket_state_color: string | null;
   ticket_body: string | null;
+  filing_started_at: string | null;
   storage_prefix: string;
 };
 
 const SHARE_COLUMNS =
-  "id, user_id, status, title, source_kind, created_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, ticket_body, storage_prefix";
+  "id, user_id, status, title, source_kind, created_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, ticket_body, filing_started_at, storage_prefix";
 
 async function loadBrief(shareId: string): Promise<ShareRow | null> {
   const admin = createAdminSupabase();
@@ -177,16 +179,27 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   // One unified layout for every other state, so the page NEVER reflows as a
   // brief moves through its life:
   //   writing → no body yet: the doc streams in / skeleton
-  //   filing  → body present, being exported: full doc + status
+  //   filing  → being filed to the tracker: the doc (or the skeleton, when it
+  //             was filed straight from the extension and never drafted) +
+  //             status, and NEVER the export controls
   //   drafted / filed → the document
   // The OWNER always gets the assistant rail (it's the author - present from
   // the first frame, so nothing ever pops in and shifts the page). Visitors
   // always get the centered document, and never a rail.
-  const writing = (brief.status === "processing" || brief.status === "uploaded") && !brief.ticket_body;
-  const filing = (brief.status === "processing" || brief.status === "uploaded") && !!brief.ticket_body;
-  if (!writing && !filing && brief.status !== "filed" && brief.status !== "drafted") notFound();
+  //
+  // 'writing' and 'filing' both sit at status='processing' - only the filing
+  // claim separates them (lib/brief-filing.ts). Reading a filing run as
+  // "writing" is what used to stream a draft over it and re-offer Export on a
+  // capture that already had a Linear ticket.
+  const phase = briefPhase(brief);
+  if (phase === "unknown") notFound();
+  const writing = phase === "writing";
+  const filing = phase === "filing";
+  // Nothing written yet → the document-taking-shape state (streamed for the
+  // owner while writing, a polling skeleton while filing).
+  const inProgress = (writing || filing) && !brief.ticket_body;
 
-  const isDraft = brief.status === "drafted";
+  const isDraft = phase === "draft";
   const isOwner = !!viewerId && viewerId === brief.user_id;
   const withRail = isOwner;
   const railMode: ChatMode = writing ? "writing" : isDraft ? "ready" : filing ? "filing" : "filed";
@@ -202,7 +215,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   const idBase = (brief.ticket_identifier || "brief").toLowerCase();
   // No evidence while writing - a lone screenshot under a skeleton reads as
   // broken (and signing URLs for a page that won't show them is waste).
-  const assets = writing ? [] : await loadMedia(brief.storage_prefix, idBase);
+  const assets = inProgress ? [] : await loadMedia(brief.storage_prefix, idBase);
   const provider = providerOf(brief.ticket_url);
   const providerName = provider === "jira" ? "Jira" : "Linear";
 
@@ -212,7 +225,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   // fall back to the stored snapshot if the tracker/token is unavailable.
   // attachTicketInfo also writes the fresh snapshot back for the next load.
   let live: { title: string; stateName: string; stateColor: string } | null = null;
-  if (brief.status === "filed" && brief.ticket_identifier) {
+  if (phase === "filed" && brief.ticket_identifier) {
     const row = {
       id: brief.id,
       status: brief.status,
@@ -270,9 +283,9 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       {/* The writing state doesn't fade in - only the resolved ticket does, so
           the writing→ready hand-off is ONE gentle settle, not two page fades
           ("loaded twice"). */}
-      <article className={writing ? ARTICLE_BASE : ARTICLE_CLASS}>
-      {writing ? (
-        isOwner ? (
+      <article className={inProgress ? ARTICLE_BASE : ARTICLE_CLASS}>
+      {inProgress ? (
+        isOwner && writing ? (
           // The owner watches their ticket stream in, token by token. The
           // rail (mode="writing") narrates - no status pill over the doc.
           <LiveWriter briefId={brief.id} fallbackTitle={brief.title} />
@@ -280,7 +293,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
           // Visitors: moving status + skeleton + soft poll until the write lands.
           <>
             <div className="mb-7">
-              <ProgressCycler messages={WRITING_STEPS} />
+              <ProgressCycler messages={filing ? FILING_STEPS : WRITING_STEPS} />
             </div>
             <PollReload />
             {brief.title ? (
