@@ -38,13 +38,15 @@ export type PhaseRow = {
 };
 
 /**
- * The brief's real state, from the row alone. `ticket_url` wins over `status`:
- * a brief that has a ticket is filed even if some other write left the status
- * behind, so a stale row can never re-offer Export.
+ * The brief's real state, from the row alone. `ticket_url` wins over `status`,
+ * INCLUDING 'failed': a brief that has a ticket is filed even if some other
+ * write left the status behind (a clobbered draft, or a run that created the
+ * ticket and then died before the row updated), so a stale row can never
+ * re-offer Export and never hides a ticket that exists.
  */
 export function briefPhase(b: PhaseRow): BriefPhase {
-  if (b.status === "failed") return "failed";
   if (b.ticket_url || b.status === "filed") return "filed";
+  if (b.status === "failed") return "failed";
   if (b.status === "processing" || b.status === "uploaded") {
     return b.filing_started_at || b.ticket_body ? "filing" : "writing";
   }

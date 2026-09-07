@@ -44,9 +44,14 @@ describe("briefPhase", () => {
       "filed",
     );
     expect(briefPhase(row({ status: "filed" }))).toBe("filed");
+    // Ticket created, then the run threw before the row updated and the orphan
+    // sweep marked it failed: a Linear ticket exists, so it IS filed.
+    expect(briefPhase(row({ status: "failed", ticket_url: "https://linear.app/x/issue/ENG-1" }))).toBe(
+      "filed",
+    );
   });
 
-  test("a failed brief is 'failed'", () => {
+  test("a failed brief with no ticket is 'failed'", () => {
     expect(briefPhase(row({ status: "failed" }))).toBe("failed");
   });
 

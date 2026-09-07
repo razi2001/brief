@@ -163,8 +163,12 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
 
   const viewerId = await getUserId();
 
+  // The brief's real state - ticket_url wins over the status column, so a row
+  // whose run created the ticket and then died still renders as filed.
+  const phase = briefPhase(brief);
+
   // ── Couldn't be written ──
-  if (brief.status === "failed") {
+  if (phase === "failed") {
     return (
       <CenterCard>
         <BrandMark size={32} />
@@ -191,7 +195,6 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   // claim separates them (lib/brief-filing.ts). Reading a filing run as
   // "writing" is what used to stream a draft over it and re-offer Export on a
   // capture that already had a Linear ticket.
-  const phase = briefPhase(brief);
   if (phase === "unknown") notFound();
   const writing = phase === "writing";
   const filing = phase === "filing";

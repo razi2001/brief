@@ -519,6 +519,7 @@ async function createBrief() {
   try {
     await run();
   } catch (err) {
+    if (err?.code === 'already_filed' && err.shareId) return settleAlreadyFiled(err.shareId);
     if (err?.status === 404 && draft.cloudBriefId) {
       try { await persist((d) => { d.cloudBriefId = null; }); await run(); }
       catch (err2) { return failCreate(err2); }
@@ -528,6 +529,16 @@ async function createBrief() {
   draft = emptyDraft();
   await setDraft(draft);
   openBrief(shareId);
+}
+
+// The server says this capture already has a ticket (a re-submit of a brief
+// that was filed). Not an error for the user - the ticket exists. Drop the
+// local draft and land on the brief, exactly like a successful create.
+async function settleAlreadyFiled(shareId) {
+  await clearDraft();
+  draft = emptyDraft();
+  await setDraft(draft);
+  openBrief(shareId, 'Already filed');
 }
 
 // The primary "Create ticket" action. With a tracker connected we file directly
@@ -574,6 +585,7 @@ async function fileTicket() {
   try {
     await run();
   } catch (err) {
+    if (err?.code === 'already_filed' && err.shareId) return settleAlreadyFiled(err.shareId);
     if (err?.status === 404 && draft.cloudBriefId) {
       try { await persist((d) => { d.cloudBriefId = null; }); await run(); }
       catch (err2) { return failCreate(err2); }

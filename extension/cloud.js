@@ -168,7 +168,13 @@ export async function processBrief(briefId, overrides = {}) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const err = new Error(body?.message || body?.error || `process failed: ${res.status}`);
-    err.code = body?.error === "no_tracker" || res.status === 409 ? "no_tracker" : "process_failed";
+    // 409 already_filed: this capture already has a ticket (or is being filed).
+    // Carry the share token so the popup can open the brief instead of erroring.
+    err.code =
+      body?.error === "already_filed" ? "already_filed"
+      : body?.error === "no_tracker" || res.status === 409 ? "no_tracker"
+      : "process_failed";
+    err.shareId = body?.shareId || null;
     err.status = res.status;
     throw err;
   }
@@ -194,6 +200,9 @@ export async function createDraft(briefId, overrides = {}) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const err = new Error(body?.message || body?.error || `draft failed: ${res.status}`);
+    // 409 already_filed: it already has a ticket - open it rather than re-draft.
+    err.code = body?.error === "already_filed" ? "already_filed" : "draft_failed";
+    err.shareId = body?.shareId || null;
     err.status = res.status;
     throw err;
   }
