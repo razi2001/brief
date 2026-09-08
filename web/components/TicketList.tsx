@@ -47,7 +47,14 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
         {briefs.map((b) => {
           const ti = b.ticket;
           const isProcessing = b.status === "processing" || b.status === "uploaded";
-          const href = ti?.url || b.ticket_url || undefined;
+          // A deleted ticket has nothing to open in the tracker - fall back to
+          // its Brief page.
+          const href = ti?.deleted
+            ? b.share_id
+              ? `/b/${b.share_id}`
+              : undefined
+            : ti?.url || b.ticket_url || undefined;
+          const external = !!href && !href.startsWith("/");
           // While filing there's no tracker title yet - fall back to the brief's
           // name, then a generic label.
           const title =
@@ -112,8 +119,8 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
               {href ? (
                 <a
                   href={href}
-                  target="_blank"
-                  rel="noreferrer"
+                  target={external ? "_blank" : undefined}
+                  rel={external ? "noreferrer" : undefined}
                   className="ticket-grid-ro px-4 py-3 no-underline transition-colors hover:bg-cream-2/40"
                 >
                   {cells}

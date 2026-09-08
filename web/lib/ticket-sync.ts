@@ -27,9 +27,19 @@ export type TicketSnapshotRow = {
   ticket_title: string | null;
   ticket_state_name: string | null;
   ticket_state_color: string | null;
+  /** Where the ticket lives. Follows the ticket when it's moved to another team. */
+  ticket_identifier?: string | null;
+  ticket_url?: string | null;
 };
 
-export type LiveTicket = { title: string; stateName: string; stateColor: string };
+export type LiveTicket = {
+  title: string;
+  stateName: string;
+  stateColor: string;
+  /** The tracker's CURRENT identifier/url, when the provider reports them. */
+  identifier?: string;
+  url?: string;
+};
 
 /**
  * Diff the live tracker info against the stored snapshot. Returns a minimal
@@ -46,5 +56,10 @@ export function ticketSnapshotPatch(
     patch.ticket_state_name = live.stateName;
   if (live.stateColor && live.stateColor !== row.ticket_state_color)
     patch.ticket_state_color = live.stateColor;
+  // A ticket moved to another team gets a new identifier (and url). Keep the
+  // row pointing at where it lives now, or the next sync asks for a ghost.
+  if (live.identifier && live.identifier !== row.ticket_identifier)
+    patch.ticket_identifier = live.identifier;
+  if (live.url && live.url !== row.ticket_url) patch.ticket_url = live.url;
   return Object.keys(patch).length ? patch : null;
 }

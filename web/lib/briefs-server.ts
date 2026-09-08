@@ -48,6 +48,26 @@ export const ORPHAN_TIMEOUT_MS = 10 * 60 * 1000;
 // Re-exported for existing imports; lives in ticket-sync.ts (pure, unit-tested).
 export { providerOf };
 
+/** Snapshot state written for a filed ticket its tracker no longer has. */
+export const DELETED_STATE = "Deleted";
+// Lighter than Draft's muted grey so the two never read alike in a filter list.
+const DELETED_COLOR = "#c9c3b5";
+
+/**
+ * Known-deleted tickets are re-checked live at most once an hour per server
+ * instance. Linear's trash can restore a ticket, so they aren't dropped for
+ * good - but asking on every 30s poll would cost an extra round-trip per
+ * deleted ticket for as long as its row sits in the feed.
+ */
+const DELETED_RECHECK_MS = 60 * 60 * 1000;
+const deletedRecheckedAt = new Map<string, number>();
+function dueForDeletedRecheck(identifier: string, now = Date.now()): boolean {
+  const last = deletedRecheckedAt.get(identifier) ?? 0;
+  if (now - last < DELETED_RECHECK_MS) return false;
+  deletedRecheckedAt.set(identifier, now);
+  return true;
+}
+
 /**
  * Flip any of the user's briefs that have been stuck in uploaded/processing
  * past ORPHAN_TIMEOUT_MS to "failed" (rendered with a Retry affordance).
@@ -168,19 +188,39 @@ export async function attachTicketInfo(
     .slice(0, syncLimit);
   const linearIdentifiers = filed
     .filter((b) => providerOf(b.ticket_url) === "linear")
+    // A ticket already known to be deleted keeps its snapshot and is only
+    // re-checked now and then; its row still renders as deleted below.
+    .filter(
+      (b) =>
+        b.ticket_state_name !== DELETED_STATE ||
+        dueForDeletedRecheck(b.ticket_identifier as string),
+    )
     .map((b) => b.ticket_identifier as string);
   const jiraKeys = filed
     .filter((b) => providerOf(b.ticket_url) === "jira")
     .map((b) => b.ticket_identifier as string);
 
-  let linearMap: Awaited<ReturnType<typeof getIssuesByIdentifiers>> = {};
+  let linear: Awaited<ReturnType<typeof getIssuesByIdentifiers>> = { issues: {}, gone: [] };
   if (hasLinear && linearIdentifiers.length > 0) {
     try {
       const tok = await getLinearToken(userId);
-      if (tok) linearMap = await getIssuesByIdentifiers(tok, linearIdentifiers);
-    } catch {
-      linearMap = {};
+      if (tok) linear = await getIssuesByIdentifiers(tok, linearIdentifiers);
+    } catch (err) {
+      console.warn("[tickets] Linear live sync skipped:", err instanceof Error ? err.message : err);
+      linear = { issues: {}, gone: [] };
     }
+  }
+  // Tickets Linear no longer has. Their rows read "Deleted" (and the snapshot
+  // remembers it) instead of a filing-time status frozen forever. Logged once,
+  // when first noticed.
+  const linearGone = new Set(linear.gone);
+  const newlyGone = linear.gone.filter(
+    (id) => list.find((b) => b.ticket_identifier === id)?.ticket_state_name !== DELETED_STATE,
+  );
+  if (newlyGone.length) {
+    console.warn(
+      `[tickets] ${newlyGone.length} filed ticket(s) no longer exist in Linear: ${newlyGone.join(", ")}`,
+    );
   }
 
   let jiraMap: Awaited<ReturnType<typeof getJiraIssues>> = {};
@@ -189,7 +229,8 @@ export async function attachTicketInfo(
       const tok = await getJiraAuth(userId);
       const cloud = tok ? await getJiraCloud(tok) : null;
       if (tok && cloud) jiraMap = await getJiraIssues(tok, cloud, jiraKeys);
-    } catch {
+    } catch (err) {
+      console.warn("[tickets] Jira live sync skipped:", err instanceof Error ? err.message : err);
       jiraMap = {};
     }
   }
@@ -204,15 +245,25 @@ export async function attachTicketInfo(
     const key = b.ticket_identifier ?? undefined;
     let ticket: TicketInfo | null = null;
     if (key) {
-      if (provider === "linear" && linearMap[key]) {
-        const li = linearMap[key];
+      if (provider === "linear" && linear.issues[key]) {
+        const li = linear.issues[key];
         ticket = {
+          identifier: li.identifier,
           title: li.title,
           url: li.url,
           stateName: li.stateName,
           stateColor: li.stateColor,
           createdAt: li.createdAt,
           assignee: li.assignee,
+        };
+      } else if (provider === "linear" && linearGone.has(key)) {
+        ticket = {
+          title: b.ticket_title ?? "",
+          url: b.ticket_url ?? "",
+          stateName: DELETED_STATE,
+          stateColor: DELETED_COLOR,
+          createdAt: b.created_at ?? "",
+          deleted: true,
         };
       } else if (provider === "jira" && jiraMap[key]) {
         ticket = jiraMap[key];
@@ -238,6 +289,7 @@ export async function attachTicketInfo(
           stateName: b.ticket_state_name ?? "",
           stateColor: b.ticket_state_color ?? "#8a8378",
           createdAt: b.created_at ?? "",
+          ...(b.ticket_state_name === DELETED_STATE ? { deleted: true } : {}),
         };
       }
     }
@@ -249,8 +301,10 @@ export async function attachTicketInfo(
       source_kind: b.source_kind ?? null,
       created_at: b.created_at ?? null,
       updated_at: b.updated_at ?? null,
-      ticket_url: b.ticket_url ?? null,
-      ticket_identifier: b.ticket_identifier ?? null,
+      // Where the ticket lives NOW - a moved ticket shows its new id at once,
+      // not after the snapshot write-back lands.
+      ticket_url: ticket?.url || b.ticket_url || null,
+      ticket_identifier: ticket?.identifier || b.ticket_identifier || null,
       ticket_title: b.ticket_title ?? null,
       share_id: b.share_id ?? null,
       error: b.error ?? null,

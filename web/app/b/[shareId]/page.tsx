@@ -227,7 +227,14 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   // state using the OWNER's token (server-side, so it works for any viewer) and
   // fall back to the stored snapshot if the tracker/token is unavailable.
   // attachTicketInfo also writes the fresh snapshot back for the next load.
-  let live: { title: string; stateName: string; stateColor: string } | null = null;
+  let live: {
+    title: string;
+    stateName: string;
+    stateColor: string;
+    identifier?: string;
+    url?: string;
+    deleted?: boolean;
+  } | null = null;
   if (phase === "filed" && brief.ticket_identifier) {
     const row = {
       id: brief.id,
@@ -255,10 +262,22 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       createAdminSupabase(),
     );
     if (merged?.ticket) {
-      live = { title: merged.ticket.title, stateName: merged.ticket.stateName, stateColor: merged.ticket.stateColor };
+      live = {
+        title: merged.ticket.title,
+        stateName: merged.ticket.stateName,
+        stateColor: merged.ticket.stateColor,
+        // A moved ticket answers with its new identifier/url; a deleted one
+        // has nothing left to open in the tracker.
+        identifier: merged.ticket_identifier ?? undefined,
+        url: merged.ticket.deleted ? undefined : merged.ticket.url || undefined,
+        deleted: merged.ticket.deleted,
+      };
     }
   }
 
+  const ticketIdentifier = live?.identifier || brief.ticket_identifier;
+  // Deleted in the tracker → no tracker link anywhere on the page.
+  const ticketUrl = live?.deleted ? null : live?.url || brief.ticket_url;
   const ticketTitle = (live?.title || brief.ticket_title || brief.title || "Bug report").trim() || "Bug report";
   const stateName = filing
     ? "Filing…"
@@ -334,10 +353,10 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
               <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: stateColor }} />
               {stateName}
             </span>
-            {!isDraft && brief.ticket_identifier && (
+            {!isDraft && ticketIdentifier && (
               <>
                 <span className="text-hairline">·</span>
-                <span className="text-accent">{brief.ticket_identifier}</span>
+                <span className="text-accent">{ticketIdentifier}</span>
               </>
             )}
             {reported && (
@@ -358,7 +377,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
             isOwner={isOwner}
             isDraft={isDraft}
             filing={filing}
-            ticketUrl={brief.ticket_url}
+            ticketUrl={ticketUrl}
             provider={provider}
             providerName={providerName}
             initialTitle={ticketTitle}
@@ -402,7 +421,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       <TicketChat
         briefId={brief.id}
         mode={railMode}
-        ticketUrl={brief.ticket_url}
+        ticketUrl={ticketUrl}
         providerName={providerName}
       />
     )}

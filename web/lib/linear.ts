@@ -28,7 +28,26 @@ function authHeader(tok: LinearTok): string {
 const AUTH_EXPIRED =
   "Your Linear connection has expired - reconnect Linear under Connections, then retry.";
 
-export async function linearGraphQL<T = any>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
+/** One entry of a GraphQL response's `errors` array. */
+export type GraphQLError = {
+  message: string;
+  /** Response path of the failing field - for an aliased field, the alias. */
+  path?: Array<string | number>;
+  extensions?: Record<string, unknown>;
+};
+
+/**
+ * POST a query and hand back Linear's raw `{ data, errors }` envelope. Throws
+ * only when the request itself failed or the token is no longer accepted.
+ * Callers that can make sense of a partial answer (getIssuesByIdentifiers)
+ * read `errors` themselves; everything else goes through linearGraphQL, which
+ * treats any error as fatal.
+ */
+export async function linearGraphQLRaw<T = unknown>(
+  tok: LinearTok,
+  query: string,
+  variables: Record<string, unknown>,
+): Promise<{ data: T | null; errors: GraphQLError[] }> {
   const r = await fetch("https://api.linear.app/graphql", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: authHeader(tok) },
@@ -37,17 +56,27 @@ export async function linearGraphQL<T = any>(tok: LinearTok, query: string, vari
   // Expired / revoked OAuth token → tell the user to reconnect, not a raw 401/403.
   if (r.status === 401 || r.status === 403) throw new Error(AUTH_EXPIRED);
   const j = await r.json().catch(() => ({}) as any);
-  if (j.errors) {
-    const msg = JSON.stringify(j.errors);
-    if (/authentication|unauthenticated|unauthorized|forbidden|access token|invalid token/i.test(msg)) {
-      throw new Error(AUTH_EXPIRED);
-    }
-    throw new Error("Linear GraphQL: " + msg);
+  const errors: GraphQLError[] = Array.isArray(j.errors) ? j.errors : [];
+  if (
+    errors.length &&
+    /authentication|unauthenticated|unauthorized|forbidden|access token|invalid token/i.test(
+      JSON.stringify(errors),
+    )
+  ) {
+    throw new Error(AUTH_EXPIRED);
   }
-  return j.data as T;
+  return { data: (j.data ?? null) as T | null, errors };
+}
+
+export async function linearGraphQL<T = any>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
+  const { data, errors } = await linearGraphQLRaw<T>(tok, query, variables);
+  if (errors.length) throw new Error("Linear GraphQL: " + JSON.stringify(errors));
+  return data as T;
 }
 
 export interface LinearIssueInfo {
+  /** The ticket's CURRENT identifier. Linear resolves a ticket by any identifier
+   *  it ever had, so this differs from the requested one after a team move. */
   identifier: string;
   title: string;
   url: string;
@@ -58,54 +87,165 @@ export interface LinearIssueInfo {
   assignee?: { name: string; avatarUrl?: string };
 }
 
+/** What one batch lookup learned: the tickets Linear returned, keyed by the
+ *  identifier that was ASKED for, and the ones it no longer has (deleted). */
+export type LinearIssueLookup = {
+  issues: Record<string, LinearIssueInfo>;
+  gone: string[];
+};
+
+const ISSUE_FIELDS =
+  "identifier title url createdAt state { name color type } assignee { name avatarUrl }";
+
+/** One aliased `issue(id:)` lookup per identifier: i0, i1, … */
+function issuesByIdentifierQuery(ids: string[]): string {
+  const aliases = ids
+    .map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { ${ISSUE_FIELDS} }`)
+    .join("\n");
+  return `query IssuesByIdentifier {\n${aliases}\n}`;
+}
+
+/** The fields ISSUE_FIELDS selects, as Linear returns them. */
+type LinearIssueNode = {
+  identifier: string;
+  title?: string | null;
+  url?: string | null;
+  createdAt?: string | null;
+  state?: { name?: string | null; color?: string | null; type?: string | null } | null;
+  assignee?: { name: string; avatarUrl?: string | null } | null;
+};
+
+function toIssueInfo(node: LinearIssueNode): LinearIssueInfo {
+  return {
+    identifier: node.identifier,
+    title: node.title ?? "",
+    url: node.url ?? "",
+    stateName: node.state?.name ?? "",
+    stateColor: node.state?.color ?? "#8a8378",
+    stateType: node.state?.type ?? "",
+    createdAt: node.createdAt ?? "",
+    assignee: node.assignee
+      ? { name: node.assignee.name, avatarUrl: node.assignee.avatarUrl ?? undefined }
+      : undefined,
+  };
+}
+
+/** What one failing alias means for the ticket behind it. */
+type AliasVerdict = "gone" | "skip";
+
 /**
- * Fetch live Linear issue info for a set of issue identifiers (e.g. "RAZ-153").
- * Builds aliased GraphQL queries (i0/i1/…) of up to 20 ids per round-trip -
- * larger sets are CHUNKED into several queries instead of silently dropped.
+ * Attribute Linear's errors to the aliases (i0/i1/…) they belong to.
+ *  - An error exactly at the alias saying the entity wasn't found → "gone":
+ *    the ticket no longer exists in Linear.
+ *  - Any other error under an alias (a field below it failed, a wording we
+ *    don't recognise) → "skip": leave that ticket to its snapshot for this
+ *    load, but don't call it deleted.
+ * Returns null when an error isn't pinned to any alias (auth, rate limit,
+ * malformed query): that can't be attributed to a ticket, so the caller must
+ * give up on the batch instead of guessing.
+ */
+function aliasVerdicts(errors: GraphQLError[]): Map<number, AliasVerdict> | null {
+  const out = new Map<number, AliasVerdict>();
+  for (const e of errors) {
+    const first = e.path?.[0];
+    const m = typeof first === "string" ? /^i(\d+)$/.exec(first) : null;
+    if (!m) return null;
+    const idx = Number(m[1]);
+    const notFound = e.path?.length === 1 && /not found/i.test(e.message ?? "");
+    // "gone" wins if the same alias somehow carries several errors.
+    if (notFound || !out.has(idx)) out.set(idx, notFound ? "gone" : "skip");
+  }
+  return out;
+}
+
+/**
+ * Upper bound on round-trips per batch of 20. Linear's executor (graphql-js)
+ * reports ONE failing non-null root field per response, so each deleted ticket
+ * in a batch costs a round; past this many, the rest of the batch keeps its
+ * snapshots for this load (and the deletions found so far are remembered, so
+ * the next load starts further along).
+ */
+const MAX_LOOKUP_ROUNDS = 6;
+
+/**
+ * Fetch live Linear issue info for a set of issue identifiers (e.g. "RAZ-153"),
+ * keyed by the identifier that was ASKED for. Builds aliased queries of up to
+ * 20 ids per round-trip - larger sets are CHUNKED instead of silently dropped.
  *
- * Defensive by design: de-dupes ids and wraps the whole thing in try/catch
- * returning what it has on ANY failure - a Linear outage or token problem must
- * never break the dashboard render.
+ * Linear declares `issue(id:)` non-null, so a ticket that no longer exists
+ * (deleted in Linear) errors its alias AND nulls the whole payload - and only
+ * one such failure is reported per response. That used to take every other
+ * ticket in the batch down with it: the feed then showed filing-time snapshots
+ * forever. Now each round-trip learns one alias Linear can't resolve and the
+ * batch is re-asked without it, until every ticket has answered or been ruled
+ * gone (bounded by MAX_LOOKUP_ROUNDS). The unresolvable identifiers come back
+ * in `gone` so the caller can show them as deleted.
+ *
+ * A ticket moved to another team answers with its NEW identifier; it stays
+ * keyed by the requested one here so the caller can find it, and carries the
+ * new identifier/url so the stored snapshot can follow.
+ *
+ * Defensive by design: de-dupes ids and returns what it has on ANY failure - a
+ * Linear outage or token problem must never break the dashboard render.
  */
 export async function getIssuesByIdentifiers(
   tok: LinearTok,
   identifiers: string[],
-): Promise<Record<string, LinearIssueInfo>> {
-  const out: Record<string, LinearIssueInfo> = {};
+): Promise<LinearIssueLookup> {
+  const issues: Record<string, LinearIssueInfo> = {};
+  const gone: string[] = [];
+  const unanswered: string[] = [];
+  const skipped: string[] = [];
   try {
     const ids = Array.from(new Set(identifiers.filter(Boolean)));
-    if (ids.length === 0) return out;
-
-    const fields =
-      "identifier title url createdAt state { name color type } assignee { name avatarUrl }";
     for (const batch of chunk(ids, 20)) {
-      const aliases = batch
-        .map((id, i) => `i${i}: issue(id: ${JSON.stringify(id)}) { ${fields} }`)
-        .join("\n");
-      const query = `query IssuesByIdentifier {\n${aliases}\n}`;
+      let pending = batch;
+      let rounds = 0;
+      while (pending.length && rounds++ < MAX_LOOKUP_ROUNDS) {
+        const { data, errors } = await linearGraphQLRaw<Record<string, LinearIssueNode | null>>(
+          tok,
+          issuesByIdentifierQuery(pending),
+          {},
+        );
+        const verdicts = aliasVerdicts(errors);
+        if (!verdicts) throw new Error("Linear GraphQL: " + JSON.stringify(errors));
 
-      const data = await linearGraphQL<Record<string, any>>(tok, query, {});
-      for (let i = 0; i < batch.length; i++) {
-        const node = data?.[`i${i}`];
-        if (!node?.identifier) continue;
-        out[node.identifier] = {
-          identifier: node.identifier,
-          title: node.title ?? "",
-          url: node.url ?? "",
-          stateName: node.state?.name ?? "",
-          stateColor: node.state?.color ?? "#8a8378",
-          stateType: node.state?.type ?? "",
-          createdAt: node.createdAt ?? "",
-          assignee: node.assignee
-            ? { name: node.assignee.name, avatarUrl: node.assignee.avatarUrl ?? undefined }
-            : undefined,
-        };
+        const retry: string[] = [];
+        pending.forEach((id, i) => {
+          const node = data?.[`i${i}`];
+          const verdict = verdicts.get(i);
+          if (node?.identifier) issues[id] = toIssueInfo(node);
+          else if (verdict === "gone") gone.push(id);
+          else if (verdict === "skip") skipped.push(id); // keeps its snapshot for this load
+          else retry.push(id); // nulled by a sibling's error - ask again without it
+        });
+        if (verdicts.size === 0) {
+          // Nothing failed, so nothing to remove - whatever is still empty
+          // won't resolve by asking again.
+          unanswered.push(...retry);
+          pending = [];
+          break;
+        }
+        pending = retry;
+      }
+      if (pending.length) {
+        console.warn(
+          `[linear] ${pending.length} ticket(s) kept their snapshot this load: round budget spent on deletions`,
+        );
       }
     }
-    return out;
-  } catch {
-    return out;
+  } catch (err) {
+    console.warn("[linear] live ticket sync failed:", err instanceof Error ? err.message : err);
   }
+  if (skipped.length) {
+    console.warn(
+      `[linear] ${skipped.length} ticket(s) errored below their alias and kept their snapshot: ${skipped.join(", ")}`,
+    );
+  }
+  if (unanswered.length) {
+    console.warn(`[linear] ${unanswered.length} ticket(s) came back empty without an error: ${unanswered.join(", ")}`);
+  }
+  return { issues, gone };
 }
 
 export interface LinearApi {

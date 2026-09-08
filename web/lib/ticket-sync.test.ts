@@ -75,3 +75,32 @@ describe("ticketSnapshotPatch", () => {
     ).toBeNull();
   });
 });
+
+describe("ticketSnapshotPatch - a ticket that moved teams", () => {
+  const row = {
+    ticket_title: "Same title",
+    ticket_state_name: "Todo",
+    ticket_state_color: "#aaa",
+    ticket_identifier: "APP-5342",
+    ticket_url: "https://linear.app/acme/issue/APP-5342/same-title",
+  };
+
+  it("follows the ticket to its new identifier and url", () => {
+    expect(
+      ticketSnapshotPatch(row, {
+        title: "Same title",
+        stateName: "Todo",
+        stateColor: "#aaa",
+        identifier: "AI-2652",
+        url: "https://linear.app/acme/issue/AI-2652/same-title",
+      }),
+    ).toEqual({
+      ticket_identifier: "AI-2652",
+      ticket_url: "https://linear.app/acme/issue/AI-2652/same-title",
+    });
+  });
+
+  it("leaves identifier and url alone when the live info doesn't carry them", () => {
+    expect(ticketSnapshotPatch(row, { title: "Same title", stateName: "Todo", stateColor: "#aaa" })).toBeNull();
+  });
+});

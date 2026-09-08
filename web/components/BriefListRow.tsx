@@ -71,7 +71,9 @@ export default function BriefListRow({
   // tickets; filed rows also get a "open in tracker" action. Old filed briefs
   // without a share link fall back to opening the tracker directly.
   const briefHref = b.share_id ? `/b/${b.share_id}` : undefined;
-  const trackerHref = ti?.url || b.ticket_url || undefined;
+  // A ticket the tracker no longer has: nothing to open there, so the row and
+  // its id chip fall back to the Brief page.
+  const trackerHref = ti?.deleted ? undefined : ti?.url || b.ticket_url || undefined;
   // Row click opens the brief's PRIMARY home: once it's filed, that's the
   // tracker ticket (prioritized, new tab); before then it's the Brief page. The
   // id-cell logos still open each home explicitly.
@@ -239,7 +241,10 @@ export default function BriefListRow({
             draft
           </StatusBadge>
         ) : (
-          <StatusBadge color={ti?.stateColor || "#2e7d32"} title={ti?.stateName || "Filed"}>
+          <StatusBadge
+            color={ti?.stateColor || "#2e7d32"}
+            title={ti?.deleted ? `Deleted in ${providerName}` : ti?.stateName || "Filed"}
+          >
             {ti?.stateName || "Filed"}
           </StatusBadge>
         )}

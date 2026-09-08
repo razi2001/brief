@@ -1,6 +1,12 @@
 /** Provider-agnostic live ticket info, merged server-side when synced. Covers
  *  both Linear (which can also carry an assignee) and Jira. */
 export type TicketInfo = {
+  /** The ticket's CURRENT identifier - differs from the brief's stored
+   *  ticket_identifier once the ticket was moved to another team. */
+  identifier?: string;
+  /** The tracker no longer has this ticket (deleted there). Its status reads
+   *  "Deleted" and the row stops linking into the tracker. */
+  deleted?: boolean;
   title: string;
   url: string;
   stateName: string;
