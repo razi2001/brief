@@ -208,3 +208,16 @@ describe("normalizeJiraPriority", () => {
     expect(normalizeJiraPriority(undefined)).toBeUndefined();
   });
 });
+
+describe("markdownToAdf horizontal rule", () => {
+  it("renders --- as an ADF rule, not a literal paragraph", () => {
+    const doc = markdownToAdf("Summary.\n\n---\n\nReported with Brief");
+    expect(types(doc)).toEqual(["doc", "paragraph", "text", "rule", "paragraph", "text"]);
+    expect(JSON.stringify(doc)).not.toContain("---");
+  });
+
+  it("does not mistake a bullet or a setext-looking line for a rule", () => {
+    expect(types(markdownToAdf("- one"))).toContain("bulletList");
+    expect(types(markdownToAdf("- one"))).not.toContain("rule");
+  });
+});

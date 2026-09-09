@@ -1,5 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { resolveName, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
+import { resolveName, withBriefAttribution, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
@@ -87,6 +87,13 @@ export function markdownToAdf(markdown: string): AdfNode {
         content: [{ type: "text", text: code.join("\n") || " " }],
       });
       continue;
+    }
+
+    // Horizontal rule (---) - ADF has a node for it; left as a paragraph it
+    // would render as three literal dashes.
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      content.push({ type: "rule" });
+      i++; continue;
     }
 
     // Markdown heading (## Title)
@@ -648,6 +655,8 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           ? "Screenshots and the screen recording are in the Attachments panel."
           : "Screenshots are in the Attachments panel.";
       }
+
+      body = withBriefAttribution(body);
 
       const baseFields: Record<string, unknown> = {
         project: { id: project.id },

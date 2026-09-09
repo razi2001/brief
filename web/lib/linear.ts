@@ -1,5 +1,5 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { resolveName, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
+import { resolveName, withBriefAttribution, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
 export type LinearTok = { token: string };
@@ -530,6 +530,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       if (embeds.length && !description.includes("uploads.linear.app")) {
         description += "\n\n## Evidence\n\n" + embeds.join("\n\n");
       }
+      description = withBriefAttribution(description);
 
       // Resolve the agent's label/state names to ids - best-effort, never fatal.
       let labelIds: string[] | undefined;

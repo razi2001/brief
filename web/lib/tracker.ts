@@ -158,3 +158,22 @@ export function resolveName(want: string, candidates: string[]): string | undefi
   if (idx === -1) idx = lower.findIndex((c) => c.includes(w));
   return idx === -1 ? undefined : candidates[idx];
 }
+
+/**
+ * The attribution line every filed ticket carries. The reader should be able to
+ * tell at a glance where the report came from; the agent can't write it itself
+ * ("brief" is banned vocabulary in the body), so the adapters append it.
+ */
+export const BRIEF_ATTRIBUTION = "Reported with Brief";
+
+/**
+ * Put the attribution at the very END of the description, under a divider -
+ * after the Evidence section, so it never comes between the reader and the
+ * report. Idempotent: a body that already ends with it is returned untouched.
+ */
+export function withBriefAttribution(body: string): string {
+  const trimmed = (body ?? "").replace(/\s+$/, "");
+  if (trimmed.endsWith(BRIEF_ATTRIBUTION)) return trimmed;
+  if (!trimmed) return BRIEF_ATTRIBUTION;
+  return `${trimmed}\n\n---\n\n${BRIEF_ATTRIBUTION}`;
+}
