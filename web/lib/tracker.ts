@@ -159,12 +159,16 @@ export function resolveName(want: string, candidates: string[]): string | undefi
   return idx === -1 ? undefined : candidates[idx];
 }
 
+/** Where the attribution link points - the app itself. */
+export const BRIEF_URL = "https://cloud.get-brief.app/";
+
 /**
  * The attribution line every filed ticket carries. The reader should be able to
- * tell at a glance where the report came from; the agent can't write it itself
- * ("brief" is banned vocabulary in the body), so the adapters append it.
+ * tell at a glance where the report came from AND get there in one click; the
+ * agent can't write it itself ("brief" is banned vocabulary in the body), so the
+ * adapters append it.
  */
-export const BRIEF_ATTRIBUTION = "Reported with Brief";
+export const BRIEF_ATTRIBUTION = `Reported with [Brief](${BRIEF_URL})`;
 
 /**
  * Put the attribution at the very END of the description, under a divider -

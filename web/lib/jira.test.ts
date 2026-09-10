@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { markdownToAdf, buildSearchJql, mapJiraSearchIssue, normalizeJiraPriority, type AdfNode } from "./jira";
+import { BRIEF_URL, withBriefAttribution } from "./tracker";
 
 const types = (n: AdfNode): string[] => [n.type, ...(n.content ?? []).flatMap(types)];
 
@@ -219,5 +220,16 @@ describe("markdownToAdf horizontal rule", () => {
   it("does not mistake a bullet or a setext-looking line for a rule", () => {
     expect(types(markdownToAdf("- one"))).toContain("bulletList");
     expect(types(markdownToAdf("- one"))).not.toContain("rule");
+  });
+});
+
+describe("the Brief attribution in ADF", () => {
+  it("renders Brief as a real link, not literal markdown", () => {
+    const doc = markdownToAdf(withBriefAttribution("Summary."));
+    const last = doc.content![doc.content!.length - 1];
+    const link = last.content!.find((n) => n.marks?.some((m) => m.type === "link"));
+    expect(link?.text).toBe("Brief");
+    expect(link?.marks?.[0].attrs?.href).toBe(BRIEF_URL);
+    expect(JSON.stringify(doc)).not.toContain("](");
   });
 });

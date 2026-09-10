@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BRIEF_ATTRIBUTION, resolveName, withBriefAttribution } from "./tracker";
+import { BRIEF_ATTRIBUTION, BRIEF_URL, resolveName, withBriefAttribution } from "./tracker";
 
 describe("resolveName", () => {
   const states = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Triage"];
@@ -34,8 +34,13 @@ describe("resolveName", () => {
 describe("withBriefAttribution", () => {
   it("appends the attribution under a divider at the very end", () => {
     expect(withBriefAttribution("The save button does nothing.")).toBe(
-      "The save button does nothing.\n\n---\n\nReported with Brief",
+      "The save button does nothing.\n\n---\n\nReported with [Brief](https://cloud.get-brief.app/)",
     );
+  });
+
+  it("links Brief to the app so the reader can get there", () => {
+    expect(BRIEF_URL).toBe("https://cloud.get-brief.app/");
+    expect(BRIEF_ATTRIBUTION).toBe(`Reported with [Brief](${BRIEF_URL})`);
   });
 
   it("sits below the Evidence section, not above it", () => {
@@ -50,7 +55,9 @@ describe("withBriefAttribution", () => {
   });
 
   it("trims trailing whitespace so the divider never floats", () => {
-    expect(withBriefAttribution("Summary.\n\n\n")).toBe("Summary.\n\n---\n\nReported with Brief");
+    expect(withBriefAttribution("Summary.\n\n\n")).toBe(
+      `Summary.\n\n---\n\n${BRIEF_ATTRIBUTION}`,
+    );
   });
 
   it("still attributes an empty body", () => {
