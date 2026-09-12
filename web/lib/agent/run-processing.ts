@@ -11,6 +11,13 @@ import { transcribeAudio } from "@/lib/agent/transcribe";
 import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides } from "@/lib/agent/overrides";
 import { getUserSettings } from "@/lib/settings";
 import { briefPhase, releaseFiling } from "@/lib/brief-filing";
+import {
+  findRecordingName,
+  isRecordingName,
+  isTranscribableRecording,
+  recordingContentType,
+  type RecordingName,
+} from "@/lib/brief";
 
 export type ProcessResult =
   | { ok: true; result: { ticketUrl: string; ticketIdentifier: string; summary: string } }
@@ -39,7 +46,7 @@ export async function loadBriefInput(
   admin: SupabaseClient,
   prefix: string,
   opts: { includeVideo?: boolean; overrides?: BriefOverrides; lean?: boolean },
-): Promise<{ input: BriefInput; names: string[]; includeVideo: boolean }> {
+): Promise<{ input: BriefInput; names: string[]; includeVideo: boolean; recordingName: RecordingName | null }> {
   const dl = async (p: string) => {
     const { data } = await admin.storage.from("briefs").download(p);
     return data ? Buffer.from(await data.arrayBuffer()) : null;
@@ -54,6 +61,16 @@ export async function loadBriefInput(
   const files: BriefInput["evidence"]["files"] = [];
   const items: BriefInput["evidence"]["items"] = [];
   const includeVideo = opts.includeVideo ?? !!json.includeVideo;
+
+  // Where the recording lives. brief.json names it (an uploaded video keeps its
+  // container: recording.mp4 / .mov); older captures and missing metadata fall
+  // back to whatever recording.* object is actually in storage.
+  const namedRec = (json as { recording?: { file?: unknown } }).recording?.file;
+  let recName: RecordingName | null = isRecordingName(namedRec) ? namedRec : null;
+  if (!recName) {
+    const { data: rootList } = await admin.storage.from("briefs").list(prefix, { limit: 100 });
+    recName = findRecordingName((rootList ?? []).map((o) => o.name));
+  }
 
   // `lean` = export of an already-written ticket: skip transcription and the
   // keyframe vision storyboard (we're routing + attaching evidence, not
@@ -73,10 +90,10 @@ export async function loadBriefInput(
       const audioBuf = await dl(`${prefix}/audio.webm`);
       if (audioBuf) {
         audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
-      } else {
-        const recBuf = await dl(`${prefix}/recording.webm`);
+      } else if (recName && isTranscribableRecording(recName)) {
+        const recBuf = await dl(`${prefix}/${recName}`);
         if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
-          audioInput = { bytes: recBuf, filename: "recording.webm", contentType: "video/webm" };
+          audioInput = { bytes: recBuf, filename: recName, contentType: recordingContentType(recName) };
         }
       }
       const transcript = await transcribeAudio(audioInput);
@@ -128,19 +145,20 @@ export async function loadBriefInput(
   const hasShot = shotFilenames.length > 0;
 
   // The recording is attachable ONLY when the user said so.
-  const recordingExists = !!json.recording || names.length > 0;
-  if (includeVideo) {
-    const rec = await dl(`${prefix}/recording.webm`);
+  const recordingExists = !!json.recording || names.length > 0 || !!recName;
+  const recLabel = recName ?? "recording.webm";
+  if (includeVideo && recName) {
+    const rec = await dl(`${prefix}/${recName}`);
     if (rec) {
-      files.push({ filename: "recording.webm", contentType: "video/webm", bytes: rec });
-      items.push({ name: "recording.webm", kind: "recording" });
+      files.push({ filename: recName, contentType: recordingContentType(recName), bytes: rec });
+      items.push({ name: recName, kind: "recording" });
     }
   } else if (recordingExists) {
-    items.push({ name: "recording.webm", kind: "recording" });
+    items.push({ name: recLabel, kind: "recording" });
   }
 
   // Keyframes earn an attachment slot only when there's nothing else to show.
-  const recordingAttached = files.some((f) => f.filename === "recording.webm");
+  const recordingAttached = files.some((f) => f.filename === recLabel);
   const keyframesAsEvidence = !hasShot && !recordingAttached && frames.length > 0;
   if (keyframesAsEvidence) {
     for (const f of frames) {
@@ -153,7 +171,7 @@ export async function loadBriefInput(
   const fallback: string[] = [];
   for (const fn of shotFilenames) fallback.push(fn);
   if (recordingAttached) {
-    fallback.push("recording.webm");
+    fallback.push(recLabel);
   } else if (keyframesAsEvidence) {
     const lean = frames.length <= 2 ? frames : [frames[0], frames[frames.length - 1]];
     for (const f of lean) fallback.push(f.filename);
@@ -163,6 +181,7 @@ export async function loadBriefInput(
     input: { json, images, evidence: { files, items, includeVideo, fallback } },
     names,
     includeVideo,
+    recordingName: recName,
   };
 }
 
@@ -233,7 +252,7 @@ export async function processBriefById(
 
   try {
     const prefix = brief.storage_prefix as string;
-    const { input, names, includeVideo } = await loadBriefInput(admin, prefix, {
+    const { input, names, includeVideo, recordingName } = await loadBriefInput(admin, prefix, {
       includeVideo: opts.includeVideo,
       overrides: opts.overrides,
       // Export of a finalized draft: skip transcription + keyframe vision (the
@@ -301,7 +320,7 @@ export async function processBriefById(
         `${prefix}/audio.webm`,
         ...names.map((n) => `${prefix}/keyframes/${n}`),
       ];
-      if (!includeVideo) toDelete.push(`${prefix}/recording.webm`);
+      if (!includeVideo && recordingName) toDelete.push(`${prefix}/${recordingName}`);
       await admin.storage.from("briefs").remove(toDelete);
     } catch (e) {
       console.warn(`[process] brief ${briefId}: media cleanup failed (ticket is filed):`, e);

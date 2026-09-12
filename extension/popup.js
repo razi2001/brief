@@ -5,8 +5,9 @@
 // happens in bottom sheets. Capture (screenshot/video) runs on the page, so those
 // actions close the popup and it reopens when the capture lands.
 
-import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, uploadDraft, uploadFilesToDraft, processBrief, createDraft, briefPageUrl, transcribeNote } from './cloud.js';
-import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, migrateInboxToDraft } from './draft.js';
+import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, transcribeNote } from './cloud.js';
+import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft } from './draft.js';
+import { putFile, hasFile, deleteFile, recKey, shotKey, draftKeys } from './filestore.js';
 
 const $ = (s, r) => (r || document).querySelector(s);
 const gallery = $('#gallery');
@@ -16,9 +17,6 @@ const descField = $('#descField');
 const kvList = $('#kvList');
 const addFieldBtn = $('#addFieldBtn');
 const createBtn = $('#createBtn');
-const createMenuBtn = $('#createMenuBtn');
-const createMenu = $('#createMenu');
-const draftItem = $('#draftItem');
 const briefCloudBtn = $('#briefCloudBtn');
 const brandMark = $('#brandMark');
 const scrim = $('#scrim');
@@ -30,13 +28,14 @@ const sheetAction = $('#sheetAction');
 const resetBtn = $('#resetBtn');
 const toastEl = $('#toast');
 const exportDone = $('#exportDone');
+const filePick = $('#filePick');
+const probeVideo = $('#probeVideo');
 
 const MAX_SHOTS = 3;
 
 let draft = emptyDraft();
 let bcConnected = false;
 let bcTracker;
-let filing = false;
 let currentSheet = null; // 'shot:<id>' | 'rec' | 'chooser' | 'reset' | null
 let lastSig = '';
 
@@ -48,13 +47,6 @@ exportDone.hidden = true;
 // ---------- helpers ----------
 function esc(s) { return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function genShotId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
-function dataUrlToBytes(dataUrl) {
-  const b64 = dataUrl.split(',')[1] || '';
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}
 let toastTimer;
 function toast(msg) {
   toastEl.textContent = msg;
@@ -68,20 +60,32 @@ async function persist(patch) {
   return updated;
 }
 
-// ---------- mic pre-flight (reveal UI) ----------
+// ---------- reveal ----------
+// The popup starts at opacity 0 and is shown only once it is genuinely ready:
+// the mic pre-flight passed AND the first render has replaced the static markup
+// with real state. Revealing on the mic check alone flashed the markup's guesses
+// for a beat - the Create button read "Create ticket" before the account's
+// tracker was known, then corrected itself.
+let micPassed = false;
+let firstRender = false;
+function reveal() { if (micPassed && firstRender) document.body.classList.add('ready'); }
+// Whatever happens, never leave the user staring at an invisible popup.
+setTimeout(() => document.body.classList.add('ready'), 1200);
+
+// ---------- mic pre-flight ----------
 const MIC_CACHE_KEY = 'micGrantedAt';
 const MIC_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 (async () => {
   const { [MIC_CACHE_KEY]: grantedAt } = await chrome.storage.local.get(MIC_CACHE_KEY);
   if (grantedAt && Date.now() - grantedAt < MIC_CACHE_TTL_MS) {
-    document.body.classList.add('ready');
+    micPassed = true; reveal();
     probeMic().then((ok) => ok ? chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() }) : chrome.storage.local.remove(MIC_CACHE_KEY));
     return;
   }
   const ok = await probeMic();
   if (!ok) { await chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }); window.close(); return; }
   await chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() });
-  document.body.classList.add('ready');
+  micPassed = true; reveal();
 })();
 async function probeMic() {
   try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((t) => t.stop()); return true; }
@@ -116,6 +120,7 @@ function sig(d) {
     !!d.recording, d.recording?.poster ? 1 : 0,
     d.uploading, d.uploadFailed, d.cloudBriefId || '',
     d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()),
+    !!d.filing, d.fileError ? 1 : 0,
   ].join('|');
 }
 
@@ -124,12 +129,14 @@ function setBrandSpin(on) { brandMark?.classList.toggle('spinning', !!on); }
 function render() {
   renderGallery();
   updateCreate();
-  setBrandSpin(filing || !!draft.uploading);
+  setBrandSpin(!!draft.filing || !!draft.uploading);
   lastSig = sig(draft);
 }
 
 const X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 const REFRESH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>';
+const PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 const SHEET_X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 const SHEET_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
 function renderGallery() {
@@ -205,21 +212,19 @@ function initAdditionalData() {
 }
 
 function updateCreate() {
-  if (filing) return;
   const label = createBtn.querySelector('.ctk-label');
   const noTracker = bcTracker === null;
   const uploading = !!draft.uploading;
+  // Filing lives on the draft (the worker runs it), so a reopened popup shows
+  // the in-progress state too.
+  const filing = !!draft.filing;
   const ready = isReadyDraft(draft);
-  createBtn.disabled = uploading || !ready;
-  // Tracker connected → default action files directly ("Create ticket"), with
-  // "Save as draft" behind the caret. No tracker → the default IS the draft.
-  if (label) label.textContent = uploading ? 'Uploading…' : noTracker ? 'Create draft' : 'Create ticket';
-  // The caret is part of the button's shape: show it whenever a tracker is
-  // connected (not while status is still unknown), and let it disable ALONGSIDE
-  // the primary rather than popping in/out with readiness.
-  if (createMenuBtn) {
-    createMenuBtn.hidden = !bcTracker;
-    createMenuBtn.disabled = uploading || !ready;
+  createBtn.disabled = filing || uploading || !ready;
+  // One action: file to whichever tracker the account has configured, or - with
+  // none configured - write the brief up on its own page.
+  if (label) {
+    if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Creating…'}`;
+    else label.textContent = uploading ? 'Uploading…' : noTracker ? 'Create brief' : 'Create ticket';
   }
 }
 
@@ -271,9 +276,20 @@ function openShot(id) {
     `<div class="shot-preview"><img src="${s.dataUrl}" alt="Screenshot ${idx + 1}"></div>` +
     `<div class="field-label">Note</div>` +
     `<div class="ai-wrap" id="shotNoteWrap"><textarea class="ai-field has-mic" id="shotNote" placeholder="Add a note for this screenshot">${esc(s.description || '')}</textarea></div>`;
-  const retake = async () => {
-    await persist((d) => { d.screenshots = (d.screenshots || []).filter((x) => x.id !== id); });
-    takeScreenshot(); // captures a fresh one (closes the popup)
+  // Reopen the annotator on THIS screenshot's clean capture with its strokes
+  // restored, so Undo and Clear act on the marks already made. Runs on the page
+  // (like capturing), so the popup closes.
+  const editDrawing = async () => {
+    clearInlineError();
+    let res = null;
+    try { res = await chrome.runtime.sendMessage({ type: 'EDIT_SHOT', shotId: id }); }
+    catch (err) { res = { ok: false, error: String(err?.message || err) }; }
+    if (res?.ok) { window.close(); return; }
+    closeSheet();
+    showInlineError(
+      res?.error === 'original_missing' ? 'This screenshot can no longer be edited.'
+      : res?.error === 'unsupported_page' ? 'Switch to a regular web page to edit the drawing.'
+      : `Couldn't open the drawing: ${res?.error || 'unknown error'}`);
   };
   openSheet(`Screenshot <em>${idx + 1}</em>`, body, (root) => {
     const ta = $('#shotNote', root);
@@ -282,37 +298,58 @@ function openShot(id) {
     let t = null;
     ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistNote, 250); });
     attachVoiceDictation(ta, $('#shotNoteWrap', root), persistNote);
-  }, 'shot:' + id, { html: REFRESH_SVG, title: 'Retake', onClick: retake }, true);
+  }, 'shot:' + id, { html: PENCIL_SVG, title: 'Edit drawing', onClick: editDrawing }, true);
 }
 
 // ---------- recording sheet ----------
-function openRec() {
+// While transcribing: a non-editable animated placeholder (the user can't type
+// into it). When done: the editable field. Kept separate from the sheet body so
+// the swap can happen in place - rebuilding the sheet would restart the video.
+function transcriptBlockHTML() {
+  const phold = draft.transcriptFailed ? 'Auto-transcription failed - type it here' : 'Transcript';
+  return draft.transcribing
+    ? `<div class="transcribing" id="trState" role="status" aria-live="polite"><span class="tr-dots"><i></i><i></i><i></i></span><span class="tr-label">Transcribing</span></div>`
+    : `<div class="ai-wrap"><textarea class="ai-field transcript has-mic" id="recTranscript" placeholder="${phold}">${esc(draft.transcript || '')}</textarea></div>`;
+}
+function wireTranscript(root) {
+  const ta = $('#recTranscript', root);
+  if (!ta) return;
+  let t = null;
+  const persistTr = () => persist((d) => { d.transcript = ta.value; });
+  ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistTr, 250); });
+  // Same voice-record mic as a screenshot note: dictate corrections/additions
+  // straight into the transcript.
+  attachVoiceDictation(ta, ta.parentElement, persistTr);
+}
+
+
+async function openRec() {
   const r = draft.recording;
   if (!r) return;
   const poster = r.poster || REC_FALLBACK;
-  // While transcribing: a non-editable animated placeholder (user can't type into
-  // it). When done: the editable field. The swap happens once (see the storage
-  // listener), so it never glitches.
-  const phold = draft.transcriptFailed ? 'Auto-transcription failed - type it here' : 'Transcript';
-  const trBlock = draft.transcribing
-    ? `<div class="transcribing" id="trState" role="status" aria-live="polite"><span class="tr-dots"><i></i><i></i><i></i></span><span class="tr-label">Transcribing</span></div>`
-    : `<div class="ai-wrap"><textarea class="ai-field transcript has-mic" id="recTranscript" placeholder="${phold}">${esc(draft.transcript || '')}</textarea></div>`;
+  // The still, with a play badge that opens the recording full size in its own
+  // tab. Playing it inside the popup is a dead end: the popup is a fixed little
+  // window with no working fullscreen, and it dies the moment it loses focus.
+  // A brief whose video is no longer on this device just shows the still.
+  let playable = false;
+  try { playable = await hasFile(recKey(draft.id)); } catch {}
+  const preview = playable
+    ? `<button class="rec-open" id="recPlay" type="button" title="Play the recording" aria-label="Play the recording">` +
+        `<img class="rec-poster" src="${poster}" alt="Recording preview">` +
+        `<span class="rec-play">${PLAY_SVG}</span>` +
+      `</button>`
+    : `<img class="rec-poster" src="${poster}" alt="Recording preview">`;
   const body =
-    `<img class="rec-poster" src="${poster}" alt="Recording preview">` +
+    preview +
     `<div class="field-label">Transcript</div>` +
-    `<div id="trWrap">${trBlock}</div>` +
+    `<div id="trWrap">${transcriptBlockHTML()}</div>` +
     `<div class="toggle-row"><span class="lbl">Attach the video to the ticket</span>` +
       `<button class="switch${draft.includeVideo ? ' on' : ''}" id="recAttach" role="switch" aria-checked="${!!draft.includeVideo}"><span class="knob"></span></button></div>`;
   openSheet('Recording', body, (root) => {
-    const ta = $('#recTranscript', root);
-    if (ta) {
-      let t = null;
-      const persistTr = () => persist((d) => { d.transcript = ta.value; });
-      ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistTr, 250); });
-      // Same voice-record mic as a screenshot note: dictate corrections/additions
-      // straight into the transcript.
-      attachVoiceDictation(ta, ta.parentElement, persistTr);
-    }
+    wireTranscript(root);
+    $('#recPlay', root)?.addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL(`player.html#${encodeURIComponent(draft.id)}`) }).catch(() => {});
+    });
     const sw = $('#recAttach', root);
     sw.addEventListener('click', async () => {
       await persist((d) => { d.includeVideo = !d.includeVideo; });
@@ -327,6 +364,8 @@ function openAddChooser() {
   const shots = (draft.screenshots || []).length;
   const canShot = shots < MAX_SHOTS;
   const canVid = !draft.recording;
+  const canUp = canShot || canVid;
+  const upSub = canShot && canVid ? 'Image or video' : canShot ? 'Image' : canVid ? 'Video' : 'Limit reached';
   const body = `<div class="chooser">` +
     `<button class="choice" id="chShot" ${canShot ? '' : 'disabled'}>` +
       `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 17-5-5-4 4-2-2-4 4"/></svg></span>` +
@@ -336,10 +375,15 @@ function openAddChooser() {
       `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m10 8 6 4-6 4z"/><rect x="3" y="4" width="18" height="16" rx="3"/></svg></span>` +
       `<span class="ctxt"><span class="ct">Video</span><span class="cs">${canVid ? 'Record the screen' : 'Already added'}</span></span>` +
       `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
+    `<button class="choice" id="chUp" ${canUp ? '' : 'disabled'}>` +
+      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>` +
+      `<span class="ctxt"><span class="ct">Upload</span><span class="cs">${upSub}</span></span>` +
+      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
     `</div>`;
   openSheet('Add to <em>brief</em>', body, (root) => {
     if (canShot) $('#chShot', root).addEventListener('click', () => takeScreenshot());
     if (canVid) $('#chVid', root).addEventListener('click', () => recordBrief());
+    if (canUp) $('#chUp', root).addEventListener('click', () => pickFiles(canShot, canVid));
   }, 'chooser');
 }
 
@@ -357,6 +401,8 @@ function openReset() {
   const body = `<div class="sheet-actions"><button class="s-btn danger" id="resetConfirm">${TRASH}Reset brief</button></div>`;
   openSheet('Reset the <em>brief</em>?', body, (root) => {
     $('#resetConfirm', root).addEventListener('click', async () => {
+      // The video and the clean captures go with it.
+      for (const k of draftKeys(draft)) deleteFile(k).catch(() => {});
       await clearDraft();
       draft = emptyDraft();
       await setDraft(draft);
@@ -399,150 +445,178 @@ async function takeScreenshot() {
   } catch (err) { showInlineError(`Couldn’t capture: ${err?.message || err}`); }
 }
 
-// ---------- filing ----------
-async function activePageContext() {
+// ---------- upload (an image or a video from disk) ----------
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // Supabase object cap
+const IMAGE_MAX_EDGE = 1600;
+const VIDEO_EXT = { 'video/webm': 'webm', 'video/mp4': 'mp4', 'video/quicktime': 'mov' };
+
+function pickFiles(images, videos) {
+  const accept = [];
+  if (images) accept.push('image/*');
+  if (videos) accept.push(...Object.keys(VIDEO_EXT));
+  filePick.accept = accept.join(',');
+  filePick.value = '';
+  filePick.click();
+}
+filePick.addEventListener('change', () => {
+  const files = [...(filePick.files || [])];
+  if (files.length) addFiles(files);
+});
+
+async function addFiles(files) {
+  clearInlineError();
+  const images = files.filter((f) => f.type.startsWith('image/'));
+  const videos = files.filter((f) => f.type.startsWith('video/'));
+  const room = Math.max(0, MAX_SHOTS - (draft.screenshots || []).length);
+  let lastShotId = null;
+  for (const f of images.slice(0, room)) {
+    let dataUrl;
+    try { dataUrl = await imageToPngDataUrl(f); } catch { showInlineError(`Couldn’t read ${f.name}`); continue; }
+    const id = genShotId();
+    // The picked image IS the clean capture - stash it so Edit drawing works.
+    try { await putFile(shotKey(id), await (await fetch(dataUrl)).blob()); } catch {}
+    const saved = await persist((d) => {
+      if (!Array.isArray(d.screenshots)) d.screenshots = [];
+      if (d.screenshots.length >= MAX_SHOTS) return;
+      d.screenshots.push({ id, dataUrl, annotated: false, strokes: [], description: '', pageUrl: null, pageTitle: null, addedAt: Date.now() });
+    });
+    if (saved && saved.screenshots.some((s) => s.id === id)) lastShotId = id;
+  }
+  if (images.length > room) toast(`${MAX_SHOTS} screenshots max`);
+  if (videos.length) {
+    if (draft.recording) toast('One video per brief');
+    else await addVideoFile(videos[0]);
+  }
+  closeSheet();
+  if (lastShotId && !videos.length) openShot(lastShotId);
+}
+
+// Uploaded images join the screenshot pipeline as-is (PNG data URLs, filed as
+// screenshots/<id>.png), bounded so a big photo doesn't blow storage quota.
+async function imageToPngDataUrl(file) {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, IMAGE_MAX_EDGE / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale));
+  const h = Math.max(1, Math.round(bmp.height * scale));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  bmp.close?.();
+  return c.toDataURL('image/png');
+}
+
+// A video file takes the recording's slot and its exact upload path: the popup
+// can't upload it (it dies on blur), so the file is parked in IndexedDB and the
+// offscreen document uploads it in the background - keyframes, poster and
+// transcript included - reporting back through UPLOAD_RESULT like a capture.
+async function addVideoFile(file) {
+  const ext = VIDEO_EXT[file.type];
+  if (!ext) { showInlineError('Use an MP4, WebM or MOV video.'); return; }
+  if (file.size > MAX_VIDEO_BYTES) { showInlineError('Video is over 50 MB.'); return; }
+  let token = null; try { token = await getCloudToken(); } catch {}
+  if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
+  const meta = await probeVideoFile(file);
+  try { await putFile(recKey(draft.id), file); }
+  catch (err) { showInlineError(`Couldn’t read the video: ${err?.message || err}`); return; }
+  await persist((d) => { landRecording(d, { uploading: true, durationMs: meta.durationMs, poster: meta.poster, source: 'upload' }); });
+  render();
+  let res = null;
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return null;
-    return { url: tab.url, title: tab.title || null };
-  } catch { return null; }
+    res = await chrome.runtime.sendMessage({ type: 'UPLOAD_VIDEO_FILE', briefId: draft.id, key: recKey(draft.id), name: `recording.${ext}`, mimeType: file.type });
+  } catch (err) { res = { ok: false, error: String(err?.message || err) }; }
+  if (!res?.ok) {
+    await persist((d) => { d.uploading = false; d.transcribing = false; d.uploadFailed = true; d.uploadError = res?.error || 'upload failed'; });
+    render();
+    showInlineError(`Couldn’t upload the video: ${res?.error || 'unknown error'}`);
+  }
 }
-function buildScreenshotFiles(d) {
-  return (d.screenshots || []).map((s) => ({ name: `screenshots/${s.id}.png`, blob: new Blob([dataUrlToBytes(s.dataUrl)], { type: 'image/png' }), contentType: 'image/png' }));
+
+// Duration + an early poster so the tile shows a real frame right away.
+// Best-effort with a short timeout; the offscreen uploader produces the
+// definitive poster and duration from the file itself.
+function probeVideoFile(file) {
+  return new Promise((resolve) => {
+    const v = probeVideo;
+    const url = URL.createObjectURL(file);
+    let done = false;
+    let durationMs = 0;
+    const finish = (out) => {
+      if (done) return;
+      done = true;
+      clearTimeout(t);
+      v.onloadedmetadata = v.onseeked = v.onerror = null;
+      try { v.removeAttribute('src'); v.load(); } catch {}
+      URL.revokeObjectURL(url);
+      resolve(out);
+    };
+    const t = setTimeout(() => finish({ durationMs, poster: null }), 4000);
+    v.onloadedmetadata = () => {
+      durationMs = Number.isFinite(v.duration) ? Math.round(v.duration * 1000) : 0;
+      try { v.currentTime = Math.min(0.5, (Number.isFinite(v.duration) ? v.duration : 1) / 2); }
+      catch { finish({ durationMs, poster: null }); }
+    };
+    v.onseeked = () => {
+      let poster = null;
+      try {
+        const scale = Math.min(1, 320 / (v.videoWidth || 320));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round((v.videoWidth || 320) * scale));
+        c.height = Math.max(1, Math.round((v.videoHeight || 200) * scale));
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+        poster = c.toDataURL('image/jpeg', 0.72);
+      } catch {}
+      finish({ durationMs, poster });
+    };
+    v.onerror = () => finish({ durationMs, poster: null });
+    v.src = url;
+  });
 }
-function buildOverrides(d) {
-  return {
-    title: d.name || '',
-    includeVideo: !!d.includeVideo,
-    transcript: d.transcript || '',
-    description: d.description || '',
-    extra: (d.extra || []).filter((p) => (p.key || '').trim() || (p.value || '').trim()),
-    screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
-  };
-}
-function buildBriefJsonAndMeta(d, page) {
-  const pageUrl = d.pageUrl || page?.url || null;
-  const pageTitle = d.pageTitle || page?.title || null;
-  const briefJson = {
-    id: d.id, name: d.name || '', createdAt: d.createdAt || Date.now(),
-    source: d.recording ? 'recording' : ((d.screenshots || []).length ? 'screenshot' : 'text'),
-    description: d.description || '', transcript: d.transcript || '', pageUrl, pageTitle,
-    hasRecording: !!d.recording,
-    screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
-    includeVideo: !!d.includeVideo,
-    extra: (d.extra || []).filter((p) => (p.key || '').trim() || (p.value || '').trim()),
-  };
-  const files = [{ name: 'brief.json', blob: new Blob([JSON.stringify(briefJson, null, 2)], { type: 'application/json' }), contentType: 'application/json' }];
-  const meta = { title: d.name || '', description: d.description || '', transcript: d.transcript || '', pageUrl, pageTitle, hasScreenshot: (d.screenshots || []).length > 0, keyframeCount: 0 };
-  return { files, meta };
-}
-// Land on the Brief page for what we just created - ALWAYS, whether it was
-// drafted or filed straight to the tracker. The page handles every state
-// (writing / filing / drafted / filed), so it's the one link that's never
-// wrong. /tickets is only the fallback for when the server didn't hand back a
-// share token.
-function openBrief(shareId, title = 'Brief created') {
+
+// ---------- filing ----------
+// The worker does the actual work (filing.js): the popup dies the instant it
+// loses focus, so an upload + file flow run here was dropped whenever the user
+// clicked away after Create. We ask, mirror progress from the draft's `filing`
+// flag, and if the popup is still open when it lands, play the confirmation.
+// The worker opens the brief page either way.
+function trackerName() { return bcTracker === 'jira' ? 'Jira' : bcTracker === 'linear' ? 'Linear' : 'your tracker'; }
+function showDone(title, sub) {
   const t = exportDone.querySelector('.export-done-title');
   const s = exportDone.querySelector('.export-done-sub');
   if (t) t.textContent = title;
-  if (s) s.textContent = shareId ? 'Opening your brief…' : 'Opening your tickets…';
+  if (s) s.textContent = sub;
   exportDone.hidden = false;
-  const url = shareId ? briefPageUrl(shareId) : TICKETS_URL;
-  // Hand the open to the background worker NOW, with the confirmation delay.
-  // The popup is destroyed the instant it loses focus and its timers go with
-  // it, so opening the tab from here after a delay silently did nothing
-  // whenever the user clicked away first. The worker survives that.
-  chrome.runtime
-    .sendMessage({ type: 'OPEN_TAB', url, delayMs: 1200 })
-    .catch(() => { chrome.tabs.create({ url }).catch(() => {}); });
+  // The worker opens the brief page after the same beat, which closes us anyway.
   setTimeout(() => window.close(), 1200);
 }
-function failCreate(err) {
-  filing = false;
-  setBrandSpin(false);
-  createBtn.disabled = false;
-  if (createMenuBtn) createMenuBtn.disabled = false;
-  updateCreate(); // restores the right label ("Create ticket" / "Create draft") + caret
-  showInlineError(`Couldn’t create brief: ${err?.message || err}`);
-}
 
-// Direct-file confirmation: the ticket was queued to the tracker and is written
-// in the background. Open the capture's Brief page - it shows the "Filing…"
-// state and resolves itself into the filed ticket, so the Brief link works for
-// a directly-filed capture exactly like it does for a draft.
-function showFiledAndOpen(shareId) {
-  const tracker = bcTracker === 'jira' ? 'Jira' : bcTracker === 'linear' ? 'Linear' : 'your tracker';
-  openBrief(shareId, `Filing to ${tracker}`);
-}
-function closeCreateMenu() { if (createMenu) createMenu.hidden = true; }
-// Ensure the brief is uploaded as a cloud draft (creates it + uploads brief.json
-// and screenshots on first send, or pushes new screenshots into an existing
-// draft). Shared by filing and "save as draft".
-async function ensureUploaded() {
-  const shotFiles = buildScreenshotFiles(draft);
-  if (!draft.cloudBriefId) {
-    const page = await activePageContext();
-    const { files, meta } = buildBriefJsonAndMeta(draft, page);
-    const id = await uploadDraft([...files, ...shotFiles], meta);
-    await persist((d) => { d.cloudBriefId = id; });
-  } else if (shotFiles.length) {
-    await uploadFilesToDraft(draft.cloudBriefId, shotFiles);
-  }
-}
-
-// One action. Always creates the Brief page; if a tracker is connected it also
-// files the ticket (the brief page becomes the linked record). Either way we
-// land on the brief page, which shows the "writing…" state and resolves itself.
-async function createBrief() {
+// `mode`: 'ticket' files straight to the connected tracker; 'draft' writes the
+// brief up with no tracker. Both land on the brief's hosted page.
+async function startFiling(mode) {
   clearInlineError();
-  closeCreateMenu();
-  if (!isReadyDraft(draft) || draft.uploading) return;
+  if (!isReadyDraft(draft) || draft.uploading || draft.filing) return;
   let token = null; try { token = await getCloudToken(); } catch {}
   if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
 
-  filing = true;
-  setBrandSpin(true);
-  createBtn.disabled = true;
-  if (createMenuBtn) createMenuBtn.disabled = true;
-  const label = createBtn.querySelector('.ctk-label');
-  if (label) label.innerHTML = '<span class="btn-spin"></span> Creating…';
-
-  let shareId = null;
-  const run = async () => {
-    await ensureUploaded();
-    // Always create ONE Brief (a draft + its page). The owner sends it to a
-    // tracker from the page when ready, so a capture is never two tickets at
-    // once - it's one Brief that progresses draft -> filed.
-    shareId = await createDraft(draft.cloudBriefId, buildOverrides(draft));
-  };
-
-  try {
-    await run();
-  } catch (err) {
-    if (err?.code === 'already_filed' && err.shareId) return settleAlreadyFiled(err.shareId);
-    if (err?.status === 404 && draft.cloudBriefId) {
-      try { await persist((d) => { d.cloudBriefId = null; }); await run(); }
-      catch (err2) { return failCreate(err2); }
-    } else { return failCreate(err); }
+  // Optimistic UI; the worker owns the flow (and the draft's flag) from here.
+  draft.filing = true; draft.filingMode = mode; draft.fileError = null;
+  render();
+  let res = null;
+  try { res = await chrome.runtime.sendMessage({ type: 'FILE_DRAFT', mode }); }
+  catch (err) { res = { ok: false, error: String(err?.message || err) }; }
+  if (res?.ok) {
+    const title = res.alreadyFiled ? 'Already filed' : mode === 'ticket' ? `Filing to ${trackerName()}` : 'Brief created';
+    const toTickets = mode === 'ticket' || !res.shareId;
+    showDone(title, toTickets ? 'Opening your tickets…' : 'Opening your brief…');
+    return;
   }
-  await clearDraft();
-  draft = emptyDraft();
-  await setDraft(draft);
-  openBrief(shareId);
+  if (res?.error === 'already_filing') return; // an earlier ask is still running; the draft flag shows it
+  const d = await getDraft();
+  if (d) draft = d;
+  render();
+  showInlineError(`Couldn’t create brief: ${res?.error || 'unknown error'}`);
 }
 
-// The server says this capture already has a ticket (a re-submit of a brief
-// that was filed). Not an error for the user - the ticket exists. Drop the
-// local draft and land on the brief, exactly like a successful create.
-async function settleAlreadyFiled(shareId) {
-  await clearDraft();
-  draft = emptyDraft();
-  await setDraft(draft);
-  openBrief(shareId, 'Already filed');
-}
-
-// The primary "Create ticket" action. With a tracker connected we file directly
-// (queued, written in the background) and land on /tickets. With no tracker the
+// The primary action. With a tracker connected we file directly; with none the
 // primary IS the draft. If we don't yet know the tracker status (fast click on
 // open), resolve it first so we route correctly.
 async function primaryCreate() {
@@ -553,48 +627,7 @@ async function primaryCreate() {
     } catch { /* fall through: treat as draft, which always works */ }
     updateCreate();
   }
-  if (bcTracker) fileTicket();
-  else createBrief();
-}
-
-// File the brief DIRECTLY to the connected tracker (Linear/Jira). The /process
-// route queues it and writes it in the background; we don't open a Brief page
-// (a filed ticket isn't a draft) - we land on /tickets where it shows up.
-async function fileTicket() {
-  clearInlineError();
-  closeCreateMenu();
-  if (!isReadyDraft(draft) || draft.uploading) return;
-  let token = null; try { token = await getCloudToken(); } catch {}
-  if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
-
-  filing = true;
-  setBrandSpin(true);
-  createBtn.disabled = true;
-  if (createMenuBtn) createMenuBtn.disabled = true;
-  const label = createBtn.querySelector('.ctk-label');
-  if (label) label.innerHTML = '<span class="btn-spin"></span> Filing…';
-
-  // /process hands back the brief's share token so we can land on its Brief
-  // page (never a dead end, even while the tracker ticket is still being made).
-  let shareId = null;
-  const run = async () => {
-    await ensureUploaded();
-    shareId = await processBrief(draft.cloudBriefId, buildOverrides(draft));
-  };
-
-  try {
-    await run();
-  } catch (err) {
-    if (err?.code === 'already_filed' && err.shareId) return settleAlreadyFiled(err.shareId);
-    if (err?.status === 404 && draft.cloudBriefId) {
-      try { await persist((d) => { d.cloudBriefId = null; }); await run(); }
-      catch (err2) { return failCreate(err2); }
-    } else { return failCreate(err); }
-  }
-  await clearDraft();
-  draft = emptyDraft();
-  await setDraft(draft);
-  showFiledAndOpen(shareId);
+  startFiling(bcTracker ? 'ticket' : 'draft');
 }
 
 // ---------- tickets tab + cloud button ----------
@@ -710,11 +743,36 @@ function attachVoiceDictation(textarea, container, onCommit) {
 }
 
 // ---------- account status ----------
+// Whether the caret shows depends on which tracker the account has, and that
+// costs a network round trip. Asking first and rendering after meant the popup
+// painted, then grew a caret ~700ms later while the primary button shrank to
+// make room. So: remember the last answer, open in that shape, and only touch
+// the DOM if the truth turns out to be different.
+const TRACKER_CACHE_KEY = 'bcTrackerCache';
+async function readTrackerCache() {
+  try {
+    const { [TRACKER_CACHE_KEY]: c } = await chrome.storage.local.get(TRACKER_CACHE_KEY);
+    return c && typeof c === 'object' ? (c.tracker ?? null) : undefined; // undefined = never asked
+  } catch { return undefined; }
+}
+function writeTrackerCache(tracker) {
+  try { return chrome.storage.local.set({ [TRACKER_CACHE_KEY]: { tracker: tracker ?? null } }); } catch { return Promise.resolve(); }
+}
+
 async function bcRefresh() {
   let token = null; try { token = await getCloudToken(); } catch {}
   bcConnected = !!token;
-  if (!token) return;
-  try { const status = await fetchAccountStatus(); if (!status) return; bcConnected = status.connected; bcTracker = status.tracker; updateCreate(); } catch {}
+  // Not paired: there is no tracker to have, so don't leave a remembered caret
+  // waiting for the next open.
+  if (!token) { await writeTrackerCache(null); return; }
+  try {
+    const status = await fetchAccountStatus();
+    if (!status) return;
+    bcConnected = status.connected;
+    const tracker = status.tracker ?? null;
+    await writeTrackerCache(tracker);
+    if (tracker !== bcTracker) { bcTracker = tracker; updateCreate(); }
+  } catch {}
 }
 
 // ---------- wiring ----------
@@ -725,8 +783,15 @@ gallery.addEventListener('click', async (e) => {
     const id = rm.getAttribute('data-rm');
     const tile = rm.closest('.tile');
     if (tile) { tile.classList.add('removing'); await new Promise((r) => setTimeout(r, 230)); }
-    if (id === 'rec') { await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.includeVideo = false; }); toast('Recording removed'); }
-    else { await persist((d) => { d.screenshots = (d.screenshots || []).filter((x) => x.id !== id); }); toast('Screenshot removed'); }
+    if (id === 'rec') {
+      await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.includeVideo = false; });
+      deleteFile(recKey(draft.id)).catch(() => {});
+      toast('Recording removed');
+    } else {
+      await persist((d) => { d.screenshots = (d.screenshots || []).filter((x) => x.id !== id); });
+      deleteFile(shotKey(id)).catch(() => {});
+      toast('Screenshot removed');
+    }
     renderGallery(); updateCreate(); lastSig = sig(draft);
     return;
   }
@@ -736,11 +801,6 @@ gallery.addEventListener('click', async (e) => {
   if (shot) return openShot(shot.getAttribute('data-shot'));
 });
 createBtn.addEventListener('click', primaryCreate);
-createMenuBtn?.addEventListener('click', (e) => { e.stopPropagation(); if (createMenu) createMenu.hidden = !createMenu.hidden; });
-draftItem?.addEventListener('click', createBrief);
-document.addEventListener('click', (e) => {
-  if (createMenu && !createMenu.hidden && !e.target.closest('.create-wrap')) closeCreateMenu();
-});
 resetBtn?.addEventListener('click', openReset);
 
 // ---------- boot ----------
@@ -749,8 +809,23 @@ resetBtn?.addEventListener('click', openReset);
   const existing = await getDraft();
   if (existing) draft = existing;
   else { draft = emptyDraft(); await setDraft(draft); }
+  // The tracker we saw last time, read before the first paint, so the Create
+  // button opens at its final width instead of settling once /api/me answers.
+  bcTracker = await readTrackerCache();
+  // Filing runs in the worker, so it can finish - or fail - while the popup is
+  // closed. Unstick a flag left by a worker recycled mid-flow, and surface a
+  // failure once (the badge showed "!" until now).
+  if (draft.filing && Date.now() - (draft.filingStartedAt || 0) > 120000) {
+    await persist((d) => { d.filing = false; d.fileError = d.fileError || 'Filing was interrupted. Try again.'; });
+  }
   render();
   initAdditionalData();
+  firstRender = true; reveal();
+  if (draft.fileError && !draft.filing) {
+    showInlineError(`Couldn’t create brief: ${draft.fileError}`);
+    await persist((d) => { d.fileError = null; });
+    lastSig = sig(draft);
+  }
   // After capturing a screenshot or recording, open its editor automatically so
   // the user can add a note / review it right away.
   try {
@@ -766,7 +841,7 @@ resetBtn?.addEventListener('click', openReset);
 
 // Live updates when a BACKGROUND change settles (upload, transcript, poster).
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'local' || !changes.draft || filing) return;
+  if (area !== 'local' || !changes.draft) return;
   getDraft().then((d) => {
     // Storage is the source of truth. If it momentarily reads empty (e.g. mid
     // reset, between clear and set), do NOT fabricate a fresh-id draft here -
@@ -782,8 +857,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
       // the sheet once so the animation swaps to the editable field. Otherwise
       // patch in place so a poster/transcript arriving doesn't disrupt the user.
       const showingTranscribing = !!document.getElementById('trState');
-      if (showingTranscribing !== !!draft.transcribing) {
-        openRec();
+      const wrap = document.getElementById('trWrap');
+      if (showingTranscribing !== !!draft.transcribing && wrap) {
+        // Swap JUST the transcript block - reopening the sheet would restart the
+        // video the reporter may be watching.
+        wrap.innerHTML = transcriptBlockHTML();
+        wireTranscript(wrap);
       } else {
         const tf = document.getElementById('recTranscript');
         if (tf && document.activeElement !== tf && draft.transcript && draft.transcript.trim()) tf.value = draft.transcript;

@@ -3,7 +3,9 @@
 // relays messages between bar (in content script) and offscreen.
 
 import { APP_URL } from "./config.js";
-import { getDraft, updateDraft, migrateInboxToDraft } from "./draft.js";
+import { getDraft, setDraft, updateDraft, emptyDraft, genId, landRecording, migrateInboxToDraft } from "./draft.js";
+import { fileDraft } from "./filing.js";
+import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
@@ -42,12 +44,12 @@ function tryOpenPopup(briefId) {
 // ---------- Draft badge ----------
 // No badge for a brief simply being in progress - that shows in the popup, and a
 // dot on the orange icon only ever rendered as a muddy blob. The icon stays
-// clean; we surface a badge ONLY for a real alert (the recording upload failed),
-// as a legible red "!".
+// clean; we surface a badge ONLY for a real alert (the recording upload failed,
+// or a filing that ran after the popup closed failed), as a legible red "!".
 async function refreshBadge() {
   try {
     const d = await getDraft();
-    const text = d?.uploadFailed ? '!' : '';
+    const text = (d?.uploadFailed || d?.fileError) ? '!' : '';
     chrome.action.setBadgeText({ text });
     if (text) {
       chrome.action.setBadgeBackgroundColor({ color: '#cf3b2e' });
@@ -58,8 +60,33 @@ async function refreshBadge() {
   }
 }
 
-// Migrate any legacy multi-brief inbox to the single draft on worker startup.
-migrateInboxToDraft().then(() => refreshBadge()).catch(() => {});
+// Filing runs in THIS worker (filing.js). If the worker is starting up, no filing
+// is in flight - so a draft still flagged `filing` was interrupted (the worker was
+// recycled mid-flow). Unstick it and say so, instead of a popup frozen on
+// "Filing…" forever.
+async function clearStaleFiling() {
+  const d = await getDraft();
+  if (d?.filing) {
+    await updateDraft(d.id, (x) => { x.filing = false; x.fileError = x.fileError || 'Filing was interrupted. Try again.'; });
+  }
+}
+
+// Blobs (the recording, each screenshot's clean capture) outlive the draft that
+// owns them when a brief is filed mid-flight or the browser dies. Startup is the
+// safe moment to drop whatever the current draft no longer references.
+async function pruneOrphanBlobs() {
+  try { await pruneFiles(draftKeys(await getDraft())); }
+  catch (err) { console.warn('[brief/background] blob prune:', err); }
+}
+
+// Worker startup: migrate any legacy multi-brief inbox to the single draft, drop
+// a stale filing flag, sweep orphaned blobs, refresh the badge. Handlers that
+// touch the filing state await this so the startup pass can't race them.
+const startup = migrateInboxToDraft()
+  .then(clearStaleFiling)
+  .then(pruneOrphanBlobs)
+  .then(() => refreshBadge())
+  .catch(() => {});
 
 // ---------- Offscreen document lifecycle ----------
 const OFFSCREEN_PATH = 'offscreen.html';
@@ -113,6 +140,70 @@ async function bumpUploadsPending(delta) {
   return next;
 }
 
+// ---------- Live recording session ----------
+// The bar is an iframe INSIDE the recorded page, so a reload (or navigation)
+// destroys it while the offscreen recorder keeps capturing - and nothing could
+// stop the recording any more: it just vanished from the extension. We remember
+// the live session here so the content script of the new page can ask for its
+// bar back (CONTENT_READY → resume), and so a closed tab still stops + saves
+// what was recorded. Session storage: survives worker restarts, dies with the
+// browser (a recording never outlives the browser anyway).
+const REC_KEY = 'recSession';
+async function getRecSession() {
+  try { return (await chrome.storage.session.get(REC_KEY))[REC_KEY] || null; } catch { return null; }
+}
+async function setRecSession(s) {
+  try {
+    if (s) await chrome.storage.session.set({ [REC_KEY]: s });
+    else await chrome.storage.session.remove(REC_KEY);
+  } catch {}
+}
+
+// Stop + save the live recording from here - the bar isn't around to do it (its
+// tab was closed, or it never came back after a navigation and the recording
+// overran the cap). Mirrors bar.js stopAndSave + finishToInbox: STOP the
+// offscreen recorder (it uploads in the background), land the recording on the
+// draft, and have the popup open on the recording next time.
+async function stopRecordingFromBackground() {
+  const s = await getRecSession();
+  if (!s) return;
+  await setRecSession(null);
+  STATE.recording = false;
+  if (!(await hasOffscreenDocument())) return;
+  let res = null;
+  try {
+    res = await chrome.runtime.sendMessage({ target: 'offscreen', viaBackground: true, type: 'STOP', briefId: s.briefId, intent: s.intent || 'brief' });
+  } catch (err) {
+    console.warn('[brief/background] stop from worker:', err);
+  }
+  if (!res?.ok) { closeOffscreenDocument().catch(() => {}); return; }
+  await bumpUploadsPending(1);
+  try {
+    let d = await getDraft();
+    if (!d) { d = emptyDraft(); d.id = s.briefId; }
+    if (d.id === s.briefId) { landRecording(d, { uploading: true }); await setDraft(d); }
+    await chrome.storage.local.set({ pendingOpen: { kind: 'rec', at: Date.now() } });
+  } catch (err) {
+    console.warn('[brief/background] draft write after worker stop:', err);
+  }
+  await refreshBadge();
+}
+
+// The recorded tab went away. Mid-recording: stop + save what we have. During
+// the countdown (streams prepared, GO never sent): drop the prepared capture so
+// it doesn't hold the tab-capture stream hostage.
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  try {
+    const s = await getRecSession();
+    if (s && s.tabId === tabId) { await stopRecordingFromBackground(); return; }
+    if (tabId === ACTIVE_BAR_TAB_ID && (await hasOffscreenDocument()) && (await getUploadsPending()) === 0) {
+      try { await chrome.runtime.sendMessage({ target: 'offscreen', viaBackground: true, type: 'CANCEL' }); } catch {}
+    }
+  } catch (err) {
+    console.warn('[brief/background] tab removed:', err);
+  }
+});
+
 // On install / update, inject the content script into already-open tabs.
 chrome.runtime.onInstalled.addListener(async (details) => {
   try {
@@ -140,6 +231,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 const STATE = {
   recording: false,
   briefId: null,
+  startedAt: 0,
   events: [],
   activeTabAtStart: null,
 };
@@ -189,6 +281,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // A successful STOP starts a BACKGROUND upload in the offscreen
         // document (cloud-only) - guard it from teardown until OFFSCREEN_DONE.
         if (message.type === 'STOP' && res?.ok) await bumpUploadsPending(1);
+        // Remember mute so a bar resumed after a page reload shows the right state.
+        if (message.type === 'MUTE') {
+          const s = await getRecSession();
+          if (s) await setRecSession({ ...s, muted: !!message.muted });
+        }
         sendResponse(res);
       } catch (err) {
         console.error('[brief/background] offscreen relay:', err);
@@ -222,6 +319,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'BRIEF_START':
           STATE.recording = true;
           STATE.briefId = message.briefId;
+          STATE.startedAt = message.startedAt || Date.now();
           STATE.events = [];
           try {
             const tab = sender?.tab
@@ -230,6 +328,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             STATE.activeTabAtStart = tab;
             if (tab?.id) {
               ACTIVE_BAR_TAB_ID = tab.id;
+              await setRecSession({ briefId: message.briefId, tabId: tab.id, startedAt: STATE.startedAt, muted: false, intent: 'brief' });
+              // The bar's runtime.sendMessage never reaches content scripts (only
+              // tabs.sendMessage lands there) - arm the page's click/key/error
+              // capture from here, or the event log stays empty.
+              chrome.tabs.sendMessage(tab.id, { type: 'BRIEF_START', startedAt: STATE.startedAt }).catch(() => {});
               try {
                 await chrome.scripting.executeScript({
                   target: { tabId: tab.id },
@@ -248,6 +351,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'BRIEF_STOP':
           STATE.recording = false;
+          await setRecSession(null);
+          if (ACTIVE_BAR_TAB_ID != null) chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'BRIEF_STOP' }).catch(() => {});
           // Close the offscreen document UNLESS it's still uploading to
           // Brief Cloud in the background (the pending-uploads count was bumped
           // by the STOP relay before the bar could send BRIEF_STOP). This
@@ -332,6 +437,66 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
 
+        case 'CONTENT_READY': {
+          // A page finished loading. If it's the tab we're recording, the page
+          // reloaded (or navigated) mid-recording: the capture is still running
+          // in the offscreen document, so hand the new page its bar back in
+          // resume mode, re-arm console capture, and carry the session over.
+          const s = await getRecSession();
+          const tabId = sender?.tab?.id;
+          if (!s || tabId == null || s.tabId !== tabId) { sendResponse({ ok: true }); break; }
+          STATE.recording = true;
+          STATE.briefId = s.briefId;
+          STATE.startedAt = s.startedAt;
+          ACTIVE_BAR_TAB_ID = tabId;
+          try {
+            await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: installConsoleCapture });
+          } catch (err) {
+            console.warn('[brief/background] console capture re-inject:', err);
+          }
+          sendResponse({ ok: true, resume: { itemId: s.briefId, startedAt: s.startedAt, muted: !!s.muted, intent: s.intent || 'brief' } });
+          break;
+        }
+
+        case 'RECORDING_OVERRUN':
+          // The offscreen recorder ran well past the cap with no bar to stop it
+          // (the recorded tab never came back). Stop + save from here.
+          await stopRecordingFromBackground();
+          sendResponse({ ok: true });
+          break;
+
+        case 'FILE_DRAFT': {
+          // The popup asked to create the brief. Run it HERE (see filing.js) so
+          // the flow survives the popup closing. The brief page opens after a
+          // beat so the popup's confirmation can play if it's still around.
+          await startup;
+          const result = await fileDraft(message.mode === 'ticket' ? 'ticket' : 'draft', {
+            openTab: (url) => setTimeout(() => { openOrFocusTab(url); }, 1200),
+          });
+          await refreshBadge();
+          sendResponse(result);
+          break;
+        }
+
+        case 'UPLOAD_VIDEO_FILE': {
+          // The popup picked a video file and parked it in IndexedDB. The
+          // offscreen document uploads it (it outlives the popup) through the
+          // same path as a captured recording - keyframes, poster, transcript.
+          try {
+            await ensureOffscreenDocument();
+            const res = await chrome.runtime.sendMessage({
+              target: 'offscreen', viaBackground: true, type: 'UPLOAD_FILE',
+              briefId: message.briefId, key: message.key, name: message.name, mimeType: message.mimeType,
+            });
+            if (res?.ok) await bumpUploadsPending(1);
+            sendResponse(res || { ok: false, error: 'no response from uploader' });
+          } catch (err) {
+            console.error('[brief/background] UPLOAD_VIDEO_FILE:', err);
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+          break;
+        }
+
         case 'OPEN_PERMISSION_PAGE':
           // Bar requests it when the offscreen mic call failed - we close
           // the offscreen doc and pop open the permission tab.
@@ -356,6 +521,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               break;
             }
             const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+            // Mint the screenshot's id HERE and keep the clean capture in the
+            // blob store under it, so "Edit drawing" can later reopen the
+            // annotator on the unmarked image with the strokes editable.
+            const shotId = genId();
+            try {
+              await putFile(shotKey(shotId), await (await fetch(dataUrl)).blob());
+            } catch (err) {
+              // Non-fatal: the screenshot still lands, it just won't be re-editable.
+              console.warn('[brief/background] stash clean capture:', err);
+            }
             // Carry the page URL/title (the screenshot's source page) through the
             // overlay round-trip so SHOT_SAVED can pin it onto THIS screenshot,
             // even if the user navigates away before filing.
@@ -364,7 +539,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
             } catch {}
             await chrome.tabs.sendMessage(tab.id, {
-              type: 'INJECT_SHOT', itemId: message.itemId, dataUrl,
+              type: 'INJECT_SHOT', itemId: message.itemId, dataUrl, shotId,
               pageUrl: tab.url || null, pageTitle: tab.title || null,
             });
             sendResponse({ ok: true });
@@ -376,17 +551,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'SHOT_SAVED': {
-          // Append the annotated screenshot to the current draft (id-matched).
+          // Land the annotated screenshot on the current draft (id-matched).
+          // A shotId that's already in the draft is an EDIT: replace the image
+          // and strokes in place, keeping the note, the page context and the
+          // slot (and bypassing the cap - it isn't a new screenshot).
           try {
-            const shotId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+            const shotId = message.shotId || genId();
+            const strokes = Array.isArray(message.strokes) ? message.strokes : [];
             let added = false;
             await updateDraft(message.itemId, (d) => {
               if (!Array.isArray(d.screenshots)) d.screenshots = [];
+              const existing = d.screenshots.find((s) => s.id === shotId);
+              if (existing) {
+                existing.dataUrl = message.dataUrl;
+                existing.annotated = !!message.annotated;
+                existing.strokes = strokes;
+                added = true;
+                return;
+              }
               if (d.screenshots.length >= 3) return; // hard cap: 3 screenshots per brief
               d.screenshots.push({
                 id: shotId,
                 dataUrl: message.dataUrl,
                 annotated: !!message.annotated,
+                strokes,
                 description: '',
                 pageUrl: message.pageUrl || null,
                 pageTitle: message.pageTitle || null,
@@ -403,6 +591,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // Best-effort: pop the user back to the brief to review.
             tryOpenPopup(message.itemId);
           } catch (err) {
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+          break;
+        }
+
+        case 'EDIT_SHOT': {
+          // Reopen the annotator on a screenshot already in the brief: same
+          // overlay, but it loads that shot's CLEAN capture from the blob store
+          // and replays the strokes, so Undo and Clear act on the existing
+          // marks. The overlay needs a regular page to sit on, same as capturing.
+          try {
+            const d = await getDraft();
+            const shot = (d?.screenshots || []).find((s) => s.id === message.shotId);
+            if (!shot) { sendResponse({ ok: false, error: 'shot_missing' }); break; }
+            if (!(await getFile(shotKey(shot.id)))) {
+              // Captured before this existed, or the blob was pruned - there is
+              // no unmarked image to go back to.
+              sendResponse({ ok: false, error: 'original_missing' });
+              break;
+            }
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) {
+              sendResponse({ ok: false, error: 'unsupported_page' });
+              break;
+            }
+            try {
+              await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+            } catch {}
+            await chrome.tabs.sendMessage(tab.id, {
+              type: 'INJECT_SHOT', itemId: d.id, shotId: shot.id,
+              strokes: Array.isArray(shot.strokes) ? shot.strokes : [],
+              pageUrl: shot.pageUrl || null, pageTitle: shot.pageTitle || null,
+            });
+            sendResponse({ ok: true });
+          } catch (err) {
+            console.error('[brief/background] EDIT_SHOT:', err);
             sendResponse({ ok: false, error: String(err?.message || err) });
           }
           break;
@@ -425,6 +649,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // so the new recording can safely reuse it.
           STATE.recording = false;
           STATE.events = [];
+          await setRecSession(null);
           try {
             if (ACTIVE_BAR_TAB_ID != null) {
               await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });

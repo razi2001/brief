@@ -15,7 +15,11 @@ export function emptyDraft() {
   return {
     id: genId(),
     name: '',
-    screenshots: [],   // [{ id, dataUrl, annotated, description, pageUrl, pageTitle, addedAt }]
+    // [{ id, dataUrl, annotated, strokes, description, pageUrl, pageTitle, addedAt }]
+    // dataUrl is the FLATTENED image (marks baked in) - what the tile shows and
+    // what gets filed. `strokes` plus the clean capture kept in the blob store
+    // under shot:<id> are what make the drawing re-editable.
+    screenshots: [],
     recording: null,   // { recordedAt, durationMs } once a recording lands
     includeVideo: true,
     transcript: '',
@@ -29,8 +33,38 @@ export function emptyDraft() {
     uploading: false,
     uploadFailed: false,
     uploadError: null,
+    // Filing runs in the background worker (it outlives the popup). These let a
+    // reopened popup show progress, and surface a failure that happened while
+    // the popup was closed.
+    filing: false,
+    filingMode: null,  // 'ticket' | 'draft'
+    filingStartedAt: 0,
+    fileError: null,
     createdAt: Date.now(),
   };
+}
+
+// A recording just landed on the draft: the user hit stop, or the worker stopped
+// it because the recorded tab was closed, or a video file was picked in the
+// popup. One place for the state transition so every path produces the same
+// draft. `source` is 'capture' (tabCapture) or 'upload' (a file).
+export function landRecording(d, { uploading = true, durationMs = 0, poster = null, source = 'capture' } = {}) {
+  d.recording = { recordedAt: Date.now(), durationMs, poster, source };
+  // A fresh recording defaults to "attach the video" ON (the user can still
+  // toggle it off in the recording sheet).
+  d.includeVideo = true;
+  if (uploading) {
+    d.uploading = true;
+    d.uploadFailed = false;
+    d.uploadError = null;
+    d.transcribing = true;
+    // A new recording replaces any prior one (one recording per brief): the
+    // fresh upload sets a new cloud id, so clear the old id + transcript and
+    // never file the stale draft.
+    d.cloudBriefId = null;
+    d.transcript = '';
+    d.transcriptFailed = false;
+  }
 }
 
 export async function getDraft() {

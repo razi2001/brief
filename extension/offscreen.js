@@ -13,6 +13,7 @@
 // Background keeps this document alive until it reports OFFSCREEN_DONE.
 
 import { uploadDraft, transcribeNote } from './cloud.js';
+import { getFile, putFile, recKey } from './filestore.js';
 
 let micStream = null;
 let tabStream = null;
@@ -27,8 +28,13 @@ let keyframeTimer = null;
 let levelTimer = null;
 let levelAnalyser = null;
 let levelFreq = null;
+let overrunTimer = null;
 
 const KEYFRAME_INTERVAL_MS = 2000;
+// The bar stops a recording at its 2-minute cap. If the bar is gone (the recorded
+// tab never came back after a navigation) nothing would ever stop us - past this
+// point we ask the worker to stop + save what we have.
+const OVERRUN_MS = (120 + 15) * 1000;
 
 function log(...args) {
   console.log('[brief/offscreen]', ...args);
@@ -99,11 +105,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           break;
         }
+        case 'UPLOAD_FILE': {
+          // A video the reporter picked in the popup, parked in IndexedDB. ACK,
+          // then sample keyframes + upload in the background exactly like a
+          // captured recording (background guards this document until
+          // OFFSCREEN_DONE, same as STOP).
+          const blob = await getFile(message.key);
+          if (!blob) { sendResponse({ ok: false, error: 'video file not found' }); break; }
+          sendResponse({ ok: true });
+          uploadFileAndFinish({
+            briefId: message.briefId,
+            key: message.key,
+            blob,
+            fileName: message.name || 'recording.mp4',
+            mimeType: message.mimeType || blob.type || 'video/mp4',
+          });
+          break;
+        }
         case 'CANCEL':
           await cancelRecording();
           sendResponse({ ok: true });
           // Nothing to upload or relay - background can close this document.
           chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
+          break;
+        case 'GET_REC_STATE':
+          // Is the capture actually still alive? The worker asks after a page
+          // reload before it resumes the bar: a tab-capture track can end with
+          // the document it was opened on, and a bar showing a running timer
+          // over a dead recorder is a lie.
+          {
+            const video = (tabStream?.getVideoTracks() || []).map((t) => t.readyState);
+            sendResponse({
+              ok: true,
+              // Still genuinely capturing? MediaRecorder keeps reporting
+              // 'recording' after the tab's video track has ended, and a capture
+              // with a dead video track records nothing - so the tracks decide.
+              alive: mediaRecorder?.state === 'recording' && video.length > 0 && video.every((s) => s === 'live'),
+              state: mediaRecorder?.state || 'none',
+              chunks: recordedChunks.length,
+              video,
+              tabAudio: (tabStream?.getAudioTracks() || []).map((t) => t.readyState),
+              mic: (micStream?.getAudioTracks() || []).map((t) => t.readyState),
+              elapsedMs: recordingStartMs ? Date.now() - recordingStartMs : 0,
+            });
+          }
           break;
         case 'GET_TAB_STREAM_ID':
           // Bar might need the stream ID to also tap it for keyframes
@@ -266,6 +311,12 @@ function beginRecording() {
   keyframes = [];
   startKeyframeCapture();
 
+  if (overrunTimer) clearTimeout(overrunTimer);
+  overrunTimer = setTimeout(() => {
+    overrunTimer = null;
+    chrome.runtime.sendMessage({ type: 'RECORDING_OVERRUN' }).catch(() => {});
+  }, OVERRUN_MS);
+
   // Notify the bar (via background relay) to switch to the recording UI.
   chrome.runtime.sendMessage({
     target: 'relayToBar',
@@ -314,6 +365,7 @@ function stopAudioRecorder() {
 // Shared by the cloud-upload and legacy-relay paths.
 async function collectRecording() {
   log('collectRecording');
+  if (overrunTimer) { clearTimeout(overrunTimer); overrunTimer = null; }
   await stopAudioRecorder();
   stopKeyframeCapture();
   if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
@@ -349,7 +401,11 @@ async function collectRecording() {
 // closed - the upload retries a few times, and the outcome (cloud id or a
 // labelled error) lands on the inbox entry via UPLOAD_RESULT. Cloud-only: there
 // is no local zip fallback, so a hard failure is surfaced, not hidden.
-async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, keyframes: frames, durationMs, startedAtMs }) {
+//
+// `fileName` is where the video lands in the draft (recording.webm for captures;
+// an uploaded file keeps its container: recording.mp4 / .mov). `transcribeBlob`
+// overrides what we send for transcription (defaults to the audio-only track).
+async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fileName = 'recording.webm', transcribeBlob, keyframes: frames, durationMs, startedAtMs }) {
   // CRITICAL: an offscreen document only reliably gets chrome.runtime -
   // chrome.storage is undefined here, so reading the token / inbox directly
   // threw "Cannot read properties of undefined (reading 'local')" and EVERY
@@ -367,6 +423,15 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
       if (ctx.meta) meta = ctx.meta;
     }
   } catch {}
+
+  // Keep the video where the popup can play it back, BEFORE uploading: the
+  // reporter can rewatch it while the upload runs, and still rewatch it if the
+  // upload fails. The worker prunes it once the brief is filed or reset.
+  try {
+    if (blob && blob.size) await putFile(recKey(briefId), blob);
+  } catch (err) {
+    log('stash recording for playback failed:', err?.message || err);
+  }
 
   // Poster (first keyframe, downscaled) so the popup's recording tile shows a
   // real frame right away. Fail-soft: the popup falls back to a generic poster.
@@ -412,7 +477,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
     extra: Array.isArray(entry?.extra)
       ? entry.extra.filter((p) => (p.key || '').trim() || (p.value || '').trim())
       : [],
-    recording: { file: 'recording.webm', mimeType, durationMs },
+    recording: { file: fileName, mimeType, durationMs },
   };
 
   try {
@@ -425,7 +490,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
       ...keyframeEntries.map((k) => ({ name: k.name, blob: k.blob, contentType: 'image/png' })),
     ];
     if (blob && blob.size) {
-      files.push({ name: 'recording.webm', blob, contentType: mimeType });
+      files.push({ name: fileName, blob, contentType: mimeType });
     }
     if (audioBlob && audioBlob.size) {
       files.push({ name: 'audio.webm', blob: audioBlob, contentType: 'audio/webm' });
@@ -442,6 +507,11 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
       pageTitle: meta.pageTitle,
       description: entry?.description || '',
     };
+
+    // No pairing token: say so plainly. (uploadDraft would otherwise fall back
+    // to chrome.storage, which doesn't exist in this document, and the failure
+    // would read as "Cannot read properties of undefined".)
+    if (!token) throw new Error('Not connected to Brief Cloud');
 
     // Transient network/server hiccups: retry before declaring failure -
     // there is no local fallback anymore, so we try hard here.
@@ -464,9 +534,10 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
     // Transcribe the audio-only track now so the popup can show + let the user
     // correct the narration immediately. Independent of the upload result; the
     // server still transcribes at file time if we send nothing.
+    const tBlob = transcribeBlob !== undefined ? transcribeBlob : audioBlob;
     try {
-      if (audioBlob && audioBlob.size && token) {
-        const text = await transcribeNote(audioBlob, token);
+      if (tBlob && tBlob.size && token) {
+        const text = await transcribeNote(tBlob, token);
         await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, transcript: text || '' }).catch(() => {});
       } else {
         await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, transcript: '' }).catch(() => {});
@@ -485,8 +556,97 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, key
   }
 }
 
+// ---------- Uploaded video file ----------
+// Sample frames from a video file the way the live recorder does (one every
+// KEYFRAME_INTERVAL_MS, bounded so a long clip doesn't produce hundreds): seek a
+// <video> through the clip and draw each stop to a canvas. Also discovers the
+// duration - MediaRecorder webm files often lack a duration header, and Chrome
+// only fills `duration` in once it has seeked to the end.
+const MAX_SAMPLED_FRAMES = 40;
+function videoEvent(v, name, ms) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => { cleanup(); reject(new Error(`${name} timeout`)); }, ms);
+    const onOk = () => { cleanup(); resolve(); };
+    const onErr = () => { cleanup(); reject(new Error('video decode error')); };
+    const cleanup = () => { clearTimeout(t); v.removeEventListener(name, onOk); v.removeEventListener('error', onErr); };
+    v.addEventListener(name, onOk, { once: true });
+    v.addEventListener('error', onErr, { once: true });
+  });
+}
+async function sampleVideoFrames(blob) {
+  const url = URL.createObjectURL(blob);
+  const v = document.createElement('video');
+  v.muted = true;
+  v.preload = 'auto';
+  v.style.display = 'none';
+  document.body.appendChild(v);
+  try {
+    const loaded = videoEvent(v, 'loadedmetadata', 10000);
+    v.src = url;
+    await loaded;
+    let duration = v.duration;
+    if (!Number.isFinite(duration) || duration <= 0) {
+      const seeked = videoEvent(v, 'seeked', 10000);
+      v.currentTime = 1e9;
+      await seeked;
+      duration = Number.isFinite(v.duration) ? v.duration : 0;
+    }
+    const durationMs = Math.round(duration * 1000);
+    const frames = [];
+    if (duration > 0 && v.videoWidth && v.videoHeight) {
+      const stepS = Math.max(KEYFRAME_INTERVAL_MS / 1000, duration / MAX_SAMPLED_FRAMES);
+      const maxW = 1280;
+      const scale = Math.min(1, maxW / v.videoWidth);
+      const cw = Math.round(v.videoWidth * scale), ch = Math.round(v.videoHeight * scale);
+      for (let t = 0; t < duration && frames.length < MAX_SAMPLED_FRAMES; t += stepS) {
+        const seeked = videoEvent(v, 'seeked', 5000);
+        v.currentTime = Math.min(t, Math.max(0, duration - 0.05));
+        await seeked;
+        const canvas = new OffscreenCanvas(cw, ch);
+        canvas.getContext('2d').drawImage(v, 0, 0, cw, ch);
+        frames.push({ timestamp: Math.round(t * 1000), blob: await canvas.convertToBlob({ type: 'image/png' }) });
+      }
+    }
+    return { durationMs, frames };
+  } finally {
+    try { v.removeAttribute('src'); v.load(); } catch {}
+    v.remove();
+    URL.revokeObjectURL(url);
+  }
+}
+
+// OpenAI's transcription cap; QuickTime isn't a container it decodes.
+const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
+async function uploadFileAndFinish({ briefId, key, blob, fileName, mimeType }) {
+  let durationMs = 0;
+  let frames = [];
+  try {
+    ({ durationMs, frames } = await sampleVideoFrames(blob));
+  } catch (err) {
+    // Fail-soft: the video still uploads; the ticket leans on the transcript +
+    // description instead of a storyboard.
+    log('frame sampling failed:', err?.message || err);
+  }
+  const transcribable = blob.size <= TRANSCRIBE_MAX_BYTES && /^video\/(webm|mp4)$/.test(mimeType);
+  // The file already sits in the blob store under this brief's recording key
+  // (the popup parked it there), so it stays playable - nothing to clean up here.
+  await uploadAndFinish({
+    briefId,
+    intent: 'brief',
+    blob,
+    audioBlob: null,
+    mimeType,
+    fileName,
+    transcribeBlob: transcribable ? blob : null,
+    keyframes: frames,
+    durationMs,
+    startedAtMs: Date.now() - durationMs,
+  });
+}
+
 async function cancelRecording() {
   log('cancelRecording');
+  if (overrunTimer) { clearTimeout(overrunTimer); overrunTimer = null; }
   stopKeyframeCapture();
   if (levelTimer) { clearInterval(levelTimer); levelTimer = null; }
   if (audioRecorder) {

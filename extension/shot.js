@@ -1,9 +1,17 @@
 // Brief - screenshot annotator overlay.
-// Receives a captured screenshot dataURL from the content script, lets the user
-// draw in red to point at the issue, then flattens the result and sends it back.
+// Receives a captured screenshot from the content script, lets the user draw in
+// red to point at the issue, then flattens the result and sends it back.
+//
+// Editing an existing screenshot reopens THIS overlay on the clean capture with
+// the previous strokes restored, so Undo and Clear act on the marks already
+// made. The clean capture never travels as a data URL: this document runs at the
+// extension origin, so it reads the blob straight out of the shared store.
+
+import { getFile, shotKey } from './filestore.js';
 
 const params = new URLSearchParams(location.hash.slice(1));
 const itemId = params.get('itemId') || '';
+let shotId = '';
 
 const stage = document.getElementById('stage');
 const shotCanvas = document.getElementById('shot');
@@ -20,28 +28,44 @@ const saveBtn = document.getElementById('saveBtn');
 let img = null;          // the loaded screenshot Image
 let natW = 0, natH = 0;  // natural (device) pixels
 let dispW = 0, dispH = 0; // displayed CSS pixels
-const strokes = [];      // [{points:[{x,y}...]}] in natural-pixel coords
+let strokes = [];        // [{points:[{x,y}...]}] in natural-pixel coords
 let drawing = false;
 
 function post(type, payload = {}) {
   window.parent.postMessage({ app: 'brief-shot', type, ...payload }, '*');
 }
 
-// Receive the screenshot from the content script.
+// The content script hands us the work: a fresh capture as a data URL, or an
+// existing screenshot's id (its clean capture comes from the blob store) plus
+// the strokes to restore.
 window.addEventListener('message', (e) => {
   const m = e.data;
-  if (!m || m.app !== 'brief-shot') return;
-  if (m.type === 'image' && m.dataUrl) loadImage(m.dataUrl);
+  if (!m || m.app !== 'brief-shot' || m.type !== 'image') return;
+  shotId = m.shotId || '';
+  strokes = Array.isArray(m.strokes) ? m.strokes.filter((s) => s && Array.isArray(s.points)) : [];
+  if (m.dataUrl) loadImage(m.dataUrl);
+  else if (shotId) loadStoredShot(shotId);
+  else post('cancel');
 });
 
-function loadImage(dataUrl) {
+async function loadStoredShot(id) {
+  let blob = null;
+  try { blob = await getFile(shotKey(id)); } catch {}
+  if (!blob) { post('cancel'); return; }
+  const url = URL.createObjectURL(blob);
+  loadImage(url, () => URL.revokeObjectURL(url));
+}
+
+function loadImage(src, onDone) {
   img = new Image();
   img.onload = () => {
     natW = img.naturalWidth;
     natH = img.naturalHeight;
-    layout();
+    layout(); // draws the image and replays `strokes`
+    if (onDone) onDone();
   };
-  img.src = dataUrl;
+  img.onerror = () => { if (onDone) onDone(); post('cancel'); };
+  img.src = src;
 }
 
 // Fit the image within the viewport (minus margins) preserving aspect ratio.
@@ -126,7 +150,7 @@ drawCanvas.addEventListener('pointercancel', endStroke);
 drawCanvas.addEventListener('pointerleave', endStroke);
 
 undoBtn.addEventListener('click', () => { strokes.pop(); redraw(); });
-clearBtn.addEventListener('click', () => { strokes.length = 0; redraw(); });
+clearBtn.addEventListener('click', () => { strokes = []; redraw(); });
 cancelBtn.addEventListener('click', () => post('cancel'));
 
 saveBtn.addEventListener('click', () => {
@@ -138,7 +162,8 @@ saveBtn.addEventListener('click', () => {
   octx.drawImage(drawCanvas, 0, 0);
   const dataUrl = out.toDataURL('image/png');
   const annotated = strokes.length > 0;
-  post('save', { itemId, dataUrl, annotated });
+  // `strokes` rides along so this screenshot stays re-editable.
+  post('save', { itemId, shotId, dataUrl, annotated, strokes });
 });
 
 // Esc cancels.

@@ -55,18 +55,7 @@
       </section>
 
       <div class="create-wrap">
-        <div class="create-menu" id="createMenu" hidden>
-          <button class="cm-item" id="draftItem" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            Save as draft
-          </button>
-        </div>
-        <div class="create-split">
-          <button class="create" id="createBtn" type="button"><span class="ctk-label">Create ticket</span></button>
-          <button class="create-caret" id="createMenuBtn" type="button" aria-label="More options" aria-haspopup="menu" hidden>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
-          </button>
-        </div>
+        <button class="create" id="createBtn" type="button"><span class="ctk-label">Create ticket</span></button>
       </div>
     </main>
 
@@ -85,6 +74,9 @@
     </div>
 
     <div class="toast" id="toast"></div>
+
+    <input type="file" id="filePick" hidden multiple />
+    <video id="probeVideo" muted playsinline preload="metadata" hidden></video>
 
     <div id="exportDone" class="export-done" hidden>
       <div class="export-done-inner">

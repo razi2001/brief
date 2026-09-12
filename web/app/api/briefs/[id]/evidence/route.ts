@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { isRecordingName } from "@/lib/brief";
 
 /**
  * Owner control over a brief's evidence: remove a screenshot or the recording
@@ -10,7 +11,7 @@ import { createAdminSupabase } from "@/lib/supabase/server";
  */
 
 // Only the exact evidence objects a brief can own - never arbitrary paths.
-const ALLOWED = /^(screenshots\/[A-Za-z0-9._-]+\.png|screenshot\.png|recording\.webm)$/;
+const ALLOWED = /^(screenshots\/[A-Za-z0-9._-]+\.png|screenshot\.png|recording\.(webm|mp4|mov))$/;
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
@@ -40,7 +41,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     const { data: blob } = await admin.storage.from("briefs").download(`${prefix}/brief.json`);
     if (blob) {
       const json = JSON.parse(await blob.text()) as Record<string, unknown>;
-      if (path === "recording.webm") {
+      if (isRecordingName(path)) {
         json.hasRecording = false;
         json.includeVideo = false;
       } else if (Array.isArray(json.screenshots)) {

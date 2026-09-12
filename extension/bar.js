@@ -4,7 +4,7 @@
 // immune to page Permissions-Policy). The bar sends control messages via
 // background.js; the offscreen document uploads the finished draft itself.
 
-import { getDraft, setDraft, emptyDraft } from './draft.js';
+import { getDraft, setDraft, emptyDraft, landRecording } from './draft.js';
 
 const SAVED_AUTODISMISS_MS = 5000;
 
@@ -14,6 +14,11 @@ const streamId = params.get('streamId');
 const intent = params.get('intent') || 'brief';
 const mode = params.get('mode') || 'ship'; // 'ship' | 'inbox'
 const itemId = params.get('itemId') || '';
+// Resume: the page reloaded mid-recording. The offscreen recorder never stopped;
+// this bar just picks the UI back up (timer from the original start, mute state).
+const resume = params.get('resume') === '1';
+const resumeStartedAt = Number(params.get('startedAt')) || 0;
+const resumeMuted = params.get('muted') === '1';
 
 // ---------- DOM ----------
 const body = document.body;
@@ -99,7 +104,36 @@ async function sendToOffscreen(type, extra = {}) {
 }
 
 // ---------- Init ----------
-(async function init() {
+// Declared here, CALLED AT THE BOTTOM of this file - never inline. The resume
+// path starts the timer and the waveform immediately, and both read module
+// constants (MAX_RECORDING_SECONDS, WAVE_BARS, the built wave bars...) declared
+// further down. Running init during module evaluation threw a temporal-dead-zone
+// ReferenceError that left a resumed bar frozen: the timer never ticked and the
+// waveform never drew, so a live recording looked dead.
+async function init() {
+  if (resume) {
+    recordingStartMs = resumeStartedAt || Date.now();
+    if (resumeMuted) { muted = true; muteBtn?.classList.add('active'); }
+    setView('recording');
+    startTimer();
+    startWave();
+    // Show the recording UI first (instant), then confirm with the recorder that
+    // it really is still capturing. A tab capture normally survives a reload, but
+    // if this one didn't, save what was recorded rather than run a timer over a
+    // dead recorder.
+    let st = null;
+    try { st = await sendToOffscreen('GET_REC_STATE'); } catch {}
+    if (st?.ok && st.alive) return;
+    stopTimer();
+    stopWave();
+    if (st?.ok && st.chunks > 0) {
+      stopAndSave('Reload ended the capture — saving…');
+    } else {
+      chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
+      showError('The reload ended the recording before anything was captured.');
+    }
+    return;
+  }
   if (!streamId) { showError('Missing stream ID.'); return; }
   setView('loading');
   try {
@@ -131,7 +165,7 @@ async function sendToOffscreen(type, extra = {}) {
     console.error('[brief/bar] start failed:', err);
     showError(String(err?.message || err));
   }
-})();
+}
 
 // ---------- Listen for messages from offscreen (via background) ----------
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -348,24 +382,10 @@ async function finishToInbox(id, intent, cloudBriefId, opts = {}) {
     let d = await getDraft();
     if (!d) { d = emptyDraft(); d.id = id; }
     if (d.id === id) {
-      d.recording = { recordedAt: Date.now(), durationMs: 0 };
-      // A fresh recording defaults to "attach the video" ON. Set it here so it
-      // holds even on an older draft whose includeVideo predates that default
-      // (the user can still toggle it off in the recording sheet).
-      d.includeVideo = true;
-      if (cloudBriefId) d.cloudBriefId = cloudBriefId;
-      if (opts.uploading) {
-        d.uploading = true;
-        d.uploadFailed = false;
-        d.uploadError = null;
-        d.transcribing = true;
-        // A new recording replaces any prior one (one recording per brief): the
-        // fresh upload sets a new cloud id, so clear the old id + transcript here
-        // and never file the stale draft.
-        d.cloudBriefId = null;
-        d.transcript = '';
-        d.transcriptFailed = false;
-      }
+      // Shared with the worker-driven stop (tab closed mid-recording) so both
+      // produce the same draft: recording landed, upload + transcription pending.
+      landRecording(d, { uploading: !!opts.uploading });
+      if (cloudBriefId && !opts.uploading) d.cloudBriefId = cloudBriefId;
       await setDraft(d);
     }
     // Best-effort: bring the user back to the brief to review. Chrome only allows
@@ -379,3 +399,6 @@ async function finishToInbox(id, intent, cloudBriefId, opts = {}) {
   // allowed) the popup reopens, so the user already sees the saved brief.
   closeParent();
 }
+
+// Everything above is declared; NOW start. (See the note on init().)
+init();

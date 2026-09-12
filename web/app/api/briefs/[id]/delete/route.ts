@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { RECORDING_NAMES } from "@/lib/brief";
 
 export const maxDuration = 60;
 
@@ -28,7 +29,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
       const { data: kf } = await admin.storage.from("briefs").list(`${prefix}/keyframes`, { limit: 200 });
       const paths = [
         `${prefix}/brief.json`,
-        `${prefix}/recording.webm`,
+        ...RECORDING_NAMES.map((n) => `${prefix}/${n}`),
         `${prefix}/screenshot.png`,
         ...(kf ?? []).map((o) => `${prefix}/keyframes/${o.name}`),
       ];

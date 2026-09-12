@@ -5,6 +5,7 @@ import { getTrackerContext, attachTicketInfo, type BriefRow } from "@/lib/briefs
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
+import { findRecordingName } from "@/lib/brief";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
 import EvidenceCard from "@/components/EvidenceCard";
@@ -72,9 +73,11 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
     const url = await sign(`${prefix}/screenshot.png`);
     if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: "screenshot.png" });
   }
-  if (rootNames.has("recording.webm")) {
-    const url = await sign(`${prefix}/recording.webm`);
-    if (url) assets.push({ url, filename: `${idBase}-recording.webm`, kind: "video", path: "recording.webm" });
+  // Captures are webm; an uploaded video kept its own container (mp4 / mov).
+  const recName = findRecordingName(rootNames);
+  if (recName) {
+    const url = await sign(`${prefix}/${recName}`);
+    if (url) assets.push({ url, filename: `${idBase}-${recName}`, kind: "video", path: recName });
   }
   return assets;
 }

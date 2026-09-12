@@ -22,7 +22,8 @@
     if (message?.type === 'INJECT_BAR') {
       injectBar(message.streamId, message.intent || 'brief', message.mode || 'ship', message.itemId || '');
     } else if (message?.type === 'INJECT_SHOT') {
-      injectShot(message.itemId || '', message.dataUrl || '', message.pageUrl || '', message.pageTitle || '');
+      injectShot(message.itemId || '', message.dataUrl || '', message.pageUrl || '', message.pageTitle || '',
+        message.shotId || '', message.strokes || []);
     } else if (message?.type === 'BRIEF_START') {
       active = true;
       startedAt = message.startedAt || Date.now();
@@ -39,11 +40,17 @@
   let shotImg = '';
   let shotPageUrl = '';
   let shotPageTitle = '';
-  function injectShot(itemId, dataUrl, pageUrl, pageTitle) {
+  let shotId = '';
+  let shotStrokes = [];
+  // `dataUrl` empty + a `shotId` set = editing an existing screenshot: the
+  // overlay loads that shot's clean capture itself and replays `strokes`.
+  function injectShot(itemId, dataUrl, pageUrl, pageTitle, id, strokes) {
     if (shotEl) return;
     shotImg = dataUrl;
     shotPageUrl = pageUrl || '';
     shotPageTitle = pageTitle || '';
+    shotId = id || '';
+    shotStrokes = Array.isArray(strokes) ? strokes : [];
     const url = chrome.runtime.getURL('shot.html') + '#itemId=' + encodeURIComponent(itemId);
     shotEl = document.createElement('iframe');
     shotEl.id = '__brief_shot__';
@@ -67,13 +74,16 @@
     const m = e.data;
     if (!m || m.app !== 'brief-shot') return;
     if (m.type === 'ready') {
-      // hand the captured image into the overlay
-      shotEl.contentWindow.postMessage({ app: 'brief-shot', type: 'image', dataUrl: shotImg }, '*');
+      // hand the captured image (or the shot to edit) into the overlay
+      shotEl.contentWindow.postMessage({
+        app: 'brief-shot', type: 'image', dataUrl: shotImg, shotId, strokes: shotStrokes,
+      }, '*');
     } else if (m.type === 'save') {
       // Relay the annotated PNG (with its source page context) to the background
-      // to append to the current draft's screenshots.
+      // to append to - or replace on - the current draft's screenshots.
       chrome.runtime.sendMessage({
-        type: 'SHOT_SAVED', itemId: m.itemId, dataUrl: m.dataUrl, annotated: !!m.annotated,
+        type: 'SHOT_SAVED', itemId: m.itemId, shotId: m.shotId || '', dataUrl: m.dataUrl,
+        annotated: !!m.annotated, strokes: m.strokes || [],
         pageUrl: shotPageUrl, pageTitle: shotPageTitle,
       }).catch(() => {});
       removeShot();
@@ -90,19 +100,27 @@
       shotImg = '';
       shotPageUrl = '';
       shotPageTitle = '';
+      shotId = '';
+      shotStrokes = [];
     }
   }
 
   // ---------- Iframe injection ----------
-  function injectBar(streamId, intent, mode, itemId) {
+  // `resume` ({ startedAt, muted }) puts the bar back for a recording that is
+  // already running in the offscreen document (this page reloaded mid-recording).
+  function injectBar(streamId, intent, mode, itemId, resume) {
     // If a bar is already on-screen, ignore - recording's in progress
     if (iframeEl) return;
     const hashParts = [
-      `streamId=${encodeURIComponent(streamId)}`,
+      `streamId=${encodeURIComponent(streamId || '')}`,
       `intent=${encodeURIComponent(intent)}`,
       `mode=${encodeURIComponent(mode || 'ship')}`,
       `itemId=${encodeURIComponent(itemId || '')}`,
     ];
+    if (resume) {
+      hashParts.push('resume=1', `startedAt=${encodeURIComponent(String(resume.startedAt || ''))}`);
+      if (resume.muted) hashParts.push('muted=1');
+    }
     const url = chrome.runtime.getURL('bar.html') + '#' + hashParts.join('&');
 
     iframeEl = document.createElement('iframe');
@@ -336,4 +354,19 @@
       });
     }
   });
+
+  // ---------- Resume after a reload ----------
+  // The bar lives inside this page, so reloading mid-recording destroyed it while
+  // the offscreen recorder kept going - the recording just vanished. Ask the
+  // worker whether a recording is live for THIS tab; if so, put the bar back
+  // (timer continuing from the original start) and keep capturing events.
+  try {
+    chrome.runtime.sendMessage({ type: 'CONTENT_READY' }).then((res) => {
+      const r = res?.resume;
+      if (!r) return;
+      active = true;
+      startedAt = r.startedAt || Date.now();
+      injectBar('', r.intent || 'brief', 'inbox', r.itemId || '', { startedAt: r.startedAt, muted: !!r.muted });
+    }).catch(() => {});
+  } catch {}
 })();

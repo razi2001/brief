@@ -130,35 +130,19 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 .addfield svg { width:12px; height:12px; }
 
 /* ---------- CREATE ---------- */
-.create-wrap { padding:18px 18px 16px; position:relative; }
-.create-split { display:flex; }
-.create { flex:1; width:auto; border:none; border-radius:12px; cursor:pointer; background:var(--accent); color:var(--cream);
+.create-wrap { padding:18px 18px 16px; }
+/* The one action: file to the tracker the account has configured, or write the
+   brief up on its own page when there is none. Shape, glow, press and disabled
+   all live on the button - it is a single control now, so nothing can drift. */
+.create { width:100%; border:none; border-radius:12px; cursor:pointer; background:var(--accent); color:var(--cream);
   font-family:var(--mono); font-size:13.5px; font-weight:500; letter-spacing:.01em; padding:14px;
   display:flex; align-items:center; justify-content:center; gap:9px;
-  transition:transform var(--t), background var(--t), box-shadow var(--t), opacity var(--t);
-  box-shadow:0 3px 14px rgba(221,105,54,.24); }
+  box-shadow:0 3px 14px rgba(221,105,54,.24);
+  transition:transform var(--t), background var(--t), box-shadow var(--t), opacity var(--t); }
 .create:hover { background:#c95e2c; box-shadow:0 5px 20px rgba(221,105,54,.3); }
 .create:active { transform:translateY(1px); box-shadow:0 2px 8px rgba(221,105,54,.2); }
 .create:disabled { opacity:.45; cursor:default; box-shadow:none; pointer-events:none; }
 .create svg { width:17px; height:17px; }
-
-/* Split: primary "Create ticket" + a caret that opens "Save as draft". */
-.create-split:has(.create-caret:not([hidden])) .create { border-top-right-radius:0; border-bottom-right-radius:0; }
-.create-caret { border:none; border-left:1px solid rgba(255,253,248,.22); background:var(--accent); color:var(--cream);
-  border-radius:0 12px 12px 0; padding:0 11px; cursor:pointer; display:flex; align-items:center;
-  box-shadow:0 3px 14px rgba(221,105,54,.24); transition:background var(--t); }
-.create-caret:hover { background:#c95e2c; }
-.create-caret:disabled { opacity:.45; cursor:default; pointer-events:none; }
-.create-caret svg { width:15px; height:15px; }
-.create-menu { position:absolute; right:18px; bottom:64px; min-width:186px; background:#fffdf8; border:1px solid var(--hairline);
-  border-radius:11px; box-shadow:0 10px 28px rgba(26,22,18,.16); padding:5px; z-index:30;
-  transform-origin:bottom right; animation:cm-in .14s cubic-bezier(.2,.8,.2,1); }
-@keyframes cm-in { from { opacity:0; transform:translateY(5px) scale(.97); } to { opacity:1; transform:none; } }
-.cm-item { display:flex; align-items:center; gap:9px; width:100%; text-align:left; border:none; background:transparent;
-  padding:8px 10px; border-radius:7px; font-family:var(--mono); font-size:12.5px; color:var(--ink-2); cursor:pointer;
-  transition:background var(--t), color var(--t); }
-.cm-item:hover { background:rgba(221,105,54,.09); color:var(--ink); }
-.cm-item svg { width:15px; height:15px; opacity:.75; }
 .btn-spin { display:inline-block; width:15px; height:15px; border:2px solid rgba(255,255,255,.4); border-top-color:#fff; border-radius:50%; animation:spin .7s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
@@ -191,6 +175,16 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 .shot-preview img { width:100%; display:block; }
 .rec-video { width:100%; max-height:132px; object-fit:cover; border-radius:12px; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:12px; display:block; }
 .rec-poster { width:100%; height:132px; object-fit:cover; border-radius:12px; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:12px; display:block; }
+/* The still, with a play badge - it opens the recording in its own tab (a popup
+   is a fixed little window with no working fullscreen). */
+.rec-open { position:relative; display:block; width:100%; padding:0; border:0; background:none; cursor:pointer; margin-bottom:12px; }
+.rec-open .rec-poster { margin-bottom:0; }
+.rec-open .rec-play { position:absolute; inset:0; margin:auto; width:44px; height:44px; border-radius:50%;
+  background:rgba(26,22,18,.62); color:#fff; border:1px solid rgba(245,241,232,.22);
+  display:grid; place-items:center; backdrop-filter:blur(4px); transition:background var(--t), transform var(--t), border-color var(--t); }
+.rec-open .rec-play svg { width:20px; height:20px; margin-left:2px; }
+.rec-open:hover .rec-play { background:var(--accent); border-color:var(--accent); transform:scale(1.06); }
+.rec-open:active .rec-play { transform:scale(.94); }
 
 /* AI-style auto-grow fields */
 .field-label { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:14px 2px 7px; }
