@@ -7,8 +7,11 @@ import { TrackerLogo } from "./TrackerLogo";
 import { TRACKER_DEFS, useTrackerConnect } from "./useTrackerConnect";
 import { ROLES, SOURCES } from "@/lib/onboarding-options";
 
+// Brief Cloud on the Chrome Web Store. NOT the older standalone "Brief"
+// extension (dbceddg…), which does not pair with this app - sending people
+// there left them with an extension that could never connect.
 const CHROME_STORE_URL =
-  "https://chromewebstore.google.com/detail/brief/dbceddgckljkggbghaddpclblfbkmfig";
+  "https://chromewebstore.google.com/detail/heekinkibhgbilagcdnmcjajijaalpcc";
 
 type Step = "you" | "tracker" | "extension";
 const STEP_ORDER: Step[] = ["you", "tracker", "extension"];

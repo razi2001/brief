@@ -6,7 +6,7 @@
 
 Half the bugs your team sees never get filed. Writing a good ticket takes five minutes, so nobody bothers. Brief is a Chrome extension that captures voice + screen + logs in 30 seconds and hands the rest to your coding agent.
 
-[**Install from Chrome Web Store →**](https://chromewebstore.google.com/detail/brief/dbceddgckljkggbghaddpclblfbkmfig) &nbsp; · &nbsp; [get-brief.app](https://get-brief.app)
+[**Install from Chrome Web Store →**](https://chromewebstore.google.com/detail/heekinkibhgbilagcdnmcjajijaalpcc) &nbsp; · &nbsp; [get-brief.app](https://get-brief.app)
 
 **New — [Brief Cloud](web/README.md) (optional, hosted):** connect Linear or Jira, pair the extension, and your recorded bugs become well-written, filed tickets automatically — no local agent needed. See [`web/`](web/README.md).
 
