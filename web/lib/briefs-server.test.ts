@@ -1,20 +1,32 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-// The live lookup is mocked; everything else in briefs-server runs for real.
-vi.mock("@/lib/linear", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("@/lib/linear")>();
+// attachTicketInfo is provider-agnostic: it groups filed rows by tracker and
+// asks each one for live state through the registry. So the registry is the
+// seam that gets mocked - a fake Tracker stands in for whichever provider the
+// rows belong to, and the test exercises the real grouping, deletion and
+// snapshot write-back logic without depending on any one adapter's internals.
+vi.mock("@/lib/trackers/registry", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("@/lib/trackers/registry")>();
   return {
     ...mod,
-    getLinearToken: vi.fn(async () => ({ token: "test-token" })),
-    getIssuesByIdentifiers: vi.fn(),
+    resolveConnectedTrackers: vi.fn(),
   };
 });
-
 import { attachTicketInfo, DELETED_STATE, type BriefRow } from "@/lib/briefs-server";
-import { getIssuesByIdentifiers } from "@/lib/linear";
+import { resolveConnectedTrackers } from "@/lib/trackers/registry";
+import type { LiveIssueLookup, ProviderKey, Tracker } from "@/lib/tracker";
 
-const lookup = vi.mocked(getIssuesByIdentifiers);
+/** Records the identifiers each live read was asked for. */
+const lookup = vi.fn<(ids: string[]) => Promise<LiveIssueLookup>>();
+
+vi.mocked(resolveConnectedTrackers).mockImplementation(async (_userId, keys) => {
+  const map = new Map<ProviderKey, Tracker>();
+  for (const key of keys) {
+    map.set(key, { getLiveIssues: lookup } as unknown as Tracker);
+  }
+  return map;
+});
 const DELETED_COLOR = "#c9c3b5";
 
 function filedRow(overrides: Partial<BriefRow> = {}): BriefRow {
@@ -34,6 +46,7 @@ function filedRow(overrides: Partial<BriefRow> = {}): BriefRow {
     error: null,
     archived_at: null,
     seq: 7,
+    ticket_provider: "linear",
     ...overrides,
   };
 }
@@ -69,7 +82,6 @@ describe("attachTicketInfo", () => {
           url: "https://linear.app/acme/issue/AI-2652/new-title",
           stateName: "Done",
           stateColor: "#5e6ad2",
-          stateType: "completed",
           createdAt: "2026-08-17T10:10:52.000Z",
           assignee: { name: "Ons" },
         },
@@ -78,7 +90,7 @@ describe("attachTicketInfo", () => {
     });
     const { admin, patches } = fakeAdmin();
 
-    const [out] = await attachTicketInfo("user_1", [filedRow()], true, false, 60, admin);
+    const [out] = await attachTicketInfo("user_1", [filedRow()], ["linear"], 60, admin);
 
     expect(out.ticket_identifier).toBe("AI-2652");
     expect(out.ticket_url).toBe("https://linear.app/acme/issue/AI-2652/new-title");
@@ -104,7 +116,7 @@ describe("attachTicketInfo", () => {
     lookup.mockResolvedValue({ issues: {}, gone: ["APP-5342"] });
     const { admin, patches } = fakeAdmin();
 
-    const [out] = await attachTicketInfo("user_1", [filedRow()], true, false, 60, admin);
+    const [out] = await attachTicketInfo("user_1", [filedRow()], ["linear"], 60, admin);
 
     expect(out.ticket?.deleted).toBe(true);
     expect(out.ticket?.stateName).toBe(DELETED_STATE);
@@ -122,8 +134,7 @@ describe("attachTicketInfo", () => {
     const [out] = await attachTicketInfo(
       "user_1",
       [filedRow({ ticket_state_name: DELETED_STATE, ticket_state_color: DELETED_COLOR })],
-      true,
-      false,
+      ["linear"],
       60,
       admin,
     );
@@ -149,12 +160,12 @@ describe("attachTicketInfo", () => {
       filedRow({ id: "brief-8", ticket_identifier: "APP-9002", ticket_url: "https://linear.app/acme/issue/APP-9002/x" }),
     ];
 
-    const first = await attachTicketInfo("user_1", rows, true, false, 60, admin);
-    const second = await attachTicketInfo("user_1", rows, true, false, 60, admin);
+    const first = await attachTicketInfo("user_1", rows, ["linear"], 60, admin);
+    const second = await attachTicketInfo("user_1", rows, ["linear"], 60, admin);
 
     // First sight: the deleted one is verified live. Within the hour: only the
     // live ticket is asked for; the deleted row still renders as deleted.
-    expect(lookup.mock.calls.map((c) => c[1])).toEqual([["APP-9001", "APP-9002"], ["APP-9002"]]);
+    expect(lookup.mock.calls.map((c) => c[0])).toEqual([["APP-9001", "APP-9002"], ["APP-9002"]]);
     expect(first[0].ticket?.deleted).toBe(true);
     expect(second[0].ticket?.deleted).toBe(true);
   });
@@ -163,7 +174,7 @@ describe("attachTicketInfo", () => {
     lookup.mockResolvedValue({ issues: {}, gone: [] });
     const { admin, patches } = fakeAdmin();
 
-    const [out] = await attachTicketInfo("user_1", [filedRow()], true, false, 60, admin);
+    const [out] = await attachTicketInfo("user_1", [filedRow()], ["linear"], 60, admin);
 
     expect(out.ticket?.stateName).toBe("Triage");
     expect(out.ticket?.deleted).toBeUndefined();

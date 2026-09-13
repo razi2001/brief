@@ -29,14 +29,7 @@ export default async function BriefsPage() {
   // Only 'processing' is in-progress; 'uploaded' is an unfiled draft (hidden).
   const isProcessing = active.some((b) => b.status === "processing");
 
-  const dashboardBriefs = await attachTicketInfo(
-    userId,
-    active,
-    ctx.hasLinear,
-    ctx.hasJira,
-    60,
-    admin,
-  );
+  const dashboardBriefs = await attachTicketInfo(userId, active, ctx.connected, 60, admin);
 
   const counts: Counts = {
     filed: active.filter((b) => b.status === "filed").length,

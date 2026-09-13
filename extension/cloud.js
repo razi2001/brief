@@ -188,7 +188,7 @@ export async function processBrief(briefId, overrides = {}) {
 // route mints the brief's share token and returns it immediately, so the popup
 // can open the brief's page (which shows a "writing this up" state and resolves
 // into the finished ticket). Unlike processBrief, this needs NO tracker - it's
-// the path for people who don't use Linear/Jira. Returns the share id.
+// the path for people with no tracker connected. Returns the share id.
 export async function createDraft(briefId, overrides = {}) {
   const token = await getCloudToken();
   if (!token) throw new Error("Not connected to Brief Cloud");

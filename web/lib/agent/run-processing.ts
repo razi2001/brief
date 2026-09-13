@@ -2,9 +2,8 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { selectDistinctFrames } from "@/lib/agent/frame-hash";
-import { getLinearToken, makeLinearTracker } from "@/lib/linear";
-import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
-import type { Tracker } from "@/lib/tracker";
+import { NO_TRACKER_ERROR, providerName, resolveTracker } from "@/lib/trackers/registry";
+import { BRIEF_URL, type ProviderKey, type Tracker } from "@/lib/tracker";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
 import { composeDraftTicket } from "@/lib/agent/compose-draft";
 import { transcribeAudio } from "@/lib/agent/transcribe";
@@ -22,6 +21,16 @@ import {
 export type ProcessResult =
   | { ok: true; result: { ticketUrl: string; ticketIdentifier: string; summary: string } }
   | { ok: false; status: number; error: string };
+
+/**
+ * Where this deployment is reachable, for building evidence URLs that a tracker
+ * will fetch server-side. Falls back to the canonical app URL so a misconfigured
+ * env produces links to production rather than to localhost.
+ */
+function appOrigin(): string {
+  const raw = process.env.APP_URL || BRIEF_URL;
+  return raw.replace(/\/+$/, "");
+}
 
 /** Account-level ticket guidance + reporter role, as one instruction string. */
 async function loadGuidance(userId: string): Promise<string> {
@@ -45,8 +54,28 @@ async function loadGuidance(userId: string): Promise<string> {
 export async function loadBriefInput(
   admin: SupabaseClient,
   prefix: string,
-  opts: { includeVideo?: boolean; overrides?: BriefOverrides; lean?: boolean },
-): Promise<{ input: BriefInput; names: string[]; includeVideo: boolean; recordingName: RecordingName | null }> {
+  opts: {
+    includeVideo?: boolean;
+    overrides?: BriefOverrides;
+    lean?: boolean;
+    /**
+     * Base for stable evidence URLs (`<origin>/api/evidence/<shareId>`). Set on
+     * the filing path so adapters without an upload API (GitHub, Notion) can
+     * embed the screenshots by URL. Omitted on the draft path, which files
+     * nothing.
+     */
+    evidenceBaseUrl?: string;
+  },
+): Promise<{
+  input: BriefInput;
+  names: string[];
+  includeVideo: boolean;
+  recordingName: RecordingName | null;
+}> {
+  // Built per evidence file from its storage-relative path, so the URL always
+  // matches what the evidence route is willing to serve.
+  const evidenceUrl = (rel: string) =>
+    opts.evidenceBaseUrl ? `${opts.evidenceBaseUrl}/${rel}` : undefined;
   const dl = async (p: string) => {
     const { data } = await admin.storage.from("briefs").download(p);
     return data ? Buffer.from(await data.arrayBuffer()) : null;
@@ -138,31 +167,43 @@ export async function loadBriefInput(
     const filename = rel.split("/").pop() || rel;
     const caption = captionForScreenshot(rel, shotMeta);
     if (!opts.lean) images.push({ name: rel, dataUrl: `data:image/png;base64,${b.toString("base64")}`, caption });
-    files.push({ filename, contentType: "image/png", bytes: b });
+    files.push({ filename, contentType: "image/png", bytes: b, url: evidenceUrl(rel) });
     items.push({ name: filename, kind: "screenshot", caption });
     shotFilenames.push(filename);
   }
   const hasShot = shotFilenames.length > 0;
 
   // The recording is attachable ONLY when the user said so.
-  const recordingExists = !!json.recording || names.length > 0 || !!recName;
-  const recLabel = recName ?? "recording.webm";
+  const recordingExists = !!recName || !!json.recording || names.length > 0;
   if (includeVideo && recName) {
     const rec = await dl(`${prefix}/${recName}`);
     if (rec) {
-      files.push({ filename: recName, contentType: recordingContentType(recName), bytes: rec });
+      files.push({
+        filename: recName,
+        contentType: recordingContentType(recName),
+        bytes: rec,
+        url: evidenceUrl(recName),
+      });
       items.push({ name: recName, kind: "recording" });
     }
   } else if (recordingExists) {
-    items.push({ name: recLabel, kind: "recording" });
+    items.push({ name: recName ?? "recording.webm", kind: "recording" });
   }
 
   // Keyframes earn an attachment slot only when there's nothing else to show.
-  const recordingAttached = files.some((f) => f.filename === recLabel);
+  const recordingAttached = files.some((f) => f.filename === recName);
   const keyframesAsEvidence = !hasShot && !recordingAttached && frames.length > 0;
   if (keyframesAsEvidence) {
     for (const f of frames) {
-      files.push({ filename: f.filename, contentType: "image/png", bytes: f.bytes });
+      files.push({
+        filename: f.filename,
+        contentType: "image/png",
+        bytes: f.bytes,
+        // `f.name` is the storage-relative path ("keyframes/003.png"). A
+        // recording-only capture has no screenshots, so these frames ARE the
+        // evidence - without a url a GitHub or Notion ticket would get none.
+        url: evidenceUrl(f.name),
+      });
       items.push({ name: f.filename, kind: "keyframe", timestampMs: f.timestampMs });
     }
   }
@@ -171,7 +212,7 @@ export async function loadBriefInput(
   const fallback: string[] = [];
   for (const fn of shotFilenames) fallback.push(fn);
   if (recordingAttached) {
-    fallback.push(recLabel);
+    fallback.push(recName ?? "recording.webm");
   } else if (keyframesAsEvidence) {
     const lean = frames.length <= 2 ? frames : [frames[0], frames[frames.length - 1]];
     for (const f of lean) fallback.push(f.filename);
@@ -207,7 +248,7 @@ export async function processBriefById(
   opts: {
     includeVideo?: boolean;
     overrides?: BriefOverrides;
-    provider?: "linear" | "jira";
+    provider?: ProviderKey;
     // Export of a draft the reporter already iterated on: file the stored
     // title/body verbatim (only route + set fields), don't rewrite.
     useExistingContent?: boolean;
@@ -222,42 +263,41 @@ export async function processBriefById(
     .maybeSingle();
   if (!brief) return { ok: false, status: 404, error: "not found" };
 
-  // Resolve the tracker. A pinned provider uses only that one (don't silently
-  // file to the other). Otherwise Linear is preferred, Jira is the fallback.
-  let tracker: Tracker | null = null;
-  if (opts.provider !== "jira") {
-    const linearTok = await getLinearToken(userId);
-    if (linearTok) tracker = makeLinearTracker(linearTok);
-  }
-  if (!tracker && opts.provider !== "linear") {
-    const jiraTok = await getJiraAuth(userId);
-    if (jiraTok) {
-      const cloud = await getJiraCloud(jiraTok);
-      if (cloud) tracker = makeJiraTracker(jiraTok, cloud);
-    }
-  }
+  // Resolve the tracker. A pinned provider uses only that one (never silently
+  // file somewhere else); otherwise the registry picks the connected one.
+  const tracker: Tracker | null = await resolveTracker(userId, opts.provider);
   if (!tracker) {
-    await releaseFiling(admin, userId, briefId, {
-      status: "failed",
-      error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
-    });
-    return {
-      ok: false,
-      status: 409,
-      error: "No tracker connected - connect Linear or Jira in Connections, then retry.",
-    };
+    const error = opts.provider
+      ? `${providerName(opts.provider)} is not connected - reconnect it under Connections, then retry.`
+      : NO_TRACKER_ERROR;
+    await releaseFiling(admin, userId, briefId, { status: "failed", error });
+    return { ok: false, status: 409, error };
   }
 
   const guidance = await loadGuidance(userId);
 
   try {
     const prefix = brief.storage_prefix as string;
+
+    // Trackers with no upload API (GitHub) or that prefer a URL (Notion) embed
+    // the screenshots by link, so those links have to resolve the moment the
+    // ticket is rendered. The share token is therefore minted AND PERSISTED
+    // before filing rather than afterwards - the evidence route looks a brief
+    // up by share_id, and a token that only lands in the post-filing write
+    // would leave a race where GitHub fetches the image first and caches a 404.
+    const shareId = (brief.share_id as string | null) || randomBytes(9).toString("base64url");
+    const embedsEvidenceByUrl = !tracker.capabilities.nativeAttachments;
+    if (embedsEvidenceByUrl && !brief.share_id) {
+      await admin.from("briefs").update({ share_id: shareId }).eq("id", briefId);
+    }
+
     const { input, names, includeVideo, recordingName } = await loadBriefInput(admin, prefix, {
       includeVideo: opts.includeVideo,
       overrides: opts.overrides,
       // Export of a finalized draft: skip transcription + keyframe vision (the
       // ticket is already written; we only route + attach evidence).
       lean: !!opts.useExistingContent,
+      evidenceBaseUrl: `${appOrigin()}/api/evidence/${shareId}`,
     });
 
     console.log(
@@ -279,11 +319,11 @@ export async function processBriefById(
       status: "filed",
       ticket_url: result.ticketUrl,
       ticket_identifier: result.ticketIdentifier,
+      // Which tracker this went to, recorded rather than inferred from the url
+      // later - with seven providers a hostname guess is no longer safe.
+      ticket_provider: tracker.kind,
       updated_at: new Date().toISOString(),
     };
-    // Reuse the brief's share token if it has one (e.g. it was a draft) so the
-    // public link stays stable across export; otherwise mint one.
-    const shareId = (brief.share_id as string | null) || randomBytes(9).toString("base64url");
     // THE TICKET NOW EXISTS. Everything below is bookkeeping - it must never
     // throw out to the catch, because marking the brief failed/retryable here
     // would file a duplicate on the next run. Recording ticket_url is the one
@@ -321,7 +361,15 @@ export async function processBriefById(
         ...names.map((n) => `${prefix}/keyframes/${n}`),
       ];
       if (!includeVideo && recordingName) toDelete.push(`${prefix}/${recordingName}`);
-      await admin.storage.from("briefs").remove(toDelete);
+      // Keyframes are normally internal-only. But when the tracker embeds
+      // evidence BY URL, a keyframe that was attached is referenced from the
+      // filed ticket, and deleting it would leave a permanently broken image.
+      const referenced = new Set(
+        embedsEvidenceByUrl ? input.evidence.files.map((f) => f.filename) : [],
+      );
+      await admin.storage
+        .from("briefs")
+        .remove(toDelete.filter((p) => !referenced.has(p.split("/").pop() ?? "")));
     } catch (e) {
       console.warn(`[process] brief ${briefId}: media cleanup failed (ticket is filed):`, e);
     }

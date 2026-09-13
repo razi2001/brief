@@ -2,10 +2,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getUserId } from "@/lib/auth";
 import { getTrackerContext, attachTicketInfo, type BriefRow } from "@/lib/briefs-server";
+import { providerName as providerLabelFor } from "@/lib/trackers/registry";
+import type { ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
-import { findRecordingName } from "@/lib/brief";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
 import EvidenceCard from "@/components/EvidenceCard";
@@ -32,10 +33,11 @@ type ShareRow = {
   ticket_body: string | null;
   filing_started_at: string | null;
   storage_prefix: string;
+  ticket_provider: string | null;
 };
 
 const SHARE_COLUMNS =
-  "id, user_id, status, title, source_kind, created_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, ticket_body, filing_started_at, storage_prefix";
+  "id, user_id, status, title, source_kind, created_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, ticket_body, filing_started_at, storage_prefix, ticket_provider";
 
 async function loadBrief(shareId: string): Promise<ShareRow | null> {
   const admin = createAdminSupabase();
@@ -73,11 +75,9 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
     const url = await sign(`${prefix}/screenshot.png`);
     if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: "screenshot.png" });
   }
-  // Captures are webm; an uploaded video kept its own container (mp4 / mov).
-  const recName = findRecordingName(rootNames);
-  if (recName) {
-    const url = await sign(`${prefix}/${recName}`);
-    if (url) assets.push({ url, filename: `${idBase}-${recName}`, kind: "video", path: recName });
+  if (rootNames.has("recording.webm")) {
+    const url = await sign(`${prefix}/recording.webm`);
+    if (url) assets.push({ url, filename: `${idBase}-recording.webm`, kind: "video", path: "recording.webm" });
   }
   return assets;
 }
@@ -210,20 +210,19 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   const withRail = isOwner;
   const railMode: ChatMode = writing ? "writing" : isDraft ? "ready" : filing ? "filing" : "filed";
 
-  let hasLinear = false;
-  let hasJira = false;
+  // Which trackers the owner could export this draft to.
+  let connected: ProviderKey[] = [];
   if (isOwner && isDraft) {
     const ctx = await getTrackerContext();
-    hasLinear = ctx.hasLinear;
-    hasJira = ctx.hasJira;
+    connected = ctx.connected;
   }
 
   const idBase = (brief.ticket_identifier || "brief").toLowerCase();
   // No evidence while writing - a lone screenshot under a skeleton reads as
   // broken (and signing URLs for a page that won't show them is waste).
   const assets = inProgress ? [] : await loadMedia(brief.storage_prefix, idBase);
-  const provider = providerOf(brief.ticket_url);
-  const providerName = provider === "jira" ? "Jira" : "Linear";
+  const provider = providerOf(brief.ticket_url, brief.ticket_provider);
+  const providerLabel = providerLabelFor(provider);
 
   // Filed → mirror the tracker LIVE: title and status can change in Linear/Jira
   // after filing (moved to "Duplicate", renamed, closed…). Fetch the current
@@ -255,12 +254,12 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
       error: null,
       archived_at: null,
       seq: null,
+      ticket_provider: brief.ticket_provider,
     } satisfies BriefRow;
     const [merged] = await attachTicketInfo(
       brief.user_id,
       [row],
-      provider === "linear",
-      provider === "jira",
+      [provider],
       1,
       createAdminSupabase(),
     );
@@ -382,12 +381,11 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
             filing={filing}
             ticketUrl={ticketUrl}
             provider={provider}
-            providerName={providerName}
+            providerName={providerLabel}
             initialTitle={ticketTitle}
             initialBody={brief.ticket_body || ""}
             assets={assets.map((a) => ({ filename: a.filename, kind: a.kind }))}
-            hasLinear={hasLinear}
-            hasJira={hasJira}
+            connected={connected}
           />
 
           {/* ── Evidence ── */}
@@ -425,7 +423,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         briefId={brief.id}
         mode={railMode}
         ticketUrl={ticketUrl}
-        providerName={providerName}
+        providerName={providerLabel}
       />
     )}
     </>

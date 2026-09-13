@@ -33,8 +33,7 @@ function mountDraft(initialBody: string) {
         initialTitle="Title"
         initialBody={initialBody}
         assets={[]}
-        hasLinear
-        hasJira={false}
+        connected={["linear"]}
       />
       <TicketChat briefId="b1" mode="ready" />
     </>,

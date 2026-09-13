@@ -4,6 +4,7 @@ import RetryButton from "./RetryButton";
 import ArchiveButton from "./ArchiveButton";
 import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
+import { shortIdentifier } from "@/lib/ticket-sync";
 import BrandMark from "./BrandMark";
 import Elapsed from "./Elapsed";
 import type { DashboardBrief } from "@/lib/brief-types";
@@ -175,12 +176,12 @@ export default function BriefListRow({
                 href={trackerHref}
                 target="_blank"
                 rel="noreferrer"
-                title={`Open in ${providerName}`}
+                title={`${b.ticket_identifier} - open in ${providerName}`}
                 aria-label={`Open in ${providerName}`}
                 className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-accent transition-colors hover:bg-accent/15"
               >
                 <TrackerLogo kind={b.provider ?? "linear"} size={13} />
-                <span className="truncate">{b.ticket_identifier}</span>
+                <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
                 <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70" aria-hidden="true">
                   <path d="M7 17 17 7M8 7h9v9" />
                 </svg>
@@ -188,7 +189,7 @@ export default function BriefListRow({
             ) : (
               <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-accent">
                 <TrackerLogo kind={b.provider ?? "linear"} size={13} />
-                <span className="truncate">{b.ticket_identifier}</span>
+                <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
               </span>
             )}
           </span>

@@ -578,7 +578,10 @@ function probeVideoFile(file) {
 // clicked away after Create. We ask, mirror progress from the draft's `filing`
 // flag, and if the popup is still open when it lands, play the confirmation.
 // The worker opens the brief page either way.
-function trackerName() { return bcTracker === 'jira' ? 'Jira' : bcTracker === 'linear' ? 'Linear' : 'your tracker'; }
+// Display names for every tracker /api/me can report. Anything unrecognised
+// still files fine - it just reads as "your tracker" while it does.
+const TRACKER_NAMES = { linear: 'Linear', jira: 'Jira', github: 'GitHub' };
+function trackerName() { return TRACKER_NAMES[bcTracker] || 'your tracker'; }
 function showDone(title, sub) {
   const t = exportDone.querySelector('.export-done-title');
   const s = exportDone.querySelector('.export-done-sub');

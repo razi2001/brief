@@ -1,4 +1,5 @@
 import { TrackerLogo } from "./TrackerLogo";
+import { shortIdentifier } from "@/lib/ticket-sync";
 import StatusBadge from "./StatusBadge";
 import type { DashboardBrief } from "@/lib/brief-types";
 
@@ -68,7 +69,7 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
                 {!isProcessing && b.ticket_identifier ? (
                   <>
                     <TrackerLogo kind={b.provider ?? "linear"} size={13} />
-                    <span className="truncate">{b.ticket_identifier}</span>
+                    <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
                   </>
                 ) : (
                   <span className="text-muted/50">—</span>

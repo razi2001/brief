@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { resolveName, withBriefAttribution, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
+import { clerkStrategy } from "./clerk-strategies";
+import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
 export type LinearTok = { token: string };
@@ -12,7 +13,10 @@ export async function getLinearToken(userId: string): Promise<LinearTok | null> 
   const client = await clerkClient().catch(() => null);
   if (!client) return null;
   try {
-    const res = await client.users.getUserOauthAccessToken(userId, "oauth_linear");
+    const res = await client.users.getUserOauthAccessToken(
+      userId,
+      clerkStrategy("linear") as Parameters<typeof client.users.getUserOauthAccessToken>[1],
+    );
     const t = res.data?.[0]?.token;
     if (t) return { token: t };
   } catch {
@@ -442,6 +446,15 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
   return {
     kind: "linear",
     targetNoun: "team",
+    capabilities: {
+      ...NO_CAPABILITIES,
+      projects: true,
+      states: true,
+      priority: true,
+      labels: true,
+      comments: true,
+      nativeAttachments: true,
+    },
     async listTargets() {
       // Include each team's labels/states + the workspace members so the agent
       // can apply ticket preferences (e.g. "label inbound", "status Backlog",
@@ -710,6 +723,12 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         project: i.project?.name ?? null,
         priority: priorityName,
       };
+    },
+    async getLiveIssues(identifiers): Promise<LiveIssueLookup> {
+      // getIssuesByIdentifiers already distinguishes "Linear says this is gone"
+      // from "the lookup failed", which is exactly the `gone` contract.
+      const { issues, gone } = await getIssuesByIdentifiers(tok, identifiers);
+      return { issues, gone };
     },
   };
 }

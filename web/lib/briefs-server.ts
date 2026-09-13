@@ -1,9 +1,9 @@
 import { currentUser } from "@clerk/nextjs/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getLinearToken, getIssuesByIdentifiers } from "@/lib/linear";
-import { getJiraAuth, getJiraCloud, getJiraIssues } from "@/lib/jira";
 import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
 import { providerOf, ticketSnapshotPatch } from "@/lib/ticket-sync";
+import type { ProviderKey } from "@/lib/tracker";
+import { CLERK_PROVIDERS, resolveConnectedTrackers } from "@/lib/trackers/registry";
 
 /**
  * Server-side helpers shared by the Dashboard (/dashboard) and Briefs (/briefs)
@@ -30,10 +30,13 @@ export type BriefRow = {
   archived_at: string | null;
   /** Per-user sequential number ("brief-N"), assigned at creation (0007). */
   seq: number | null;
+  /** Which tracker this was filed to, recorded at filing time (0009). Null on
+   *  rows filed before that column existed - providerOf falls back to the url. */
+  ticket_provider?: string | null;
 };
 
 export const BRIEF_COLUMNS =
-  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, share_id, error, archived_at, seq";
+  "id, status, title, source_kind, created_at, updated_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, share_id, error, archived_at, seq, ticket_provider";
 
 /**
  * How long a brief may keep trying before we give up on it. A brief flips to
@@ -100,8 +103,9 @@ export async function recoverOrphans(
 
 export type TrackerContext = {
   user: Awaited<ReturnType<typeof currentUser>>;
-  hasLinear: boolean;
-  hasJira: boolean;
+  /** Every tracker this account has connected. Brief files into one, but the
+   *  UI still has to show which that is. */
+  connected: ProviderKey[];
   trackerConnected: boolean;
   ticketGuidance: string;
   greetingName: string;
@@ -134,8 +138,12 @@ export async function getTrackerContext(): Promise<TrackerContext> {
   };
   const matches = (a: { provider?: string }, p: string) =>
     (a.provider ?? "").toLowerCase().includes(p);
-  const hasLinear = !!user?.externalAccounts?.some((a) => matches(a, "linear") && isLive(a));
-  const hasJira = !!user?.externalAccounts?.some((a) => matches(a, "atlassian") && isLive(a));
+
+  // Every tracker is a Clerk connected account, so this is already on the user
+  // object - no extra round trip.
+  const connected: ProviderKey[] = CLERK_PROVIDERS.filter((def) =>
+    user?.externalAccounts?.some((a) => matches(a, def.clerkMatch) && isLive(a)),
+  ).map((def) => def.key);
 
   const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";
   const role = ((user?.privateMetadata?.role as string) ?? "").trim();
@@ -148,9 +156,8 @@ export async function getTrackerContext(): Promise<TrackerContext> {
 
   return {
     user,
-    hasLinear,
-    hasJira,
-    trackerConnected: hasLinear || hasJira,
+    connected,
+    trackerConnected: connected.length > 0,
     ticketGuidance,
     greetingName,
     role,
@@ -178,60 +185,64 @@ export async function getTrackerContext(): Promise<TrackerContext> {
 export async function attachTicketInfo(
   userId: string,
   list: BriefRow[],
-  hasLinear: boolean,
-  hasJira: boolean,
+  connected: ProviderKey[],
   syncLimit = 60,
   admin?: SupabaseClient,
 ): Promise<DashboardBrief[]> {
   const filed = list
     .filter((b) => b.status === "filed" && b.ticket_identifier)
     .slice(0, syncLimit);
-  const linearIdentifiers = filed
-    .filter((b) => providerOf(b.ticket_url) === "linear")
-    // A ticket already known to be deleted keeps its snapshot and is only
-    // re-checked now and then; its row still renders as deleted below.
-    .filter(
-      (b) =>
-        b.ticket_state_name !== DELETED_STATE ||
-        dueForDeletedRecheck(b.ticket_identifier as string),
-    )
-    .map((b) => b.ticket_identifier as string);
-  const jiraKeys = filed
-    .filter((b) => providerOf(b.ticket_url) === "jira")
-    .map((b) => b.ticket_identifier as string);
 
-  let linear: Awaited<ReturnType<typeof getIssuesByIdentifiers>> = { issues: {}, gone: [] };
-  if (hasLinear && linearIdentifiers.length > 0) {
-    try {
-      const tok = await getLinearToken(userId);
-      if (tok) linear = await getIssuesByIdentifiers(tok, linearIdentifiers);
-    } catch (err) {
-      console.warn("[tickets] Linear live sync skipped:", err instanceof Error ? err.message : err);
-      linear = { issues: {}, gone: [] };
+  // Group the filed tickets by the tracker they live in, so each provider is
+  // asked once for all of its identifiers. A ticket already known to be deleted
+  // keeps its snapshot and is only re-checked now and then; its row still
+  // renders as deleted below.
+  const byProvider = new Map<ProviderKey, string[]>();
+  for (const b of filed) {
+    const provider = providerOf(b.ticket_url, b.ticket_provider);
+    if (!connected.includes(provider)) continue;
+    if (
+      b.ticket_state_name === DELETED_STATE &&
+      !dueForDeletedRecheck(b.ticket_identifier as string)
+    ) {
+      continue;
     }
-  }
-  // Tickets Linear no longer has. Their rows read "Deleted" (and the snapshot
-  // remembers it) instead of a filing-time status frozen forever. Logged once,
-  // when first noticed.
-  const linearGone = new Set(linear.gone);
-  const newlyGone = linear.gone.filter(
-    (id) => list.find((b) => b.ticket_identifier === id)?.ticket_state_name !== DELETED_STATE,
-  );
-  if (newlyGone.length) {
-    console.warn(
-      `[tickets] ${newlyGone.length} filed ticket(s) no longer exist in Linear: ${newlyGone.join(", ")}`,
-    );
+    const ids = byProvider.get(provider) ?? [];
+    ids.push(b.ticket_identifier as string);
+    byProvider.set(provider, ids);
   }
 
-  let jiraMap: Awaited<ReturnType<typeof getJiraIssues>> = {};
-  if (hasJira && jiraKeys.length > 0) {
-    try {
-      const tok = await getJiraAuth(userId);
-      const cloud = tok ? await getJiraCloud(tok) : null;
-      if (tok && cloud) jiraMap = await getJiraIssues(tok, cloud, jiraKeys);
-    } catch (err) {
-      console.warn("[tickets] Jira live sync skipped:", err instanceof Error ? err.message : err);
-      jiraMap = {};
+  // One live read per provider, all of them in parallel. A tracker that throws
+  // contributes nothing and never takes the render down with it.
+  const live = new Map<ProviderKey, { issues: Record<string, TicketInfo>; gone: Set<string> }>();
+  const trackers = await resolveConnectedTrackers(userId, [...byProvider.keys()]);
+  await Promise.all(
+    [...byProvider.entries()].map(async ([provider, ids]) => {
+      const tracker = trackers.get(provider);
+      if (!tracker) return;
+      try {
+        const { issues, gone } = await tracker.getLiveIssues(ids);
+        live.set(provider, { issues, gone: new Set(gone) });
+      } catch (err) {
+        console.warn(
+          `[tickets] ${provider} live sync skipped:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
+
+  // Tickets the tracker no longer has. Their rows read "Deleted" (and the
+  // snapshot remembers it) instead of a filing-time status frozen forever.
+  // Logged once, when first noticed.
+  for (const [provider, { gone }] of live) {
+    const newlyGone = [...gone].filter(
+      (id) => list.find((b) => b.ticket_identifier === id)?.ticket_state_name !== DELETED_STATE,
+    );
+    if (newlyGone.length) {
+      console.warn(
+        `[tickets] ${newlyGone.length} filed ticket(s) no longer exist in ${provider}: ${newlyGone.join(", ")}`,
+      );
     }
   }
 
@@ -241,22 +252,14 @@ export async function attachTicketInfo(
   const writeBacks: Array<PromiseLike<unknown>> = [];
 
   const out = list.map((b) => {
-    const provider = providerOf(b.ticket_url);
+    const provider = providerOf(b.ticket_url, b.ticket_provider);
     const key = b.ticket_identifier ?? undefined;
     let ticket: TicketInfo | null = null;
     if (key) {
-      if (provider === "linear" && linear.issues[key]) {
-        const li = linear.issues[key];
-        ticket = {
-          identifier: li.identifier,
-          title: li.title,
-          url: li.url,
-          stateName: li.stateName,
-          stateColor: li.stateColor,
-          createdAt: li.createdAt,
-          assignee: li.assignee,
-        };
-      } else if (provider === "linear" && linearGone.has(key)) {
+      const found = live.get(provider);
+      if (found?.issues[key]) {
+        ticket = found.issues[key];
+      } else if (found?.gone.has(key)) {
         ticket = {
           title: b.ticket_title ?? "",
           url: b.ticket_url ?? "",
@@ -265,8 +268,6 @@ export async function attachTicketInfo(
           createdAt: b.created_at ?? "",
           deleted: true,
         };
-      } else if (provider === "jira" && jiraMap[key]) {
-        ticket = jiraMap[key];
       }
       if (ticket && admin) {
         const patch = ticketSnapshotPatch(b, ticket);

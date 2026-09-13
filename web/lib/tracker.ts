@@ -1,10 +1,46 @@
 // Provider-agnostic issue-tracker abstraction.
-// Concrete implementations live in linear.ts (makeLinearTracker) and jira.ts (makeJiraTracker).
 //
-// The shape mirrors what a real Linear/Jira MCP server would expose (inspect
+// Concrete implementations live one per file - linear.ts, jira.ts, github.ts -
+// and are wired together by trackers/registry.ts, which is the ONLY place that
+// enumerates providers.
+//
+// The shape mirrors what a real tracker MCP server would expose (inspect
 // metadata, create, update, read back) so the agent can verify and repair the
 // issue until it matches the user's preferences - including provider-specific
 // extras like Jira custom fields - without any preference-specific code here.
+//
+// Providers differ enormously in what a "ticket" even is (a GitHub issue has no
+// priority; a Trello card's LIST is its status; a Notion page's fields are
+// entirely user-defined). Rather than branch on provider name, each adapter
+// declares `capabilities` and the agent's tool schema is built from those - so
+// every provider gets exactly the parameters it can actually honour instead of
+// a lowest-common-denominator subset.
+
+/** Every tracker Brief can file into. The registry maps these to adapters. */
+export type ProviderKey = "linear" | "jira" | "github";
+
+/**
+ * What a provider can actually do. Drives the agent's tool schema (see
+ * process-brief.ts): a false flag means the parameter is never offered, so the
+ * model can't waste a turn setting something the tracker has no concept of.
+ */
+export interface TrackerCapabilities {
+  /** A second grouping INSIDE a target (Linear projects, GitHub project boards). */
+  projects: boolean;
+  /** A named workflow state can be set at creation. */
+  states: boolean;
+  /** A normalized priority maps onto something native. */
+  priority: boolean;
+  labels: boolean;
+  /** Arbitrary settable fields with ids/allowed values (Jira custom fields). */
+  customFields: boolean;
+  /** The target offers a choice of work-item type (Jira issue types). */
+  issueTypes: boolean;
+  /** A comment can be posted on the issue after creation. */
+  comments: boolean;
+  /** Evidence is uploaded to the provider (false = embedded by public URL). */
+  nativeAttachments: boolean;
+}
 
 export interface TrackerTarget {
   id: string;
@@ -99,7 +135,18 @@ export interface IssueInput {
   // Each evidence file, optionally with a one-line human caption the agent wrote
   // for it. The adapter renders the caption directly above the embedded image
   // (Linear) or in the body next to the attachment reference (Jira).
-  evidence: Array<{ filename: string; contentType: string; bytes: Buffer; caption?: string }>;
+  //
+  // `url` is a stable, permanent Brief-hosted URL for the same bytes (see
+  // app/api/evidence/[shareId]). Adapters with no upload API - GitHub outright,
+  // Notion by preference - embed THAT instead of uploading, which is why the
+  // bytes and the URL travel together rather than one or the other.
+  evidence: Array<{
+    filename: string;
+    contentType: string;
+    bytes: Buffer;
+    caption?: string;
+    url?: string;
+  }>;
 }
 
 /** A partial update applied after creation (the agent's repair loop). */
@@ -115,10 +162,49 @@ export interface IssuePatch {
 
 export type UpdateResult = { ok: true } | { ok: false; error: string };
 
+/**
+ * Live state of one already-filed issue, read back for the tickets feed. The
+ * provider-agnostic replacement for the hand-written Linear/Jira branches the
+ * sync loop used to carry.
+ */
+export interface LiveIssue {
+  /** The tracker's CURRENT identifier - differs once an issue is moved. */
+  identifier?: string;
+  title: string;
+  url: string;
+  stateName: string;
+  /** A brand status color; adapters map their own palette onto it. */
+  stateColor: string;
+  createdAt: string;
+  assignee?: { name: string; avatarUrl?: string };
+}
+
+/** Result of a batch live read: what was found, and what the tracker no longer has. */
+export interface LiveIssueLookup {
+  issues: Record<string, LiveIssue>;
+  /** Identifiers the provider CONFIRMED are gone (deleted there). Never a guess. */
+  gone: string[];
+}
+
+/** Brand status colors, so every adapter's stateColor comes from one palette. */
+export const STATUS_COLOR = {
+  neutral: "#8a8378",
+  active: "#dd6936",
+  done: "#2e7d32",
+} as const;
+
 export interface Tracker {
-  kind: "linear" | "jira";
-  /** The noun the model should use for a filing destination: "team" (Linear) or "project" (Jira). */
+  kind: ProviderKey;
+  /** The noun the model should use for a filing destination: "team" (Linear), "project" (Jira), "repository" (GitHub). */
   targetNoun: string;
+  /** What this provider supports. The agent's tool schema is built from it. */
+  capabilities: TrackerCapabilities;
+  /**
+   * One or two sentences telling the model how THIS provider renders a body,
+   * injected into the prompt. E.g. Azure DevOps puts a bug's body in the Repro
+   * Steps field; Notion turns it into page blocks. Empty for plain markdown.
+   */
+  bodyGuidance?: string;
   listTargets(): Promise<TrackerTarget[]>;
   /**
    * Search EXISTING issues for routing/labeling precedent. Best-effort:
@@ -142,7 +228,26 @@ export interface Tracker {
   updateIssue(identifier: string, patch: IssuePatch): Promise<UpdateResult>;
   /** Read back the issue's current field values so the agent can verify. */
   getIssue(identifier: string): Promise<Record<string, unknown>>;
+  /**
+   * Batch live read for the tickets feed. Best-effort: any failure returns what
+   * it has (a tracker outage must never break the dashboard render), and `gone`
+   * lists ONLY identifiers the provider positively reported as missing - a
+   * failed lookup must never be mistaken for a deleted ticket.
+   */
+  getLiveIssues(identifiers: string[]): Promise<LiveIssueLookup>;
 }
+
+/** Sensible default capabilities; adapters override only what differs. */
+export const NO_CAPABILITIES: TrackerCapabilities = {
+  projects: false,
+  states: false,
+  priority: false,
+  labels: false,
+  customFields: false,
+  issueTypes: false,
+  comments: false,
+  nativeAttachments: false,
+};
 
 /**
  * Fuzzy name resolution for agent-supplied values ("triage" → "Triage",
@@ -180,4 +285,46 @@ export function withBriefAttribution(body: string): string {
   if (trimmed.endsWith(BRIEF_ATTRIBUTION)) return trimmed;
   if (!trimmed) return BRIEF_ATTRIBUTION;
   return `${trimmed}\n\n---\n\n${BRIEF_ATTRIBUTION}`;
+}
+
+
+// ---------------------------------------------------------------------------
+// Priority on trackers that have no priority field
+// ---------------------------------------------------------------------------
+
+/**
+ * GitHub issues have no priority field. Teams encode it as a label instead, and
+ * the conventions vary wildly ("P1", "priority: high",
+ * "high priority", "sev-1"). This matches a wanted priority against the labels
+ * that ALREADY exist on the repo, so we adopt the team's own convention
+ * rather than inventing one - and returns undefined when nothing matches, which
+ * is the right outcome: better no priority than a label that means something
+ * else to the people reading the ticket.
+ */
+const PRIORITY_ALIASES: Record<TrackerPriority, string[]> = {
+  urgent: ["urgent", "p0", "critical", "sev-1", "sev1", "highest", "blocker"],
+  high: ["high", "p1", "sev-2", "sev2", "important"],
+  medium: ["medium", "p2", "normal", "moderate", "sev-3", "sev3"],
+  low: ["low", "p3", "p4", "minor", "trivial", "sev-4", "sev4"],
+};
+
+export function matchPriorityLabel(
+  priority: TrackerPriority,
+  labels: string[],
+): string | undefined {
+  const aliases = PRIORITY_ALIASES[priority] ?? [];
+  const norm = (s: string) => s.toLowerCase().replace(/[\s_]+/g, "-");
+  // Prefer a label that LOOKS like a priority label ("priority: high", "P1")
+  // over a topic label that merely happens to contain the word.
+  const scored = labels
+    .map((name) => {
+      const n = norm(name);
+      const hit = aliases.find((a) => n === a || n.endsWith(`-${a}`) || n.endsWith(`:${a}`));
+      if (!hit) return null;
+      const looksLikePriority = /^(priority|prio|p|sev|severity)|[:-]/.test(n);
+      return { name, score: (looksLikePriority ? 2 : 0) + (n === hit ? 1 : 0) };
+    })
+    .filter((x): x is { name: string; score: number } => !!x)
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.name;
 }

@@ -1,5 +1,7 @@
-/** Provider-agnostic live ticket info, merged server-side when synced. Covers
- *  both Linear (which can also carry an assignee) and Jira. */
+import type { ProviderKey } from "./tracker";
+
+/** Provider-agnostic live ticket info, merged server-side when synced. Every
+ *  adapter produces this shape, whatever its own API looks like. */
 export type TicketInfo = {
   /** The ticket's CURRENT identifier - differs from the brief's stored
    *  ticket_identifier once the ticket was moved to another team. */
@@ -38,8 +40,9 @@ export type DashboardBrief = {
   /** Per-user sequential number, shown as "brief-N" for briefs with no tracker id. */
   seq?: number | null;
   error?: string | null;
-  /** Which tracker this brief was filed to (inferred from ticket_url). */
-  provider?: "linear" | "jira";
-  /** Live ticket info (Linear or Jira), merged server-side when synced. */
+  /** Which tracker this brief was filed to (the recorded ticket_provider,
+   *  falling back to the ticket_url's hostname on older rows). */
+  provider?: ProviderKey;
+  /** Live ticket info from whichever tracker it lives in, merged server-side. */
   ticket?: TicketInfo | null;
 };

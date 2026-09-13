@@ -144,9 +144,9 @@ export default function Onboarding({
   greetingName: string;
 }) {
   const router = useRouter();
-  const { isLoaded, busy, errors, connectedAccount, pendingError, connect } =
+  const { isLoaded, busy, errors, isConnected, pendingError, connect } =
     useTrackerConnect("/welcome");
-  const trackerConnected = TRACKER_DEFS.some((t) => !!connectedAccount(t.providerMatch));
+  const trackerConnected = TRACKER_DEFS.some(isConnected);
 
   // `rawStep` is null until the user manually navigates; before that the step
   // is DERIVED from real state. This matters because returning from the
@@ -249,7 +249,7 @@ export default function Onboarding({
                   const isBusy = !!busy[t.key];
                   // A click-time error wins; otherwise show why the LAST
                   // attempt didn't finish (Clerk's real verification error).
-                  const error = errors[t.key] || pendingError(t.providerMatch);
+                  const error = errors[t.key] || (t.providerMatch ? pendingError(t.providerMatch) : "");
                   return (
                     <div key={t.key}>
                       <button

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TrackerLogo } from "./TrackerLogo";
+import { PROVIDER_LABELS, type ProviderKey } from "./provider-labels";
 
 // Primary action: solid accent, clearly the main thing to do.
 const BTN_PRIMARY =
@@ -16,18 +17,17 @@ const BTN_PRIMARY =
  */
 export default function ExportButtons({
   briefId,
-  linear,
-  jira,
+  connected,
 }: {
   briefId: string;
-  linear: boolean;
-  jira: boolean;
+  /** Trackers this owner has connected; one button each. */
+  connected: ProviderKey[];
 }) {
-  const [busy, setBusy] = useState<null | "linear" | "jira">(null);
+  const [busy, setBusy] = useState<ProviderKey | null>(null);
   const [err, setErr] = useState("");
   const router = useRouter();
 
-  async function exportTo(provider: "linear" | "jira") {
+  async function exportTo(provider: ProviderKey) {
     setBusy(provider);
     setErr("");
     try {
@@ -52,7 +52,7 @@ export default function ExportButtons({
     }
   }
 
-  if (!linear && !jira) {
+  if (!connected.length) {
     // No tracker yet → a clear accent-outline CTA (distinct from the solid
     // "Export" primary, but still obviously the thing to do next).
     return (
@@ -70,18 +70,18 @@ export default function ExportButtons({
 
   return (
     <>
-      {linear && (
-        <button type="button" disabled={!!busy} onClick={() => exportTo("linear")} className={BTN_PRIMARY}>
-          <TrackerLogo kind="linear" size={13} />
-          {busy === "linear" ? "Filing…" : "Export to Linear"}
+      {connected.map((provider) => (
+        <button
+          key={provider}
+          type="button"
+          disabled={!!busy}
+          onClick={() => exportTo(provider)}
+          className={BTN_PRIMARY}
+        >
+          <TrackerLogo kind={provider} size={13} />
+          {busy === provider ? "Filing…" : `Export to ${PROVIDER_LABELS[provider]}`}
         </button>
-      )}
-      {jira && (
-        <button type="button" disabled={!!busy} onClick={() => exportTo("jira")} className={BTN_PRIMARY}>
-          <TrackerLogo kind="jira" size={13} />
-          {busy === "jira" ? "Filing…" : "Export to Jira"}
-        </button>
-      )}
+      ))}
       {err && <span className="text-xs text-[#c62828]">{err}</span>}
     </>
   );

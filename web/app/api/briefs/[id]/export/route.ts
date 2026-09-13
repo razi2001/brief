@@ -1,6 +1,8 @@
 import { NextRequest, after } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { processBriefById } from "@/lib/agent/run-processing";
+import { PROVIDER_KEYS } from "@/lib/ticket-sync";
+import type { ProviderKey } from "@/lib/tracker";
 import { briefPhase, claimFiling, releaseFiling } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 
@@ -26,8 +28,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!userId) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as { provider?: string };
-  const provider =
-    body?.provider === "jira" ? "jira" : body?.provider === "linear" ? "linear" : undefined;
+  // Which tracker to file this draft to. Validated against the real provider
+  // list so an unknown value falls back to "whichever is connected" rather than
+  // being passed through to the registry as a pin that can never resolve.
+  const provider = PROVIDER_KEYS.includes(body?.provider as ProviderKey)
+    ? (body!.provider as ProviderKey)
+    : undefined;
 
   const admin = createAdminSupabase();
   const { data: brief } = await admin

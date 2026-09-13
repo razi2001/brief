@@ -2,16 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useReverification } from "@clerk/nextjs";
 import { TrackerLogo } from "./TrackerLogo";
 import { TRACKER_DEFS, useTrackerConnect, type TrackerDef } from "./useTrackerConnect";
 
 /**
- * Dedicated Integrations section for trackers (Linear, Jira). Connections are
- * managed here via the Clerk client API rather than through the `<UserProfile/>`
- * "Connected accounts" panel. The connect flow itself lives in
- * useTrackerConnect (shared with the onboarding wizard); this component adds
- * the card UI and the disconnect flow.
+ * Dedicated Integrations section for trackers. Connections are managed here
+ * via the Clerk client API rather than through the `<UserProfile/>` "Connected
+ * accounts" panel. The connect/disconnect logic lives in useTrackerConnect
+ * (shared with the onboarding wizard); this component is the card UI over it.
  */
 
 function SkeletonCard() {
@@ -35,24 +33,16 @@ export default function Integrations() {
     user,
     busy,
     errors,
-    setTrackerBusy,
     setTrackerError,
-    connectedAccount,
+    isConnected,
     pendingAccount,
     pendingError,
     connect,
+    disconnect,
   } = useTrackerConnect("/connections");
   // Set when the inline disconnect ultimately fails (user cancels the
   // reverification, or some other error), so we point them to account settings.
   const [needsAccount, setNeedsAccount] = useState<Record<string, boolean>>({});
-
-  // Removing a connected account is a "sensitive" action: Clerk requires
-  // step-up reverification (session_reverification_required). useReverification
-  // wraps the call so it pops Clerk's verify-code modal inline and retries the
-  // destroy on success - no leaving the page.
-  const destroyAccount = useReverification(
-    (account: { destroy: () => Promise<unknown> }) => account.destroy(),
-  );
 
   if (!isLoaded || !user) {
     return (
@@ -67,22 +57,11 @@ export default function Integrations() {
   }
 
   async function handleDisconnect(t: TrackerDef) {
-    const account = connectedAccount(t.providerMatch) ?? pendingAccount(t.providerMatch);
-    if (!account) return;
     setTrackerError(t.key, "");
     setNeedsAccount((m) => ({ ...m, [t.key]: false }));
-    setTrackerBusy(t.key, true);
-    try {
-      // Pops Clerk's reverification modal if needed, then removes the account.
-      await destroyAccount(account);
-      await user!.reload();
-    } catch {
-      // Reverification cancelled or some other failure - fall back to the
-      // account page, where Clerk's own UI can complete the removal.
-      setNeedsAccount((m) => ({ ...m, [t.key]: true }));
-    } finally {
-      setTrackerBusy(t.key, false);
-    }
+    const ok = await disconnect(t);
+    // Fall back to the account page, where Clerk's own UI can finish the job.
+    if (!ok) setNeedsAccount((m) => ({ ...m, [t.key]: true }));
   }
 
   return (
@@ -94,16 +73,14 @@ export default function Integrations() {
 
       <div className="mt-3 flex flex-col gap-3">
         {TRACKER_DEFS.map((t) => {
-          const account = connectedAccount(t.providerMatch);
-          const isConnected = !!account;
-          const pending = !isConnected && !!pendingAccount(t.providerMatch);
+          const connected = isConnected(t);
+          // Only Clerk connections leave a half-finished record behind.
+          const pending = !connected && !!pendingAccount(t.providerMatch);
           const isBusy = !!busy[t.key];
           const error = errors[t.key];
           const showAccount = !!needsAccount[t.key];
           // Another tracker already holds the single slot - this one would switch.
-          const otherConnected = TRACKER_DEFS.some(
-            (o) => o.key !== t.key && !!connectedAccount(o.providerMatch),
-          );
+          const otherConnected = TRACKER_DEFS.some((o) => o.key !== t.key && isConnected(o));
 
           return (
             <div key={t.key} className="card px-4 py-3.5">
@@ -118,7 +95,7 @@ export default function Integrations() {
                   </div>
                 </div>
 
-                {isConnected ? (
+                {connected ? (
                   <div className="flex shrink-0 items-center gap-3">
                     <span className="pill border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] text-[#2e7d32]">
                       Connected ✓
@@ -148,10 +125,7 @@ export default function Integrations() {
               {showAccount ? (
                 <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
                   Couldn&apos;t remove it here -{" "}
-                  <Link
-                    href="/account"
-                    className="text-accent no-underline hover:underline"
-                  >
+                  <Link href="/account" className="text-accent no-underline hover:underline">
                     manage connections in account settings
                   </Link>
                   .

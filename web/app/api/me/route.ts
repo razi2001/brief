@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { clerkClient } from "@clerk/nextjs/server";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
-import { getLinearToken } from "@/lib/linear";
-import { getJiraAuth } from "@/lib/jira";
+import { connectedProvider } from "@/lib/trackers/registry";
 import { corsPreflight, jsonCors } from "@/lib/cors";
+import type { ProviderKey } from "@/lib/tracker";
 
 export function OPTIONS() {
   return corsPreflight();
@@ -31,10 +31,12 @@ export async function GET(req: NextRequest) {
     return jsonCors({ error: "unauthorized" }, { status: 401 });
   }
 
-  let tracker: "linear" | "jira" | null = null;
+  // Which tracker the extension should name in its "Filing to X" copy, and
+  // whether "Create ticket" can file at all. Resolved through the registry so
+  // a new provider needs no change here.
+  let tracker: ProviderKey | null = null;
   try {
-    if (await getLinearToken(userId)) tracker = "linear";
-    else if (await getJiraAuth(userId)) tracker = "jira";
+    tracker = await connectedProvider(userId);
   } catch {
     tracker = null;
   }

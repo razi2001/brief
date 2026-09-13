@@ -6,6 +6,7 @@ import { TrackerLogo } from "./TrackerLogo";
 import ProgressCycler, { FILING_STEPS } from "./ProgressCycler";
 import { CURSOR_SENTINEL } from "@/lib/chat-stream";
 import { mdToHtml, htmlToMarkdown } from "@/lib/md-html";
+import type { ProviderKey } from "./provider-labels";
 
 /**
  * The editable body. Server-rendered (no flash) and then NEVER re-rendered - the
@@ -90,8 +91,7 @@ export default function TicketDoc({
   initialTitle,
   initialBody,
   assets,
-  hasLinear,
-  hasJira,
+  connected,
   filing = false,
 }: {
   briefId: string;
@@ -99,13 +99,13 @@ export default function TicketDoc({
   isOwner: boolean;
   isDraft: boolean;
   ticketUrl: string | null;
-  provider: "linear" | "jira";
+  provider: ProviderKey;
   providerName: string;
   initialTitle: string;
   initialBody: string;
   assets: AssetMeta[];
-  hasLinear: boolean;
-  hasJira: boolean;
+  /** Trackers the owner has connected, offered as export targets on a draft. */
+  connected: ProviderKey[];
   /** Being filed to a tracker right now: read-only + a "Filing…" indicator, but
    *  the full header/toolbar stays (no stripped-down page). */
   filing?: boolean;
@@ -380,7 +380,7 @@ export default function TicketDoc({
       {/* Action toolbar - one accent primary, then quiet ghost secondaries. */}
       <div className="mb-8 flex flex-wrap items-center gap-1">
         {/* Primary: export the draft, or open the filed ticket. */}
-        {isOwner && isDraft && <ExportButtons briefId={briefId} linear={hasLinear} jira={hasJira} />}
+        {isOwner && isDraft && <ExportButtons briefId={briefId} connected={connected} />}
         {!isDraft && ticketUrl && (
           <a
             className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-cream/50 px-3 py-1.5 text-xs font-medium text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink"

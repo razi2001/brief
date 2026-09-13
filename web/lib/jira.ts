@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/nextjs/server";
-import { resolveName, withBriefAttribution, type IssuePatch, type IssueSearchResult, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
+import { clerkStrategy } from "./clerk-strategies";
+import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
@@ -223,7 +224,10 @@ export async function getJiraAuth(userId: string): Promise<JiraTok | null> {
   const client = await clerkClient().catch(() => null);
   if (client) {
     try {
-      const res = await client.users.getUserOauthAccessToken(userId, "oauth_atlassian");
+      const res = await client.users.getUserOauthAccessToken(
+      userId,
+      clerkStrategy("jira") as Parameters<typeof client.users.getUserOauthAccessToken>[1],
+    );
       const t = res.data?.[0]?.token;
       if (t) return { token: t, kind: "oauth" };
     } catch { /* not connected - fall through */ }
@@ -503,6 +507,16 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
   return {
     kind: "jira",
     targetNoun: "project",
+    capabilities: {
+      ...NO_CAPABILITIES,
+      states: true,
+      priority: true,
+      labels: true,
+      customFields: true,
+      issueTypes: true,
+      comments: true,
+      nativeAttachments: true,
+    },
     async listTargets(): Promise<TrackerTarget[]> {
       return loadTargets();
     },
@@ -810,6 +824,14 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         labels: f.labels ?? [],
         priority: f.priority?.name?.toLowerCase() ?? null,
       };
+    },
+    async getLiveIssues(identifiers): Promise<LiveIssueLookup> {
+      // JQL `key in (...)` simply omits keys it can't return, which is NOT the
+      // same as "deleted" (a permission change looks identical), so `gone` stays
+      // empty: Jira rows fall back to their stored snapshot instead of being
+      // wrongly marked deleted.
+      const issues = await getJiraIssues(tok, cloud, identifiers);
+      return { issues, gone: [] };
     },
   };
 }

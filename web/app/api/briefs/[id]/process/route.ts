@@ -5,8 +5,7 @@ import { processBriefById } from "@/lib/agent/run-processing";
 import { claimFiling } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
-import { getLinearToken } from "@/lib/linear";
-import { getJiraAuth } from "@/lib/jira";
+import { connectedProvider } from "@/lib/trackers/registry";
 
 export const maxDuration = 300;
 
@@ -24,12 +23,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // 'processing' - the extension gets an immediate, actionable 409 instead of a
   // brief that silently stalls and times out. The brief stays an uploaded draft
   // so it can be filed once a tracker is linked.
-  const hasTracker = (await getLinearToken(userId)) ?? (await getJiraAuth(userId));
+  const hasTracker = await connectedProvider(userId);
   if (!hasTracker) {
     return jsonCors(
       {
         error: "no_tracker",
-        message: "No tracker connected - connect Linear or Jira in Brief Cloud first.",
+        message: "No tracker connected - connect one in Brief Cloud first.",
       },
       { status: 409 },
     );
