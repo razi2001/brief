@@ -36,6 +36,17 @@ type CachedMembership = {
  */
 export const ORG_TTL_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How long we leave an account alone after failing to place it in an org.
+ *
+ * Plenty of accounts can't resolve: Clerk holds a Linear connection it marks
+ * verified but refuses to vend a token for (HTTP 400 - a stale grant the user
+ * has to reconnect), or there is no tracker at all. Short enough that someone
+ * who reconnects is picked up the same morning, long enough that the hopeless
+ * majority aren't retried on every dashboard render.
+ */
+export const ORG_MISS_TTL_MS = 6 * 60 * 60 * 1000;
+
 /** Clerk privateMetadata key holding the GitHub org the user picked. */
 const GITHUB_ORG_KEY = "githubOrg";
 
@@ -283,7 +294,7 @@ export type PodiumEntry = Reporter & {
 };
 
 /**
- * Resolve org membership for a few Brief users who have none cached yet.
+ * Resolve org membership for Brief users who have none cached yet.
  *
  * Membership is normally written the first time someone loads a page, which
  * leaves a cold start the leaderboard can't hide: a colleague is simply absent
@@ -291,47 +302,67 @@ export type PodiumEntry = Reporter & {
  * This closes that without anyone running an ops script.
  *
  * Candidates come from CLERK, not from the briefs table. Sourcing them from
- * briefs meant only people who had already filed were ever resolved - so a
+ * briefs meant only people who had already filed were ever resolved, so a
  * teammate who signed up and connected Linear but hadn't filed yet could never
- * appear, no matter how long you waited. Everyone with a Brief account is a
- * candidate; whether they have filed anything is the leaderboard's business,
- * not the resolver's.
+ * appear.
  *
- * Deliberately bounded and fire-and-forget - the dashboard calls it through
- * `after()`, so it costs the render nothing.
+ * Failures are remembered (org_resolve_misses). Without that, the accounts that
+ * can never resolve were retried on every single render, and with a small
+ * budget they consumed all of it - the roster stalled a few members short no
+ * matter how long you waited. With misses recorded the budget can be generous
+ * enough to finish an org in one pass, then costs almost nothing.
  *
- * The pending list is SHUFFLED, which matters more than it looks. Some accounts
- * can never resolve (no tracker connected, revoked token), and a failed resolve
- * caches nothing. Taking the first N of a stable list meant those consumed the
- * whole budget on every load and nobody behind them was ever reached.
+ * Fire-and-forget: the dashboard calls it through `after()`, so none of this
+ * is on the response path.
  */
 export async function warmOrgMemberships(
   db?: SupabaseClient,
-  limit = 5,
+  limit = 25,
 ): Promise<number> {
   const admin = db ?? createAdminSupabase();
   try {
     const client = await clerkClient();
-    const [list, { data: memberRows }] = await Promise.all([
+    const missCutoff = new Date(Date.now() - ORG_MISS_TTL_MS).toISOString();
+    const [list, { data: memberRows }, { data: missRows }] = await Promise.all([
       client.users.getUserList({ limit: 200 }),
       admin.from("org_members").select("user_id"),
+      admin.from("org_resolve_misses").select("user_id").gte("tried_at", missCutoff),
     ]);
 
-    const known = new Set((memberRows ?? []).map((r: { user_id: string }) => r.user_id));
-    const pending = list.data.map((u) => u.id).filter((id) => !known.has(id));
+    const skip = new Set([
+      ...(memberRows ?? []).map((r: { user_id: string }) => r.user_id),
+      ...(missRows ?? []).map((r: { user_id: string }) => r.user_id),
+    ]);
+    const pending = list.data.map((u) => u.id).filter((id) => !skip.has(id));
     if (pending.length === 0) return 0;
 
-    // Fisher-Yates, so the same unresolvable accounts can't monopolise the budget.
+    // Shuffled so that if there are ever more pending than the budget allows,
+    // the same accounts don't get first refusal on every pass.
     for (let i = pending.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [pending[i], pending[j]] = [pending[j], pending[i]];
     }
 
+    const batch = pending.slice(0, limit);
     // getOrg caches whatever it resolves, which is the whole point.
     const results = await Promise.all(
-      pending.slice(0, limit).map((id) => getOrg(id, admin).catch(() => null)),
+      batch.map(async (id) => ({ id, org: await getOrg(id, admin).catch(() => null) })),
     );
-    return results.filter(Boolean).length;
+
+    const missed = results.filter((r) => !r.org).map((r) => r.id);
+    const hit = results.filter((r) => r.org).map((r) => r.id);
+    await Promise.all([
+      missed.length
+        ? admin.from("org_resolve_misses").upsert(
+            missed.map((user_id) => ({ user_id, tried_at: new Date().toISOString() })),
+            { onConflict: "user_id" },
+          )
+        : null,
+      // A previously hopeless account that just worked shouldn't stay marked.
+      hit.length ? admin.from("org_resolve_misses").delete().in("user_id", hit) : null,
+    ]);
+
+    return hit.length;
   } catch {
     // A warm-up that fails is invisible - the next page load tries again.
     return 0;
