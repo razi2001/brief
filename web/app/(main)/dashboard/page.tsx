@@ -17,12 +17,7 @@ import {
   BRIEF_COLUMNS,
   type BriefRow,
 } from "@/lib/briefs-server";
-import {
-  getLeaderboard,
-  getOrg,
-  rangeStart,
-  warmOrgMemberships,
-} from "@/lib/org-server";
+import { getLeaderboards, getOrg, warmOrgMemberships } from "@/lib/org-server";
 import { showPodium } from "@/lib/podium";
 
 /** Local YYYY-MM-DD key for a timestamp (day bucketing for the trend chart). */
@@ -45,15 +40,9 @@ function buildDays(n: number): TrendDay[] {
   return out;
 }
 
-export default async function Dashboard({
-  searchParams,
-}: {
-  searchParams: Promise<{ top?: string }>;
-}) {
+export default async function Dashboard() {
   const userId = await requireUserId();
   const ctx = await getTrackerContext();
-  // The podium defaults to the past month; ?top=all widens it to all time.
-  const range = (await searchParams)?.top === "all" ? "all" : "month";
 
   const admin = createAdminSupabase();
   await recoverOrphans(admin, userId);
@@ -123,9 +112,11 @@ export default async function Dashboard({
   // token resolves to - never to anything the request asked for. Best-effort:
   // no org, or an aggregate that fails, simply means no podium.
   const org = await getOrg(userId, admin);
-  const podium = org
-    ? await getLeaderboard(org.key, userId, rangeStart(range), admin)
-    : [];
+  // Both ranges up front: switching between them is a client-side swap, not a
+  // navigation that would re-run the live tracker sync for every ticket.
+  const boards = org
+    ? await getLeaderboards(org.key, userId, admin)
+    : { month: [], all: [] };
 
   // Colleagues who have filed but never opened Brief have no cached membership,
   // so they are missing from the leaderboard through no fault of their own.
@@ -157,10 +148,16 @@ export default async function Dashboard({
               leaves the status breakdown full width underneath. With no
               podium the original trend|breakdown pair stands as it was, so
               neither layout ever has a lone half-width card. */}
-          {showPodium(podium) && org ? (
+          {org && (showPodium(boards.month) || showPodium(boards.all)) ? (
             <>
-              <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
-                <Podium entries={podium} range={range} orgName={org.name} />
+              {/* items-start so each card keeps its natural height - stretching
+                  them to match left a large empty area under the shorter one. */}
+              <div className="mt-6 grid grid-cols-1 items-start gap-5 md:grid-cols-2">
+                <Podium
+                  month={boards.month}
+                  all={boards.all}
+                  orgName={org.name}
+                />
                 <TrendChart days={days} />
               </div>
               {segments.length > 0 && (

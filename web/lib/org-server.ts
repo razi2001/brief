@@ -283,58 +283,146 @@ export type PodiumEntry = Reporter & {
 };
 
 /**
- * The org's ranked reporters, with display names attached.
+ * Resolve org membership for a few Brief users who have none cached yet.
  *
- * `since` null means all time. Names come from ONE batched Clerk lookup rather
- * than one per person.
+ * Membership is normally written the first time someone loads a page, which
+ * leaves a cold start the leaderboard can't hide: a colleague is simply absent
+ * until they happen to open Brief, and the roster looks wrong to everyone else.
+ * This closes that without anyone running an ops script.
+ *
+ * Candidates come from CLERK, not from the briefs table. Sourcing them from
+ * briefs meant only people who had already filed were ever resolved - so a
+ * teammate who signed up and connected Linear but hadn't filed yet could never
+ * appear, no matter how long you waited. Everyone with a Brief account is a
+ * candidate; whether they have filed anything is the leaderboard's business,
+ * not the resolver's.
+ *
+ * Deliberately bounded and fire-and-forget - the dashboard calls it through
+ * `after()`, so it costs the render nothing.
+ *
+ * The pending list is SHUFFLED, which matters more than it looks. Some accounts
+ * can never resolve (no tracker connected, revoked token), and a failed resolve
+ * caches nothing. Taking the first N of a stable list meant those consumed the
+ * whole budget on every load and nobody behind them was ever reached.
  */
-export async function getLeaderboard(
+export async function warmOrgMemberships(
+  db?: SupabaseClient,
+  limit = 5,
+): Promise<number> {
+  const admin = db ?? createAdminSupabase();
+  try {
+    const client = await clerkClient();
+    const [list, { data: memberRows }] = await Promise.all([
+      client.users.getUserList({ limit: 200 }),
+      admin.from("org_members").select("user_id"),
+    ]);
+
+    const known = new Set((memberRows ?? []).map((r: { user_id: string }) => r.user_id));
+    const pending = list.data.map((u) => u.id).filter((id) => !known.has(id));
+    if (pending.length === 0) return 0;
+
+    // Fisher-Yates, so the same unresolvable accounts can't monopolise the budget.
+    for (let i = pending.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pending[i], pending[j]] = [pending[j], pending[i]];
+    }
+
+    // getOrg caches whatever it resolves, which is the whole point.
+    const results = await Promise.all(
+      pending.slice(0, limit).map((id) => getOrg(id, admin).catch(() => null)),
+    );
+    return results.filter(Boolean).length;
+  } catch {
+    // A warm-up that fails is invisible - the next page load tries again.
+    return 0;
+  }
+}
+
+/**
+ * Both ranges in one pass, sharing a single Clerk name lookup.
+ *
+ * The range used to live in the URL, so switching it re-ran the WHOLE dashboard
+ * - including attachTicketInfo, which makes live tracker API calls for dozens
+ * of tickets. Switching a leaderboard filter should not cost a Linear round
+ * trip per ticket. Both ranges are cheap SQL against one index, so we fetch
+ * them together and let the client toggle instantly.
+ */
+export async function getLeaderboards(
   orgKeyValue: string,
   viewerId: string,
-  since: Date | null,
   db?: SupabaseClient,
-): Promise<PodiumEntry[]> {
+): Promise<{ month: PodiumEntry[]; all: PodiumEntry[] }> {
   const admin = db ?? createAdminSupabase();
   const memberIds = await getOrgMemberIds(orgKeyValue, admin);
-  if (memberIds.length === 0) return [];
+  if (memberIds.length === 0) return { month: [], all: [] };
 
-  let rows: LeaderRow[] = [];
+  const [monthRows, allRows] = await Promise.all([
+    leaderboardRows(admin, memberIds, rangeStart("month")),
+    leaderboardRows(admin, memberIds, rangeStart("all")),
+  ]);
+
+  // The aggregate groups over briefs, so a teammate with none in the window
+  // produces no row at all. Pad them back in at zero: the roster should show
+  // the team, not only whoever happened to file this month.
+  const padded = (rows: LeaderRow[]): LeaderRow[] => {
+    const seen = new Set(rows.map((r) => r.userId));
+    return [
+      ...rows,
+      ...memberIds
+        .filter((id) => !seen.has(id))
+        .map((userId) => ({ userId, filed: 0, night: 0, avgTitle: 0, prevFiled: 0 })),
+    ];
+  };
+
+  const month = rankReporters(padded(monthRows));
+  const all = rankReporters(padded(allRows));
+  const names = await lookupNames([...month, ...all].map((r) => r.userId));
+
+  const decorate = (rs: Reporter[]): PodiumEntry[] =>
+    rs.map((r) => ({
+      ...r,
+      name: names.get(r.userId)?.name ?? "someone",
+      imageUrl: names.get(r.userId)?.imageUrl,
+      isYou: r.userId === viewerId,
+    }));
+
+  return { month: decorate(month), all: decorate(all) };
+}
+
+async function leaderboardRows(
+  admin: SupabaseClient,
+  memberIds: string[],
+  since: Date | null,
+): Promise<LeaderRow[]> {
   try {
     const { data, error } = await admin.rpc("org_leaderboard", {
       member_ids: memberIds,
       since: since ? since.toISOString() : null,
     });
     if (error) throw error;
-    rows = (data ?? []).map(
-      (r: {
-        user_id: string;
-        filed: number | string;
-        night: number | string;
-        avg_title: number | string;
-        prev_filed: number | string;
-      }) => ({
-        userId: r.user_id,
-        filed: Number(r.filed) || 0,
-        night: Number(r.night) || 0,
-        avgTitle: Number(r.avg_title) || 0,
-        prevFiled: Number(r.prev_filed) || 0,
-      }),
-    );
+    return ((data ?? []) as Array<Record<string, string | number>>).map((r) => ({
+      userId: String(r.user_id),
+      filed: Number(r.filed) || 0,
+      night: Number(r.night) || 0,
+      avgTitle: Number(r.avg_title) || 0,
+      prevFiled: Number(r.prev_filed) || 0,
+    }));
   } catch {
     // A failed aggregate hides the podium rather than breaking the dashboard.
     return [];
   }
+}
 
-  const ranked = rankReporters(rows);
-  if (ranked.length === 0) return [];
-
+/** One batched Clerk lookup for however many distinct people are ranked. */
+async function lookupNames(
+  userIds: string[],
+): Promise<Map<string, { name: string; imageUrl?: string }>> {
   const names = new Map<string, { name: string; imageUrl?: string }>();
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) return names;
   try {
     const client = await clerkClient();
-    const list = await client.users.getUserList({
-      userId: ranked.map((r) => r.userId),
-      limit: ranked.length,
-    });
+    const list = await client.users.getUserList({ userId: unique, limit: unique.length });
     for (const u of list.data) {
       const name =
         u.firstName ??
@@ -344,71 +432,9 @@ export async function getLeaderboard(
       names.set(u.id, { name, imageUrl: u.imageUrl });
     }
   } catch {
-    /* fall back to the placeholder below rather than losing the podium */
+    /* fall back to the placeholder at the call site rather than losing the podium */
   }
-
-  return ranked.map((r) => ({
-    ...r,
-    name: names.get(r.userId)?.name ?? "someone",
-    imageUrl: names.get(r.userId)?.imageUrl,
-    isYou: r.userId === viewerId,
-  }));
-}
-
-/**
- * Resolve org membership for a few people who have filed briefs but have no
- * cached membership yet.
- *
- * Membership is normally written the first time someone loads a page, which
- * leaves a cold start the leaderboard can't hide: a colleague who has filed
- * plenty of tickets is simply absent until they happen to open Brief, and the
- * podium looks broken to everyone else. This closes that without anyone having
- * to run an ops script.
- *
- * Deliberately bounded and fire-and-forget - the dashboard calls it through
- * `after()`, so it costs the render nothing, and each call resolves at most
- * `limit` people. An org converges over a handful of page loads.
- *
- * A user whose tracker can't be reached resolves to nothing and caches nothing,
- * so they are retried on a later load; `limit` is what stops that from being
- * expensive.
- */
-export async function warmOrgMemberships(
-  db?: SupabaseClient,
-  limit = 5,
-): Promise<number> {
-  const admin = db ?? createAdminSupabase();
-  try {
-    // Two small reads rather than a NOT IN: Brief's user count is tiny, and
-    // this keeps the warm-up out of the migration surface. Revisit with an RPC
-    // if briefs ever outgrows the cap below.
-    const [{ data: briefRows }, { data: memberRows }] = await Promise.all([
-      admin
-        .from("briefs")
-        .select("user_id")
-        .eq("status", "filed")
-        .is("archived_at", null)
-        .limit(2000),
-      admin.from("org_members").select("user_id"),
-    ]);
-
-    const known = new Set((memberRows ?? []).map((r: { user_id: string }) => r.user_id));
-    const pending: string[] = [];
-    for (const r of (briefRows ?? []) as Array<{ user_id: string }>) {
-      if (!known.has(r.user_id) && !pending.includes(r.user_id)) pending.push(r.user_id);
-      if (pending.length >= limit) break;
-    }
-    if (pending.length === 0) return 0;
-
-    // getOrg caches whatever it resolves, which is the whole point.
-    const results = await Promise.all(
-      pending.map((id) => getOrg(id, admin).catch(() => null)),
-    );
-    return results.filter(Boolean).length;
-  } catch {
-    // A warm-up that fails is invisible - the next page load tries again.
-    return 0;
-  }
+  return names;
 }
 
 /** The start of the trailing 30-day window, or null for all time. */

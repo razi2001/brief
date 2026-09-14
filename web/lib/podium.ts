@@ -71,10 +71,10 @@ function awardBest(
 export function rankReporters(rows: LeaderRow[]): Reporter[] {
   const byId = new Map(rows.map((r) => [r.userId, r]));
 
-  // Someone who filed nothing in the range isn't on the board at all - a row of
-  // zeroes is noise, not a competitor.
+  // Everyone in the org is listed, including people who filed nothing in the
+  // range. Dropping them read as "where is my team?" - a colleague who uses
+  // Brief but had a quiet month simply vanished, which is worse than a zero.
   const reporters: Reporter[] = rows
-    .filter((r) => r.filed > 0)
     // User id is the tie-break purely so the order is stable between renders;
     // two people on the same count must not swap places on refresh.
     .sort((a, b) => b.filed - a.filed || a.userId.localeCompare(b.userId))
@@ -84,8 +84,9 @@ export function rankReporters(rows: LeaderRow[]): Reporter[] {
 
   const stat = (r: Reporter) => byId.get(r.userId)!;
 
-  reporters[0].title = TITLES.first;
-  if (reporters[1]) reporters[1].title = TITLES.second;
+  // The crown only means something if the leader actually filed something.
+  if (reporters[0].filed > 0) reporters[0].title = TITLES.first;
+  if (reporters[1]?.filed) reporters[1].title = TITLES.second;
 
   awardBest(reporters, (r) => stat(r).night, TITLES.night, 0);
   awardBest(reporters, (r) => stat(r).avgTitle, TITLES.novelist, 0);
@@ -98,14 +99,17 @@ export function rankReporters(rows: LeaderRow[]): Reporter[] {
 }
 
 /**
- * Show the section to anyone who has filed at least one ticket.
+ * Show the section once anyone has actually filed something.
  *
  * A lone reporter gets a deliberately different card (see Podium.tsx) rather
  * than a three-step podium with two empty places. Hiding it outright was the
  * first instinct, but it means the FIRST person in any workspace - which is
  * everyone, at some point - never discovers the feature exists, and it stays
  * invisible until a colleague happens to sign up.
+ *
+ * An org where nobody has filed in the range is still hidden: a board of
+ * zeroes says nothing.
  */
 export function showPodium(reporters: Reporter[]): boolean {
-  return reporters.length >= 1;
+  return reporters.some((r) => r.filed > 0);
 }

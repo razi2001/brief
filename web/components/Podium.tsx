@@ -1,4 +1,6 @@
-import Link from "next/link";
+"use client";
+
+import { useState } from "react";
 import type { PodiumEntry } from "@/lib/org-server";
 
 /**
@@ -45,25 +47,35 @@ function Avatar({ entry, size }: { entry: PodiumEntry; size: number }) {
 }
 
 /**
- * Range switch. Links rather than buttons: the range lives in the URL, so it
- * is a real navigation - shareable, back-button-able, prefetched - and the
- * whole podium needs no client JS at all as a result.
+ * Range switch.
+ *
+ * This used to put the range in the URL, which meant switching it re-ran the
+ * entire dashboard server-side - including the live tracker sync for dozens of
+ * tickets. Filtering a leaderboard should not cost a Linear round trip per
+ * ticket, so both ranges are fetched up front and this just swaps which one is
+ * shown. Instant, no request at all.
  */
-function RangeToggle({ range }: { range: "month" | "all" }) {
+function RangeToggle({
+  range,
+  onChange,
+}: {
+  range: "month" | "all";
+  onChange: (r: "month" | "all") => void;
+}) {
   return (
     <div className="inline-flex overflow-hidden rounded-full border hairline">
       {(
         [
-          ["month", "past month", ""],
-          ["all", "all time", "?top=all"],
+          ["month", "past month"],
+          ["all", "all time"],
         ] as const
-      ).map(([value, label, suffix], i) => (
-        <Link
+      ).map(([value, label], i) => (
+        <button
           key={value}
-          href={`/dashboard${suffix}`}
-          scroll={false}
-          aria-current={range === value ? "true" : undefined}
-          className={`px-3.5 py-1.5 text-[0.6875rem] uppercase tracking-[0.04em] no-underline transition-colors ${
+          type="button"
+          onClick={() => onChange(value)}
+          aria-pressed={range === value}
+          className={`cursor-pointer px-3.5 py-1.5 text-[0.6875rem] uppercase tracking-[0.04em] transition-colors ${
             i > 0 ? "border-l hairline" : ""
           } ${
             range === value
@@ -72,7 +84,7 @@ function RangeToggle({ range }: { range: "month" | "all" }) {
           }`}
         >
           {label}
-        </Link>
+        </button>
       ))}
     </div>
   );
@@ -88,10 +100,12 @@ function RangeToggle({ range }: { range: "month" | "all" }) {
 function SoloCard({
   entry,
   range,
+  onRange,
   orgName,
 }: {
   entry: PodiumEntry;
   range: "month" | "all";
+  onRange: (r: "month" | "all") => void;
   orgName: string;
 }) {
   return (
@@ -101,7 +115,7 @@ function SoloCard({
           <h2 className="font-display text-2xl text-ink">top brief reporters</h2>
           <p className="mt-0.5 text-xs text-muted">{orgName} · just you so far</p>
         </div>
-        <RangeToggle range={range} />
+        <RangeToggle range={range} onChange={onRange} />
       </div>
 
       <div className="mt-5 flex flex-col items-center">
@@ -147,25 +161,37 @@ function Name({ entry }: { entry: PodiumEntry }) {
 }
 
 export default function Podium({
-  entries,
-  range,
+  month,
+  all,
   orgName,
 }: {
-  entries: PodiumEntry[];
-  range: "month" | "all";
+  month: PodiumEntry[];
+  all: PodiumEntry[];
   orgName: string;
 }) {
+  const [range, setRange] = useState<"month" | "all">("month");
+  const entries = range === "month" ? month : all;
+
   // A lone reporter gets their own card. A three-step podium with two empty
   // places would read as broken, and hiding it entirely means the first person
   // in a workspace never finds out the feature is there.
   if (entries.length === 1) {
-    return <SoloCard entry={entries[0]} range={range} orgName={orgName} />;
+    return (
+      <SoloCard
+        entry={entries[0]}
+        range={range}
+        onRange={setRange}
+        orgName={orgName}
+      />
+    );
   }
 
   const top = entries.slice(0, 3);
   const rest = entries.slice(3);
-  // 2nd, 1st, 3rd - so first place stands in the middle.
-  const order = [top[1], top[0], top[2]];
+  // 2nd, 1st, 3rd - so first place stands in the middle. With only two people
+  // there is no third step: rendering an empty cell shoved the pair off to the
+  // left and made a two-person podium look broken.
+  const order = top.length >= 3 ? [top[1], top[0], top[2]] : [top[1], top[0]];
   const leader = top[0];
   const brag = BRAGS[(leader?.filed ?? 0) % BRAGS.length];
 
@@ -183,7 +209,7 @@ export default function Podium({
             {entries.length === 1 ? "person" : "people"} finding things wrong
           </p>
         </div>
-        <RangeToggle range={range} />
+        <RangeToggle range={range} onChange={setRange} />
       </div>
 
       {leader && (
@@ -202,7 +228,13 @@ export default function Podium({
           so the longest earned title ("the night shift") sets the column width
           and pushes the third step off a phone screen. Clamping the track is
           what lets the names and titles actually truncate. */}
-      <ol className="mt-2 grid grid-cols-[repeat(3,minmax(0,1fr))] items-end gap-2.5">
+      <ol
+        className={`mt-2 grid items-end gap-2.5 ${
+          order.length >= 3
+            ? "grid-cols-[repeat(3,minmax(0,1fr))]"
+            : "mx-auto w-2/3 grid-cols-[repeat(2,minmax(0,1fr))]"
+        }`}
+      >
         {order.map((entry, i) =>
           entry ? (
             <li key={entry.userId} className="text-center">

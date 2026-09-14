@@ -13,9 +13,17 @@ describe("rankReporters", () => {
     expect(out.map((r) => r.rank)).toEqual([1, 2, 3]);
   });
 
-  it("excludes people who filed nothing in the range", () => {
+  it("keeps a teammate who filed nothing in the range, ranked last", () => {
+    // Dropping them read as "where is my team?" on a quiet month.
     const out = rankReporters([row("a", 3), row("b", 0)]);
-    expect(out.map((r) => r.userId)).toEqual(["a"]);
+    expect(out.map((r) => r.userId)).toEqual(["a", "b"]);
+    expect(out[1].filed).toBe(0);
+  });
+
+  it("does not crown someone who filed nothing", () => {
+    const out = rankReporters([row("a", 0), row("b", 0)]);
+    expect(out.map((r) => r.title)).not.toContain("chief bug officer");
+    expect(out.map((r) => r.title)).not.toContain("the closer");
   });
 
   it("breaks ties by user id so the order is stable between renders", () => {
@@ -118,6 +126,10 @@ describe("showPodium", () => {
 
   it("hides it when the only member has filed nothing in the range", () => {
     expect(showPodium(rankReporters([row("a", 0)]))).toBe(false);
+  });
+
+  it("hides a whole org that filed nothing in the range", () => {
+    expect(showPodium(rankReporters([row("a", 0), row("b", 0)]))).toBe(false);
   });
 
   it("shows the podium once two people have filed", () => {
