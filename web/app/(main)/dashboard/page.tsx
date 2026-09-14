@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
@@ -16,7 +17,12 @@ import {
   BRIEF_COLUMNS,
   type BriefRow,
 } from "@/lib/briefs-server";
-import { getLeaderboard, getOrg, rangeStart } from "@/lib/org-server";
+import {
+  getLeaderboard,
+  getOrg,
+  rangeStart,
+  warmOrgMemberships,
+} from "@/lib/org-server";
 import { showPodium } from "@/lib/podium";
 
 /** Local YYYY-MM-DD key for a timestamp (day bucketing for the trend chart). */
@@ -121,6 +127,12 @@ export default async function Dashboard({
     ? await getLeaderboard(org.key, userId, rangeStart(range), admin)
     : [];
 
+  // Colleagues who have filed but never opened Brief have no cached membership,
+  // so they are missing from the leaderboard through no fault of their own.
+  // Resolve a few of them after the response is sent - costs this render
+  // nothing, and the org fills itself in over a handful of loads.
+  if (org) after(() => warmOrgMemberships(admin));
+
   const hasBriefs = list.length > 0;
   // First-run onboarding lives on its own page. Send not-yet-onboarded users
   // there; users who already have filed tickets predate the wizard - never
@@ -140,19 +152,34 @@ export default async function Dashboard({
 
       {hasBriefs ? (
         <>
-          <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
-            <TrendChart days={days} />
-            {segments.length > 0 ? (
-              <StatusBreakdown segments={segments} />
-            ) : (
-              <div className="card flex items-center justify-center px-4 py-4 text-center text-sm text-muted">
-                Connect a tracker to see live ticket status.
+          {/* The podium leads when there is one - it is the thing people come
+              back for - and takes half the width beside the trend, which
+              leaves the status breakdown full width underneath. With no
+              podium the original trend|breakdown pair stands as it was, so
+              neither layout ever has a lone half-width card. */}
+          {showPodium(podium) && org ? (
+            <>
+              <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+                <Podium entries={podium} range={range} orgName={org.name} />
+                <TrendChart days={days} />
               </div>
-            )}
-          </div>
-
-          {showPodium(podium) && org && (
-            <Podium entries={podium} range={range} orgName={org.name} />
+              {segments.length > 0 && (
+                <div className="mt-5">
+                  <StatusBreakdown segments={segments} />
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+              <TrendChart days={days} />
+              {segments.length > 0 ? (
+                <StatusBreakdown segments={segments} />
+              ) : (
+                <div className="card flex items-center justify-center px-4 py-4 text-center text-sm text-muted">
+                  Connect a tracker to see live ticket status.
+                </div>
+              )}
+            </div>
           )}
 
           {recent.length > 0 && (

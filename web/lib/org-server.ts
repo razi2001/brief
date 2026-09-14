@@ -355,6 +355,62 @@ export async function getLeaderboard(
   }));
 }
 
+/**
+ * Resolve org membership for a few people who have filed briefs but have no
+ * cached membership yet.
+ *
+ * Membership is normally written the first time someone loads a page, which
+ * leaves a cold start the leaderboard can't hide: a colleague who has filed
+ * plenty of tickets is simply absent until they happen to open Brief, and the
+ * podium looks broken to everyone else. This closes that without anyone having
+ * to run an ops script.
+ *
+ * Deliberately bounded and fire-and-forget - the dashboard calls it through
+ * `after()`, so it costs the render nothing, and each call resolves at most
+ * `limit` people. An org converges over a handful of page loads.
+ *
+ * A user whose tracker can't be reached resolves to nothing and caches nothing,
+ * so they are retried on a later load; `limit` is what stops that from being
+ * expensive.
+ */
+export async function warmOrgMemberships(
+  db?: SupabaseClient,
+  limit = 5,
+): Promise<number> {
+  const admin = db ?? createAdminSupabase();
+  try {
+    // Two small reads rather than a NOT IN: Brief's user count is tiny, and
+    // this keeps the warm-up out of the migration surface. Revisit with an RPC
+    // if briefs ever outgrows the cap below.
+    const [{ data: briefRows }, { data: memberRows }] = await Promise.all([
+      admin
+        .from("briefs")
+        .select("user_id")
+        .eq("status", "filed")
+        .is("archived_at", null)
+        .limit(2000),
+      admin.from("org_members").select("user_id"),
+    ]);
+
+    const known = new Set((memberRows ?? []).map((r: { user_id: string }) => r.user_id));
+    const pending: string[] = [];
+    for (const r of (briefRows ?? []) as Array<{ user_id: string }>) {
+      if (!known.has(r.user_id) && !pending.includes(r.user_id)) pending.push(r.user_id);
+      if (pending.length >= limit) break;
+    }
+    if (pending.length === 0) return 0;
+
+    // getOrg caches whatever it resolves, which is the whole point.
+    const results = await Promise.all(
+      pending.map((id) => getOrg(id, admin).catch(() => null)),
+    );
+    return results.filter(Boolean).length;
+  } catch {
+    // A warm-up that fails is invisible - the next page load tries again.
+    return 0;
+  }
+}
+
 /** The start of the trailing 30-day window, or null for all time. */
 export function rangeStart(range: "month" | "all"): Date | null {
   if (range === "all") return null;

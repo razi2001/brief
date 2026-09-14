@@ -95,7 +95,7 @@ function SoloCard({
   orgName: string;
 }) {
   return (
-    <section className="card animate-rise mt-8 px-4 py-4">
+    <section className="card animate-rise px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl text-ink">top brief reporters</h2>
@@ -174,7 +174,7 @@ export default function Podium({
   const gap = nextUp && top[2] ? top[2].filed - nextUp.filed + 1 : 0;
 
   return (
-    <section className="card animate-rise mt-8 px-4 py-4">
+    <section className="card animate-rise px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="font-display text-2xl text-ink">top brief reporters</h2>
