@@ -34,12 +34,12 @@ function Avatar({ entry, size }: { entry: PodiumEntry; size: number }) {
       src={entry.imageUrl}
       alt=""
       style={{ width: size, height: size }}
-      className="mx-auto rounded-full object-cover"
+      className="shrink-0 rounded-full object-cover"
     />
   ) : (
     <span
       style={{ width: size, height: size }}
-      className="mx-auto flex items-center justify-center rounded-full bg-[rgba(221,105,54,.12)] text-[0.6875rem] text-accent"
+      className="flex shrink-0 items-center justify-center rounded-full bg-[rgba(221,105,54,.12)] text-[0.6875rem] text-accent"
     >
       {initials}
     </span>
@@ -129,7 +129,7 @@ function SoloCard({
         <span aria-hidden className="mt-1 text-base leading-none text-accent">
           ♔
         </span>
-        <div className="mt-1">
+        <div className="mt-1 flex justify-center">
           <Avatar entry={entry} size={50} />
         </div>
         <p className="mt-1.5 text-[13px]">
@@ -237,13 +237,17 @@ export default function Podium({
       >
         {order.map((entry, i) =>
           entry ? (
+            // The columns bottom-align on a common floor, so a taller pedestal
+            // lifts its person higher - that stagger IS the podium, and an
+            // attempt to line the names up only added dead space above the
+            // shorter columns without removing it.
             <li key={entry.userId} className="text-center">
               {i === 1 && (
                 <span aria-hidden className="block text-base leading-none text-accent">
                   ♔
                 </span>
               )}
-              <div className="mt-1">
+              <div className="mt-1 flex justify-center">
                 <Avatar entry={entry} size={i === 1 ? 50 : 40} />
               </div>
               <p className="mt-1.5 truncate text-[13px]">
@@ -284,23 +288,32 @@ export default function Podium({
       </ol>
 
       {rest.length > 0 && (
-        <ul className="mt-0.5 border-t hairline">
+        // Caps at roughly five rows and scrolls past that, so a big org can't
+        // stretch the card down the page.
+        <ul className="mt-0.5 max-h-[13.5rem] overflow-y-auto border-t hairline">
           {rest.map((entry) => (
             <li
               key={entry.userId}
               className="flex items-center gap-2.5 border-b hairline py-2 last:border-b-0"
             >
-              <span className="w-4 text-center text-xs text-muted">{entry.rank}</span>
-              <Avatar entry={entry} size={24} />
-              <span className="text-[13px]">
-                <Name entry={entry} />
+              <span className="w-4 shrink-0 text-center text-xs text-muted">
+                {entry.rank}
               </span>
-              {entry.title && (
-                <span className="flex-1 truncate text-[0.6875rem] italic text-muted">
-                  {entry.title}
+              <Avatar entry={entry} size={24} />
+              {/* The name and the title share one flexible cell. It has to be
+                  here whether or not there IS a title - without it the row
+                  collapsed and the avatar drifted into the middle. */}
+              <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                <span className="truncate text-[13px]">
+                  <Name entry={entry} />
                 </span>
-              )}
-              <span className="ml-auto text-xs text-muted">{entry.filed}</span>
+                {entry.title && (
+                  <span className="truncate text-[0.6875rem] italic text-muted">
+                    {entry.title}
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 text-xs text-muted">{entry.filed}</span>
             </li>
           ))}
         </ul>

@@ -139,8 +139,6 @@ export default async function Dashboard() {
         <AutoRefresh active={processing.length > 0} />
         <RefreshButton />
       </div>
-      <StatStrip stats={stats} />
-
       {hasBriefs ? (
         <>
           {/* The podium leads when there is one - it is the thing people come
@@ -163,10 +161,13 @@ export default async function Dashboard() {
                 <div className="flex flex-col gap-5">
                   <TrendChart days={days} />
                   {segments.length > 0 && <StatusBreakdown segments={segments} />}
+                  <StatStrip stats={stats} />
                 </div>
               </div>
             </>
           ) : (
+            <>
+            <StatStrip stats={stats} />
             <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
               <TrendChart days={days} />
               {segments.length > 0 ? (
@@ -177,6 +178,7 @@ export default async function Dashboard() {
                 </div>
               )}
             </div>
+            </>
           )}
 
           {recent.length > 0 && (

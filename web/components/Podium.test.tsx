@@ -167,6 +167,37 @@ describe("Podium", () => {
     expect(screen.getByText("caroline")).toBeTruthy();
   });
 
+  it("aligns a row the same whether or not the person earned a title", () => {
+    // The avatar used to carry mx-auto for the podium columns, so a row with
+    // no title had nothing to absorb the free space and the avatar drifted
+    // into the middle of the row.
+    const mixed = [
+      ...entries.slice(0, 3),
+      entry("withtitle", 4, 5, { title: "the novelist" }),
+      entry("notitle", 5, 4),
+    ];
+    const { container } = render(<Podium month={mixed} all={mixed} orgName="Acme" />);
+    const rows = [...container.querySelectorAll("ul > li")];
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      const img = row.querySelector("img, span[style]");
+      expect(img?.className).not.toContain("mx-auto");
+      // Every row has the flexible name cell that holds the layout steady.
+      expect(row.querySelector(".flex-1")).toBeTruthy();
+    }
+  });
+
+  it("scrolls the list instead of growing the card for a big org", () => {
+    const many = [
+      ...entries,
+      ...Array.from({ length: 8 }, (_, i) => entry(`p${i}`, i + 6, 1)),
+    ];
+    const { container } = render(<Podium month={many} all={many} orgName="Acme" />);
+    const ul = container.querySelector("ul")!;
+    expect(ul.className).toContain("overflow-y-auto");
+    expect(ul.className).toContain("max-h-");
+  });
+
   it("names the org and counts the people in it", () => {
     const { container } = render(
       <Podium month={entries} all={entries} orgName="Acme" />,
