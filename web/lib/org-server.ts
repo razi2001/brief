@@ -6,6 +6,7 @@ import { getLinearOrg, getLinearToken } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud } from "@/lib/jira";
 import { getGithubToken, listGithubOrgs } from "@/lib/github";
 import { rankReporters, type LeaderRow, type Reporter } from "@/lib/podium";
+import { inferMemberships, type ResolvedOrg } from "@/lib/org-infer";
 import type { ProviderKey } from "@/lib/tracker";
 
 /**
@@ -362,9 +363,74 @@ export async function warmOrgMemberships(
       hit.length ? admin.from("org_resolve_misses").delete().in("user_id", hit) : null,
     ]);
 
-    return hit.length;
+    // Anyone the tokens couldn't place may still be placeable from their own
+    // filing history - see placeFromHistory.
+    const inferred = await placeFromHistory(admin);
+
+    return hit.length + inferred;
   } catch {
     // A warm-up that fails is invisible - the next page load tries again.
+    return 0;
+  }
+}
+
+/**
+ * Place people their token can't vouch for, using where their tickets went.
+ *
+ * A stale Linear grant means Clerk won't produce a token, so resolution fails
+ * and the person vanishes from their team's roster - even with dozens of
+ * tickets filed into that team's workspace. Brief filed those tickets and
+ * recorded the urls, so the workspace is already known; see lib/org-infer.ts
+ * for why this is sound and why it is only ever a fallback.
+ */
+async function placeFromHistory(admin: SupabaseClient): Promise<number> {
+  try {
+    const [{ data: ticketRows }, { data: memberRows }] = await Promise.all([
+      admin
+        .from("briefs")
+        .select("user_id, ticket_url")
+        .not("ticket_url", "is", null)
+        .limit(4000),
+      admin.from("org_members").select("user_id, org_key, org_name"),
+    ]);
+
+    const resolved = new Map<string, ResolvedOrg>(
+      ((memberRows ?? []) as Array<{ user_id: string; org_key: string; org_name: string }>).map(
+        (r) => [r.user_id, { orgKey: r.org_key, orgName: r.org_name }],
+      ),
+    );
+    if (resolved.size === 0) return 0;
+
+    const placements = inferMemberships({
+      tickets: ((ticketRows ?? []) as Array<{ user_id: string; ticket_url: string | null }>).map(
+        (r) => ({ userId: r.user_id, url: r.ticket_url }),
+      ),
+      resolved,
+    });
+    if (placements.length === 0) return 0;
+
+    const { error } = await admin.from("org_members").upsert(
+      placements.map((p) => ({
+        user_id: p.userId,
+        org_key: p.orgKey,
+        org_name: p.orgName,
+        provider: "linear",
+        // Backdated so a real token lookup is preferred as soon as the TTL
+        // lapses - inference should never keep a live answer out.
+        resolved_at: new Date(Date.now() - ORG_TTL_MS / 2).toISOString(),
+      })),
+      { onConflict: "user_id" },
+    );
+    if (error) return 0;
+
+    // They're placed, so stop treating them as hopeless.
+    await admin
+      .from("org_resolve_misses")
+      .delete()
+      .in("user_id", placements.map((p) => p.userId));
+
+    return placements.length;
+  } catch {
     return 0;
   }
 }

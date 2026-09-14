@@ -150,21 +150,21 @@ export default async function Dashboard() {
               neither layout ever has a lone half-width card. */}
           {org && (showPodium(boards.month) || showPodium(boards.all)) ? (
             <>
-              {/* items-start so each card keeps its natural height - stretching
-                  them to match left a large empty area under the shorter one. */}
+              {/* Podium on the left, the two charts stacked on the right.
+                  Activity alone left a tall empty column beside the podium;
+                  status fills it instead of sitting full width underneath.
+                  items-start so neither column stretches to match the other. */}
               <div className="mt-6 grid grid-cols-1 items-start gap-5 md:grid-cols-2">
                 <Podium
                   month={boards.month}
                   all={boards.all}
                   orgName={org.name}
                 />
-                <TrendChart days={days} />
-              </div>
-              {segments.length > 0 && (
-                <div className="mt-5">
-                  <StatusBreakdown segments={segments} />
+                <div className="flex flex-col gap-5">
+                  <TrendChart days={days} />
+                  {segments.length > 0 && <StatusBreakdown segments={segments} />}
                 </div>
-              )}
+              </div>
             </>
           ) : (
             <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
