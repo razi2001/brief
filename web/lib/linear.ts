@@ -732,3 +732,21 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
     },
   };
 }
+
+/**
+ * The workspace this token belongs to - Brief's org identity for Linear.
+ *
+ * A Linear token is scoped to exactly one organization, so this is unambiguous:
+ * two users whose tokens return the same id are, by definition, colleagues.
+ */
+export async function getLinearOrg(
+  tok: LinearTok,
+): Promise<{ id: string; name: string } | null> {
+  const d = await linearGraphQL<{ organization?: { id?: string; name?: string } }>(
+    tok,
+    `query { organization { id name } }`,
+    {},
+  );
+  const org = d?.organization;
+  return org?.id ? { id: org.id, name: org.name ?? "Linear workspace" } : null;
+}

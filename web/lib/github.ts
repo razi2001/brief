@@ -929,3 +929,70 @@ export function makeGithubTracker(tok: GithubTok): Tracker {
     },
   };
 }
+
+/**
+ * The orgs this token can see, for the org picker on Connections.
+ *
+ * Unlike Linear and Jira, a GitHub user belongs to MANY orgs at once, so
+ * there is no "their" org to infer - listTargets already spans
+ * owner/collaborator/organization_member repos. The user picks one; until they
+ * do they simply have no org, which is better than guessing wrong and sharing
+ * their preferences with the wrong company.
+ *
+ * `/user/orgs` alone is NOT enough. It needs the `read:org` scope, and the
+ * Clerk connection requests `read:user, repo, user:email` - so it answers 200
+ * with an empty array even for someone who is in orgs, and the picker would be
+ * permanently empty for everyone. The repo list is the reliable source: `repo`
+ * is already granted, and every repo names its owner.
+ *
+ * The affiliation is `organization_member` ONLY - deliberately not
+ * `collaborator`. GitHub defines organization_member as repositories reached
+ * through membership of the owning organization, which is the membership proof
+ * we need. Including collaborator would let an outside collaborator on a single
+ * repo claim that company's org - and the org key is what grants read access to
+ * its leaderboard and write access to its shared filing rules.
+ */
+export async function listGithubOrgs(
+  tok: GithubTok,
+): Promise<Array<{ login: string; name: string; avatarUrl?: string }>> {
+  const byLogin = new Map<string, { login: string; name: string; avatarUrl?: string }>();
+
+  // Primary source: owners of the repos this token can see.
+  try {
+    for (let page = 1; page <= 3; page++) {
+      const repos = await ghJson<
+        Array<{ owner?: { login?: string; type?: string; avatar_url?: string } }>
+      >(
+        tok,
+        `/user/repos?per_page=100&page=${page}&affiliation=organization_member`,
+      );
+      for (const r of repos) {
+        const o = r.owner;
+        if (o?.login && o.type === "Organization" && !byLogin.has(o.login)) {
+          byLogin.set(o.login, { login: o.login, name: o.login, avatarUrl: o.avatar_url });
+        }
+      }
+      if (repos.length < 100) break;
+    }
+  } catch {
+    /* fall through to /user/orgs */
+  }
+
+  // Secondary: if the token DOES carry read:org, this adds orgs the user is in
+  // but has no visible repo for.
+  try {
+    const orgs = await ghJson<Array<{ login?: string; avatar_url?: string }>>(
+      tok,
+      "/user/orgs?per_page=100",
+    );
+    for (const o of orgs) {
+      if (o.login && !byLogin.has(o.login)) {
+        byLogin.set(o.login, { login: o.login, name: o.login, avatarUrl: o.avatar_url });
+      }
+    }
+  } catch {
+    /* no org scope, or GitHub is down - the repo-derived list still stands */
+  }
+
+  return [...byLogin.values()].sort((a, b) => a.login.localeCompare(b.login));
+}

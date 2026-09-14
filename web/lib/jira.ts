@@ -254,7 +254,7 @@ interface AccessibleResource {
  */
 export async function getJiraCloud(
   tok: JiraTok
-): Promise<{ cloudId: string; siteUrl: string } | null> {
+): Promise<{ cloudId: string; siteUrl: string; name?: string } | null> {
   if (tok.kind === "oauth") {
     const r = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
       headers: { Authorization: `Bearer ${tok.token}`, Accept: "application/json" },
@@ -263,7 +263,8 @@ export async function getJiraCloud(
     const resources = (await r.json()) as AccessibleResource[];
     const first = resources?.[0];
     if (!first?.id) return null;
-    return { cloudId: first.id, siteUrl: first.url };
+    // `name` is the site's display name, used to label the org in the UI.
+    return { cloudId: first.id, siteUrl: first.url, name: first.name };
   }
   // Basic fallback uses a fixed site; cloudId isn't needed because we hit the
   // site domain directly. We encode the site url as the "cloudId" sentinel.

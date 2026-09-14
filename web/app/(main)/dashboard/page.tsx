@@ -8,6 +8,7 @@ import StatStrip, { type Stat } from "@/components/StatStrip";
 import TrendChart, { type TrendDay } from "@/components/TrendChart";
 import StatusBreakdown, { type StatusSegment } from "@/components/StatusBreakdown";
 import TicketList from "@/components/TicketList";
+import Podium from "@/components/Podium";
 import {
   recoverOrphans,
   getTrackerContext,
@@ -15,6 +16,8 @@ import {
   BRIEF_COLUMNS,
   type BriefRow,
 } from "@/lib/briefs-server";
+import { getLeaderboard, getOrg, rangeStart } from "@/lib/org-server";
+import { showPodium } from "@/lib/podium";
 
 /** Local YYYY-MM-DD key for a timestamp (day bucketing for the trend chart). */
 function dayKey(d: Date): string {
@@ -36,9 +39,15 @@ function buildDays(n: number): TrendDay[] {
   return out;
 }
 
-export default async function Dashboard() {
+export default async function Dashboard({
+  searchParams,
+}: {
+  searchParams: Promise<{ top?: string }>;
+}) {
   const userId = await requireUserId();
   const ctx = await getTrackerContext();
+  // The podium defaults to the past month; ?top=all widens it to all time.
+  const range = (await searchParams)?.top === "all" ? "all" : "month";
 
   const admin = createAdminSupabase();
   await recoverOrphans(admin, userId);
@@ -104,6 +113,14 @@ export default async function Dashboard() {
     },
   ];
 
+  // The org leaderboard. Scoped to whichever tracker workspace this user's
+  // token resolves to - never to anything the request asked for. Best-effort:
+  // no org, or an aggregate that fails, simply means no podium.
+  const org = await getOrg(userId, admin);
+  const podium = org
+    ? await getLeaderboard(org.key, userId, rangeStart(range), admin)
+    : [];
+
   const hasBriefs = list.length > 0;
   // First-run onboarding lives on its own page. Send not-yet-onboarded users
   // there; users who already have filed tickets predate the wizard - never
@@ -133,6 +150,10 @@ export default async function Dashboard() {
               </div>
             )}
           </div>
+
+          {showPodium(podium) && org && (
+            <Podium entries={podium} range={range} orgName={org.name} />
+          )}
 
           {recent.length > 0 && (
             <section className="mt-8">

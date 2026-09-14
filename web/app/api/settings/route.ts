@@ -31,6 +31,17 @@ export async function POST(req: NextRequest) {
   if ("ticketGuidance" in body) {
     updates.ticketGuidance = String(body.ticketGuidance ?? "").trim().slice(0, MAX_GUIDANCE);
   }
+  // Whether this user follows their org's ticket guidance or their own. Stored
+  // explicitly rather than inferred from the text being empty, so "override
+  // with deliberately nothing" is expressible and clearing the box is never
+  // mistaken for opting back into the team defaults.
+  if ("ticketGuidanceMode" in body) {
+    const mode = String(body.ticketGuidanceMode ?? "");
+    if (mode !== "inherit" && mode !== "override") {
+      return NextResponse.json({ error: "invalid ticketGuidanceMode" }, { status: 400 });
+    }
+    updates.ticketGuidanceMode = mode;
+  }
   if ("role" in body) {
     updates.role = String(body.role ?? "").trim().slice(0, MAX_ROLE);
   }
