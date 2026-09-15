@@ -10,6 +10,7 @@
 import { getJiraAuth, getJiraCloud, makeJiraTracker } from "@/lib/jira";
 import { getLinearToken, makeLinearTracker } from "@/lib/linear";
 import { getGithubToken, makeGithubTracker } from "@/lib/github";
+import { clerkClient } from "@clerk/nextjs/server";
 import { clerkMatch, clerkStrategy } from "@/lib/clerk-strategies";
 import type { ProviderKey, Tracker } from "@/lib/tracker";
 
@@ -117,6 +118,43 @@ export async function connectedProvider(userId: string): Promise<ProviderKey | n
 export const ALL_PROVIDER_NAMES = PROVIDERS.map((p) => p.name).join(", ");
 
 export const NO_TRACKER_ERROR = `No tracker connected - connect one (${ALL_PROVIDER_NAMES}) in Connections, then retry.`;
+
+/**
+ * Trackers that LOOK connected on the Clerk user record.
+ *
+ * This is deliberately not the same question as "can we file into it": Clerk
+ * reports an account as verified while refusing to vend a token for it once
+ * the grant goes stale. Telling someone in that state "no tracker connected"
+ * sends them to a page that says Connected, which is a dead end - so the
+ * filing error uses this to say "reconnect" instead.
+ */
+export async function looksConnected(userId: string): Promise<ProviderKey[]> {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const accounts = user.externalAccounts ?? [];
+    return PROVIDERS.filter((def) =>
+      accounts.some((a) => {
+        const provider = (a.provider ?? "").toLowerCase();
+        const status = a.verification?.status;
+        return provider.includes(def.clerkMatch) && (status === undefined || status === "verified");
+      }),
+    ).map((def) => def.key);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The right thing to tell someone whose filing found no tracker: whether they
+ * have none at all, or one whose connection has gone stale.
+ */
+export async function noTrackerError(userId: string): Promise<string> {
+  const looks = await looksConnected(userId);
+  if (looks.length === 0) return NO_TRACKER_ERROR;
+  const names = looks.map(providerName).join(" and ");
+  return `Your ${names} connection has expired - reconnect it under Connections, then retry.`;
+}
 
 /** Resolve every connected tracker, keyed by provider. Used by the live sync. */
 export async function resolveConnectedTrackers(

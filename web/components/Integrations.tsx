@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { TrackerLogo } from "./TrackerLogo";
 import { TRACKER_DEFS, useTrackerConnect, type TrackerDef } from "./useTrackerConnect";
@@ -28,6 +28,19 @@ function SkeletonCard() {
 }
 
 export default function Integrations() {
+  // Which connected trackers can't actually be used. Clerk reports an account
+  // as verified while refusing to vend a token for it once the grant goes
+  // stale, so "connected" on its own is not the truth - only the server can
+  // tell, and it says so here. Fetched after paint: a slow tracker must not
+  // hold the page, and until it answers nothing claims to be broken.
+  const [stale, setStale] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/api/trackers/health", { credentials: "same-origin" })
+      .then((r) => r.json())
+      .then((j) => setStale(Array.isArray(j.stale) ? j.stale : []))
+      .catch(() => setStale([]));
+  }, []);
+
   const {
     isLoaded,
     user,
@@ -97,17 +110,35 @@ export default function Integrations() {
 
                 {connected ? (
                   <div className="flex shrink-0 items-center gap-3">
-                    <span className="pill border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] text-[#2e7d32]">
-                      Connected ✓
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleDisconnect(t)}
-                      disabled={isBusy}
-                      className="text-xs tracking-wide text-muted no-underline hover:text-accent hover:underline disabled:opacity-50"
-                    >
-                      {isBusy ? "Disconnecting…" : "Disconnect"}
-                    </button>
+                    {stale.includes(t.key) ? (
+                      <>
+                        <span className="pill border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent">
+                          Reconnect needed
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => connect(t)}
+                          disabled={isBusy}
+                          className="text-xs tracking-wide text-accent no-underline hover:underline disabled:opacity-50"
+                        >
+                          {isBusy ? "Reconnecting…" : "Reconnect →"}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="pill border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] text-[#2e7d32]">
+                          Connected ✓
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDisconnect(t)}
+                          disabled={isBusy}
+                          className="text-xs tracking-wide text-muted no-underline hover:text-accent hover:underline disabled:opacity-50"
+                        >
+                          {isBusy ? "Disconnecting…" : "Disconnect"}
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <button

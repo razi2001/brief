@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { selectDistinctFrames } from "@/lib/agent/frame-hash";
-import { NO_TRACKER_ERROR, providerName, resolveTracker } from "@/lib/trackers/registry";
+import { noTrackerError, providerName, resolveTracker } from "@/lib/trackers/registry";
 import { BRIEF_URL, type ProviderKey, type Tracker } from "@/lib/tracker";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
 import { composeDraftTicket } from "@/lib/agent/compose-draft";
@@ -269,7 +269,7 @@ export async function processBriefById(
   if (!tracker) {
     const error = opts.provider
       ? `${providerName(opts.provider)} is not connected - reconnect it under Connections, then retry.`
-      : NO_TRACKER_ERROR;
+      : await noTrackerError(userId);
     await releaseFiling(admin, userId, briefId, { status: "failed", error });
     return { ok: false, status: 409, error };
   }
