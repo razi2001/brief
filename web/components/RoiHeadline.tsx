@@ -7,9 +7,9 @@ import type { RoiSummary } from "@/lib/roi";
  * be skimmed past. The numbers are the argument, so they carry the line and the
  * words around them are the minimum that makes them mean something.
  *
- * The measured figures lead. The estimate follows, marked with a ~ and the word
- * estimate, and carrying its assumption in the tooltip - a dashboard that hides
- * what its numbers rest on is one nobody can defend in front of a customer.
+ * The measured figures lead. The one estimated figure follows, marked only by a
+ * ~ and carrying its assumption in the tooltip - a dashboard that hides what
+ * its numbers rest on is one nobody can defend in front of a customer.
  */
 export default function RoiHeadline({
   roi,
@@ -40,10 +40,12 @@ export default function RoiHeadline({
             <span aria-hidden>·</span>
           </>
         )}
+        {/* The "~" and the tooltip are what mark this as the one estimated
+            figure on the line - the explicit "(estimate)" label is gone, so
+            they are now carrying that on their own. */}
         <span title={roi.basis} className="cursor-help border-b border-dotted hairline">
           ~<span className="text-ink-2">{n(roi.hoursSaved)} hours</span> saved
         </span>
-        <span className="text-muted/70">(estimate)</span>
       </p>
     </section>
   );
