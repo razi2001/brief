@@ -25,16 +25,6 @@ describe("summarizeRoi", () => {
     expect(Number.isInteger(r!.hoursSaved)).toBe(true);
   });
 
-  it("reports capture time in seconds while it is under a minute", () => {
-    const r = summarizeRoi({ filed: 80, withEvidence: 78, avgSeconds: 42 });
-    expect(r?.capture).toBe("42 seconds");
-  });
-
-  it("switches to minutes once capture takes longer than that", () => {
-    const r = summarizeRoi({ filed: 80, withEvidence: 78, avgSeconds: 150 });
-    expect(r?.capture).toBe("2.5 minutes");
-  });
-
   it("says nothing at all when nothing has been filed", () => {
     // A headline claiming a saving on zero tickets is just noise.
     expect(summarizeRoi({ filed: 0, withEvidence: 0, avgSeconds: 0 })).toBeNull();
@@ -48,7 +38,6 @@ describe("summarizeRoi", () => {
   it("holds up when capture time is missing", () => {
     const r = summarizeRoi({ filed: 40, withEvidence: 30, avgSeconds: 0 });
     expect(r?.hoursSaved).toBe(10);
-    expect(r?.capture).toBeNull();
   });
 
   it("never claims more evidence than there are tickets", () => {

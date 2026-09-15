@@ -5,7 +5,8 @@
  * deliberate:
  *
  *  - tickets filed, and how many carried a recording or screenshot: MEASURED.
- *  - how long capture took: MEASURED (created_at -> filed).
+ *  - how long capture took: MEASURED (created_at -> filed). Not shown any
+ *    more, but still subtracted below so the hours aren't overstated.
  *  - writing time saved: an ESTIMATE, and the only one. It needs a
  *    counterfactual - how long the same report would have taken by hand - and
  *    nothing in our data can observe that. So the assumption is a named
@@ -39,8 +40,6 @@ export type RoiSummary = {
   filed: number;
   withEvidence: number;
   hoursSaved: number;
-  /** Human capture time ("42 seconds"), or null when we don't know it. */
-  capture: string | null;
   /** The assumption behind hoursSaved, for the UI to show rather than hide. */
   basis: string;
 };
@@ -59,18 +58,10 @@ export function summarizeRoi(input: RoiInput): RoiSummary | null {
   const hoursSaved = Math.round(savedMinutes / 60);
   if (hoursSaved < MIN_HOURS) return null;
 
-  const capture =
-    avgSeconds <= 0
-      ? null
-      : avgSeconds < 60
-        ? `${Math.round(avgSeconds)} seconds`
-        : `${(avgSeconds / 60).toFixed(1)} minutes`;
-
   return {
     filed,
     withEvidence,
     hoursSaved,
-    capture,
     basis: `Estimated against ${MINUTES_BY_HAND} minutes to write a comparable report by hand, less the capture time actually measured.`,
   };
 }
