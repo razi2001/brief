@@ -118,7 +118,7 @@ function SoloCard({
         <RangeToggle range={range} onChange={onRange} />
       </div>
 
-      <div className="mt-5 flex flex-col items-center">
+      <div className="mt-4 flex flex-col items-center">
         <p className="max-w-xs rounded-2xl bg-[rgba(221,105,54,.1)] px-3.5 py-2 text-center text-xs leading-relaxed text-accent">
           “undisputed. also unopposed.”
         </p>
@@ -213,7 +213,7 @@ export default function Podium({
       </div>
 
       {leader && (
-        <div className="mt-5 flex flex-col items-center">
+        <div className="mt-4 flex flex-col items-center">
           <p className="max-w-xs rounded-2xl bg-[rgba(221,105,54,.1)] px-3.5 py-2 text-center text-xs leading-relaxed text-accent">
             “{brag}”
           </p>
@@ -288,9 +288,10 @@ export default function Podium({
       </ol>
 
       {rest.length > 0 && (
-        // Caps at roughly five rows and scrolls past that, so a big org can't
-        // stretch the card down the page.
-        <ul className="mt-0.5 max-h-[13.5rem] overflow-y-auto border-t hairline">
+        // Fits four rows - the common case - and scrolls past that, so a big
+        // org can't stretch the card down the page. thin-scroll because the
+        // OS default bar reads as a broken widget on the cream surface.
+        <ul className="thin-scroll mt-1 max-h-[11rem] overflow-y-auto border-t hairline">
           {rest.map((entry) => (
             <li
               key={entry.userId}
@@ -320,7 +321,7 @@ export default function Podium({
       )}
 
       {gap > 0 && (
-        <p className="mt-3 text-center text-xs text-muted">
+        <p className="mt-2.5 text-center text-xs text-muted">
           bronze is {gap} {gap === 1 ? "bug" : "bugs"} away.
         </p>
       )}

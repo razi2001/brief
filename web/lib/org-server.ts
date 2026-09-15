@@ -330,12 +330,15 @@ export async function warmOrgMemberships(
       admin.from("org_resolve_misses").select("user_id").gte("tried_at", missCutoff),
     ]);
 
-    const skip = new Set([
-      ...(memberRows ?? []).map((r: { user_id: string }) => r.user_id),
-      ...(missRows ?? []).map((r: { user_id: string }) => r.user_id),
-    ]);
-    const pending = list.data.map((u) => u.id).filter((id) => !skip.has(id));
-    if (pending.length === 0) return 0;
+    const placed = new Set((memberRows ?? []).map((r: { user_id: string }) => r.user_id));
+    // Nobody left to place: do no further work at all. Without this the history
+    // pass below re-scanned thousands of brief rows on every single dashboard
+    // render, long after the org was complete.
+    const unplaced = list.data.map((u) => u.id).filter((id) => !placed.has(id));
+    if (unplaced.length === 0) return 0;
+
+    const missed = new Set((missRows ?? []).map((r: { user_id: string }) => r.user_id));
+    const pending = unplaced.filter((id) => !missed.has(id));
 
     // Shuffled so that if there are ever more pending than the budget allows,
     // the same accounts don't get first refusal on every pass.
@@ -344,18 +347,19 @@ export async function warmOrgMemberships(
       [pending[i], pending[j]] = [pending[j], pending[i]];
     }
 
-    const batch = pending.slice(0, limit);
     // getOrg caches whatever it resolves, which is the whole point.
     const results = await Promise.all(
-      batch.map(async (id) => ({ id, org: await getOrg(id, admin).catch(() => null) })),
+      pending
+        .slice(0, limit)
+        .map(async (id) => ({ id, org: await getOrg(id, admin).catch(() => null) })),
     );
 
-    const missed = results.filter((r) => !r.org).map((r) => r.id);
+    const failed = results.filter((r) => !r.org).map((r) => r.id);
     const hit = results.filter((r) => r.org).map((r) => r.id);
     await Promise.all([
-      missed.length
+      failed.length
         ? admin.from("org_resolve_misses").upsert(
-            missed.map((user_id) => ({ user_id, tried_at: new Date().toISOString() })),
+            failed.map((user_id) => ({ user_id, tried_at: new Date().toISOString() })),
             { onConflict: "user_id" },
           )
         : null,

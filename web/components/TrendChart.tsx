@@ -8,9 +8,16 @@ export type TrendDay = { date: string; count: number };
 export default function TrendChart({
   days,
   label = "Filed · last 14 days",
+  tall = false,
 }: {
   days: TrendDay[];
   label?: string;
+  /**
+   * Taller bars, for when this sits in a column beside the podium. It both
+   * fills a column that would otherwise come up short and gives the bars room
+   * to actually show a shape - at 80px a quiet fortnight is a row of stubs.
+   */
+  tall?: boolean;
 }) {
   const max = Math.max(1, ...days.map((d) => d.count));
   const total = days.reduce((n, d) => n + d.count, 0);
@@ -29,7 +36,7 @@ export default function TrendChart({
         </span>
       </div>
 
-      <div className="mt-4 flex h-20 items-end gap-1">
+      <div className={`mt-4 flex items-end gap-1 ${tall ? "h-52" : "h-20"}`}>
         {days.map((d, i) => {
           const pct = (d.count / max) * 100;
           return (

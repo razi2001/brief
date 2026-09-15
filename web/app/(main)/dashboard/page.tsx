@@ -42,22 +42,29 @@ function buildDays(n: number): TrendDay[] {
 
 export default async function Dashboard() {
   const userId = await requireUserId();
-  const ctx = await getTrackerContext();
-
   const admin = createAdminSupabase();
-  await recoverOrphans(admin, userId);
 
-  // All of the user's (non-archived) briefs - cheap, single user. Used for
-  // counts and the trend; live tracker state is fetched only for the recent
-  // filed subset inside attachTicketInfo.
-  const { data } = await admin
-    .from("briefs")
-    .select(BRIEF_COLUMNS)
-    .eq("user_id", userId)
-    .is("archived_at", null)
-    .order("created_at", { ascending: false })
-    .limit(500);
-  const list = (data ?? []) as BriefRow[];
+  // WAVE 1 - everything that depends only on the user id, together.
+  //
+  // These used to await one after another, and with each round trip costing
+  // 100-400ms the page spent well over a second doing nothing but waiting in
+  // a line it never needed to stand in. Nothing here needs anything else here.
+  const [ctx, briefs, org] = await Promise.all([
+    getTrackerContext(),
+    admin
+      .from("briefs")
+      .select(BRIEF_COLUMNS)
+      .eq("user_id", userId)
+      .is("archived_at", null)
+      .order("created_at", { ascending: false })
+      .limit(500),
+    getOrg(userId, admin),
+  ]);
+  const list = (briefs.data ?? []) as BriefRow[];
+
+  // Orphan recovery only fixes rows for the NEXT render, so it has no business
+  // holding this one up.
+  after(() => recoverOrphans(admin, userId));
 
   const filed = list.filter((b) => b.status === "filed");
   // 'uploaded' = unfiled draft (managed in the extension) - not "in progress".
@@ -77,8 +84,16 @@ export default async function Dashboard() {
     if (idx !== undefined) days[idx].count++;
   }
 
-  // Live ticket info for the recent filed subset → recent list + status breakdown.
-  const dashboardBriefs = await attachTicketInfo(userId, list, ctx.connected, 60, admin);
+  // WAVE 2 - the live tracker read and the leaderboard. Each needs wave 1;
+  // neither needs the other, so they overlap instead of queueing.
+  //
+  // The leaderboard is scoped to whichever workspace this user's token
+  // resolves to - never to anything the request asked for. Best-effort
+  // throughout: no org, or an aggregate that fails, simply means no podium.
+  const [dashboardBriefs, boards] = await Promise.all([
+    attachTicketInfo(userId, list, ctx.connected, 60, admin),
+    org ? getLeaderboards(org.key, userId, admin) : { month: [], all: [] },
+  ]);
   const filedBriefs = dashboardBriefs.filter((b) => b.status === "filed");
   // Recent tickets includes in-progress ones (filing now) so a just-queued ticket
   // shows up immediately with its name; drafts ('uploaded') and failed are excluded.
@@ -108,15 +123,6 @@ export default async function Dashboard() {
     },
   ];
 
-  // The org leaderboard. Scoped to whichever tracker workspace this user's
-  // token resolves to - never to anything the request asked for. Best-effort:
-  // no org, or an aggregate that fails, simply means no podium.
-  const org = await getOrg(userId, admin);
-  // Both ranges up front: switching between them is a client-side swap, not a
-  // navigation that would re-run the live tracker sync for every ticket.
-  const boards = org
-    ? await getLeaderboards(org.key, userId, admin)
-    : { month: [], all: [] };
 
   // Colleagues who have filed but never opened Brief have no cached membership,
   // so they are missing from the leaderboard through no fault of their own.
@@ -159,7 +165,7 @@ export default async function Dashboard() {
                   orgName={org.name}
                 />
                 <div className="flex flex-col gap-5">
-                  <TrendChart days={days} />
+                  <TrendChart days={days} tall />
                   {segments.length > 0 && <StatusBreakdown segments={segments} />}
                   <StatStrip stats={stats} />
                 </div>
