@@ -7,6 +7,7 @@ import { getJiraAuth, getJiraCloud } from "@/lib/jira";
 import { getGithubToken, listGithubOrgs } from "@/lib/github";
 import { rankReporters, type LeaderRow, type Reporter } from "@/lib/podium";
 import { inferMemberships, type ResolvedOrg } from "@/lib/org-infer";
+import { summarizeRoi, type RoiSummary } from "@/lib/roi";
 import type { ProviderKey } from "@/lib/tracker";
 
 /**
@@ -536,6 +537,38 @@ async function lookupNames(
     /* fall back to the placeholder at the call site rather than losing the podium */
   }
   return names;
+}
+
+/**
+ * The org's measured numbers behind the dashboard headline.
+ *
+ * All-time rather than windowed: this is the standing case for the tool, not a
+ * this-month figure that shrinks over a quiet fortnight. Returns null whenever
+ * there is nothing worth a sentence - see summarizeRoi.
+ */
+export async function getOrgRoi(
+  orgKeyValue: string,
+  db?: SupabaseClient,
+): Promise<RoiSummary | null> {
+  const admin = db ?? createAdminSupabase();
+  try {
+    const memberIds = await getOrgMemberIds(orgKeyValue, admin);
+    if (memberIds.length === 0) return null;
+    const { data, error } = await admin.rpc("org_roi", { member_ids: memberIds });
+    if (error) throw error;
+    const row = (data ?? [])[0] as
+      | { filed: number | string; with_evidence: number | string; avg_seconds: number | string }
+      | undefined;
+    if (!row) return null;
+    return summarizeRoi({
+      filed: Number(row.filed) || 0,
+      withEvidence: Number(row.with_evidence) || 0,
+      avgSeconds: Number(row.avg_seconds) || 0,
+    });
+  } catch {
+    // No headline is fine; a broken dashboard is not.
+    return null;
+  }
 }
 
 /** The start of the trailing 30-day window, or null for all time. */

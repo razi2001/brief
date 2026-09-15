@@ -10,6 +10,7 @@ import TrendChart, { type TrendDay } from "@/components/TrendChart";
 import StatusBreakdown, { type StatusSegment } from "@/components/StatusBreakdown";
 import TicketList from "@/components/TicketList";
 import Podium from "@/components/Podium";
+import RoiHeadline from "@/components/RoiHeadline";
 import {
   recoverOrphans,
   getTrackerContext,
@@ -17,7 +18,12 @@ import {
   BRIEF_COLUMNS,
   type BriefRow,
 } from "@/lib/briefs-server";
-import { getLeaderboards, getOrg, warmOrgMemberships } from "@/lib/org-server";
+import {
+  getLeaderboards,
+  getOrg,
+  getOrgRoi,
+  warmOrgMemberships,
+} from "@/lib/org-server";
 import { showPodium } from "@/lib/podium";
 
 /** Local YYYY-MM-DD key for a timestamp (day bucketing for the trend chart). */
@@ -90,9 +96,10 @@ export default async function Dashboard() {
   // The leaderboard is scoped to whichever workspace this user's token
   // resolves to - never to anything the request asked for. Best-effort
   // throughout: no org, or an aggregate that fails, simply means no podium.
-  const [dashboardBriefs, boards] = await Promise.all([
+  const [dashboardBriefs, boards, roi] = await Promise.all([
     attachTicketInfo(userId, list, ctx.connected, 60, admin),
     org ? getLeaderboards(org.key, userId, admin) : { month: [], all: [] },
+    org ? getOrgRoi(org.key, admin) : null,
   ]);
   const filedBriefs = dashboardBriefs.filter((b) => b.status === "filed");
   // Recent tickets includes in-progress ones (filing now) so a just-queued ticket
@@ -147,6 +154,7 @@ export default async function Dashboard() {
       </div>
       {hasBriefs ? (
         <>
+          {org && roi && <RoiHeadline roi={roi} orgName={org.name} />}
           {/* The podium leads when there is one - it is the thing people come
               back for - and takes half the width beside the trend, which
               leaves the status breakdown full width underneath. With no
