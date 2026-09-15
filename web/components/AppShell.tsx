@@ -28,7 +28,7 @@ export default function AppShell({ children, headerRight, hideNav = false }: App
           <div className="order-2 flex items-center sm:order-3">{headerRight}</div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 sm:py-14">
+      <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
         {children}
       </main>
     </div>

@@ -141,7 +141,7 @@ export default async function Dashboard() {
       {/* Live status: always kept in sync - fast poll while anything is
           filing, slow background poll otherwise, instant refresh on tab
           focus. Manual refresh stays for impatient moments. */}
-      <div className="mb-3 flex items-center justify-end gap-2">
+      <div className="mb-4 flex items-center justify-end gap-2">
         <AutoRefresh active={processing.length > 0} />
         <RefreshButton />
       </div>
@@ -158,7 +158,7 @@ export default async function Dashboard() {
                   Activity alone left a tall empty column beside the podium;
                   status fills it instead of sitting full width underneath.
                   items-start so neither column stretches to match the other. */}
-              <div className="mt-6 grid grid-cols-1 items-start gap-5 md:grid-cols-2">
+              <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-2">
                 <Podium
                   month={boards.month}
                   all={boards.all}
@@ -174,7 +174,7 @@ export default async function Dashboard() {
           ) : (
             <>
             <StatStrip stats={stats} />
-            <div className="mt-6 grid grid-cols-1 gap-5 md:grid-cols-2">
+            <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
               <TrendChart days={days} />
               {segments.length > 0 ? (
                 <StatusBreakdown segments={segments} />
