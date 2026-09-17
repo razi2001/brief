@@ -152,9 +152,15 @@ export default async function Dashboard() {
         <AutoRefresh active={processing.length > 0} />
         <RefreshButton />
       </div>
+      {/* Org-level, so NOT gated on whether this particular person has filed
+          anything. A teammate who joined today has no briefs of their own and
+          was seeing an all but empty page - while their org had eighty tickets
+          and a leaderboard sitting right there, which is exactly what should
+          greet them. */}
+      {org && roi && <RoiHeadline roi={roi} orgName={org.name} />}
+
       {hasBriefs ? (
         <>
-          {org && roi && <RoiHeadline roi={roi} orgName={org.name} />}
           {/* The podium leads when there is one - it is the thing people come
               back for - and takes half the width beside the trend, which
               leaves the status breakdown full width underneath. With no
@@ -210,12 +216,19 @@ export default async function Dashboard() {
             </section>
           )}
         </>
-      ) : null}
+      ) : (
+        // Nothing of their own yet. The org's podium still belongs on the page -
+        // full width, since there is no second column to sit beside.
+        org &&
+        (showPodium(boards.month) || showPodium(boards.all)) && (
+          <Podium month={boards.month} all={boards.all} orgName={org.name} />
+        )
+      )}
 
       {/* Onboarding done (or skipped) but nothing captured yet - one quiet
           pointer at the extension instead of a blank page. */}
       {!hasBriefs && (
-        <div className="card mt-10 px-5 py-10 text-center">
+        <div className="card mt-6 px-5 py-10 text-center">
           <p className="font-display text-xl text-ink">no tickets yet.</p>
           <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted">
             hit ✦ in the extension, talk through a bug, and it lands here -
