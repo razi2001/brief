@@ -64,11 +64,11 @@ The zip you upload must have `manifest.json` at its **root** (not nested inside 
 
 ```powershell
 # Bump the version first if you have submitted before (see note below)
-Compress-Archive -Path extension\* -DestinationPath brief-cloud-1.2.0.zip -Force
+Compress-Archive -Path extension\* -DestinationPath brief-cloud-1.3.0.zip -Force
 ```
 
-- **Version:** `manifest.json` is `1.2.0` for this release. Every subsequent
-  upload must have a **higher** version (e.g. `1.2.1`), or the dashboard rejects it.
+- **Version:** `manifest.json` is `1.3.0` for this release. Every subsequent
+  upload must have a **higher** version (e.g. `1.3.1`), or the dashboard rejects it.
 - **Optional clean-up:** `extension/skill/` is documentation for the local-agent
   edition and is not used by Brief Cloud. It is no longer web-exposed, so it is
   harmless, but you can exclude it for a tidier package:
@@ -77,7 +77,7 @@ Compress-Archive -Path extension\* -DestinationPath brief-cloud-1.2.0.zip -Force
   New-Item -ItemType Directory -Force $tmp | Out-Null
   Copy-Item extension\* $tmp -Recurse
   Remove-Item "$tmp\skill" -Recurse -Force
-  Compress-Archive -Path "$tmp\*" -DestinationPath brief-cloud-1.2.0.zip -Force
+  Compress-Archive -Path "$tmp\*" -DestinationPath brief-cloud-1.3.0.zip -Force
   ```
 - **Never** ship a build with `http://localhost:3000/*` in the manifest (section 12).
 
@@ -326,7 +326,7 @@ loads without a sign-in redirect.
    Sign in with the Google account that should own the listing. If this is your first
    item, pay the one-time **5 USD** registration fee and accept the developer agreement.
 2. **Verify your publisher email** if prompted (Account tab). Unverified accounts cannot publish.
-3. **New item.** Click **Add new item**. Drag in `brief-cloud-1.2.0.zip`. Wait for the
+3. **New item.** Click **Add new item**. Drag in `brief-cloud-1.3.0.zip`. Wait for the
    upload and automatic manifest validation to finish.
 4. **Store listing tab.**
    - Item name, summary, detailed description: paste from section 5.
