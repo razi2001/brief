@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { TrackerLogo } from "./TrackerLogo";
+import TrackerPicker from "./TrackerPicker";
 import { TRACKER_DEFS, useTrackerConnect, type TrackerDef } from "./useTrackerConnect";
+import type { ProviderKey } from "./provider-labels";
 
 /**
- * Dedicated Integrations section for trackers. Connections are managed here
- * via the Clerk client API rather than through the `<UserProfile/>` "Connected
+ * The Settings page's issue tracker section. Connections are managed here via
+ * the Clerk client API rather than through the `<UserProfile/>` "Connected
  * accounts" panel. The connect/disconnect logic lives in useTrackerConnect
- * (shared with the onboarding wizard); this component is the card UI over it.
+ * (shared with the onboarding wizard); TrackerPicker is the card over it.
  */
 
 function SkeletonCard() {
@@ -25,6 +26,12 @@ function SkeletonCard() {
       <div className="h-6 w-20 shrink-0 rounded-full bg-cream-2" />
     </div>
   );
+}
+
+const OPTIONS = TRACKER_DEFS.map(({ key, name, caption }) => ({ key, name, caption }));
+
+function defFor(key: ProviderKey): TrackerDef {
+  return TRACKER_DEFS.find((d) => d.key === key)!;
 }
 
 export default function Integrations() {
@@ -61,125 +68,64 @@ export default function Integrations() {
     return (
       <section id="integrations" className="scroll-mt-8">
         <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Issue tracker</h2>
-        <div className="mt-3 flex flex-col gap-3">
-          <SkeletonCard />
+        <div className="mt-3">
           <SkeletonCard />
         </div>
       </section>
     );
   }
 
-  async function handleDisconnect(t: TrackerDef) {
-    setTrackerError(t.key, "");
-    setNeedsAccount((m) => ({ ...m, [t.key]: false }));
-    const ok = await disconnect(t);
+  const connected = TRACKER_DEFS.find((t) => isConnected(t))?.key ?? null;
+  // A tracker whose last attempt didn't finish. Back from the OAuth round trip,
+  // that is the one the card should open on, so its error is right there.
+  const attempted =
+    TRACKER_DEFS.find((t) => errors[t.key] || pendingAccount(t.providerMatch))?.key ?? null;
+
+  async function handleDisconnect(key: ProviderKey) {
+    setTrackerError(key, "");
+    setNeedsAccount((m) => ({ ...m, [key]: false }));
+    const ok = await disconnect(defFor(key));
     // Fall back to the account page, where Clerk's own UI can finish the job.
-    if (!ok) setNeedsAccount((m) => ({ ...m, [t.key]: true }));
+    if (!ok) setNeedsAccount((m) => ({ ...m, [key]: true }));
+  }
+
+  function messageFor(key: ProviderKey): ReactNode {
+    const t = defFor(key);
+    if (needsAccount[key]) {
+      return (
+        <>
+          Couldn&apos;t remove it here -{" "}
+          <Link href="/account" className="text-accent no-underline hover:underline">
+            manage connections in account settings
+          </Link>
+          .
+        </>
+      );
+    }
+    if (errors[key]) return errors[key];
+    // Only Clerk connections leave a half-finished record behind.
+    if (isConnected(t) || !pendingAccount(t.providerMatch)) return null;
+    // Show Clerk's actual verification error when it has one - "didn't finish"
+    // alone gives the user nothing to act on.
+    return ["Last connection didn’t finish", pendingError(t.providerMatch), "click Connect to try again."]
+      .filter(Boolean)
+      .join(" - ");
   }
 
   return (
     <section id="integrations" className="scroll-mt-8">
       <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Issue tracker</h2>
-
-      {/* Brief files into a single tracker, so only one can be connected. */}
-      <p className="mt-1 text-xs text-muted">Connect one - Brief files into a single tracker.</p>
-
-      <div className="mt-3 flex flex-col gap-3">
-        {TRACKER_DEFS.map((t) => {
-          const connected = isConnected(t);
-          // Only Clerk connections leave a half-finished record behind.
-          const pending = !connected && !!pendingAccount(t.providerMatch);
-          const isBusy = !!busy[t.key];
-          const error = errors[t.key];
-          const showAccount = !!needsAccount[t.key];
-          // Another tracker already holds the single slot - this one would switch.
-          const otherConnected = TRACKER_DEFS.some((o) => o.key !== t.key && isConnected(o));
-
-          return (
-            <div key={t.key} className="card px-4 py-3.5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border hairline bg-[#fffdf8]">
-                    <TrackerLogo kind={t.key} size={20} />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm text-ink">{t.name}</p>
-                    <p className="mt-0.5 text-xs text-muted">{t.caption}</p>
-                  </div>
-                </div>
-
-                {connected ? (
-                  <div className="flex shrink-0 items-center gap-3">
-                    {stale.includes(t.key) ? (
-                      <>
-                        <span className="pill border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent">
-                          Reconnect needed
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => connect(t)}
-                          disabled={isBusy}
-                          className="text-xs tracking-wide text-accent no-underline hover:underline disabled:opacity-50"
-                        >
-                          {isBusy ? "Reconnecting…" : "Reconnect →"}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <span className="pill border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] text-[#2e7d32]">
-                          Connected ✓
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleDisconnect(t)}
-                          disabled={isBusy}
-                          className="text-xs tracking-wide text-muted no-underline hover:text-accent hover:underline disabled:opacity-50"
-                        >
-                          {isBusy ? "Disconnecting…" : "Disconnect"}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => connect(t)}
-                    disabled={isBusy}
-                    title={otherConnected ? `Switch from your current tracker to ${t.name}` : undefined}
-                    className="shrink-0 text-xs tracking-wide text-accent no-underline hover:underline disabled:opacity-50"
-                  >
-                    {isBusy ? "Connecting…" : otherConnected ? "Switch →" : "Connect →"}
-                  </button>
-                )}
-              </div>
-
-              {showAccount ? (
-                <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
-                  Couldn&apos;t remove it here -{" "}
-                  <Link href="/account" className="text-accent no-underline hover:underline">
-                    manage connections in account settings
-                  </Link>
-                  .
-                </p>
-              ) : (
-                (error || pending) && (
-                  <p className="mt-2 border-t hairline pt-2 text-xs text-muted">
-                    {error ||
-                      // Show Clerk's actual verification error when it has one -
-                      // "didn't finish" alone gives the user nothing to act on.
-                      [
-                        "Last connection didn’t finish",
-                        pendingError(t.providerMatch),
-                        "click Connect to try again.",
-                      ]
-                        .filter(Boolean)
-                        .join(" - ")}
-                  </p>
-                )
-              )}
-            </div>
-          );
-        })}
+      <div className="mt-3">
+        <TrackerPicker
+          options={OPTIONS}
+          connected={connected}
+          stale={stale}
+          busy={busy}
+          initialSelected={connected ? null : attempted}
+          messageFor={messageFor}
+          onConnect={(key) => connect(defFor(key))}
+          onDisconnect={handleDisconnect}
+        />
       </div>
     </section>
   );

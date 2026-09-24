@@ -24,7 +24,7 @@ const API = "https://api.github.com";
 const GRAPHQL = "https://api.github.com/graphql";
 
 const AUTH_EXPIRED =
-  "Your GitHub connection has expired - reconnect GitHub under Connections, then retry.";
+  "Your GitHub connection has expired - reconnect GitHub under Settings, then retry.";
 
 export async function getGithubToken(userId: string): Promise<GithubTok | null> {
   const client = await clerkClient().catch(() => null);

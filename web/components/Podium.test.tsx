@@ -206,3 +206,40 @@ describe("Podium", () => {
     expect(container.textContent).toContain("5 people");
   });
 });
+
+describe("Podium hats", () => {
+  it("crowns first place, gives second a party hat and third a paper crown", () => {
+    render(<Podium month={entries} all={entries} orgName="Acme" />);
+    // The steps stand 2nd, 1st, 3rd.
+    const steps = screen.getAllByRole("listitem").slice(0, 3);
+    expect(steps[1].querySelector('[data-hat="crown"]')).toBeTruthy();
+    expect(steps[0].querySelector('[data-hat="party"]')).toBeTruthy();
+    expect(steps[2].querySelector('[data-hat="paper"]')).toBeTruthy();
+  });
+
+  it("keeps hats off everyone past third place", () => {
+    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
+    expect(container.querySelectorAll("[data-hat]")).toHaveLength(3);
+  });
+
+  it("hands out two hats on a podium of two", () => {
+    const pair = entries.slice(0, 2);
+    const { container } = render(<Podium month={pair} all={pair} orgName="Acme" />);
+    expect(container.querySelector('[data-hat="crown"]')).toBeTruthy();
+    expect(container.querySelector('[data-hat="party"]')).toBeTruthy();
+    expect(container.querySelector('[data-hat="paper"]')).toBeNull();
+  });
+
+  it("crowns a lone reporter", () => {
+    const { container } = render(
+      <Podium month={[entries[0]]} all={[entries[0]]} orgName="Acme" />,
+    );
+    expect(container.querySelectorAll("[data-hat]")).toHaveLength(1);
+    expect(container.querySelector('[data-hat="crown"]')).toBeTruthy();
+  });
+
+  it("no longer draws the old crown glyph", () => {
+    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
+    expect(container.textContent).not.toContain("♔");
+  });
+});

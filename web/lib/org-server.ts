@@ -8,6 +8,7 @@ import { getGithubToken, listGithubOrgs } from "@/lib/github";
 import { rankReporters, type LeaderRow, type Reporter } from "@/lib/podium";
 import { inferMemberships, type ResolvedOrg } from "@/lib/org-infer";
 import { summarizeRoi, type RoiSummary } from "@/lib/roi";
+import { sortTeam, type TeamMember } from "@/lib/team";
 import type { ProviderKey } from "@/lib/tracker";
 
 /**
@@ -441,6 +442,21 @@ async function placeFromHistory(admin: SupabaseClient): Promise<number> {
 }
 
 /**
+ * The aggregate groups over briefs, so a teammate with none in the window
+ * produces no row at all. Pad them back in at zero: the roster should show the
+ * team, not only whoever happened to file.
+ */
+function padToRoster(rows: LeaderRow[], memberIds: string[]): LeaderRow[] {
+  const seen = new Set(rows.map((r) => r.userId));
+  return [
+    ...rows,
+    ...memberIds
+      .filter((id) => !seen.has(id))
+      .map((userId) => ({ userId, filed: 0, night: 0, avgTitle: 0, prevFiled: 0 })),
+  ];
+}
+
+/**
  * Both ranges in one pass, sharing a single Clerk name lookup.
  *
  * The range used to live in the URL, so switching it re-ran the WHOLE dashboard
@@ -463,21 +479,8 @@ export async function getLeaderboards(
     leaderboardRows(admin, memberIds, rangeStart("all")),
   ]);
 
-  // The aggregate groups over briefs, so a teammate with none in the window
-  // produces no row at all. Pad them back in at zero: the roster should show
-  // the team, not only whoever happened to file this month.
-  const padded = (rows: LeaderRow[]): LeaderRow[] => {
-    const seen = new Set(rows.map((r) => r.userId));
-    return [
-      ...rows,
-      ...memberIds
-        .filter((id) => !seen.has(id))
-        .map((userId) => ({ userId, filed: 0, night: 0, avgTitle: 0, prevFiled: 0 })),
-    ];
-  };
-
-  const month = rankReporters(padded(monthRows));
-  const all = rankReporters(padded(allRows));
+  const month = rankReporters(padToRoster(monthRows, memberIds));
+  const all = rankReporters(padToRoster(allRows, memberIds));
   const names = await lookupNames([...month, ...all].map((r) => r.userId));
 
   const decorate = (rs: Reporter[]): PodiumEntry[] =>
@@ -489,6 +492,39 @@ export async function getLeaderboards(
     }));
 
   return { month: decorate(month), all: decorate(all) };
+}
+
+/**
+ * Everyone in the org, for the Settings team list.
+ *
+ * Built from the podium's own roster (org_members) and aggregate, so the two can
+ * never disagree about who is on the team. All-time counts and titles: a roster
+ * is not a this-month figure. If the aggregate fails the roster still shows,
+ * with zero counts, rather than the team vanishing from Settings.
+ */
+export async function getOrgTeam(
+  orgKeyValue: string,
+  viewerId: string,
+  db?: SupabaseClient,
+): Promise<TeamMember[]> {
+  const admin = db ?? createAdminSupabase();
+  const memberIds = await getOrgMemberIds(orgKeyValue, admin);
+  if (memberIds.length === 0) return [];
+
+  const rows = await leaderboardRows(admin, memberIds, null);
+  const ranked = rankReporters(padToRoster(rows, memberIds));
+  const names = await lookupNames(ranked.map((r) => r.userId));
+
+  return sortTeam(
+    ranked.map((r) => ({
+      userId: r.userId,
+      fullName: names.get(r.userId)?.fullName ?? "someone",
+      imageUrl: names.get(r.userId)?.imageUrl,
+      isYou: r.userId === viewerId,
+      filed: r.filed,
+      title: r.title,
+    })),
+  );
 }
 
 async function leaderboardRows(
@@ -518,20 +554,19 @@ async function leaderboardRows(
 /** One batched Clerk lookup for however many distinct people are ranked. */
 async function lookupNames(
   userIds: string[],
-): Promise<Map<string, { name: string; imageUrl?: string }>> {
-  const names = new Map<string, { name: string; imageUrl?: string }>();
+): Promise<Map<string, { name: string; fullName: string; imageUrl?: string }>> {
+  const names = new Map<string, { name: string; fullName: string; imageUrl?: string }>();
   const unique = [...new Set(userIds)];
   if (unique.length === 0) return names;
   try {
     const client = await clerkClient();
     const list = await client.users.getUserList({ userId: unique, limit: unique.length });
     for (const u of list.data) {
-      const name =
-        u.firstName ??
-        u.username ??
-        u.primaryEmailAddress?.emailAddress?.split("@")[0] ??
-        "someone";
-      names.set(u.id, { name, imageUrl: u.imageUrl });
+      const handle = u.username ?? u.primaryEmailAddress?.emailAddress?.split("@")[0];
+      // The podium has room for a first name; the team list shows who it is.
+      const name = u.firstName ?? handle ?? "someone";
+      const fullName = [u.firstName, u.lastName].filter(Boolean).join(" ") || handle || "someone";
+      names.set(u.id, { name, fullName, imageUrl: u.imageUrl });
     }
   } catch {
     /* fall back to the placeholder at the call site rather than losing the podium */

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { PodiumEntry } from "@/lib/org-server";
+import Avatar from "./Avatar";
+import { Hatted } from "./PodiumHats";
 
 /**
  * "Top brief reporters" - the org leaderboard.
@@ -25,26 +27,6 @@ const BRAGS = [
 
 /** Podium block heights, in order: 2nd, 1st, 3rd. */
 const HEIGHTS = ["h-14", "h-[5.5rem]", "h-10"];
-
-function Avatar({ entry, size }: { entry: PodiumEntry; size: number }) {
-  const initials = entry.name.slice(0, 2).toUpperCase();
-  return entry.imageUrl ? (
-    /* eslint-disable-next-line @next/next/no-img-element */
-    <img
-      src={entry.imageUrl}
-      alt=""
-      style={{ width: size, height: size }}
-      className="shrink-0 rounded-full object-cover"
-    />
-  ) : (
-    <span
-      style={{ width: size, height: size }}
-      className="flex shrink-0 items-center justify-center rounded-full bg-[rgba(221,105,54,.12)] text-[0.6875rem] text-accent"
-    >
-      {initials}
-    </span>
-  );
-}
 
 /**
  * Range switch.
@@ -126,11 +108,10 @@ function SoloCard({
           aria-hidden
           className="h-0 w-0 border-x-[6px] border-t-[7px] border-x-transparent border-t-[rgba(221,105,54,.1)]"
         />
-        <span aria-hidden className="mt-1 text-base leading-none text-accent">
-          ♔
-        </span>
         <div className="mt-1 flex justify-center">
-          <Avatar entry={entry} size={50} />
+          <Hatted rank={1}>
+            <Avatar name={entry.name} imageUrl={entry.imageUrl} size={50} />
+          </Hatted>
         </div>
         <p className="mt-1.5 text-[13px]">
           <Name entry={entry} />
@@ -242,13 +223,10 @@ export default function Podium({
             // attempt to line the names up only added dead space above the
             // shorter columns without removing it.
             <li key={entry.userId} className="text-center">
-              {i === 1 && (
-                <span aria-hidden className="block text-base leading-none text-accent">
-                  ♔
-                </span>
-              )}
               <div className="mt-1 flex justify-center">
-                <Avatar entry={entry} size={i === 1 ? 50 : 40} />
+                <Hatted rank={entry.rank}>
+                  <Avatar name={entry.name} imageUrl={entry.imageUrl} size={i === 1 ? 50 : 40} />
+                </Hatted>
               </div>
               <p className="mt-1.5 truncate text-[13px]">
                 <Name entry={entry} />
@@ -300,7 +278,7 @@ export default function Podium({
               <span className="w-4 shrink-0 text-center text-xs text-muted">
                 {entry.rank}
               </span>
-              <Avatar entry={entry} size={24} />
+              <Avatar name={entry.name} imageUrl={entry.imageUrl} size={24} />
               {/* The name and the title share one flexible cell. It has to be
                   here whether or not there IS a title - without it the row
                   collapsed and the avatar drifted into the middle. */}

@@ -268,7 +268,7 @@ export async function processBriefById(
   const tracker: Tracker | null = await resolveTracker(userId, opts.provider);
   if (!tracker) {
     const error = opts.provider
-      ? `${providerName(opts.provider)} is not connected - reconnect it under Connections, then retry.`
+      ? `${providerName(opts.provider)} is not connected - reconnect it under Settings, then retry.`
       : await noTrackerError(userId);
     await releaseFiling(admin, userId, briefId, { status: "failed", error });
     return { ok: false, status: 409, error };

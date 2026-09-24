@@ -117,7 +117,7 @@ export async function connectedProvider(userId: string): Promise<ProviderKey | n
 /** Human-readable list of every tracker, for "no tracker connected" copy. */
 export const ALL_PROVIDER_NAMES = PROVIDERS.map((p) => p.name).join(", ");
 
-export const NO_TRACKER_ERROR = `No tracker connected - connect one (${ALL_PROVIDER_NAMES}) in Connections, then retry.`;
+export const NO_TRACKER_ERROR = `No tracker connected - connect one (${ALL_PROVIDER_NAMES}) in Settings, then retry.`;
 
 /**
  * Trackers that LOOK connected on the Clerk user record.
@@ -153,7 +153,7 @@ export async function noTrackerError(userId: string): Promise<string> {
   const looks = await looksConnected(userId);
   if (looks.length === 0) return NO_TRACKER_ERROR;
   const names = looks.map(providerName).join(" and ");
-  return `Your ${names} connection has expired - reconnect it under Connections, then retry.`;
+  return `Your ${names} connection has expired - reconnect it under Settings, then retry.`;
 }
 
 /** Resolve every connected tracker, keyed by provider. Used by the live sync. */

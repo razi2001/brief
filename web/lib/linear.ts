@@ -30,7 +30,7 @@ function authHeader(tok: LinearTok): string {
 }
 
 const AUTH_EXPIRED =
-  "Your Linear connection has expired - reconnect Linear under Connections, then retry.";
+  "Your Linear connection has expired - reconnect Linear under Settings, then retry.";
 
 /** One entry of a GraphQL response's `errors` array. */
 export type GraphQLError = {
