@@ -11,7 +11,7 @@ export interface BriefInput {
   // timestampMs (when known) positions a keyframe in the recording so the
   // model reads the frames as a timestamped storyboard; caption is the
   // reporter's note on a screenshot, shown inline with that image.
-  images: Array<{ name: string; dataUrl: string; timestampMs?: number; caption?: string }>;
+  images: Array<{ name: string; dataUrl: string; timestampMs?: number; caption?: string; url?: string }>;
   // The attachable evidence pool. The agent chooses what to attach
   // (create_issue's attach[]); `fallback` is used when it doesn't choose.
   // The recording is only in `files` when the user allowed attaching it.
@@ -20,7 +20,35 @@ export interface BriefInput {
     items: EvidenceItem[];
     includeVideo: boolean;
     fallback: string[];
+    /** Attached whatever the agent picks (the reporter's marked replay moments). */
+    forced?: string[];
   };
+  /** The brief page, where an attached replay plays. Linked from the ticket. */
+  replayUrl?: string;
+}
+
+// Section labels the agent writes on a line of their own, sometimes without
+// the bold that marks them as labels ("Steps to reproduce" read as a plain
+// sentence in the ticket). Normalized to **Label**, which every adapter turns
+// into its heading (GitHub ###, Jira h3, Notion heading_3).
+const SECTION_LABEL =
+  /^\s{0,3}(?:\*\*)?(steps to reproduce|steps|expected(?: behaviou?r| result)?|actual(?: behaviou?r| result)?|context|environment|impact|workaround|notes?|errors?|console errors|network errors)(?:\*\*)?\s*:?\s*(?:\*\*)?\s*$/i;
+export function normalizeSectionLabels(markdown: string): string {
+  return (markdown ?? "")
+    .split("\n")
+    .map((line) => {
+      const m = SECTION_LABEL.exec(line);
+      if (!m) return line;
+      const t = m[1];
+      return `**${t.charAt(0).toUpperCase()}${t.slice(1)}**`;
+    })
+    .join("\n");
+}
+
+/** The replay link, as the ticket's last line before the evidence. */
+export function withReplayLink(markdown: string, url?: string): string {
+  if (!url) return markdown;
+  return `${(markdown ?? "").replace(/\s+$/, "")}\n\n**Replay:** [Watch the minute before the report](${url})`;
 }
 export interface FileResult {
   ticketUrl: string;
@@ -343,12 +371,14 @@ export async function processBrief(
   // How many sampled video frames the images contain (so the model knows the
   // stills are a time-ordered sequence to correlate, not unrelated pictures).
   const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
+  const replayCount = brief.images.filter((i) => i.name.includes("replay-frame")).length;
   tail.push({
     type: "text",
     text:
       "CORRELATE EVERYTHING before writing, led by the reporter's description. " +
       "Start from what the reporter said the problem is, then use the rest to confirm and flesh it out: " +
       (frameCount ? `the ${frameCount} time-ordered screen frames (a storyboard), ` : "") +
+      (replayCount ? `the ${replayCount} replay stills (what the browser showed just before the report, in order, each with its page URL), ` : "") +
       "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the URL, and finally the console/network errors as supporting detail. " +
       "Build a single coherent account of what the user did, what they expected, and what actually happened. The description defines what the ticket is about; the screenshots/frames are ground truth for what is on screen; treat the narration as a rough draft and the console/network errors as extra context, not the headline. " +
       "Account for EVERY screenshot the reporter attached: explain what each one shows and weave in the reporter's note for it, so the evidence is described in the ticket, not just attached. Likewise fold any reporter-provided details (the structured fields) into the body. " +
@@ -370,14 +400,22 @@ export async function processBrief(
   };
   const shotCount = brief.images.filter((i) => i.name.includes("screenshot")).length;
   let frameIdx = 0;
+  let replayIdx = 0;
   let shotIdx = 0;
+  const onPage = (u?: string) => (u ? ` on ${u}` : "");
   const storyboard: any[] = [];
   for (const img of brief.images) {
     let label: string;
     if (img.name.includes("keyframe")) {
       frameIdx++;
       const t = mmss(img.timestampMs);
-      label = `Frame ${frameIdx} of ${frameCount}${t ? ` (${t} into the capture)` : ""}:`;
+      const marked = img.caption && img.caption.trim() ? ` - ${img.caption.trim()}` : "";
+      label = `Frame ${frameIdx} of ${frameCount}${t ? ` (${t} into the capture)` : ""}${onPage(img.url)}${marked}:`;
+    } else if (img.name.includes("replay-frame")) {
+      replayIdx++;
+      const t = mmss(img.timestampMs);
+      const what = img.caption && img.caption.trim() ? ` - ${img.caption.trim()}` : "";
+      label = `Replay still ${replayIdx} of ${replayCount}${t ? ` (${t} into the replay)` : ""}${onPage(img.url)}${what}:`;
     } else if (img.name.includes("screenshot")) {
       shotIdx++;
       const base = shotCount > 1 ? `Screenshot ${shotIdx} of ${shotCount}` : "Annotated screenshot";
@@ -463,6 +501,10 @@ export async function processBrief(
                     chosen.push(it.name);
                   }
                 }
+                // Where the reporter flagged the bug: always on the ticket.
+                for (const name of brief.evidence.forced ?? []) {
+                  if (attachable.includes(name) && !chosen.includes(name)) chosen.push(name);
+                }
                 // "Attach the recording" is an explicit user instruction, not a
                 // hint - guarantee the actual video lands on the ticket. The
                 // model kept picking the screenshot/frames instead, so when the
@@ -485,13 +527,20 @@ export async function processBrief(
                     const note = notes[i]?.trim();
                     if (note) captionByName.set(it.name, note);
                   });
+                // A replay still carries its own caption (the reporter's mark note).
+                for (const it of brief.evidence.items) {
+                  if (it.kind === "replay" && it.caption && !captionByName.has(it.name)) captionByName.set(it.name, it.caption);
+                }
                 const evidenceFiles = brief.evidence.files
                   .filter((f) => chosen.includes(f.filename))
                   .map((f) => ({ ...f, caption: captionByName.get(f.filename) }));
                 // When exporting an already-written draft, file the reporter's
                 // title/description verbatim - never the model's rewrite.
                 const issueTitle = fixed ? fixed.title : args.title;
-                const issueDescription = fixed ? fixed.description : args.description;
+                const issueDescription = withReplayLink(
+                  fixed ? fixed.description : normalizeSectionLabels(String(args.description ?? "")),
+                  brief.replayUrl,
+                );
                 created = await tracker.fileIssue({
                   targetId: args.targetId,
                   title: issueTitle,

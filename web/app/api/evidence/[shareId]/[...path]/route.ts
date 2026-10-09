@@ -26,12 +26,13 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 // its sampled frames are the evidence, and a tracker that embeds by url (see
 // buildGithubEvidence) has nothing else to show.
 const ALLOWED =
-  /^(screenshots\/[A-Za-z0-9._-]+\.png|keyframes\/[A-Za-z0-9._-]+\.png|screenshot\.png|recording\.(webm|mp4|mov))$/;
+  /^(screenshots\/[A-Za-z0-9._-]+\.png|keyframes\/[A-Za-z0-9._-]+\.png|replay-frames\/frame-\d{2}\.jpg|screenshot\.png|recording\.(webm|mp4|mov))$/;
 
 // An uploaded recording keeps its own container (see RECORDING_NAMES), so the
 // route has to name the type for each one rather than assuming webm.
 const CONTENT_TYPE: Record<string, string> = {
   png: "image/png",
+  jpg: "image/jpeg",
   webm: "video/webm",
   mp4: "video/mp4",
   mov: "video/quicktime",

@@ -113,6 +113,7 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 .tile.rec .rec-foot .updot.failed { background:var(--red); }
 @keyframes rec-pulse { 50% { opacity:.35; } }
 
+
 /* add tile */
 .tile.add { border-style:dashed; border-color:rgba(26,22,18,.2); background:transparent; aspect-ratio:1/1;
   align-items:center; justify-content:center; color:var(--muted); }
@@ -306,3 +307,36 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 .export-done-sub { font-family:var(--display); font-style:italic; font-size:14px; color:var(--muted); }
 
 @media (prefers-reduced-motion:reduce) { * { transition-duration:.001ms !important; animation-duration:.001ms !important; } }
+
+/* screenshot sheet: the preview opens the crop editor */
+.shot-open { position:relative; display:block; width:100%; padding:0; border:none; background:none; cursor:pointer; }
+.shot-open .shot-crop { position:absolute; right:10px; bottom:10px; width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
+  background:rgba(255,253,249,.94); border:1px solid var(--hairline); color:var(--ink-2); box-shadow:0 2px 8px rgba(26,22,18,.14);
+  opacity:0; transform:translateY(2px); transition:opacity var(--t), transform var(--t); }
+.shot-open:hover .shot-crop, .shot-open:focus-visible .shot-crop { opacity:1; transform:none; }
+.shot-open .shot-crop svg { width:15px; height:15px; }
+
+/* replay tile: its still, a play badge */
+.tile.rep .thumb { background:linear-gradient(135deg, #fbf6ee, #f1e7d8); }
+.tile.rep .thumb img { width:100%; height:100%; object-fit:cover; object-position:top left; display:block; }
+.tile.rep .play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:26px; height:26px;
+  border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--hairline); display:grid; place-items:center;
+  color:var(--accent); box-shadow:0 2px 8px rgba(26,22,18,.16); }
+.tile.rep .play svg { width:12px; height:12px; margin-left:1px; }
+.tile.rep .rec-foot { flex:0 0 auto; padding:4px 6px; border-top:1px solid var(--hairline); background:var(--card);
+  font-size:8.5px; color:var(--ink-2); display:flex; align-items:center; gap:4px; min-height:19px; }
+.tile.rep .rec-foot .updot { width:5px; height:5px; border-radius:50%; background:var(--green); flex:0 0 auto; }
+
+/* a filed ticket lands in the cloud button (the tickets list): the cloud itself
+   bobs once (the button keeps its hover rotation to itself), and a dot stays */
+.cloud-btn { position:relative; }
+.cloud-btn.unseen::after { content:''; position:absolute; top:4px; right:4px; width:7px; height:7px; border-radius:50%;
+  background:var(--accent); box-shadow:0 0 0 2px var(--cream); }
+.cloud-btn.landed svg { animation:cloud-land .6s cubic-bezier(.3,1.6,.5,1); color:var(--accent); }
+@keyframes cloud-land { 0% { transform:translateY(0) scale(1); } 40% { transform:translateY(-3px) scale(1.18); } 100% { transform:translateY(0) scale(1); } }
+.fly-dot { position:fixed; width:12px; height:12px; border-radius:50%; background:var(--accent); z-index:80; pointer-events:none;
+  box-shadow:0 2px 8px rgba(221,105,54,.5); }
+
+/* tickets still on their way (filed in the background): the cloud breathes */
+.cloud-btn.sending svg { color:var(--accent); animation:cloud-send 1.4s ease-in-out infinite; }
+@keyframes cloud-send { 50% { opacity:.45; transform:translateY(-1px); } }

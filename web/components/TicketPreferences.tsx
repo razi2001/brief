@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { diffLines, hasChanges } from "@/lib/text-diff";
 import type { GuidanceMode } from "@/lib/guidance";
+import { Eyebrow, buttonClass, ghostButtonClass } from "./SettingsSection";
 
 /**
  * Ticket guidance editor: the team's shared defaults, and this user's personal
@@ -27,7 +28,7 @@ Label every ticket "inbound".
 Bugs → Engineering, features → Product.`;
 
 const textareaClass =
-  "block w-full resize-y rounded-xl border hairline bg-[#fffdf8] px-3.5 py-3 font-mono text-[13px] leading-relaxed text-ink outline-none transition-colors placeholder:text-muted/60 focus:border-accent";
+  "block w-full resize-y rounded-lg border hairline bg-[#fffdf8] px-3.5 py-3 font-mono text-[13px] leading-relaxed text-ink outline-none transition-colors placeholder:text-muted/50 focus:border-accent";
 
 type Props = {
   mode: GuidanceMode;
@@ -38,8 +39,8 @@ type Props = {
   hasOrg: boolean;
   orgUpdatedByName: string;
   orgUpdatedAt: string | null;
-  /** GitHub is connected but the user hasn't said which org is theirs. */
-  needsGithubOrg: boolean;
+  /** Unused here now: the GitHub org picker lives in the Team section. */
+  needsGithubOrg?: boolean;
 };
 
 function timeAgo(iso: string | null): string {
@@ -47,15 +48,6 @@ function timeAgo(iso: string | null): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
-
-/** Small "this is the one in force" marker, so the two cards can't be confused. */
-function AppliesBadge() {
-  return (
-    <span className="pill border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent">
-      applies to you
-    </span>
-  );
 }
 
 export default function TicketPreferences(props: Props) {
@@ -68,6 +60,7 @@ export default function TicketPreferences(props: Props) {
   const [orgSaved, setOrgSaved] = useState((props.org ?? "").trim());
   const [updatedBy, setUpdatedBy] = useState(props.orgUpdatedByName);
   const [members, setMembers] = useState(props.orgMembers);
+  const router = useRouter();
 
   const [personalState, setPersonalState] = useState<"idle" | "saving" | "saved">("idle");
   const [orgState, setOrgState] = useState<"idle" | "saving" | "saved">("idle");
@@ -92,6 +85,7 @@ export default function TicketPreferences(props: Props) {
       });
       if (!res.ok) throw new Error(`save failed (${res.status})`);
       setPersonalState("saved");
+      router.refresh(); // the row's summary
       setTimeout(() => setPersonalState((s) => (s === "saved" ? "idle" : s)), 1800);
     } catch (e) {
       setPersonalState("idle");
@@ -116,6 +110,7 @@ export default function TicketPreferences(props: Props) {
       if (j.updatedByName) setUpdatedBy(j.updatedByName);
       setOrgState("saved");
       setConfirming(false);
+      router.refresh();
       setTimeout(() => setOrgState((s) => (s === "saved" ? "idle" : s)), 1800);
     } catch (e) {
       setOrgState("idle");
@@ -130,113 +125,90 @@ export default function TicketPreferences(props: Props) {
     void savePersonal(next);
   }
 
+  const footer = (text: string) => <span className="text-xs text-muted">{text}</span>;
+
   return (
-    <section id="ticket-preferences" className="scroll-mt-8">
-      <h2 className="font-display text-2xl text-ink">Ticket preferences</h2>
-      <p className="mt-1 text-xs text-muted">
-        Guidance the agent follows when writing tickets - tone, labels, where things go.
-      </p>
-
-      {props.needsGithubOrg && <GithubOrgPicker />}
-
-      {props.hasOrg && (
-        <div className="card mt-4 px-4 py-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-display text-xl text-ink">Team defaults</h3>
-            <div className="flex items-center gap-2">
-              {mode === "inherit" && <AppliesBadge />}
-              <span className="pill text-muted">
-                {props.orgName} ·{" "}
-                {members === 1 ? "just you" : `${members} people`}
-              </span>
-            </div>
-          </div>
-          <p className="mt-1 text-xs text-muted">
-            {updatedBy
-              ? `Last changed by ${updatedBy}${
-                  props.orgUpdatedAt ? ` on ${timeAgo(props.orgUpdatedAt)}` : ""
-                }`
-              : "Nobody has set these yet."}
-          </p>
-
-          <textarea
-            value={org}
-            onChange={(e) => setOrg(e.target.value)}
-            rows={5}
-            spellCheck={false}
-            placeholder={PLACEHOLDER}
-            className={`mt-3 ${textareaClass}`}
-          />
-
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              disabled={!orgDirty || orgState === "saving"}
-              className="pill cursor-pointer border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent transition-colors hover:bg-[rgba(221,105,54,.18)] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {orgState === "saved" ? "Saved ✓" : "Save for the team"}
-            </button>
-            <span className="text-xs text-muted">
-              {members === 1
-                ? `Becomes the default for anyone who joins ${props.orgName}`
-                : "Changes filing for everyone without their own override"}
-            </span>
-          </div>
-        </div>
-      )}
-
-      <div className="card mt-4 px-4 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-display text-xl text-ink">
-            {props.hasOrg ? "Your override" : "Your preferences"}
-          </h3>
-          {mode === "override" && <AppliesBadge />}
-        </div>
-
+    <div>
+      <div className="card divide-y divide-[var(--color-hairline)]">
         {props.hasOrg && (
-          <div className="mt-3 inline-flex overflow-hidden rounded-full border hairline">
-            {(
-              [
-                ["inherit", "Use team defaults"],
-                ["override", "Use my own"],
-              ] as const
-            ).map(([value, label], i) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => switchMode(value)}
-                className={`cursor-pointer px-3.5 py-1.5 text-[0.6875rem] uppercase tracking-[0.04em] transition-colors ${
-                  i > 0 ? "border-l hairline" : ""
-                } ${
-                  mode === value
-                    ? "bg-[rgba(221,105,54,.12)] text-accent"
-                    : "text-muted hover:text-ink"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="inline-flex rounded-lg border hairline bg-[rgba(26,22,18,.03)] p-0.5">
+              {(
+                [
+                  ["inherit", "Use team defaults"],
+                  ["override", "Use my own"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => switchMode(value)}
+                  aria-pressed={mode === value}
+                  className={`h-7 cursor-pointer rounded-md px-3 text-xs transition-colors ${
+                    mode === value ? "bg-[#fffdf8] text-ink shadow-[0_1px_2px_rgba(26,22,18,.1)]" : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="pill text-muted">
+              {props.orgName} · {members === 1 ? "just you" : `${members} people`}
+            </span>
           </div>
         )}
 
-        {props.hasOrg && mode === "inherit" ? (
-          <div className="mt-3">
-            <div className="rounded-xl border hairline bg-[rgba(26,22,18,.03)] px-3.5 py-3 font-mono text-[13px] leading-relaxed whitespace-pre-wrap text-muted">
-              {orgSaved || "No team defaults set yet."}
+        {props.hasOrg && mode === "inherit" && (
+          <div className="px-4 py-4">
+            <Eyebrow
+              aside={
+                updatedBy && (
+                  <span className="text-[0.6875rem] text-muted">
+                    {updatedBy}
+                    {props.orgUpdatedAt ? ` · ${timeAgo(props.orgUpdatedAt)}` : ""}
+                  </span>
+                )
+              }
+            >
+              Team defaults
+            </Eyebrow>
+            <textarea
+              value={org}
+              onChange={(e) => setOrg(e.target.value)}
+              rows={5}
+              spellCheck={false}
+              placeholder={PLACEHOLDER}
+              aria-label="Team defaults"
+              className={`mt-3 ${textareaClass}`}
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirming(true)}
+                disabled={!orgDirty || orgState === "saving"}
+                className={buttonClass}
+              >
+                {orgState === "saved" ? "Saved ✓" : "Save for the team"}
+              </button>
+              {footer(
+                members === 1
+                  ? `Default for anyone who joins ${props.orgName}`
+                  : `For everyone in ${props.orgName} using the team defaults`,
+              )}
             </div>
-            <p className="mt-2 text-xs text-muted">
-              Following {props.orgName}. Switch to “Use my own” to write your own.
-            </p>
           </div>
-        ) : (
-          <>
+        )}
+
+        {(!props.hasOrg || mode === "override") && (
+          <div className="px-4 py-4">
+            <Eyebrow>Your preferences</Eyebrow>
             <textarea
               value={personal}
               onChange={(e) => setPersonal(e.target.value)}
               rows={5}
               spellCheck={false}
               placeholder={PLACEHOLDER}
+              aria-label="Your preferences"
               className={`mt-3 ${textareaClass}`}
             />
             <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -244,21 +216,13 @@ export default function TicketPreferences(props: Props) {
                 type="button"
                 onClick={() => savePersonal()}
                 disabled={personalState === "saving"}
-                className="pill cursor-pointer border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent transition-colors hover:bg-[rgba(221,105,54,.18)] disabled:opacity-50"
+                className={buttonClass}
               >
-                {personalState === "saving"
-                  ? "Saving…"
-                  : personalState === "saved"
-                    ? "Saved ✓"
-                    : "Save"}
+                {personalState === "saving" ? "Saving…" : personalState === "saved" ? "Saved ✓" : "Save"}
               </button>
-              <span className="text-xs text-muted">
-                {props.hasOrg
-                  ? "Replaces the team defaults - only for you"
-                  : "Only affects your tickets"}
-              </span>
+              {footer("Only affects your tickets")}
             </div>
-          </>
+          </div>
         )}
       </div>
 
@@ -275,7 +239,7 @@ export default function TicketPreferences(props: Props) {
           onConfirm={saveOrg}
         />
       )}
-    </section>
+    </div>
   );
 }
 
@@ -354,19 +318,10 @@ function ConfirmDialog({
         </div>
 
         <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="pill cursor-pointer text-muted transition-colors hover:text-ink"
-          >
+          <button type="button" onClick={onCancel} className={ghostButtonClass}>
             Cancel
           </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={saving}
-            className="pill cursor-pointer border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent transition-colors hover:bg-[rgba(221,105,54,.18)] disabled:opacity-50"
-          >
+          <button type="button" onClick={onConfirm} disabled={saving} className={buttonClass}>
             {saving ? "Updating…" : solo ? "Save team defaults" : "Update for everyone"}
           </button>
         </div>
@@ -382,20 +337,12 @@ function ConfirmDialog({
  * A GitHub user belongs to many orgs at once and we refuse to guess - until
  * this is answered they have no org, which is the safe default.
  */
-function GithubOrgPicker() {
+export function GithubOrgPicker({ orgs }: { orgs: Array<{ login: string; avatarUrl?: string }> }) {
+  // The orgs come from the server render (lib/github listGithubOrgs), so the
+  // row opens on its choices instead of an empty box while they load.
   const router = useRouter();
-  const [orgs, setOrgs] = useState<Array<{ login: string; avatarUrl?: string }>>([]);
-  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState("");
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetch("/api/org/github", { credentials: "same-origin" })
-      .then((r) => r.json())
-      .then((j) => setOrgs(j.orgs ?? []))
-      .catch(() => setOrgs([]))
-      .finally(() => setLoaded(true));
-  }, []);
 
   async function pick(login: string) {
     setError("");
@@ -419,31 +366,9 @@ function GithubOrgPicker() {
     }
   }
 
-  if (!loaded) return null;
-
-  // No orgs found. Saying nothing would leave the user with no team defaults
-  // and no reason why - so explain it, because the cause is almost always one
-  // of two fixable things.
-  if (orgs.length === 0) {
-    return (
-      <div className="card mt-4 px-4 py-4">
-        <h3 className="font-display text-xl text-ink">No GitHub org found</h3>
-        <p className="mt-1 text-xs text-muted">
-          Shared preferences need a workspace to attach to. We look for GitHub
-          organizations that own repositories you can reach - if you only file into
-          your own personal repositories, there isn&apos;t one yet. Your own preferences
-          below still apply.
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="card mt-4 px-4 py-4">
-      <h3 className="font-display text-xl text-ink">Which GitHub org is your team?</h3>
-      <p className="mt-1 text-xs text-muted">
-        You&apos;re in {orgs.length} - pick the one you share ticket preferences with.
-      </p>
+    <div>
+      <Eyebrow>Your GitHub organization</Eyebrow>
       <div className="mt-3 flex flex-wrap gap-2">
         {orgs.map((o) => (
           <button
@@ -451,7 +376,7 @@ function GithubOrgPicker() {
             type="button"
             onClick={() => pick(o.login)}
             disabled={!!saving}
-            className="pill cursor-pointer gap-1.5 transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+            className={`${ghostButtonClass} gap-2`}
           >
             {o.avatarUrl && (
               /* eslint-disable-next-line @next/next/no-img-element */

@@ -11,7 +11,7 @@ import { isRecordingName } from "@/lib/brief";
  */
 
 // Only the exact evidence objects a brief can own - never arbitrary paths.
-const ALLOWED = /^(screenshots\/[A-Za-z0-9._-]+\.png|screenshot\.png|recording\.(webm|mp4|mov))$/;
+const ALLOWED = /^(screenshots\/[A-Za-z0-9._-]+\.png|screenshot\.png|recording\.(webm|mp4|mov)|replay\.json|replay-voice\.webm)$/;
 
 export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;

@@ -1,6 +1,7 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { effectiveGuidance, migratedMode, type GuidanceMode } from "@/lib/guidance";
 import { getOrg, getOrgMemberIds, getOrgSettings } from "@/lib/org-server";
+import { cleanSiteList } from "@/lib/replay-sites";
 
 /**
  * Account-level settings: the natural-language ticket guidance the server agent
@@ -110,5 +111,16 @@ export async function getGuidanceContext(userId: string): Promise<GuidanceContex
     };
   } catch {
     return empty;
+  }
+}
+
+/** The user's own Replay sites (Settings → Replay → Your sites). Empty on any failure. */
+export async function getUserReplaySites(userId: string): Promise<string[]> {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    return cleanSiteList(user.privateMetadata?.replaySites);
+  } catch {
+    return [];
   }
 }

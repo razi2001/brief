@@ -13,6 +13,11 @@ export interface BriefOverrides {
   description?: string;
   extra?: Array<{ key: string; value: string }>;
   screenshots?: ScreenshotMeta[];
+  /** The replay: kept on the brief (true) or only used for the write-up. */
+  includeReplay?: boolean;
+  replayNote?: string;
+  /** Where the reporter marked the bug in the recording (ms into it). */
+  recordingMarks?: Array<{ t: number; note?: string }>;
 }
 
 /** Overlay the user's latest edits onto parsed brief.json without mutating it.
@@ -24,6 +29,14 @@ export function mergeBriefOverrides(json: unknown, overrides: BriefOverrides | n
   if (typeof overrides.description === "string") base.description = overrides.description;
   if (Array.isArray(overrides.extra)) base.extra = overrides.extra;
   if (Array.isArray(overrides.screenshots)) base.screenshots = overrides.screenshots;
+  if (typeof overrides.includeReplay === "boolean") base.includeReplay = overrides.includeReplay;
+  if (typeof overrides.replayNote === "string") base.replayNote = overrides.replayNote;
+  if (Array.isArray(overrides.recordingMarks)) {
+    base.recordingMarks = overrides.recordingMarks
+      .filter((m) => m && typeof m.t === "number" && isFinite(m.t) && m.t >= 0)
+      .slice(0, 20)
+      .map((m) => ({ t: m.t, note: typeof m.note === "string" ? m.note.slice(0, 300) : "" }));
+  }
   return base;
 }
 

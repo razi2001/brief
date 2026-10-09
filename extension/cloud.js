@@ -107,12 +107,7 @@ export async function uploadDraft(files, meta, tokenOverride) {
   }, "create brief");
   if (!create.ok) throw new Error(`create brief failed: ${create.status}${await errorDetail(create)}`);
   const { briefId, uploads } = await create.json();
-  for (const f of files) {
-    const up = uploads[f.name];
-    if (!up) throw new Error(`no upload URL for ${f.name}`);
-    const put = await fetchOrThrow(up.signedUrl, { method: "PUT", headers: { "Content-Type": f.contentType || f.blob.type || "application/octet-stream" }, body: f.blob }, `upload ${f.name}`);
-    if (!put.ok) throw new Error(`upload ${f.name} failed: ${put.status}${await errorDetail(put)}`);
-  }
+  await putAll(files, uploads, {});
   return briefId;
 }
 
@@ -136,16 +131,26 @@ export async function uploadFilesToDraft(briefId, files, tokenOverride) {
   }, "add files");
   if (!create.ok) throw new Error(`add files failed: ${create.status}${await errorDetail(create)}`);
   const { uploads } = await create.json();
-  for (const f of files) {
-    const up = uploads[f.name];
-    if (!up) throw new Error(`no upload URL for ${f.name}`);
-    const put = await fetchOrThrow(up.signedUrl, {
-      method: "PUT",
-      headers: { "Content-Type": f.contentType || f.blob.type || "application/octet-stream", "x-upsert": "true" },
-      body: f.blob,
-    }, `upload ${f.name}`);
-    if (!put.ok) throw new Error(`upload ${f.name} failed: ${put.status}${await errorDetail(put)}`);
-  }
+  await putAll(files, uploads, { "x-upsert": "true" });
+}
+
+// PUT every file to its signed URL, a few at a time (they used to go one by
+// one: a replay's json, voice-over and stills added seconds to "Create").
+async function putAll(files, uploads, extraHeaders, parallel = 4) {
+  const queue = [...files];
+  const worker = async () => {
+    for (let f = queue.shift(); f; f = queue.shift()) {
+      const up = uploads[f.name];
+      if (!up) throw new Error(`no upload URL for ${f.name}`);
+      const put = await fetchOrThrow(up.signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": f.contentType || f.blob.type || "application/octet-stream", ...extraHeaders },
+        body: f.blob,
+      }, `upload ${f.name}`);
+      if (!put.ok) throw new Error(`upload ${f.name} failed: ${put.status}${await errorDetail(put)}`);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(parallel, files.length) }, worker));
 }
 
 // Kick off processing (file the ticket) for an already-uploaded brief. The route

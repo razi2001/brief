@@ -66,12 +66,7 @@ export default function Integrations() {
 
   if (!isLoaded || !user) {
     return (
-      <section id="integrations" className="scroll-mt-8">
-        <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Issue tracker</h2>
-        <div className="mt-3">
-          <SkeletonCard />
-        </div>
-      </section>
+      <SkeletonCard />
     );
   }
 
@@ -113,10 +108,7 @@ export default function Integrations() {
   }
 
   return (
-    <section id="integrations" className="scroll-mt-8">
-      <h2 className="text-xs uppercase tracking-[0.15em] text-muted">Issue tracker</h2>
-      <div className="mt-3">
-        <TrackerPicker
+    <TrackerPicker
           options={OPTIONS}
           connected={connected}
           stale={stale}
@@ -126,7 +118,5 @@ export default function Integrations() {
           onConnect={(key) => connect(defFor(key))}
           onDisconnect={handleDisconnect}
         />
-      </div>
-    </section>
   );
 }

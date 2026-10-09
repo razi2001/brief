@@ -69,12 +69,24 @@ export async function linearGraphQLRaw<T = unknown>(
   ) {
     throw new Error(AUTH_EXPIRED);
   }
+  // A non-JSON failure (rate limit, outage page, gateway error) parses to {}:
+  // say what happened instead of handing back a silent null.
+  if (!r.ok && !errors.length) {
+    throw new Error(
+      r.status === 429
+        ? "Linear is rate-limiting requests right now. Try again in a minute."
+        : `Linear API error ${r.status}`,
+    );
+  }
   return { data: (j.data ?? null) as T | null, errors };
 }
 
 export async function linearGraphQL<T = any>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
   const { data, errors } = await linearGraphQLRaw<T>(tok, query, variables);
   if (errors.length) throw new Error("Linear GraphQL: " + JSON.stringify(errors));
+  // No data and no errors: nothing to read. Every caller reads fields off the
+  // result, so fail here with a message rather than a TypeError deep in one.
+  if (data == null) throw new Error("Linear returned an empty response. Try again in a minute.");
   return data as T;
 }
 

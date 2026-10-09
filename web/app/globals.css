@@ -671,3 +671,12 @@ a {
   .sk-rise { opacity: 1; }
   .brief-page-in { animation: none; }
 }
+
+/* Settings: an editor opened inside a row (SettingsList) sits on the row's own
+   surface - a plain hairline panel, no shadow or blur of its own. */
+.settings-row-body .card {
+  background: #fffdf8;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

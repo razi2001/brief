@@ -290,6 +290,44 @@ export async function setOrgSettings(
   if (error) throw new Error(error.message);
 }
 
+/** The org's instant-replay sites (see lib/replay-sites.ts). Empty on any failure:
+ *  no list means the extension records nothing, the safe default. */
+export async function getOrgReplaySites(orgKeyValue: string, db?: SupabaseClient): Promise<string[]> {
+  const admin = db ?? createAdminSupabase();
+  try {
+    const { data } = await admin
+      .from("org_settings")
+      .select("replay_sites")
+      .eq("org_key", orgKeyValue)
+      .maybeSingle();
+    return Array.isArray(data?.replay_sites) ? (data.replay_sites as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Replace the org's replay sites. Upserts only its own column, so the ticket
+ *  guidance on the same row is untouched. */
+export async function setOrgReplaySites(
+  orgKeyValue: string,
+  sites: string[],
+  by: { userId: string; name: string },
+  db?: SupabaseClient,
+): Promise<void> {
+  const admin = db ?? createAdminSupabase();
+  const { error } = await admin.from("org_settings").upsert(
+    {
+      org_key: orgKeyValue,
+      replay_sites: sites,
+      updated_at: new Date().toISOString(),
+      updated_by: by.userId,
+      updated_by_name: by.name,
+    },
+    { onConflict: "org_key" },
+  );
+  if (error) throw new Error(error.message);
+}
+
 export type PodiumEntry = Reporter & {
   name: string;
   imageUrl?: string;

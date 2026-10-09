@@ -48,7 +48,9 @@ async function loadBrief(shareId: string): Promise<ShareRow | null> {
 type Asset = {
   url: string;
   filename: string;
-  kind: "image" | "video";
+  kind: "image" | "video" | "replay";
+  /** The replay's voice-over, when it has one. */
+  voiceUrl?: string;
   /** Storage-relative path - the owner's remove control targets this. */
   path: string;
 };
@@ -78,6 +80,12 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
   if (rootNames.has("recording.webm")) {
     const url = await sign(`${prefix}/recording.webm`);
     if (url) assets.push({ url, filename: `${idBase}-recording.webm`, kind: "video", path: "recording.webm" });
+  }
+  // The extension's replay (rrweb events + the edit), played in the page.
+  if (rootNames.has("replay.json")) {
+    const url = await sign(`${prefix}/replay.json`);
+    const voiceUrl = rootNames.has("replay-voice.webm") ? (await sign(`${prefix}/replay-voice.webm`)) ?? undefined : undefined;
+    if (url) assets.push({ url, filename: `${idBase}-replay.json`, kind: "replay", path: "replay.json", voiceUrl });
   }
   return assets;
 }
@@ -384,7 +392,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
             providerName={providerLabel}
             initialTitle={ticketTitle}
             initialBody={brief.ticket_body || ""}
-            assets={assets.map((a) => ({ filename: a.filename, kind: a.kind }))}
+            assets={assets.flatMap((a) => (a.kind === "replay" ? [] : [{ filename: a.filename, kind: a.kind }]))}
             connected={connected}
           />
 
@@ -403,6 +411,7 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
                     filename={a.filename}
                     path={a.path}
                     kind={a.kind}
+                    voiceUrl={a.voiceUrl}
                     canRemove={isOwner}
                     index={i}
                   />

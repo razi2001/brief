@@ -7,7 +7,8 @@
 
 import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, transcribeNote } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft } from './draft.js';
-import { putFile, hasFile, deleteFile, recKey, shotKey, draftKeys } from './filestore.js';
+import { putFile, hasFile, deleteFile, recKey, shotKey, replayKey, replayVoiceKey, draftKeys } from './filestore.js';
+import { syncReplaySites } from './replay-sites.js';
 
 const $ = (s, r) => (r || document).querySelector(s);
 const gallery = $('#gallery');
@@ -46,6 +47,7 @@ exportDone.hidden = true;
 
 // ---------- helpers ----------
 function esc(s) { return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmtDur(ms) { const s = Math.max(0, Math.round((ms || 0) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 function genShotId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 let toastTimer;
 function toast(msg) {
@@ -108,6 +110,13 @@ function showInlineError(msg, action) {
     a.addEventListener('click', (e) => { e.preventDefault(); chrome.tabs.create({ url: action.url }); window.close(); });
     bar.appendChild(a);
   }
+  if (action?.label && action?.run) {
+    bar.appendChild(document.createTextNode(' '));
+    const a = document.createElement('a');
+    a.href = '#'; a.className = 'err-link'; a.textContent = action.label;
+    a.addEventListener('click', (e) => { e.preventDefault(); action.run(); });
+    bar.appendChild(a);
+  }
   bar.classList.add('show');
 }
 function clearInlineError() { $('#errBar').classList.remove('show'); $('#errBar').textContent = ''; }
@@ -116,16 +125,27 @@ function clearInlineError() { $('#errBar').classList.remove('show'); $('#errBar'
 function sig(d) {
   if (!d) return 'none';
   return [
+    d.id,
     (d.screenshots || []).length,
     !!d.recording, d.recording?.poster ? 1 : 0,
     d.uploading, d.uploadFailed, d.cloudBriefId || '',
     d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()),
     !!d.filing, d.fileError ? 1 : 0,
+    d.replay?.addedAt || 0, d.recording?.durationMs || 0,
   ].join('|');
 }
 
 // ---------- render ----------
 function setBrandSpin(on) { brandMark?.classList.toggle('spinning', !!on); }
+// Tickets handed to the worker and still being filed (see filing.js).
+let ticketsInFlight = 0;
+async function readTicketsInFlight() {
+  try {
+    const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
+    ticketsInFlight = Object.keys(filingDrafts).length;
+  } catch { ticketsInFlight = 0; }
+  briefCloudBtn?.classList.toggle('sending', ticketsInFlight > 0);
+}
 function render() {
   renderGallery();
   updateCreate();
@@ -136,6 +156,7 @@ function render() {
 const X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 const REFRESH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>';
 const PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const CROP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>';
 const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 const SHEET_X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 const SHEET_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
@@ -162,20 +183,30 @@ function renderGallery() {
     html += `<div class="tile rec" data-rec="1">` +
       `<button class="remove" data-rm="rec" aria-label="Remove recording">${X_SVG}</button>` +
       `<div class="thumb"><img src="${poster}" alt="Recording"><span class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>` +
-      `<div class="rec-foot"><span class="${dotCls}"></span>${footLabel}</div>` +
+      `<div class="rec-foot"><span class="${dotCls}"></span>${footLabel}${draft.recording.durationMs && !draft.uploading && !transcribing && !draft.uploadFailed ? ` ${fmtDur(draft.recording.durationMs)}` : ''}</div>` +
+      `</div>`;
+  }
+
+
+  if (draft.replay) {
+    const sites = (draft.replay.sites || []).join(', ');
+    html += `<div class="tile rep" data-rep="1" title="${esc(sites)}">` +
+      `<button class="remove" data-rm="replay" aria-label="Remove replay">${X_SVG}</button>` +
+      `<div class="thumb">${draft.replay.poster ? `<img src="${draft.replay.poster}" alt="Replay">` : ''}<span class="play">${PLAY_SVG}</span></div>` +
+      `<div class="rec-foot"><span class="updot"></span>Replay ${fmtDur(draft.replay.durationMs)}</div>` +
       `</div>`;
   }
 
   const canAddShot = shots.length < MAX_SHOTS;
   const canAddVideo = !draft.recording;
-  if (canAddShot || canAddVideo) {
+  if (canAddShot || canAddVideo || !draft.replay) {
     html += `<div class="tile add" data-add="1">` +
       `<span class="plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>` +
       `<span class="add-lbl">Add</span></div>`;
   }
 
   gallery.innerHTML = html;
-  evCount.textContent = String(shots.length + (draft.recording ? 1 : 0));
+  evCount.textContent = String(shots.length + (draft.recording ? 1 : 0) + (draft.replay ? 1 : 0));
 }
 
 // ---------- additional data (inline: description + custom fields) ----------
@@ -273,7 +304,7 @@ function openShot(id) {
   if (idx < 0) return;
   const s = draft.screenshots[idx];
   const body =
-    `<div class="shot-preview"><img src="${s.dataUrl}" alt="Screenshot ${idx + 1}"></div>` +
+    `<button class="shot-preview shot-open" id="shotCrop" type="button" title="Crop" aria-label="Crop the screenshot"><img src="${s.dataUrl}" alt="Screenshot ${idx + 1}"><span class="shot-crop">${CROP_SVG}</span></button>` +
     `<div class="field-label">Note</div>` +
     `<div class="ai-wrap" id="shotNoteWrap"><textarea class="ai-field has-mic" id="shotNote" placeholder="Add a note for this screenshot">${esc(s.description || '')}</textarea></div>`;
   // Reopen the annotator on THIS screenshot's clean capture with its strokes
@@ -292,6 +323,10 @@ function openShot(id) {
       : `Couldn't open the drawing: ${res?.error || 'unknown error'}`);
   };
   openSheet(`Screenshot <em>${idx + 1}</em>`, body, (root) => {
+    $('#shotCrop', root).addEventListener('click', async () => {
+      await openEditorTab(chrome.runtime.getURL(`image.html#${encodeURIComponent(id)}`)).catch(() => {});
+      window.close();
+    });
     const ta = $('#shotNote', root);
     ta.focus(); try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch {}
     const persistNote = () => persist((d) => { const h = (d.screenshots || []).find((x) => x.id === id); if (h) h.description = ta.value; });
@@ -334,7 +369,7 @@ async function openRec() {
   let playable = false;
   try { playable = await hasFile(recKey(draft.id)); } catch {}
   const preview = playable
-    ? `<button class="rec-open" id="recPlay" type="button" title="Play the recording" aria-label="Play the recording">` +
+    ? `<button class="rec-open" id="recPlay" type="button" title="Watch and edit" aria-label="Watch and edit the recording">` +
         `<img class="rec-poster" src="${poster}" alt="Recording preview">` +
         `<span class="rec-play">${PLAY_SVG}</span>` +
       `</button>`
@@ -348,7 +383,7 @@ async function openRec() {
   openSheet('Recording', body, (root) => {
     wireTranscript(root);
     $('#recPlay', root)?.addEventListener('click', () => {
-      chrome.tabs.create({ url: chrome.runtime.getURL(`player.html#${encodeURIComponent(draft.id)}`) }).catch(() => {});
+      openEditorTab(chrome.runtime.getURL(`player.html#${encodeURIComponent(draft.id)}`)).catch(() => {});
     });
     const sw = $('#recAttach', root);
     sw.addEventListener('click', async () => {
@@ -359,13 +394,63 @@ async function openRec() {
   }, 'rec', { html: REFRESH_SVG, title: 'Re-record', onClick: () => recordBrief() }, true);
 }
 
+// Editors open as a child of the tab you were on: closing one returns there.
+async function openEditorTab(url) {
+  let opener = null;
+  try { [opener] = await chrome.tabs.query({ active: true, currentWindow: true }); } catch {}
+  return chrome.tabs.create({ url, ...(opener?.id != null ? { openerTabId: opener.id } : {}) });
+}
+
+// ---------- replay sheet ----------
+// The same shape as the recording's: the still (tap = watch and edit), a note,
+// and whether it is attached to the ticket. Not attached, it still informs the
+// write-up (steps) but isn't kept on the brief.
+function openRep() {
+  const r = draft.replay;
+  if (!r) return;
+  const attach = r.attach !== false;
+  const body =
+    `<button class="rec-open" id="repPlay" type="button" title="Watch and edit" aria-label="Watch and edit the replay">` +
+      (r.poster ? `<img class="rec-poster" src="${r.poster}" alt="Replay preview">` : `<div class="rec-poster"></div>`) +
+      `<span class="rec-play">${PLAY_SVG}</span>` +
+    `</button>` +
+    `<div class="field-label">Note</div>` +
+    `<div class="ai-wrap" id="repNoteWrap"><textarea class="ai-field has-mic" id="repNote" placeholder="Add a note for this replay">${esc(r.note || '')}</textarea></div>` +
+    `<div class="toggle-row"><span class="lbl">Attach the replay to the ticket</span>` +
+      `<button class="switch${attach ? ' on' : ''}" id="repAttach" role="switch" aria-checked="${attach}"><span class="knob"></span></button></div>`;
+  const again = async () => {
+    await openEditorTab(chrome.runtime.getURL(`replay.html#at=${Date.now()}&pick=${encodeURIComponent(draft.id)}`));
+    window.close();
+  };
+  openSheet('Replay', body, (root) => {
+    $('#repPlay', root).addEventListener('click', async () => {
+      await openEditorTab(chrome.runtime.getURL(`replay.html#draft=${encodeURIComponent(draft.id)}`));
+      window.close();
+    });
+    const ta = $('#repNote', root);
+    let t = null;
+    const persistNote = () => persist((d) => { if (d.replay) d.replay.note = ta.value; });
+    ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistNote, 250); });
+    attachVoiceDictation(ta, $('#repNoteWrap', root), persistNote);
+    const sw = $('#repAttach', root);
+    sw.addEventListener('click', async () => {
+      await persist((d) => { if (d.replay) d.replay.attach = d.replay.attach === false; });
+      const on = draft.replay?.attach !== false;
+      sw.classList.toggle('on', on);
+      sw.setAttribute('aria-checked', String(on));
+    });
+  }, 'rep', { html: REFRESH_SVG, title: 'Take the last 60s again', onClick: again }, true);
+}
+
 // ---------- add chooser ----------
 function openAddChooser() {
   const shots = (draft.screenshots || []).length;
   const canShot = shots < MAX_SHOTS;
   const canVid = !draft.recording;
   const canUp = canShot || canVid;
+  const canRep = !draft.replay;
   const upSub = canShot && canVid ? 'Image or video' : canShot ? 'Image' : canVid ? 'Video' : 'Limit reached';
+  const repSub = canRep ? 'The last 60 seconds' : 'Already added';
   const body = `<div class="chooser">` +
     `<button class="choice" id="chShot" ${canShot ? '' : 'disabled'}>` +
       `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 17-5-5-4 4-2-2-4 4"/></svg></span>` +
@@ -375,6 +460,10 @@ function openAddChooser() {
       `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m10 8 6 4-6 4z"/><rect x="3" y="4" width="18" height="16" rx="3"/></svg></span>` +
       `<span class="ctxt"><span class="ct">Video</span><span class="cs">${canVid ? 'Record the screen' : 'Already added'}</span></span>` +
       `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
+    `<button class="choice" id="chRep" ${canRep ? '' : 'disabled'}>` +
+      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg></span>` +
+      `<span class="ctxt"><span class="ct">Replay</span><span class="cs">${esc(repSub)}</span></span>` +
+      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
     `<button class="choice" id="chUp" ${canUp ? '' : 'disabled'}>` +
       `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>` +
       `<span class="ctxt"><span class="ct">Upload</span><span class="cs">${upSub}</span></span>` +
@@ -383,6 +472,10 @@ function openAddChooser() {
   openSheet('Add to <em>brief</em>', body, (root) => {
     if (canShot) $('#chShot', root).addEventListener('click', () => takeScreenshot());
     if (canVid) $('#chVid', root).addEventListener('click', () => recordBrief());
+    if (canRep) $('#chRep', root).addEventListener('click', async () => {
+      await openEditorTab(chrome.runtime.getURL(`replay.html#at=${Date.now()}&pick=${encodeURIComponent(draft.id)}`));
+      window.close();
+    });
     if (canUp) $('#chUp', root).addEventListener('click', () => pickFiles(canShot, canVid));
   }, 'chooser');
 }
@@ -607,9 +700,14 @@ async function startFiling(mode) {
   try { res = await chrome.runtime.sendMessage({ type: 'FILE_DRAFT', mode }); }
   catch (err) { res = { ok: false, error: String(err?.message || err) }; }
   if (res?.ok) {
-    const title = res.alreadyFiled ? 'Already filed' : mode === 'ticket' ? `Filing to ${trackerName()}` : 'Brief created';
-    const toTickets = mode === 'ticket' || !res.shareId;
-    showDone(title, toTickets ? 'Opening your tickets…' : 'Opening your brief…');
+    if (mode === 'ticket') {
+      // No tab and no wait: the worker files it in the background (the cloud
+      // spins until it lands) and this popup is already on a fresh draft.
+      flyToCloud();
+      toast(res.alreadyFiled ? 'Already filed' : 'Ticket on its way');
+      return;
+    }
+    showDone('Brief created', res.shareId ? 'Opening your brief…' : 'Opening your tickets…');
     return;
   }
   if (res?.error === 'already_filing') return; // an earlier ask is still running; the draft flag shows it
@@ -633,7 +731,51 @@ async function primaryCreate() {
   startFiling(bcTracker ? 'ticket' : 'draft');
 }
 
+// A ticket that failed in the background while a new draft was already in
+// progress: say so, and offer it back (the two swap, nothing is dropped).
+function showFailedDraft(failed) {
+  showInlineError(`A ticket didn’t file: ${failed.fileError || 'unknown error'}`, {
+    label: 'Bring it back',
+    run: async () => {
+      const now = await getDraft();
+      await chrome.storage.local.set({ failedDraft: now && isReadyDraft(now) ? { ...now, fileError: null } : null });
+      await setDraft({ ...failed, fileError: null });
+      if (!(now && isReadyDraft(now))) await chrome.storage.local.remove('failedDraft');
+      clearInlineError();
+    },
+  });
+}
+
 // ---------- tickets tab + cloud button ----------
+// A filed ticket goes to the list behind the cloud button: a dot flies there
+// from Create, the button lands it, and a dot stays until the list is opened.
+function flyToCloud() {
+  const from = createBtn.getBoundingClientRect();
+  const to = briefCloudBtn.getBoundingClientRect();
+  const dot = document.createElement('span');
+  dot.className = 'fly-dot';
+  dot.style.left = `${from.left + from.width / 2 - 6}px`;
+  dot.style.top = `${from.top + from.height / 2 - 6}px`;
+  document.body.appendChild(dot);
+  const dx = to.left + to.width / 2 - (from.left + from.width / 2);
+  const dy = to.top + to.height / 2 - (from.top + from.height / 2);
+  const fly = dot.animate([
+    { transform: 'translate(0, 0) scale(1)', opacity: 1 },
+    { transform: `translate(${dx * 0.55}px, ${dy * 0.55 - 40}px) scale(1.15)`, opacity: 1, offset: 0.55 },
+    { transform: `translate(${dx}px, ${dy}px) scale(.4)`, opacity: 0.2 },
+  ], { duration: 650, easing: 'cubic-bezier(.4,0,.2,1)' });
+  fly.onfinish = () => {
+    dot.remove();
+    briefCloudBtn.classList.remove('landed');
+    void briefCloudBtn.offsetWidth; // restart the animation
+    briefCloudBtn.classList.add('landed', 'unseen');
+    setTimeout(() => briefCloudBtn.classList.remove('landed'), 700);
+  };
+}
+chrome.storage.local.get('ticketsUnseen').then(({ ticketsUnseen }) => {
+  if (ticketsUnseen) briefCloudBtn?.classList.add('unseen');
+}).catch(() => {});
+
 async function openTicketsTab() {
   try {
     const ticketTabs = await chrome.tabs.query({ url: `${TICKETS_URL}*` });
@@ -654,6 +796,7 @@ async function openTicketsTab() {
   await chrome.tabs.create({ url: TICKETS_URL }).catch(() => {});
 }
 briefCloudBtn?.addEventListener('click', async () => {
+  chrome.storage.local.remove('ticketsUnseen').catch(() => {});
   let token = null; try { token = await getCloudToken(); } catch {}
   if (token) await openTicketsTab();
   else await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
@@ -786,7 +929,12 @@ gallery.addEventListener('click', async (e) => {
     const id = rm.getAttribute('data-rm');
     const tile = rm.closest('.tile');
     if (tile) { tile.classList.add('removing'); await new Promise((r) => setTimeout(r, 230)); }
-    if (id === 'rec') {
+    if (id === 'replay') {
+      await persist((d) => { d.replay = null; });
+      deleteFile(replayKey(draft.id)).catch(() => {});
+      deleteFile(replayVoiceKey(draft.id)).catch(() => {});
+      toast('Replay removed');
+    } else if (id === 'rec') {
       await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.includeVideo = false; });
       deleteFile(recKey(draft.id)).catch(() => {});
       toast('Recording removed');
@@ -800,6 +948,7 @@ gallery.addEventListener('click', async (e) => {
   }
   if (e.target.closest('[data-add]')) return openAddChooser();
   if (e.target.closest('[data-rec]')) return openRec();
+  if (e.target.closest('[data-rep]')) return openRep();
   const shot = e.target.closest('[data-shot]');
   if (shot) return openShot(shot.getAttribute('data-shot'));
 });
@@ -823,7 +972,14 @@ resetBtn?.addEventListener('click', openReset);
   }
   render();
   initAdditionalData();
+  // Replay sites are set per org on the web app; pick up changes on open.
+  syncReplaySites().catch(() => {});
   firstRender = true; reveal();
+  readTicketsInFlight();
+  try {
+    const { failedDraft } = await chrome.storage.local.get('failedDraft');
+    if (failedDraft) showFailedDraft(failedDraft);
+  } catch {}
   if (draft.fileError && !draft.filing) {
     showInlineError(`Couldn’t create brief: ${draft.fileError}`);
     await persist((d) => { d.fileError = null; });
@@ -844,6 +1000,14 @@ resetBtn?.addEventListener('click', openReset);
 
 // Live updates when a BACKGROUND change settles (upload, transcript, poster).
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.filingDrafts) {
+    const before = ticketsInFlight;
+    readTicketsInFlight().then(() => {
+      // one landed while the popup is open
+      if (ticketsInFlight < before && !changes.failedDraft && !changes.draft) toast('Ticket created');
+    });
+  }
+  if (area === 'local' && changes.failedDraft?.newValue) showFailedDraft(changes.failedDraft.newValue);
   if (area !== 'local' || !changes.draft) return;
   getDraft().then((d) => {
     // Storage is the source of truth. If it momentarily reads empty (e.g. mid
@@ -851,8 +1015,12 @@ chrome.storage.onChanged.addListener((changes, area) => {
     // it would diverge from what's stored and silently break every later save.
     if (!d) return;
     if (sig(d) === lastSig) return;
+    // A different draft (the last one was filed and a fresh one started while
+    // the popup stayed open): its description and fields replace the old ones.
+    const fresh = d.id !== draft?.id;
     draft = d;
     render();
+    if (fresh) syncAdditionalData();
     // If the recording sheet is open, patch it IN PLACE so a freshly-arrived
     // transcript or poster shows without re-opening the sheet (which glitched).
     if (currentSheet === 'rec') {

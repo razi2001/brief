@@ -1,0 +1,98 @@
+// Brief - instant replay recorder (POC)
+//
+// Injected (with vendor/rrweb-record.min.js) into the top frame of pages on a
+// watched site, on every load. Records the DOM with rrweb and streams it to the
+// worker in ~1s chunks (REPLAY_CHUNK), which keeps a short rolling buffer for
+// the whole browser (replay-store.js). The buffer has to live outside the page:
+// a navigation would otherwise take it down with the page, and a replay has to
+// follow the user from tab to tab.
+//
+// A fresh full snapshot is taken every CHECKOUT_MS and whenever this tab comes
+// back into view, so the stitched replay can start this tab at the exact moment
+// the user switched to it.
+
+(() => {
+  // Injected again on a page that already has us (Watch switched off then on):
+  // restart the existing recorder rather than add a second message listener.
+  if (window.__briefReplay) { window.__briefReplay.start(); return; }
+  const record = window.rrwebRecord?.record;
+  if (typeof record !== 'function') return;
+
+  const CHECKOUT_MS = 30_000;
+  const FLUSH_MS = 1000;
+  const pageId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  let stopFn = null;
+  let batch = [];
+  let hasFull = false;
+  let timer = null;
+
+  function flush() {
+    clearTimeout(timer);
+    timer = null;
+    if (!batch.length) return Promise.resolve();
+    const events = batch;
+    const full = hasFull;
+    batch = [];
+    hasFull = false;
+    return chrome.runtime.sendMessage({
+      type: 'REPLAY_CHUNK', pageId, url: location.href, title: document.title, full, events,
+    }).catch(() => {}); // extension reloaded under us
+  }
+
+  function start() {
+    if (stopFn) return;
+    stopFn = record({
+      emit(event) {
+        batch.push(event);
+        if (event.type === 2) hasFull = true;
+        if (!timer) timer = setTimeout(flush, FLUSH_MS);
+      },
+      checkoutEveryNms: CHECKOUT_MS,
+      // Whatever people type stays out of the replay.
+      maskAllInputs: true,
+      recordCanvas: false,
+      collectFonts: false,
+      sampling: { mousemove: 50, scroll: 150, input: 'last' },
+    });
+  }
+
+  function stop() {
+    try { stopFn?.(); } catch {}
+    stopFn = null;
+    clearTimeout(timer);
+    timer = null;
+    batch = [];
+    hasFull = false;
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!stopFn) return;
+    if (document.visibilityState === 'visible') {
+      try { record.takeFullSnapshot(true); } catch {}
+    } else {
+      flush();
+    }
+  });
+  window.addEventListener('pagehide', () => { if (stopFn) flush(); });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'REPLAY_FLUSH') {
+      flush().then(() => sendResponse({ ok: !!stopFn }));
+      return true;
+    }
+    if (message?.type === 'REPLAY_STOP') {
+      stop();
+      sendResponse({ ok: true });
+      return false;
+    }
+    if (message?.type === 'REPLAY_PING') {
+      sendResponse({ ok: !!stopFn });
+      return false;
+    }
+    return false;
+  });
+
+  window.__briefReplay = { start, stop };
+  start();
+})();

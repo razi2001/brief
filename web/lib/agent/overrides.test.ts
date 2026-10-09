@@ -46,3 +46,12 @@ describe("captionForScreenshot", () => {
     expect(captionForScreenshot("a.png", undefined)).toBeUndefined();
   });
 });
+
+describe("mergeBriefOverrides: replay", () => {
+  it("carries the attach choice and the note", () => {
+    const m = mergeBriefOverrides({ a: 1 }, { includeReplay: false, replayNote: "watch the second tab" });
+    expect(m.includeReplay).toBe(false);
+    expect(m.replayNote).toBe("watch the second tab");
+    expect(mergeBriefOverrides({}, {}).includeReplay).toBeUndefined();
+  });
+});

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import TeamList from "./TeamList";
+import TeamList, { teamSummary } from "./TeamList";
 import type { TeamMember } from "@/lib/team";
 
 afterEach(cleanup);
@@ -22,12 +22,11 @@ const TEAM = [
 
 describe("TeamList", () => {
   it("names the org, its tracker and its size", () => {
-    render(<TeamList members={TEAM} orgName="Acme" providerName="Linear" />);
-    expect(screen.getByText("Acme on Linear · 3 people")).toBeTruthy();
+    expect(teamSummary("Acme", "Linear", 3)).toBe("Acme on Linear · 3 people");
   });
 
   it("lists everyone in the order given, marking you", () => {
-    render(<TeamList members={TEAM} orgName="Acme" providerName="Linear" />);
+    render(<TeamList members={TEAM} />);
     const rows = screen.getAllByRole("listitem");
     expect(rows).toHaveLength(3);
     expect(rows[0].textContent).toContain("Razi Fezzani");
@@ -37,29 +36,28 @@ describe("TeamList", () => {
   });
 
   it("shows each person's title and tickets", () => {
-    render(<TeamList members={TEAM} orgName="Acme" providerName="Linear" />);
+    render(<TeamList members={TEAM} />);
     expect(screen.getByText("the closer")).toBeTruthy();
     expect(screen.getByText("44 tickets")).toBeTruthy();
   });
 
   it("counts one ticket in the singular", () => {
-    render(<TeamList members={TEAM} orgName="Acme" providerName="Linear" />);
+    render(<TeamList members={TEAM} />);
     expect(screen.getByText("1 ticket")).toBeTruthy();
     expect(screen.queryByText("1 tickets")).toBeNull();
   });
 
   it("uses the initials of a full name when there is no picture", () => {
-    render(<TeamList members={TEAM} orgName="Acme" providerName="Linear" />);
+    render(<TeamList members={TEAM} />);
     expect(screen.getByText("RF")).toBeTruthy();
   });
 
   it("says so when you are the only one", () => {
-    render(<TeamList members={[TEAM[0]]} orgName="Acme" providerName="Linear" />);
-    expect(screen.getByText("Acme on Linear · just you so far")).toBeTruthy();
+    expect(teamSummary("Acme", "Linear", 1)).toBe("Acme on Linear · just you so far");
   });
 
   it("renders nothing without a team", () => {
-    const { container } = render(<TeamList members={[]} orgName="Acme" providerName="Linear" />);
+    const { container } = render(<TeamList members={[]} />);
     expect(container.innerHTML).toBe("");
   });
 });

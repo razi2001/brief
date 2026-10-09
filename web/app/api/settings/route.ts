@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
+import { cleanSiteList } from "@/lib/replay-sites";
 
 export const maxDuration = 60;
 
@@ -42,6 +43,14 @@ export async function POST(req: NextRequest) {
     }
     updates.ticketGuidanceMode = mode;
   }
+  // The user's own Replay sites (on top of the team's). Cleaned like the
+  // team list; anything that isn't a list is refused rather than wiping it.
+  if ("replaySites" in body) {
+    if (!Array.isArray(body.replaySites)) {
+      return NextResponse.json({ error: "replaySites must be a list" }, { status: 400 });
+    }
+    updates.replaySites = cleanSiteList(body.replaySites);
+  }
   if ("role" in body) {
     updates.role = String(body.role ?? "").trim().slice(0, MAX_ROLE);
   }
@@ -68,5 +77,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, ...("replaySites" in updates ? { replaySites: updates.replaySites } : {}) });
 }

@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 // Next.js 16 renamed the `middleware` file convention to `proxy`. Clerk's
 // clerkMiddleware() runs from this file on Next 16 (it detects middleware|proxy).
-// /api/briefs*, /api/me, and /api/transcribe are public to Clerk: the extension
+// /api/briefs*, /api/me, /api/replay-sites and /api/transcribe are public to Clerk: the extension
 // authenticates them via a bearer token, not a Clerk session (without this they
 // would 307 to /sign-in and the extension could never reach them).
 // /b/* are the public shareable brief pages (unguessable token, no session).
@@ -18,6 +18,7 @@ const isPublic = createRouteMatcher([
   "/b/(.*)",
   "/api/briefs(.*)",
   "/api/me",
+  "/api/replay-sites",
   "/api/transcribe",
   "/api/evidence/(.*)",
 ]);

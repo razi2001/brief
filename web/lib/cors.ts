@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 // Requests carry a bearer token (no cookies), so a wildcard origin is safe.
 export const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, content-type",
   "Access-Control-Max-Age": "86400",
 };

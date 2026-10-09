@@ -6,6 +6,8 @@ import { APP_URL } from "./config.js";
 import { getDraft, setDraft, updateDraft, emptyDraft, genId, landRecording, migrateInboxToDraft } from "./draft.js";
 import { fileDraft } from "./filing.js";
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
+import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
+import { putChunk, prune as pruneReplay, allMeta, deleteChunks, clearAll as clearReplay } from "./replay-store.js";
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
@@ -41,6 +43,110 @@ function tryOpenPopup(briefId) {
   } catch {}
 }
 
+// ---------- Capture entry points ----------
+// Capture the visible tab, then inject the annotator overlay and hand it the
+// screenshot. Capture must happen here (content scripts can't).
+async function startShot(itemId) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return { ok: false, error: 'unsupported_page' };
+    const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+    // Mint the screenshot's id HERE and keep the clean capture in the blob
+    // store under it, so "Edit drawing" can later reopen the annotator on the
+    // unmarked image with the strokes editable.
+    const shotId = genId();
+    try {
+      await putFile(shotKey(shotId), await (await fetch(dataUrl)).blob());
+    } catch (err) {
+      // Non-fatal: the screenshot still lands, it just won't be re-editable.
+      console.warn('[brief/background] stash clean capture:', err);
+    }
+    // The page URL/title ride through the overlay round-trip so SHOT_SAVED can
+    // pin them onto THIS screenshot, even if the user navigates away first.
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    } catch {}
+    await chrome.tabs.sendMessage(tab.id, {
+      type: 'INJECT_SHOT', itemId, dataUrl, shotId,
+      pageUrl: tab.url || null, pageTitle: tab.title || null,
+    });
+    return { ok: true };
+  } catch (err) {
+    console.error('[brief/background] START_SHOT:', err);
+    return { ok: false, error: String(err?.message || err) };
+  }
+}
+
+// Before a new recording, ensure no stale recording infrastructure is holding
+// a tabCapture stream. Close offscreen, dismiss any open bar in any tab, clear
+// state. EXCEPTION: while a background upload is running, keep the document -
+// its capture streams are already released (collectRecording cleans up before
+// uploading), so the new recording can safely reuse it.
+async function resetBeforeRecording() {
+  STATE.recording = false;
+  STATE.events = [];
+  await setRecSession(null);
+  try {
+    if (ACTIVE_BAR_TAB_ID != null) {
+      await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });
+    }
+  } catch {}
+  if ((await getUploadsPending()) === 0) {
+    await closeOffscreenDocument().catch(() => {});
+  }
+  // Small wait for Chrome to fully release the tabCapture stream
+  await new Promise((r) => setTimeout(r, 150));
+}
+
+// Right-click on a watched page: "Brief: replay the last minute". The item only
+// exists on the org's replay sites (the only pages recorded), so it is rebuilt
+// whenever that list changes. Same rule as the popup: pairing first.
+
+// Site patterns -> Chrome match patterns (ports can't be expressed: any port).
+function menuPatterns(sites) {
+  const out = new Set();
+  for (const p of sites) {
+    const host = p.replace(/:\d+$/, '');
+    if (host.startsWith('*.')) { out.add(`*://${host}/*`); out.add(`*://${host.slice(2)}/*`); }
+    else out.add(`*://${host}/*`);
+  }
+  return [...out];
+}
+
+let menuChain = Promise.resolve();
+function refreshReplayMenu() {
+  menuChain = menuChain.then(async () => {
+    await chrome.contextMenus.removeAll();
+    const patterns = menuPatterns(await getReplaySites());
+    if (!patterns.length) return;
+    chrome.contextMenus.create({ id: 'brief-replay', title: 'Brief: replay the last minute', contexts: ['all'], documentUrlPatterns: patterns });
+  }).catch((err) => console.warn('[brief/background] replay menu:', err));
+  return menuChain;
+}
+chrome.runtime.onInstalled.addListener(() => { refreshReplayMenu(); });
+chrome.runtime.onStartup.addListener(() => { refreshReplayMenu(); });
+chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.replaySites) refreshReplayMenu(); });
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId !== 'brief-replay') return;
+  try {
+    await startup;
+    const { briefCloudToken } = await chrome.storage.local.get('briefCloudToken');
+    if (!briefCloudToken) {
+      await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
+      return;
+    }
+    let d = await getDraft();
+    if (!d) { d = emptyDraft(); await setDraft(d); }
+    await chrome.tabs.create({
+      url: chrome.runtime.getURL(`replay.html#at=${Date.now()}&pick=${encodeURIComponent(d.id)}`),
+      ...(tab?.id != null ? { openerTabId: tab.id } : {}),
+    });
+  } catch (err) {
+    console.warn('[brief/background] replay menu click:', err);
+  }
+});
+
 // ---------- Draft badge ----------
 // No badge for a brief simply being in progress - that shows in the popup, and a
 // dot on the orange icon only ever rendered as a muddy blob. The icon stays
@@ -59,6 +165,108 @@ async function refreshBadge() {
     console.warn('[brief/background] badge refresh:', err);
   }
 }
+
+// ---------- Instant replay: per-tab buffer (POC) ----------
+// Which tabs have a recorder that answers a ping (replayLiveTabs: the replay
+// editor flushes them before reading the buffer). Re-checked on every page
+// load, every tab switch and every change to the site list.
+const LIVE_KEY = 'replayLiveTabs';
+let liveChain = Promise.resolve();
+
+async function liveReplayTabs() {
+  const r = await chrome.storage.session.get(LIVE_KEY);
+  return new Set(r[LIVE_KEY] || []);
+}
+
+function setReplayLive(tabId, live) {
+  liveChain = liveChain.then(async () => {
+    const set = await liveReplayTabs();
+    if (live) set.add(tabId); else set.delete(tabId);
+    await chrome.storage.session.set({ [LIVE_KEY]: [...set] });
+  }).catch((err) => console.warn('[brief/background] replay live:', err));
+  return liveChain;
+}
+
+
+// Bring one tab in line with the site list: arm or stop, then paint what is
+// actually running.
+async function syncReplayTab(tabId, url) {
+  const watched = !!url && (await isWatched(url));
+  let live = await pingReplay(tabId);
+  if (watched && !live) {
+    try { await armReplay(tabId); } catch {} // restricted page, tab gone
+    live = await pingReplay(tabId);
+  } else if (!watched && live) {
+    await stopReplay(tabId);
+    live = false;
+  }
+  await setReplayLive(tabId, live);
+}
+
+// The browser-wide buffer: chunks land in replay-store, and a log of which tab
+// was in front lets the viewer stitch tabs in the order the user saw them.
+const FOCUS_KEY = 'replayFocus';
+const FOCUS_RETAIN_MS = 300_000;
+let focusChain = Promise.resolve();
+let lastPrune = 0;
+
+function logFocus(tabId) {
+  focusChain = focusChain.then(async () => {
+    const now = Date.now();
+    const r = await chrome.storage.session.get(FOCUS_KEY);
+    const log = (r[FOCUS_KEY] || []).filter((e) => e.t > now - FOCUS_RETAIN_MS);
+    if (log[log.length - 1]?.tabId !== tabId) log.push({ t: now, tabId });
+    await chrome.storage.session.set({ [FOCUS_KEY]: log });
+  }).catch(() => {});
+  return focusChain;
+}
+
+async function logFocusedWindowTab() {
+  try {
+    const w = await chrome.windows.getLastFocused({ populate: false });
+    const [t] = await chrome.tabs.query({ active: true, windowId: w.id });
+    if (t?.id != null) await logFocus(t.id);
+  } catch {}
+}
+
+async function storeReplayChunk(tabId, m) {
+  const r = await chrome.storage.session.get(FOCUS_KEY);
+  if (!(r[FOCUS_KEY] || []).length) await logFocusedWindowTab();
+  await putChunk({ tabId, pageId: m.pageId, url: m.url, title: m.title, full: m.full, events: m.events });
+  if (Date.now() - lastPrune > 10_000) { lastPrune = Date.now(); await pruneReplay(); }
+}
+
+// Nothing recorded from a site stays once it is off the list.
+async function purgeUnwatchedReplay() {
+  const sites = await getReplaySites();
+  const metas = await allMeta();
+  await deleteChunks(metas.filter((m) => !sites.some((p) => patternMatches(p, m.url || ''))).map((m) => m.id));
+}
+
+chrome.runtime.onStartup.addListener(() => { clearReplay().catch(() => {}); syncReplaySites().catch(() => {}); });
+chrome.runtime.onInstalled.addListener(() => { syncReplaySites().catch(() => {}); });
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  chrome.tabs.query({ active: true, windowId }).then(([t]) => { if (t?.id != null) logFocus(t.id); }).catch(() => {});
+});
+
+// A navigation tears the old page (and its recorder) down: drop the dot now,
+// CONTENT_READY puts it back once the new page's recorder is up.
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.status === 'loading') setReplayLive(tabId, false);
+});
+chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+  chrome.windows.getLastFocused().then((w) => { if (w.id === windowId) logFocus(tabId); }).catch(() => {});
+  chrome.tabs.get(tabId).then((t) => syncReplayTab(tabId, t.url)).catch(() => {});
+});
+chrome.tabs.onRemoved.addListener((tabId) => { setReplayLive(tabId, false); });
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.replaySites) return;
+  chrome.tabs.query({}).then((tabs) => {
+    for (const t of tabs) if (t.id != null && /^https?:/.test(t.url || '')) syncReplayTab(t.id, t.url);
+  }).catch(() => {});
+  purgeUnwatchedReplay().catch(() => {});
+});
 
 // Filing runs in THIS worker (filing.js). If the worker is starting up, no filing
 // is in flight - so a draft still flagged `filing` was interrupted (the worker was
@@ -256,6 +464,16 @@ async function openOrFocusTab(url) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // ---------- Instant replay: a recorded chunk from a watched page ----------
+  if (message?.type === 'REPLAY_CHUNK') {
+    const tabId = sender?.tab?.id;
+    if (tabId == null || sender.frameId !== 0) { sendResponse({ ok: false }); return false; }
+    storeReplayChunk(tabId, message)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => { console.warn('[brief/background] replay chunk:', err); sendResponse({ ok: false }); });
+    return true;
+  }
+
   // ---------- Open a tab on the popup's behalf ----------
   if (message?.type === 'OPEN_TAB' && typeof message.url === 'string') {
     const { url } = message;
@@ -442,8 +660,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // reloaded (or navigated) mid-recording: the capture is still running
           // in the offscreen document, so hand the new page its bar back in
           // resume mode, re-arm console capture, and carry the session over.
-          const s = await getRecSession();
           const tabId = sender?.tab?.id;
+          // Instant replay: a page on a watched site gets its rolling buffer on
+          // every load. Fire and forget, it must not hold up the resume answer.
+          if (tabId != null && sender.frameId === 0 && sender.tab?.url) {
+            syncReplaySitesIfStale(10 * 60_000)
+              .catch(() => {})
+              .then(() => syncReplayTab(tabId, sender.tab.url))
+              .catch((err) => console.warn('[brief/background] replay sync:', err));
+          }
+          const s = await getRecSession();
           if (!s || tabId == null || s.tabId !== tabId) { sendResponse({ ok: true }); break; }
           STATE.recording = true;
           STATE.briefId = s.briefId;
@@ -455,6 +681,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             console.warn('[brief/background] console capture re-inject:', err);
           }
           sendResponse({ ok: true, resume: { itemId: s.briefId, startedAt: s.startedAt, muted: !!s.muted, intent: s.intent || 'brief' } });
+          break;
+        }
+
+        case 'EDITOR_CLOSED': {
+          // An editor is done. In this order, so nothing steals focus from the
+          // popup (a popup closes the instant it loses focus): close the editor
+          // tab, wait until it is gone, go back to the tab it was opened from
+          // (not whichever neighbour Chrome picks), then open the popup there.
+          const editorTab = sender?.tab?.id;
+          sendResponse({ ok: true });
+          setTimeout(async () => {
+            if (editorTab != null) await chrome.tabs.remove(editorTab).catch(() => {});
+            if (message.backTo != null) await chrome.tabs.update(message.backTo, { active: true }).catch(() => {});
+            if (message.windowId != null) await chrome.windows.update(message.windowId, { focused: true }).catch(() => {});
+            setTimeout(() => {
+              chrome.action.openPopup(message.windowId != null ? { windowId: message.windowId } : undefined).catch(() => {});
+            }, 200);
+          }, Math.max(0, Number(message.delay) || 0));
           break;
         }
 
@@ -511,44 +755,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
 
-        case 'START_SHOT': {
-          // Capture the visible tab, then inject the annotator overlay and hand
-          // it the screenshot. Capture must happen here (content scripts can't).
-          try {
-            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) {
-              sendResponse({ ok: false, error: 'unsupported_page' });
-              break;
-            }
-            const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-            // Mint the screenshot's id HERE and keep the clean capture in the
-            // blob store under it, so "Edit drawing" can later reopen the
-            // annotator on the unmarked image with the strokes editable.
-            const shotId = genId();
-            try {
-              await putFile(shotKey(shotId), await (await fetch(dataUrl)).blob());
-            } catch (err) {
-              // Non-fatal: the screenshot still lands, it just won't be re-editable.
-              console.warn('[brief/background] stash clean capture:', err);
-            }
-            // Carry the page URL/title (the screenshot's source page) through the
-            // overlay round-trip so SHOT_SAVED can pin it onto THIS screenshot,
-            // even if the user navigates away before filing.
-            // Make sure the content script is present, then inject the overlay.
-            try {
-              await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-            } catch {}
-            await chrome.tabs.sendMessage(tab.id, {
-              type: 'INJECT_SHOT', itemId: message.itemId, dataUrl, shotId,
-              pageUrl: tab.url || null, pageTitle: tab.title || null,
-            });
-            sendResponse({ ok: true });
-          } catch (err) {
-            console.error('[brief/background] START_SHOT:', err);
-            sendResponse({ ok: false, error: String(err?.message || err) });
-          }
+        case 'START_SHOT':
+          sendResponse(await startShot(message.itemId));
           break;
-        }
 
         case 'SHOT_SAVED': {
           // Land the annotated screenshot on the current draft (id-matched).
@@ -641,25 +850,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'RESET_BEFORE_NEW_RECORDING':
-          // Before a new recording, ensure no stale recording infrastructure
-          // is holding a tabCapture stream. Close offscreen, dismiss any
-          // open bar in any tab, clear state. EXCEPTION: while a background
-          // upload is running, keep the document - its capture streams are
-          // already released (collectRecording cleans up before uploading),
-          // so the new recording can safely reuse it.
-          STATE.recording = false;
-          STATE.events = [];
-          await setRecSession(null);
-          try {
-            if (ACTIVE_BAR_TAB_ID != null) {
-              await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });
-            }
-          } catch {}
-          if ((await getUploadsPending()) === 0) {
-            await closeOffscreenDocument().catch(() => {});
-          }
-          // Small wait for Chrome to fully release the tabCapture stream
-          await new Promise((r) => setTimeout(r, 150));
+          await resetBeforeRecording();
           sendResponse({ ok: true });
           break;
 

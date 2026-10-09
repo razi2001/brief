@@ -11,7 +11,8 @@
     "scripting",
     "storage",
     "tabCapture",
-    "offscreen"
+    "offscreen",
+    "contextMenus"
   ],
   "background": {
     "service_worker": "background.js",

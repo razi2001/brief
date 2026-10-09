@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DownloadButton from "./DownloadButton";
+import ReplayPlayer from "./ReplayPlayer";
 
 /**
  * One evidence asset (screenshot / recording) on the brief page. Everyone can
@@ -17,6 +18,7 @@ export default function EvidenceCard({
   filename,
   path,
   kind,
+  voiceUrl,
   canRemove,
   index,
 }: {
@@ -25,7 +27,8 @@ export default function EvidenceCard({
   filename: string;
   /** Storage-relative path (e.g. "screenshots/abc.png") - the delete target. */
   path: string;
-  kind: "image" | "video";
+  kind: "image" | "video" | "replay";
+  voiceUrl?: string;
   canRemove: boolean;
   index: number;
 }) {
@@ -101,6 +104,8 @@ export default function EvidenceCard({
       {kind === "image" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt={`Evidence ${index + 1}`} className="w-full" />
+      ) : kind === "replay" ? (
+        <ReplayPlayer url={url} voiceUrl={voiceUrl} />
       ) : (
         <video src={url} controls className="w-full bg-ink" />
       )}

@@ -8,26 +8,17 @@ import type { TeamMember } from "@/lib/team";
  * be invisible: a head count on the team defaults card, and whoever made the
  * podium. This lists everyone the podium ranks, in an order that holds still.
  */
-export default function TeamList({
-  members,
-  orgName,
-  providerName,
-}: {
-  members: TeamMember[];
-  orgName: string;
-  providerName: string;
-}) {
+/** "Acme on Linear · 3 people": the Team section's status line. */
+export function teamSummary(orgName: string, providerName: string, count: number): string {
+  return `${orgName} on ${providerName} · ${count === 1 ? "just you so far" : `${count} people`}`;
+}
+
+export default function TeamList({ members }: { members: TeamMember[] }) {
   if (members.length === 0) return null;
 
   return (
-    <section id="team" className="scroll-mt-8">
-      <h2 className="font-display text-2xl text-ink">Team</h2>
-      <p className="mt-1 text-xs text-muted">
-        {orgName} on {providerName} ·{" "}
-        {members.length === 1 ? "just you so far" : `${members.length} people`}
-      </p>
-
-      <ul className="card thin-scroll mt-4 max-h-[26rem] overflow-y-auto px-4 py-1">
+    <div>
+      <ul className="card thin-scroll max-h-[26rem] overflow-y-auto px-4 py-1">
         {members.map((member) => (
           <li
             key={member.userId}
@@ -53,6 +44,6 @@ export default function TeamList({
           </li>
         ))}
       </ul>
-    </section>
+    </div>
   );
 }

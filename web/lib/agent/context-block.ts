@@ -32,6 +32,44 @@ export function buildContextBlock(json: unknown): string {
   if (j.userAgent) lines.push(`- Browser (user agent): ${j.userAgent}`);
   if (lines.length) sections.push("PAGE CONTEXT (ground truth - put the URL in the ticket):\n" + lines.join("\n"));
 
+  // The instant replay the reporter attached: what they actually did in the
+  // browser just before reporting, read off a DOM recording (run-processing
+  // summarises replay.json into `replay`). Reliable steps to reproduce.
+  const replaySteps: string[] = Array.isArray(j.replay?.steps) ? j.replay.steps.filter((s: unknown) => typeof s === "string") : [];
+  if (replaySteps.length) {
+    const note = typeof j.replayNote === "string" && j.replayNote.trim() ? `Reporter's note on it: ${j.replayNote.trim().slice(0, 1000)}\n` : "";
+    sections.push(
+      "REPLAY (what the reporter did in the browser just before reporting, from a recording of the page - use it for accurate steps to reproduce; typed values were masked and are not known):\n" +
+        note +
+        replaySteps.map((s) => `- ${s.slice(0, 300)}`).join("\n"),
+    );
+  }
+  // Where the reporter marked the bug: the moments to look at first.
+  const clockOf = (ms: number) => {
+    const s = Math.max(0, Math.round(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+  const markLines: string[] = [];
+  for (const m of Array.isArray(j.recordingMarks) ? j.recordingMarks : []) {
+    if (typeof m?.t === "number") markLines.push(`- ${clockOf(m.t)} into the recording${m.note?.trim() ? `: ${String(m.note).trim().slice(0, 300)}` : ""}`);
+  }
+  for (const m of Array.isArray(j.replay?.marks) ? j.replay.marks : []) {
+    if (typeof m?.t === "number") markLines.push(`- ${clockOf(m.t)} into the replay${m.note?.trim() ? `: ${String(m.note).trim().slice(0, 300)}` : ""}`);
+  }
+  if (markLines.length) {
+    sections.push(
+      "KEY MOMENTS (the reporter marked where the bug happens - look at these first; the frames/stills at these times are labelled MARKED):\n" +
+        markLines.join("\n"),
+    );
+  }
+
+  if (typeof j.replay?.narration === "string" && j.replay.narration.trim()) {
+    sections.push(
+      "REPLAY NARRATION (the reporter's voice-over on the replay, transcribed - their account of what the replay shows; correct obvious mis-transcriptions):\n" +
+        j.replay.narration.trim().slice(0, 4000),
+    );
+  }
+
   // Console errors come through as events of type "console-error" (args[]),
   // plus window "error"/"unhandledrejection", and failed requests as
   // "network-error" (method/url/status/reason). Surface them verbatim.

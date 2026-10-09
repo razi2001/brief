@@ -8,6 +8,32 @@ import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
 import { composeDraftTicket } from "@/lib/agent/compose-draft";
 import { transcribeAudio, transcriptionHint } from "@/lib/agent/transcribe";
 import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides } from "@/lib/agent/overrides";
+import { summarizeReplay, type ReplaySummary } from "@/lib/agent/replay-steps";
+
+type ReplayFrame = { file: string; t?: number; url?: string | null; note?: string | null };
+
+/** The frame closest in time to `tMs` (frames without a time never match). */
+export function nearestFrame<F extends { timestampMs?: number }>(frames: F[], tMs: number): F | undefined {
+  let best: F | undefined;
+  for (const f of frames) {
+    if (typeof f.timestampMs !== "number") continue;
+    if (!best || Math.abs(f.timestampMs - tMs) < Math.abs((best.timestampMs as number) - tMs)) best = f;
+  }
+  return best;
+}
+
+/** The page a recording was on at `tMs`: the last captured event at or before
+ *  it that carries a URL (clicks, keys, scrolls, navigations), else the brief's. */
+export function urlAt(json: unknown, tMs?: number): string | undefined {
+  const j = (json ?? {}) as { events?: Array<{ tMs?: number; url?: string }>; pageUrl?: string };
+  let url: string | undefined;
+  if (typeof tMs === "number") {
+    for (const e of Array.isArray(j.events) ? j.events : []) {
+      if (typeof e?.tMs === "number" && e.tMs <= tMs && typeof e.url === "string" && e.url) url = e.url;
+    }
+  }
+  return url ?? (typeof j.pageUrl === "string" && j.pageUrl ? j.pageUrl : undefined);
+}
 import { getUserSettings } from "@/lib/settings";
 import { briefPhase, releaseFiling } from "@/lib/brief-filing";
 import {
@@ -85,6 +111,21 @@ export async function loadBriefInput(
   // The popup's edits (corrected transcript, per-shot notes, description, extra)
   // are authoritative over the capture-owned brief.json.
   const json = mergeBriefOverrides(rawJson, opts.overrides);
+  // An attached replay (rrweb events) reaches the agent as plain steps (with
+  // the URL at each), plus its stills and narration below.
+  const replayBuf = await dl(`${prefix}/replay.json`);
+  if (replayBuf) {
+    try {
+      const file = JSON.parse(replayBuf.toString("utf8"));
+      json.replay = {
+        ...summarizeReplay(file),
+        frames: Array.isArray(file.frames) ? file.frames : [],
+        marks: Array.isArray(file.marks) ? file.marks : [],
+      };
+    } catch (e) {
+      console.warn(`[process] ${prefix}: unreadable replay.json:`, e);
+    }
+  }
 
   const images: BriefInput["images"] = [];
   const files: BriefInput["evidence"]["files"] = [];
@@ -142,13 +183,63 @@ export async function loadBriefInput(
         return bytes ? { name: n, filename, timestampMs: tsByFile.get(filename), bytes } : null;
       }),
     );
-    frames = selectDistinctFrames(downloaded.filter((f): f is NonNullable<typeof f> => !!f));
+    const usable = downloaded.filter((f): f is NonNullable<typeof f> => !!f);
+    frames = selectDistinctFrames(usable);
+    // The reporter's marks: the frame nearest each one is always shown, and
+    // says it was marked (with the note), however similar it looks.
+    const marks = (json as { recordingMarks?: Array<{ t: number; note?: string }> }).recordingMarks ?? [];
+    const markedBy = new Map<string, string>();
+    for (const m of marks) {
+      const near = nearestFrame(usable, m.t);
+      if (!near) continue;
+      markedBy.set(near.name, m.note?.trim() ? `MARKED by the reporter: "${m.note.trim()}"` : "MARKED by the reporter");
+      if (!frames.includes(near)) frames.push(near);
+    }
+    frames.sort((x, y) => (x.timestampMs ?? 0) - (y.timestampMs ?? 0));
     for (const f of frames) {
       images.push({
         name: f.name,
         dataUrl: `data:image/png;base64,${f.bytes.toString("base64")}`,
         timestampMs: f.timestampMs,
+        url: urlAt(json, f.timestampMs),
+        caption: markedBy.get(f.name),
       });
+    }
+
+    // The replay, watched: the stills the extension took at its key moments
+    // (each page, the clicks, the end), with the page URL at each.
+    const replayMeta = (json as { replay?: ReplaySummary & { frames?: ReplayFrame[] } }).replay;
+    if (replayMeta) {
+      const files = (await admin.storage.from("briefs").list(`${prefix}/replay-frames`, { limit: 50 })).data ?? [];
+      const byFile = new Map((replayMeta.frames ?? []).map((f) => [f.file, f]));
+      for (const o of files.map((x) => x.name).sort().slice(0, 12)) {
+        const bytes = await dl(`${prefix}/replay-frames/${o}`);
+        if (!bytes) continue;
+        const meta = byFile.get(o);
+        images.push({
+          name: `replay-frame-${o}`,
+          dataUrl: `data:image/jpeg;base64,${bytes.toString("base64")}`,
+          timestampMs: meta?.t,
+          url: meta?.url ?? undefined,
+          caption: meta?.note ?? undefined,
+        });
+      }
+    }
+
+    // The replay's voice-over is narration of its own: transcribe it apart.
+    if (replayMeta) {
+      const voice = await dl(`${prefix}/replay-voice.webm`);
+      if (voice) {
+        // the hint: the brief's own words, plus what the replay shows (the
+        // pages and buttons it went through) and the reporter's mark notes
+        const replay = json.replay as { steps?: string[]; marks?: Array<{ note?: string }> } | undefined;
+        const prompt = transcriptionHint(json, [
+          ...(replay?.steps ?? []).slice(0, 20),
+          ...(replay?.marks ?? []).map((m) => m?.note ?? ""),
+        ]);
+        const narration = await transcribeAudio({ bytes: voice, filename: "replay-voice.webm", contentType: "audio/webm", prompt });
+        if (narration) replayMeta.narration = narration;
+      }
     }
   }
 
@@ -172,6 +263,31 @@ export async function loadBriefInput(
     shotFilenames.push(filename);
   }
   const hasShot = shotFilenames.length > 0;
+
+  // The replay's stills are evidence too (when the replay is attached): the
+  // reporter's marked moments always go on the ticket, captioned with their
+  // note; otherwise the first and last stand in. Named as stored, so a tracker
+  // that embeds by url keeps them after cleanup (see the referenced set).
+  const replayJson = json as { replay?: { frames?: ReplayFrame[] }; includeReplay?: boolean };
+  const replayStills: string[] = [];
+  const markedStills: string[] = [];
+  if (replayJson.replay && replayJson.includeReplay !== false) {
+    const meta = new Map((replayJson.replay.frames ?? []).map((f) => [f.file, f]));
+    const { data: rfList } = await admin.storage.from("briefs").list(`${prefix}/replay-frames`, { limit: 50 });
+    for (const name of (rfList ?? []).map((o) => o.name).sort().slice(0, 12)) {
+      const b = await dl(`${prefix}/replay-frames/${name}`);
+      if (!b) continue;
+      const m = meta.get(name);
+      const note = m?.note?.trim() ?? "";
+      const marked = /^marked by the reporter/i.test(note);
+      // the caption a reader sees above the image: the reporter's own words
+      const caption = marked ? note.replace(/^marked by the reporter:?\s*/i, "").replace(/^"|"$/g, "") || "Marked moment" : undefined;
+      files.push({ filename: name, contentType: "image/jpeg", bytes: b, url: evidenceUrl(`replay-frames/${name}`) });
+      items.push({ name, kind: "replay", timestampMs: m?.t, caption });
+      replayStills.push(name);
+      if (marked) markedStills.push(name);
+    }
+  }
 
   // The recording is attachable ONLY when the user said so.
   const recordingExists = !!recName || !!json.recording || names.length > 0;
@@ -211,6 +327,8 @@ export async function loadBriefInput(
   // Default attachment set when the agent doesn't choose.
   const fallback: string[] = [];
   for (const fn of shotFilenames) fallback.push(fn);
+  if (markedStills.length) fallback.push(...markedStills);
+  else if (replayStills.length) fallback.push(...new Set([replayStills[0], replayStills[replayStills.length - 1]]));
   if (recordingAttached) {
     fallback.push(recName ?? "recording.webm");
   } else if (keyframesAsEvidence) {
@@ -219,7 +337,7 @@ export async function loadBriefInput(
   }
 
   return {
-    input: { json, images, evidence: { files, items, includeVideo, fallback } },
+    input: { json, images, evidence: { files, items, includeVideo, fallback, forced: markedStills } },
     names,
     includeVideo,
     recordingName: recName,
@@ -287,7 +405,11 @@ export async function processBriefById(
     // would leave a race where GitHub fetches the image first and caches a 404.
     const shareId = (brief.share_id as string | null) || randomBytes(9).toString("base64url");
     const embedsEvidenceByUrl = !tracker.capabilities.nativeAttachments;
-    if (embedsEvidenceByUrl && !brief.share_id) {
+    // An attached replay is watched on the brief page, so the ticket links to
+    // it - which needs the share token now too, whatever the tracker.
+    const hasReplay = !!(await admin.storage.from("briefs").list(prefix, { search: "replay.json" })).data?.length
+      && opts.overrides?.includeReplay !== false;
+    if ((embedsEvidenceByUrl || hasReplay) && !brief.share_id) {
       await admin.from("briefs").update({ share_id: shareId }).eq("id", briefId);
     }
 
@@ -299,6 +421,8 @@ export async function processBriefById(
       lean: !!opts.useExistingContent,
       evidenceBaseUrl: `${appOrigin()}/api/evidence/${shareId}`,
     });
+
+    if (hasReplay) input.replayUrl = `${appOrigin()}/b/${shareId}`;
 
     console.log(
       `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} screenshots=${input.evidence.items.filter((i) => i.kind === "screenshot").length} includeVideo=${includeVideo} attachable=${input.evidence.files.length} fallback=${input.evidence.fallback.length}`,
@@ -361,6 +485,14 @@ export async function processBriefById(
         ...names.map((n) => `${prefix}/keyframes/${n}`),
       ];
       if (!includeVideo && recordingName) toDelete.push(`${prefix}/${recordingName}`);
+      // A replay the reporter didn't attach informed the write-up only: like an
+      // unattached video, it isn't kept on the brief.
+      if ((input.json as { includeReplay?: boolean }).includeReplay === false) {
+        toDelete.push(`${prefix}/replay.json`, `${prefix}/replay-voice.webm`);
+      }
+      // The replay stills: kept only when a ticket embeds one by url (below).
+      const { data: rf } = await admin.storage.from("briefs").list(`${prefix}/replay-frames`, { limit: 50 });
+      toDelete.push(...(rf ?? []).map((o) => `${prefix}/replay-frames/${o.name}`));
       // Keyframes are normally internal-only. But when the tracker embeds
       // evidence BY URL, a keyframe that was attached is referenced from the
       // filed ticket, and deleting it would leave a permanently broken image.

@@ -96,6 +96,7 @@ export function isReadyDraft(d) {
   if (!d) return false;
   return (Array.isArray(d.screenshots) && d.screenshots.length > 0) ||
     !!d.recording ||
+    !!d.replay ||
     !!(d.description && d.description.trim());
 }
 

@@ -9,6 +9,11 @@
 //   shot:<shotId>   a screenshot's CLEAN capture, so the annotator can reopen it
 //                   with the strokes editable instead of drawing over flattened
 //                   marks
+//   replay:<briefId> the replay attached as evidence (rrweb events + its edit,
+//                   as JSON), uploaded as replay.json at filing time
+//   replayVoice:<briefId> the replay's voice-over (audio), replay-voice.webm
+//   replayFrames:<briefId> stills of the replay's key moments (JSON of data
+//                   URLs), uploaded as replay-frames/*.jpg for the agent to see
 //
 // Every extension page (popup, offscreen, the framed annotator) and the service
 // worker share one origin, so they all see the same store.
@@ -37,6 +42,9 @@ function run(mode, op) {
 
 export const recKey = (briefId) => `rec:${briefId}`;
 export const shotKey = (shotId) => `shot:${shotId}`;
+export const replayKey = (briefId) => `replay:${briefId}`;
+export const replayVoiceKey = (briefId) => `replayVoice:${briefId}`;
+export const replayFramesKey = (briefId) => `replayFrames:${briefId}`;
 
 export function putFile(key, blob) { return run('readwrite', (s) => s.put(blob, key)); }
 export function getFile(key) { return run('readonly', (s) => s.get(key)).then((v) => v || null); }
@@ -61,6 +69,9 @@ export async function pruneFiles(keep) {
 export function draftKeys(d) {
   if (!d) return [];
   const keys = d.recording ? [recKey(d.id)] : [];
+  if (d.replay) keys.push(replayKey(d.id));
+  if (d.replay?.voice) keys.push(replayVoiceKey(d.id));
+  if (d.replay?.frames) keys.push(replayFramesKey(d.id));
   for (const s of d.screenshots || []) keys.push(shotKey(s.id));
   return keys;
 }

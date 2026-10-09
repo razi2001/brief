@@ -10,7 +10,7 @@
 
 import { TICKETS_URL, uploadDraft, uploadFilesToDraft, processBrief, createDraft, briefPageUrl } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft } from './draft.js';
-import { deleteFile, draftKeys } from './filestore.js';
+import { deleteFile, draftKeys, getFile, replayKey, replayVoiceKey, replayFramesKey } from './filestore.js';
 
 function dataUrlToBytes(dataUrl) {
   const b64 = dataUrl.split(',')[1] || '';
@@ -28,6 +28,27 @@ function buildScreenshotFiles(d) {
   }));
 }
 
+// The replay, when one is attached (kept in the blob store), and its voice-over.
+async function buildReplayFiles(d) {
+  if (!d.replay) return [];
+  const files = [];
+  const blob = await getFile(replayKey(d.id));
+  if (blob) files.push({ name: 'replay.json', blob, contentType: 'application/json' });
+  const voice = d.replay.voice ? await getFile(replayVoiceKey(d.id)) : null;
+  if (voice) files.push({ name: 'replay-voice.webm', blob: voice, contentType: 'audio/webm' });
+  // the key-moment stills, named as replay.json's `frames` list them
+  const framesBlob = d.replay.frames ? await getFile(replayFramesKey(d.id)) : null;
+  if (framesBlob) {
+    const urls = JSON.parse(await framesBlob.text());
+    urls.forEach((u, i) => files.push({
+      name: `replay-frames/frame-${String(i + 1).padStart(2, '0')}.jpg`,
+      blob: new Blob([dataUrlToBytes(u)], { type: 'image/jpeg' }),
+      contentType: 'image/jpeg',
+    }));
+  }
+  return files;
+}
+
 // The user's edits, sent at file time and applied by the server over the
 // capture-owned brief.json (edits win).
 function buildOverrides(d) {
@@ -38,6 +59,8 @@ function buildOverrides(d) {
     description: d.description || '',
     extra: (d.extra || []).filter((p) => (p.key || '').trim() || (p.value || '').trim()),
     screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
+    ...(d.replay ? { includeReplay: d.replay.attach !== false, replayNote: d.replay.note || '' } : {}),
+    ...(d.recording?.marks?.length ? { recordingMarks: d.recording.marks.map((m) => ({ t: Math.round(m.t), note: m.note || '' })) } : {}),
   };
 }
 
@@ -46,7 +69,7 @@ function buildBriefJsonAndMeta(d, page) {
   const pageTitle = d.pageTitle || page?.title || null;
   const briefJson = {
     id: d.id, name: d.name || '', createdAt: d.createdAt || Date.now(),
-    source: d.recording ? 'recording' : ((d.screenshots || []).length ? 'screenshot' : 'text'),
+    source: d.recording ? 'recording' : ((d.screenshots || []).length ? 'screenshot' : d.replay ? 'replay' : 'text'),
     description: d.description || '', transcript: d.transcript || '', pageUrl, pageTitle,
     hasRecording: !!d.recording,
     screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
@@ -72,7 +95,7 @@ async function activePageContext() {
 // the screenshots on first send, or push new screenshots into an existing draft
 // (a recording's draft was created by the offscreen upload). Mutates `d`.
 async function ensureUploaded(d) {
-  const shotFiles = buildScreenshotFiles(d);
+  const shotFiles = [...buildScreenshotFiles(d), ...(await buildReplayFiles(d))];
   if (!d.cloudBriefId) {
     const page = await activePageContext();
     const { files, meta } = buildBriefJsonAndMeta(d, page);
@@ -82,6 +105,48 @@ async function ensureUploaded(d) {
   } else if (shotFiles.length) {
     await uploadFilesToDraft(d.cloudBriefId, shotFiles);
   }
+}
+
+// Drafts being filed in the background, by id (the popup spins the cloud while
+// any are in flight).
+async function addFilingDraft(d) {
+  const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
+  filingDrafts[d.id] = { ...d, filingStartedAt: Date.now() };
+  await chrome.storage.local.set({ filingDrafts });
+}
+async function dropFilingDraft(id) {
+  const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
+  delete filingDrafts[id];
+  await chrome.storage.local.set({ filingDrafts });
+}
+
+async function fileInBackground(d) {
+  const run = async () => {
+    await ensureUploaded(d);
+    return processBrief(d.cloudBriefId, buildOverrides(d));
+  };
+  try {
+    try {
+      await run();
+    } catch (err) {
+      if (err?.code === 'already_filed') { /* it exists: a success */ }
+      else if (err?.status === 404 && d.cloudBriefId) { d.cloudBriefId = null; await run(); }
+      else throw err;
+    }
+  } catch (err) {
+    // Nothing is lost: the draft comes back with the error. Into the popup if
+    // it is empty; otherwise it waits as `failedDraft` (the popup offers it back).
+    await dropFilingDraft(d.id);
+    const back = { ...d, filing: false, fileError: String(err?.message || err) };
+    const now = await getDraft();
+    if (!now || !isReadyDraft(now)) await setDraft(back);
+    else await chrome.storage.local.set({ failedDraft: back });
+    return;
+  }
+  for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
+  await dropFilingDraft(d.id);
+  // Unseen until the cloud button is clicked: the popup marks it with a dot.
+  await chrome.storage.local.set({ ticketsUnseen: Date.now() }).catch(() => {});
 }
 
 async function failFiling(id, err) {
@@ -104,6 +169,16 @@ export async function fileDraft(mode, { openTab }) {
   if (d.filing) return { ok: false, error: 'already_filing' };
   if (d.uploading) return { ok: false, error: 'The recording is still uploading' };
   if (!isReadyDraft(d)) return { ok: false, error: 'Nothing to file' };
+
+  // A ticket doesn't make you wait: the draft is handed off (kept under
+  // `filingDrafts` with its blobs, which are keyed by its id), a fresh one takes
+  // its place right away, and the upload + filing finish here in the worker.
+  if (mode === 'ticket') {
+    await addFilingDraft(d);
+    await setDraft(emptyDraft());
+    fileInBackground(d).catch((err) => console.warn('[brief/filing] background filing:', err));
+    return { ok: true, queued: true };
+  }
 
   await updateDraft(d.id, (x) => { x.filing = true; x.filingMode = mode; x.filingStartedAt = Date.now(); x.fileError = null; });
   d.filing = true;
@@ -137,12 +212,14 @@ export async function fileDraft(mode, { openTab }) {
   // Filed: this draft is spent. Its local media (the video kept for playback,
   // each screenshot's clean capture) goes with it - the cloud has the evidence now.
   for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
-  // Start a fresh draft, then land where the work went: a ticket filed to the
-  // tracker shows up in the ticket list (it's written in the background, and
-  // the list is where you watch it land), while a draft has no tracker ticket
-  // to look at - its own brief page IS the thing you just made.
+  // Start a fresh draft. A ticket opens no tab: it is written in the background
+  // and the popup points at the tickets list (the cloud button) instead - a tab
+  // per ticket got in the way. A draft has no tracker ticket to look at, so its
+  // own brief page IS the thing you just made: that one still opens.
   await clearDraft();
   await setDraft(emptyDraft());
-  openTab(mode === 'ticket' || !shareId ? TICKETS_URL : briefPageUrl(shareId));
+  // Unseen until the cloud button is clicked: the popup marks it with a dot.
+  if (mode === 'ticket') await chrome.storage.local.set({ ticketsUnseen: Date.now() }).catch(() => {});
+  else openTab(shareId ? briefPageUrl(shareId) : TICKETS_URL);
   return { ok: true, shareId, alreadyFiled };
 }

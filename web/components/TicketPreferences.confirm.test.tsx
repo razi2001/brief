@@ -109,14 +109,16 @@ describe("the personal override", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("/api/settings");
   });
 
-  it("shows the team text read-only while inheriting", () => {
+  it("shows only the text that applies: the team's while inheriting, yours when not", () => {
     render(<TicketPreferences {...baseProps} mode="inherit" />);
-    // One textbox only: the team defaults. The personal box is replaced by a
-    // read-only preview of what's actually in force.
-    expect(screen.getAllByRole("textbox")).toHaveLength(1);
-    // Scoped to a div so this matches the read-only preview, not the team
-    // textarea that happens to hold the same text.
-    expect(screen.getByText("Status: Triage.", { selector: "div" })).toBeTruthy();
+    const boxes = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].value).toBe("Status: Triage.");
+    cleanup();
+    render(<TicketPreferences {...baseProps} mode="override" />);
+    const mine = screen.getAllByRole("textbox") as HTMLTextAreaElement[];
+    expect(mine).toHaveLength(1);
+    expect(mine[0].value).toBe("Always assign to me.");
   });
 
   it("switching to your own persists the mode straight away", async () => {

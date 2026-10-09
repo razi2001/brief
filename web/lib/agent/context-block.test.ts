@@ -106,3 +106,15 @@ describe("buildContextBlock - screenshots", () => {
     expect(block).not.toContain("SCREENSHOTS");
   });
 });
+
+describe("buildContextBlock: key moments", () => {
+  it("lists the reporter's marks in the recording and the replay", () => {
+    const out = buildContextBlock({
+      recordingMarks: [{ t: 12000, note: "button does nothing" }],
+      replay: { steps: ["0:00 Opened https://x.test/"], marks: [{ t: 4000, note: "" }] },
+    });
+    expect(out).toContain("KEY MOMENTS");
+    expect(out).toContain("- 0:12 into the recording: button does nothing");
+    expect(out).toContain("- 0:04 into the replay");
+  });
+});

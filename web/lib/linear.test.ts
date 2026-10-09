@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getIssuesByIdentifiers, mapLinearSearchIssue } from "./linear";
+import { getIssuesByIdentifiers, linearGraphQL, mapLinearSearchIssue } from "./linear";
 
 describe("mapLinearSearchIssue", () => {
   it("maps a Linear issue node to an enriched search result", () => {
@@ -211,5 +211,25 @@ describe("getIssuesByIdentifiers", () => {
     );
 
     await expect(getIssuesByIdentifiers(tok, ["APP-1", "APP-2"])).resolves.toEqual({ issues: {}, gone: [] });
+  });
+});
+
+describe("linearGraphQL on a failed or empty response", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const tk = { kind: "oauth" as const, token: "t" };
+
+  it("names a rate limit instead of returning nothing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Too Many Requests", { status: 429 })));
+    await expect(linearGraphQL(tk, "query { viewer { id } }", {})).rejects.toThrow(/rate-limiting/);
+  });
+
+  it("names an outage page", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>bad gateway</html>", { status: 502 })));
+    await expect(linearGraphQL(tk, "query { viewer { id } }", {})).rejects.toThrow("Linear API error 502");
+  });
+
+  it("refuses an empty answer rather than handing back null", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: null }), { status: 200 })));
+    await expect(linearGraphQL(tk, "query { viewer { id } }", {})).rejects.toThrow(/empty response/);
   });
 });
