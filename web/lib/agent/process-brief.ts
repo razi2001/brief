@@ -494,6 +494,12 @@ export async function processBrief(
                   .filter((it) => it.kind !== "recording" || brief.evidence.includeVideo)
                   .map((it) => it.name);
                 const chosen = [...pickEvidence(args.attach, attachable, brief.evidence.fallback)];
+                // Replay stills are exactly the reporter's flagged moments (forced
+                // below): never an extra one the agent picked.
+                for (let i = chosen.length - 1; i >= 0; i--) {
+                  const it = brief.evidence.items.find((x) => x.name === chosen[i]);
+                  if (it?.kind === "replay" && !(brief.evidence.forced ?? []).includes(it.name)) chosen.splice(i, 1);
+                }
                 // Every screenshot the reporter added is their explicit evidence -
                 // always attach all of them, regardless of what the model picked.
                 for (const it of brief.evidence.items) {

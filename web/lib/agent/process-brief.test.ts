@@ -64,3 +64,34 @@ test("every turn of the filing agent asks gpt-5.6-luna with reasoning off, so it
     expect(params).toMatchObject({ model: "gpt-5.6-luna", reasoning_effort: "none", tool_choice: "auto" });
   }
 });
+
+test("a replay's stills on the ticket are exactly the flagged ones, captioned, and no link where uploads work", async () => {
+  // The agent asks for an extra replay still; it must not land.
+  create.mockReset();
+  create
+    .mockResolvedValueOnce({
+      choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "c", type: "function", function: {
+        name: "create_issue",
+        arguments: JSON.stringify({ targetId: "t1", title: "Slow list", description: "It hangs.\n\nSteps to reproduce\n1. Open it", attach: ["frame-01.jpg", "frame-02.jpg"] }),
+      } }] } }],
+    })
+    .mockResolvedValue({ choices: [{ message: { role: "assistant", content: "Filed." } }] });
+  const fileIssue = vi.fn(tracker.fileIssue);
+  const withReplay = {
+    json: { description: "slow" },
+    images: [],
+    evidence: {
+      files: [{ filename: "frame-02.jpg", contentType: "image/jpeg", bytes: Buffer.from("x") }],
+      items: [{ name: "frame-02.jpg", kind: "replay", caption: "page took too long" }],
+      includeVideo: false,
+      fallback: ["frame-02.jpg"],
+      forced: ["frame-02.jpg"],
+    },
+  };
+  await processBrief(withReplay as never, { ...tracker, fileIssue });
+  const input = fileIssue.mock.calls[0][0];
+  expect(input.evidence.map((e: { filename: string }) => e.filename)).toEqual(["frame-02.jpg"]);
+  expect(input.evidence[0].caption).toBe("page took too long");
+  expect(input.descriptionMarkdown).toContain("**Steps to reproduce**");
+  expect(input.descriptionMarkdown).not.toContain("Replay:");
+});

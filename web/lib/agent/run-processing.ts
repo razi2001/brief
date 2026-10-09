@@ -264,28 +264,30 @@ export async function loadBriefInput(
   }
   const hasShot = shotFilenames.length > 0;
 
-  // The replay's stills are evidence too (when the replay is attached): the
-  // reporter's marked moments always go on the ticket, captioned with their
-  // note; otherwise the first and last stand in. Named as stored, so a tracker
-  // that embeds by url keeps them after cleanup (see the referenced set).
+  // The replay's stills: the agent sees them all (above), but only the moments
+  // the reporter FLAGGED go on the ticket, captioned with their note - one flag,
+  // one image. With no flag, just the last still (where the replay ends, at the
+  // report). Named as stored, so a tracker that embeds by url keeps them after
+  // cleanup (see the referenced set).
   const replayJson = json as { replay?: { frames?: ReplayFrame[] }; includeReplay?: boolean };
-  const replayStills: string[] = [];
   const markedStills: string[] = [];
   if (replayJson.replay && replayJson.includeReplay !== false) {
     const meta = new Map((replayJson.replay.frames ?? []).map((f) => [f.file, f]));
     const { data: rfList } = await admin.storage.from("briefs").list(`${prefix}/replay-frames`, { limit: 50 });
-    for (const name of (rfList ?? []).map((o) => o.name).sort().slice(0, 12)) {
+    const stills = (rfList ?? []).map((o) => o.name).sort().slice(0, 12);
+    const isMarked = (name: string) => /^marked by the reporter/i.test(meta.get(name)?.note?.trim() ?? "");
+    const flagged = stills.filter(isMarked);
+    for (const name of flagged.length ? flagged : stills.slice(-1)) {
       const b = await dl(`${prefix}/replay-frames/${name}`);
       if (!b) continue;
       const m = meta.get(name);
-      const note = m?.note?.trim() ?? "";
-      const marked = /^marked by the reporter/i.test(note);
-      // the caption a reader sees above the image: the reporter's own words
-      const caption = marked ? note.replace(/^marked by the reporter:?\s*/i, "").replace(/^"|"$/g, "") || "Marked moment" : undefined;
+      const marked = isMarked(name);
+      const caption = marked
+        ? (m?.note ?? "").trim().replace(/^marked by the reporter:?\s*/i, "").replace(/^"|"$/g, "") || undefined
+        : undefined;
       files.push({ filename: name, contentType: "image/jpeg", bytes: b, url: evidenceUrl(`replay-frames/${name}`) });
       items.push({ name, kind: "replay", timestampMs: m?.t, caption });
-      replayStills.push(name);
-      if (marked) markedStills.push(name);
+      markedStills.push(name);
     }
   }
 
@@ -327,8 +329,7 @@ export async function loadBriefInput(
   // Default attachment set when the agent doesn't choose.
   const fallback: string[] = [];
   for (const fn of shotFilenames) fallback.push(fn);
-  if (markedStills.length) fallback.push(...markedStills);
-  else if (replayStills.length) fallback.push(...new Set([replayStills[0], replayStills[replayStills.length - 1]]));
+  fallback.push(...markedStills);
   if (recordingAttached) {
     fallback.push(recName ?? "recording.webm");
   } else if (keyframesAsEvidence) {
@@ -422,7 +423,9 @@ export async function processBriefById(
       evidenceBaseUrl: `${appOrigin()}/api/evidence/${shareId}`,
     });
 
-    if (hasReplay) input.replayUrl = `${appOrigin()}/b/${shareId}`;
+    // A link out only where the replay can't be uploaded (GitHub has no upload
+    // API); a tracker that takes attachments gets the evidence itself.
+    if (hasReplay && embedsEvidenceByUrl) input.replayUrl = `${appOrigin()}/b/${shareId}`;
 
     console.log(
       `[process] brief ${briefId} via ${tracker.kind}: keyframes=${names.length} screenshots=${input.evidence.items.filter((i) => i.kind === "screenshot").length} includeVideo=${includeVideo} attachable=${input.evidence.files.length} fallback=${input.evidence.fallback.length}`,
