@@ -13,7 +13,7 @@
 // Background keeps this document alive until it reports OFFSCREEN_DONE.
 
 import { uploadDraft, transcribeNote } from './cloud.js';
-import { getFile, putFile, recKey } from './filestore.js';
+import { getFile, putFile, recKey, replayKey, replayVoiceKey, replayVideoKey, replayVideoStateKey } from './filestore.js';
 
 let micStream = null;
 let tabStream = null;
@@ -65,6 +65,36 @@ async function makePoster(blob) {
     log('poster gen failed:', err?.message || err);
     return null;
   }
+}
+
+// ---------- Replay -> video ----------
+// One render at a time (they share this document's CPU); a newer edit of the
+// same replay supersedes a queued older one.
+let renderChain = Promise.resolve();
+const latestRev = new Map();
+function queueReplayRender(draftId, rev) {
+  latestRev.set(draftId, rev);
+  renderChain = renderChain.then(async () => {
+    if (latestRev.get(draftId) !== rev) { chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {}); return; }
+    const started = performance.now();
+    let state;
+    try {
+      const json = await getFile(replayKey(draftId));
+      if (!json) throw new Error('replay not found');
+      const payload = JSON.parse(await json.text());
+      const voice = payload.voice ? await getFile(replayVoiceKey(draftId)) : null;
+      const { renderReplay } = await import('./replay-render.js');
+      const video = await renderReplay(payload, voice);
+      await putFile(replayVideoKey(draftId), video);
+      state = { rev, status: 'ready', bytes: video.size, ms: Math.round(performance.now() - started) };
+    } catch (err) {
+      log('replay render failed:', err?.message || err);
+      state = { rev, status: 'failed', error: String(err?.message || err) };
+    }
+    await putFile(replayVideoStateKey(draftId), new Blob([JSON.stringify(state)], { type: 'application/json' })).catch(() => {});
+    chrome.runtime.sendMessage({ type: 'REPLAY_VIDEO_DONE', draftId, ...state }).catch(() => {});
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
+  });
 }
 
 // ---------- Message router ----------
@@ -122,6 +152,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           break;
         }
+        case 'RENDER_REPLAY':
+          // Turn a saved replay into a video, in the background. ACK now; the
+          // result lands in IndexedDB (filing waits for it) and is reported
+          // with REPLAY_VIDEO_DONE, then OFFSCREEN_DONE like an upload.
+          sendResponse({ ok: true });
+          queueReplayRender(message.draftId, message.rev);
+          break;
         case 'CANCEL':
           await cancelRecording();
           sendResponse({ ok: true });

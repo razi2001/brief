@@ -545,7 +545,9 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
             // Recording: a bare URL on its own line is enough - Linear renders it
             // as an inline player with its own link. Don't add a second link (that
             // made the recording show up "twice").
-            embeds.push(`**Screen recording:**\n\n${assetUrl}`);
+            // The replay, rendered to a video, says so: it isn't a screen recording.
+            const label = e.filename.startsWith("replay") ? "Replay" : "Screen recording";
+            embeds.push(`**${label}:**\n\n${assetUrl}`);
           }
         } catch (err) {
           console.warn("[linear-tracker] evidence upload failed:", e.filename, err);

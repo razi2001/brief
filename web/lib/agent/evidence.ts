@@ -6,7 +6,7 @@
 // only ever attachable when the user's "attach the recording" toggle is on -
 // that's a hard rule enforced upstream by simply not listing/loading it.
 
-export type EvidenceKind = "keyframe" | "screenshot" | "recording" | "replay";
+export type EvidenceKind = "keyframe" | "screenshot" | "recording" | "replay" | "replay-video";
 
 export interface EvidenceItem {
   name: string;
@@ -27,6 +27,7 @@ const KIND_LABEL: Record<EvidenceKind, string> = {
   screenshot: "annotated screenshot",
   recording: "screen recording (video)",
   replay: "still from the replay",
+  "replay-video": "the replay, as a video",
 };
 
 /**

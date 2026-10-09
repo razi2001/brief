@@ -312,9 +312,11 @@ function captureShade(box) {
       if (over) await putFile(replayVoiceKey(target), over.blob);
       else await deleteFile(replayVoiceKey(target)).catch(() => {});
       await putFile(replayFramesKey(target), new Blob([JSON.stringify(frames.map((f) => f.dataUrl))], { type: 'application/json' }));
+      const rev = Date.now();
       const ok = await updateDraft(target, (d) => {
         d.replay = {
           ...(d.replay || {}),
+          video: { rev, status: 'rendering' },
           addedAt: Date.now(),
           durationMs: keptMs,
           sites: [...new Set(chips.filter((c) => c.recorded).map((c) => c.label))],
@@ -325,6 +327,8 @@ function captureShade(box) {
         };
       });
       if (!ok) throw new Error('This brief was filed or reset meanwhile.');
+      // the video is made in the background (offscreen); filing waits for it
+      chrome.runtime.sendMessage({ type: 'RENDER_REPLAY', draftId: target, rev }).catch(() => {});
       ui.progress(1);
       closeEditor(350);
     } catch (err) {

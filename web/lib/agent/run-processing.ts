@@ -85,6 +85,12 @@ export async function loadBriefInput(
     overrides?: BriefOverrides;
     lean?: boolean;
     /**
+     * The tracker takes uploads (Linear, Jira): the replay goes on the ticket
+     * as its rendered video. Without (GitHub) the ticket links to the brief
+     * page instead, where it plays.
+     */
+    uploadsVideo?: boolean;
+    /**
      * Base for stable evidence URLs (`<origin>/api/evidence/<shareId>`). Set on
      * the filing path so adapters without an upload API (GitHub, Notion) can
      * embed the screenshots by URL. Omitted on the draft path, which files
@@ -272,12 +278,24 @@ export async function loadBriefInput(
   const replayJson = json as { replay?: { frames?: ReplayFrame[] }; includeReplay?: boolean };
   const markedStills: string[] = [];
   if (replayJson.replay && replayJson.includeReplay !== false) {
+    // The replay itself, as a video (rendered by the extension), first.
+    let videoAttached = false;
+    if (opts.uploadsVideo) {
+      const video = await dl(`${prefix}/replay.webm`);
+      if (video) {
+        files.push({ filename: "replay.webm", contentType: "video/webm", bytes: video, url: evidenceUrl("replay.webm") });
+        items.push({ name: "replay.webm", kind: "replay-video" });
+        markedStills.push("replay.webm");
+        videoAttached = true;
+      }
+    }
     const meta = new Map((replayJson.replay.frames ?? []).map((f) => [f.file, f]));
     const { data: rfList } = await admin.storage.from("briefs").list(`${prefix}/replay-frames`, { limit: 50 });
     const stills = (rfList ?? []).map((o) => o.name).sort().slice(0, 12);
     const isMarked = (name: string) => /^marked by the reporter/i.test(meta.get(name)?.note?.trim() ?? "");
     const flagged = stills.filter(isMarked);
-    for (const name of flagged.length ? flagged : stills.slice(-1)) {
+    // with the video on the ticket, an unflagged replay needs no still at all
+    for (const name of flagged.length ? flagged : videoAttached ? [] : stills.slice(-1)) {
       const b = await dl(`${prefix}/replay-frames/${name}`);
       if (!b) continue;
       const m = meta.get(name);
@@ -421,6 +439,7 @@ export async function processBriefById(
       // ticket is already written; we only route + attach evidence).
       lean: !!opts.useExistingContent,
       evidenceBaseUrl: `${appOrigin()}/api/evidence/${shareId}`,
+      uploadsVideo: !embedsEvidenceByUrl,
     });
 
     // A link out only where the replay can't be uploaded (GitHub has no upload
@@ -493,6 +512,9 @@ export async function processBriefById(
       if ((input.json as { includeReplay?: boolean }).includeReplay === false) {
         toDelete.push(`${prefix}/replay.json`, `${prefix}/replay-voice.webm`);
       }
+      // The replay's video went onto the ticket (or wasn't usable there); the
+      // brief page plays the replay itself, so the copy here isn't needed.
+      toDelete.push(`${prefix}/replay.webm`);
       // The replay stills: kept only when a ticket embeds one by url (below).
       const { data: rf } = await admin.storage.from("briefs").list(`${prefix}/replay-frames`, { limit: 50 });
       toDelete.push(...(rf ?? []).map((o) => `${prefix}/replay-frames/${o.name}`));

@@ -95,3 +95,34 @@ test("a replay's stills on the ticket are exactly the flagged ones, captioned, a
   expect(input.descriptionMarkdown).toContain("**Steps to reproduce**");
   expect(input.descriptionMarkdown).not.toContain("Replay:");
 });
+
+test("the replay's video goes on the ticket with the flagged still, whatever the agent picks", async () => {
+  create.mockReset();
+  create
+    .mockResolvedValueOnce({
+      choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "c", type: "function", function: {
+        name: "create_issue",
+        arguments: JSON.stringify({ targetId: "t1", title: "Slow list", description: "It hangs.", attach: [] }),
+      } }] } }],
+    })
+    .mockResolvedValue({ choices: [{ message: { role: "assistant", content: "Filed." } }] });
+  const fileIssue = vi.fn(tracker.fileIssue);
+  await processBrief({
+    json: { description: "slow" },
+    images: [],
+    evidence: {
+      files: [
+        { filename: "replay.webm", contentType: "video/webm", bytes: Buffer.from("v") },
+        { filename: "frame-02.jpg", contentType: "image/jpeg", bytes: Buffer.from("x") },
+      ],
+      items: [
+        { name: "replay.webm", kind: "replay-video" },
+        { name: "frame-02.jpg", kind: "replay", caption: "page took too long" },
+      ],
+      includeVideo: false,
+      fallback: ["replay.webm", "frame-02.jpg"],
+      forced: ["replay.webm", "frame-02.jpg"],
+    },
+  } as never, { ...tracker, fileIssue });
+  expect(fileIssue.mock.calls[0][0].evidence.map((e: { filename: string }) => e.filename)).toEqual(["replay.webm", "frame-02.jpg"]);
+});

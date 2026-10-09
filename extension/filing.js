@@ -10,7 +10,23 @@
 
 import { TICKETS_URL, uploadDraft, uploadFilesToDraft, processBrief, createDraft, briefPageUrl } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft } from './draft.js';
-import { deleteFile, draftKeys, getFile, replayKey, replayVoiceKey, replayFramesKey } from './filestore.js';
+import { deleteFile, draftKeys, getFile, replayKey, replayVoiceKey, replayFramesKey, replayVideoKey, replayVideoStateKey } from './filestore.js';
+
+// The replay's video, once its render (this edit's `rev`) is done. Usually it
+// is, long before Create; if not, filing waits for it - a ticket without the
+// video is the fallback only when the render failed or never reports back.
+const VIDEO_WAIT_MS = 4 * 60 * 1000;
+async function replayVideo(d) {
+  const rev = d.replay?.video?.rev;
+  if (!rev) return null;
+  const until = Date.now() + VIDEO_WAIT_MS;
+  while (Date.now() < until) {
+    const st = await getFile(replayVideoStateKey(d.id)).then((b) => b && b.text()).then((t) => t && JSON.parse(t)).catch(() => null);
+    if (st?.rev === rev) return st.status === 'ready' ? getFile(replayVideoKey(d.id)) : null;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return null;
+}
 
 function dataUrlToBytes(dataUrl) {
   const b64 = dataUrl.split(',')[1] || '';
@@ -36,6 +52,11 @@ async function buildReplayFiles(d) {
   if (blob) files.push({ name: 'replay.json', blob, contentType: 'application/json' });
   const voice = d.replay.voice ? await getFile(replayVoiceKey(d.id)) : null;
   if (voice) files.push({ name: 'replay-voice.webm', blob: voice, contentType: 'audio/webm' });
+  // the replay as a video, for trackers that take uploads (only when attached)
+  if (d.replay.attach !== false) {
+    const video = await replayVideo(d);
+    if (video) files.push({ name: 'replay.webm', blob: video, contentType: 'video/webm' });
+  }
   // the key-moment stills, named as replay.json's `frames` list them
   const framesBlob = d.replay.frames ? await getFile(replayFramesKey(d.id)) : null;
   if (framesBlob) {

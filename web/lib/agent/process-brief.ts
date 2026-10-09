@@ -20,7 +20,7 @@ export interface BriefInput {
     items: EvidenceItem[];
     includeVideo: boolean;
     fallback: string[];
-    /** Attached whatever the agent picks (the reporter's marked replay moments). */
+    /** Attached whatever the agent picks: the replay's video and its flagged stills. */
     forced?: string[];
   };
   /** The brief page, where an attached replay plays. Linked from the ticket. */
@@ -498,7 +498,7 @@ export async function processBrief(
                 // below): never an extra one the agent picked.
                 for (let i = chosen.length - 1; i >= 0; i--) {
                   const it = brief.evidence.items.find((x) => x.name === chosen[i]);
-                  if (it?.kind === "replay" && !(brief.evidence.forced ?? []).includes(it.name)) chosen.splice(i, 1);
+                  if ((it?.kind === "replay" || it?.kind === "replay-video") && !(brief.evidence.forced ?? []).includes(it.name)) chosen.splice(i, 1);
                 }
                 // Every screenshot the reporter added is their explicit evidence -
                 // always attach all of them, regardless of what the model picked.

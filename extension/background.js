@@ -581,6 +581,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
 
+        case 'RENDER_REPLAY':
+          // The replay editor saved: render the replay to a video in the
+          // offscreen document. Counted like an upload, so nothing closes the
+          // document mid-render (a new recording just shares it).
+          try {
+            await ensureOffscreenDocument();
+            await bumpUploadsPending(1);
+            const r = await chrome.runtime.sendMessage({ target: 'offscreen', viaBackground: true, type: 'RENDER_REPLAY', draftId: message.draftId, rev: message.rev });
+            if (!r?.ok) await bumpUploadsPending(-1);
+            sendResponse({ ok: !!r?.ok });
+          } catch (err) {
+            await bumpUploadsPending(-1);
+            sendResponse({ ok: false, error: String(err?.message || err) });
+          }
+          break;
+
+        case 'REPLAY_VIDEO_DONE':
+          await updateDraft(message.draftId, (d) => {
+            if (d.replay?.video?.rev !== message.rev) return;
+            d.replay.video = { rev: message.rev, status: message.status, bytes: message.bytes || 0, ms: message.ms || 0 };
+          }).catch(() => {});
+          sendResponse({ ok: true });
+          break;
+
         case 'OFFSCREEN_DONE':
           // Offscreen finished its post-recording work (upload, relay, or
           // cancel). Tear it down unless something still needs it: another

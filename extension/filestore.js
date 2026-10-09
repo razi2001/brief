@@ -45,6 +45,10 @@ export const shotKey = (shotId) => `shot:${shotId}`;
 export const replayKey = (briefId) => `replay:${briefId}`;
 export const replayVoiceKey = (briefId) => `replayVoice:${briefId}`;
 export const replayFramesKey = (briefId) => `replayFrames:${briefId}`;
+// the replay rendered to a video (replay-render.js), and how that went:
+// { rev, status: 'ready' | 'failed', bytes, ms, error } as a JSON blob
+export const replayVideoKey = (briefId) => `replayVideo:${briefId}`;
+export const replayVideoStateKey = (briefId) => `replayVideoState:${briefId}`;
 
 export function putFile(key, blob) { return run('readwrite', (s) => s.put(blob, key)); }
 export function getFile(key) { return run('readonly', (s) => s.get(key)).then((v) => v || null); }
@@ -72,6 +76,7 @@ export function draftKeys(d) {
   if (d.replay) keys.push(replayKey(d.id));
   if (d.replay?.voice) keys.push(replayVoiceKey(d.id));
   if (d.replay?.frames) keys.push(replayFramesKey(d.id));
+  if (d.replay?.video) keys.push(replayVideoKey(d.id), replayVideoStateKey(d.id));
   for (const s of d.screenshots || []) keys.push(shotKey(s.id));
   return keys;
 }
