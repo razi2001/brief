@@ -14,7 +14,13 @@
 (() => {
   // Injected again on a page that already has us (Watch switched off then on):
   // restart the existing recorder rather than add a second message listener.
-  if (window.__briefReplay) { window.__briefReplay.start(); return; }
+  // Unless that one belongs to a copy of the extension that has since been
+  // reloaded or updated: it can no longer reach the worker, so it is stopped
+  // and this injection takes over.
+  if (window.__briefReplay) {
+    if (window.__briefReplay.alive?.()) { window.__briefReplay.start(); return; }
+    try { window.__briefReplay.stop(); } catch {}
+  }
   const record = window.rrwebRecord?.record;
   if (typeof record !== 'function') return;
 
@@ -27,17 +33,28 @@
   let hasFull = false;
   let timer = null;
 
+  // False once the extension is reloaded, updated or removed under this page:
+  // chrome.runtime.id goes away, and sendMessage then THROWS ("Extension
+  // context invalidated") instead of rejecting.
+  const alive = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
+
   function flush() {
     clearTimeout(timer);
     timer = null;
     if (!batch.length) return Promise.resolve();
+    if (!alive()) { stop(); return Promise.resolve(); }
     const events = batch;
     const full = hasFull;
     batch = [];
     hasFull = false;
-    return chrome.runtime.sendMessage({
-      type: 'REPLAY_CHUNK', pageId, url: location.href, title: document.title, full, events,
-    }).catch(() => {}); // extension reloaded under us
+    try {
+      return chrome.runtime.sendMessage({
+        type: 'REPLAY_CHUNK', pageId, url: location.href, title: document.title, full, events,
+      }).catch(() => {});
+    } catch {
+      stop();
+      return Promise.resolve();
+    }
   }
 
   function start() {
@@ -93,6 +110,6 @@
     return false;
   });
 
-  window.__briefReplay = { start, stop };
+  window.__briefReplay = { start, stop, alive };
   start();
 })();
