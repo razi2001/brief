@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { transcribeAudio } from "./transcribe";
+import { transcribeAudio, transcriptionHint } from "./transcribe";
 
 const audio = () => ({ bytes: Buffer.from("fake-opus-bytes"), filename: "audio.webm", contentType: "audio/webm" });
 
@@ -37,5 +37,47 @@ describe("transcribeAudio", () => {
     const create = vi.fn().mockResolvedValue("ok");
     await transcribeAudio(audio(), { create, model: "gpt-4o-transcribe" });
     expect(create.mock.calls[0][0]).toMatchObject({ model: "gpt-4o-transcribe", response_format: "text" });
+  });
+
+  it("sends the hint as the prompt, and no prompt when there is none", async () => {
+    const create = vi.fn().mockResolvedValue("ok");
+    await transcribeAudio({ ...audio(), prompt: "  Checkout on app.thunders.ai  " }, { create });
+    await transcribeAudio({ ...audio(), prompt: "   " }, { create });
+    expect(create.mock.calls[0][0]).toMatchObject({ prompt: "Checkout on app.thunders.ai" });
+    expect(create.mock.calls[1][0]).not.toHaveProperty("prompt");
+  });
+});
+
+describe("transcriptionHint", () => {
+  it("names the page and site, keeps readable path words, drops ids", () => {
+    const h = transcriptionHint({
+      pageTitle: "Billing - Thunders",
+      pageUrl: "https://app.thunders.ai/org/3f2a9c1e-77aa-4c3b-9d5e-0a1b2c3d4e5f/billing/12345?tab=invoices",
+    });
+    expect(h).toBe("A bug report on Billing - Thunders (app.thunders.ai/org/billing).");
+  });
+
+  it("adds what the reporter typed: the description and screenshot notes, then extras", () => {
+    const h = transcriptionHint(
+      {
+        pageUrl: "https://app.thunders.ai/",
+        description: "Pay now   does nothing",
+        screenshots: [{ description: "Valider button" }, { description: "" }, {}],
+      },
+      ["Clicked Pay now", "Valider button"],
+    );
+    expect(h).toBe("A bug report on app.thunders.ai. Pay now does nothing. Valider button. Clicked Pay now.");
+  });
+
+  it("is empty with nothing to go on, and survives junk", () => {
+    expect(transcriptionHint({})).toBe("");
+    expect(transcriptionHint(null)).toBe("");
+    expect(transcriptionHint({ pageUrl: "not a url", screenshots: "nope", description: 42 })).toBe("");
+  });
+
+  it("stays short, cut on a word", () => {
+    const h = transcriptionHint({ description: "word ".repeat(100) }, ["label ".repeat(200)]);
+    expect(h.length).toBeLessThanOrEqual(800);
+    expect(h.endsWith("label") || h.endsWith("word")).toBe(true);
   });
 });

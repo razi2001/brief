@@ -6,7 +6,7 @@ import { noTrackerError, providerName, resolveTracker } from "@/lib/trackers/reg
 import { BRIEF_URL, type ProviderKey, type Tracker } from "@/lib/tracker";
 import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
 import { composeDraftTicket } from "@/lib/agent/compose-draft";
-import { transcribeAudio } from "@/lib/agent/transcribe";
+import { transcribeAudio, transcriptionHint } from "@/lib/agent/transcribe";
 import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides } from "@/lib/agent/overrides";
 import { getUserSettings } from "@/lib/settings";
 import { briefPhase, releaseFiling } from "@/lib/brief-filing";
@@ -125,7 +125,7 @@ export async function loadBriefInput(
           audioInput = { bytes: recBuf, filename: recName, contentType: recordingContentType(recName) };
         }
       }
-      const transcript = await transcribeAudio(audioInput);
+      const transcript = await transcribeAudio(audioInput && { ...audioInput, prompt: transcriptionHint(json) });
       if (transcript) json.transcript = transcript;
     }
 
