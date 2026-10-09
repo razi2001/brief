@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
 import { buildContextBlock } from "./context-block";
+import { agentModel, chatParams } from "./model";
 import type { Tracker, IssueResult } from "../tracker";
 
 export interface BriefInput {
@@ -43,7 +44,7 @@ export async function processBrief(
   fixed?: { title: string; description: string },
 ): Promise<FileResult> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.AGENT_MODEL || "gpt-4o";
+  const model = agentModel();
   const noun = tracker.targetNoun;
   const caps = tracker.capabilities;
   const prefs = (instructions ?? "").trim();
@@ -414,7 +415,7 @@ export async function processBrief(
     for (let i = 0; i < 14; i++) {
       let resp;
       try {
-        resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto" });
+        resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto", ...chatParams(model) });
       } catch (e) {
         // The issue already exists - a failed VERIFICATION turn must not lose
         // it (marking the brief failed would file a duplicate on retry).

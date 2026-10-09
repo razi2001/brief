@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest } from "./evidence";
 import { buildContextBlock } from "./context-block";
+import { agentModel, chatParams } from "./model";
 import type { BriefInput } from "./process-brief";
 
 export interface DraftResult {
@@ -74,7 +75,7 @@ export async function composeDraftTicket(
   instructions?: string,
 ): Promise<DraftResult> {
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.AGENT_MODEL || "gpt-4o";
+  const model = agentModel();
   const prefs = (instructions ?? "").trim();
 
   const sys =
@@ -140,6 +141,7 @@ export async function composeDraftTicket(
       ],
       tools,
       tool_choice: { type: "function", function: { name: "compose_ticket" } },
+      ...chatParams(model),
     });
     const msg = resp.choices[0].message;
     const tc = msg.tool_calls?.find((t) => t.type === "function" && t.function.name === "compose_ticket");

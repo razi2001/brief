@@ -5,6 +5,7 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 import { loadBriefInput, draftBriefById } from "@/lib/agent/run-processing";
 import { briefPhase } from "@/lib/brief-filing";
 import { buildStreamMessages, parseDraftMarkdown } from "@/lib/agent/compose-draft";
+import { agentModel, chatParams } from "@/lib/agent/model";
 import { getUserSettings } from "@/lib/settings";
 
 export const maxDuration = 300;
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const { system, user } = buildStreamMessages(input, guidance);
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const model = process.env.AGENT_MODEL || "gpt-4o";
+  const model = agentModel();
   const encoder = new TextEncoder();
   const shareId = (brief.share_id as string | null) || null;
 
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       let full = "";
       try {
         const completion = await openai.chat.completions.create(
-          { model, messages: [{ role: "system", content: system }, { role: "user", content: user }], stream: true },
+          { model, messages: [{ role: "system", content: system }, { role: "user", content: user }], stream: true, ...chatParams(model) },
           { signal: req.signal },
         );
         for await (const part of completion) {

@@ -16,7 +16,7 @@ Extension ──upload──▶  Next.js API  ──▶  OpenAI agent  ──▶
   connected as OAuth accounts; tokens vended server-side).
 - **Supabase** — Postgres (`extension_tokens`, `briefs`) + private Storage bucket `briefs`.
   Server-side only, via the service-role key, scoped by the Clerk user id.
-- **OpenAI** (gpt-4o) — the agent that reads the report + keyframes and writes the ticket.
+- **OpenAI** (gpt-5.6-luna) — the agent that reads the report + keyframes and writes the ticket.
 - Trackers via direct GraphQL/REST: `lib/linear.ts` (verified), `lib/jira.ts` (built, pending
   an Atlassian connection), behind the `lib/tracker.ts` abstraction.
 
@@ -35,7 +35,7 @@ Extension ──upload──▶  Next.js API  ──▶  OpenAI agent  ──▶
      and a **GitHub** connection (see [Trackers](#trackers)).
    - **Supabase** (`NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) — create a private
      bucket named `briefs` (or run `node --env-file=.env.local scripts/ensure-bucket.mjs`).
-   - **OpenAI** (`OPENAI_API_KEY`, optional `AGENT_MODEL`, default `gpt-4o`).
+   - **OpenAI** (`OPENAI_API_KEY`; optional `AGENT_MODEL` and `AGENT_FAST_MODEL`, both default `gpt-5.6-luna`, see `lib/agent/model.ts`).
    - `APP_URL=http://localhost:3000`.
    - Optional `LINEAR_API_KEY` (personal key) for filing without the Clerk OAuth connection.
 

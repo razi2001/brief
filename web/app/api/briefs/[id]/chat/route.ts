@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { applyEdits, parseAssistantStream } from "@/lib/chat-stream";
+import { chatParams, fastModel } from "@/lib/agent/model";
 
 export const maxDuration = 120;
 
@@ -75,8 +76,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const system = `${FORMAT_RULES}\n\nThe current ticket:\n<ticket>\n# ${title}\n${docBody}\n</ticket>`;
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  // Iteration must feel instant - a fast, cheap model is the point here.
-  const model = process.env.AGENT_FAST_MODEL || "gpt-4o-mini";
+  // Iteration must feel instant - a fast model is the point here.
+  const model = fastModel();
   const encoder = new TextEncoder();
 
   let persisted = false;
@@ -124,6 +125,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
             temperature: 0.4,
             messages: [{ role: "system" as const, content: system }, ...history],
             stream: true,
+            ...chatParams(model),
           },
           { signal: req.signal },
         );
