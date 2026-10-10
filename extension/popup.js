@@ -704,7 +704,7 @@ async function startFiling(mode) {
       // No tab and no wait: the worker files it in the background (the cloud
       // spins until it lands) and this popup is already on a fresh draft.
       flyToCloud();
-      toast(res.alreadyFiled ? 'Already filed' : 'Ticket on its way');
+      toast(res.alreadyFiled ? 'Already filed' : 'Ticket queued');
       return;
     }
     showDone('Brief created', res.shareId ? 'Opening your brief…' : 'Opening your tickets…');
@@ -1000,13 +1000,10 @@ resetBtn?.addEventListener('click', openReset);
 
 // Live updates when a BACKGROUND change settles (upload, transcript, poster).
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.filingDrafts) {
-    const before = ticketsInFlight;
-    readTicketsInFlight().then(() => {
-      // one landed while the popup is open
-      if (ticketsInFlight < before && !changes.failedDraft && !changes.draft) toast('Ticket created');
-    });
-  }
+  // A ticket handed to the server is only queued: the agent writes and files
+  // it there afterwards, so nothing here says "created" (the cloud's dot leads
+  // to the list, where its real state shows).
+  if (area === 'local' && changes.filingDrafts) readTicketsInFlight();
   if (area === 'local' && changes.failedDraft?.newValue) showFailedDraft(changes.failedDraft.newValue);
   if (area !== 'local' || !changes.draft) return;
   getDraft().then((d) => {
