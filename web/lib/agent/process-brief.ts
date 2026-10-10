@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
 import { buildContextBlock } from "./context-block";
+import { renderTechDetails, type TechDetails } from "./tech-details";
 import { agentModel, chatParams } from "./model";
 import type { Tracker, IssueResult } from "../tracker";
 
@@ -547,7 +548,11 @@ export async function processBrief(
                   fixed ? fixed.description : normalizeSectionLabels(String(args.description ?? "")),
                   brief.replayUrl,
                 );
+                const techMd = (brief.json as { techDetails?: TechDetails })?.techDetails
+                  ? renderTechDetails((brief.json as { techDetails: TechDetails }).techDetails)
+                  : "";
                 created = await tracker.fileIssue({
+                  details: techMd ? { title: "Technical details", markdown: techMd } : undefined,
                   targetId: args.targetId,
                   title: issueTitle,
                   descriptionMarkdown: issueDescription,

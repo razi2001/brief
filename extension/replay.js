@@ -83,6 +83,19 @@
     hasFull = false;
   }
 
+  // What page-capture.js reports from the page's own world (network calls,
+  // console, in-app navigation) goes into the replay as rrweb custom events
+  // (type 5, tag 'brief'), on the same clock as everything else - so it is
+  // trimmed and stitched with the replay, and the ticket can say when.
+  const PAGE_KINDS = new Set(['network', 'console-error', 'console-warn', 'js-error', 'promise-rejection', 'nav']);
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !stopFn) return;
+    const d = e.data;
+    if (!d || !PAGE_KINDS.has(d.__brief)) return;
+    const { __brief: kind, ...rest } = d;
+    try { record.addCustomEvent('brief', { kind, ...rest }); } catch {}
+  });
+
   document.addEventListener('visibilitychange', () => {
     if (!stopFn) return;
     if (document.visibilityState === 'visible') {

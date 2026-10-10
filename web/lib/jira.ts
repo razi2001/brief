@@ -62,6 +62,22 @@ function parseInline(input: string): AdfNode[] {
  * (headings, bold, numbered/bullet lists, code blocks) instead of literal
  * markdown. Supports the structure our agent emits.
  */
+/**
+ * The description document: the body, the technical details folded in an
+ * expand, then the attribution (always last, under its divider).
+ */
+export function jiraDescription(body: string, details?: { title: string; markdown: string }): AdfNode {
+  const doc = markdownToAdf(withBriefAttribution(body));
+  if (!details?.markdown.trim()) return doc;
+  const inner = markdownToAdf(details.markdown).content ?? [];
+  const expand: AdfNode = { type: "expand", attrs: { title: details.title }, content: inner };
+  const content = doc.content ?? [];
+  // the attribution is the trailing rule + paragraph withBriefAttribution added
+  const ruleAt = content.map((n) => n.type).lastIndexOf("rule");
+  const at = ruleAt >= 0 ? ruleAt : content.length;
+  return { ...doc, content: [...content.slice(0, at), expand, ...content.slice(at)] };
+}
+
 export function markdownToAdf(markdown: string): AdfNode {
   const lines = (markdown ?? "").replace(/\r\n/g, "\n").split("\n");
   const content: AdfNode[] = [];
@@ -642,7 +658,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
         customFields,
       };
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, comment, extraFields, evidence }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, comment, extraFields, evidence, details }) {
       // We need the project key to look up issue types and build the browse url.
       const targets = await loadTargets();
       const project = targets.find((t) => t.id === targetId || t.key === targetId);
@@ -671,13 +687,11 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           : "Screenshots are in the Attachments panel.";
       }
 
-      body = withBriefAttribution(body);
-
       const baseFields: Record<string, unknown> = {
         project: { id: project.id },
         summary: title,
         issuetype: { id: issueTypeId },
-        description: markdownToAdf(body),
+        description: jiraDescription(body, details),
       };
       // Preference-driven extras. Jira labels can't contain spaces; priority is
       // by standard name. Both are best-effort: if the project's create screen

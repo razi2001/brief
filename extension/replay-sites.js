@@ -9,6 +9,7 @@
 // Only pages matching a pattern get the rrweb recorder injected; everywhere
 // else nothing runs.
 
+import { installPageCapture } from './page-capture.js';
 import { APP_URL, getCloudToken } from './cloud.js';
 
 const KEY = 'replaySites';
@@ -128,6 +129,12 @@ export async function armReplay(tabId) {
     target: { tabId, frameIds: [0] },
     files: ['vendor/rrweb-record.min.js', 'replay.js'],
   });
+  // network calls, console, in-app navigation: into the replay as custom events
+  await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [0] },
+    world: 'MAIN',
+    func: installPageCapture,
+  }).catch(() => {});
 }
 
 export function pingReplay(tabId) {

@@ -1,3 +1,4 @@
+import { techForAgent } from "./tech-details";
 // Pure helper: distil the high-signal context out of brief.json into a compact,
 // prominent text block for the filing agent. No SDK/IO deps, so it's unit-tested
 // directly (context-block.test.ts).
@@ -44,6 +45,17 @@ export function buildContextBlock(json: unknown): string {
         replaySteps.map((s) => `- ${s.slice(0, 300)}`).join("\n"),
     );
   }
+  // The exact capture: page trail, failed/slow network calls, console errors.
+  // The ticket shows the full list itself (appended, folded); the agent's job
+  // is to name what explains the bug in the write-up.
+  const tech = j.techDetails ? techForAgent(j.techDetails) : "";
+  if (tech) {
+    sections.push(
+      "TECHNICAL CAPTURE (exact, times are into the capture - name in the summary or Actual the call or error that explains the bug, if one does; the full list is appended to the ticket automatically, never write it yourself):\n" +
+        tech,
+    );
+  }
+
   // Where the reporter marked the bug: the moments to look at first.
   const clockOf = (ms: number) => {
     const s = Math.max(0, Math.round(ms / 1000));
@@ -140,7 +152,8 @@ export function buildContextBlock(json: unknown): string {
 
   // Console/network errors are SUPPORTING context only: useful detail for the
   // ticket body, not the thing the ticket is about and not the primary router.
-  if (errs.length) {
+  // the TECHNICAL CAPTURE above covers these when the capture has it
+  if (errs.length && !tech) {
     const unique = [...new Set(errs)].slice(0, 8);
     sections.push(
       "SUPPORTING TECHNICAL CONTEXT (console / network errors captured during the session - use these as extra detail to enrich the ticket, e.g. a context line or code block; do NOT let them define what the ticket is about or drive routing unless the reporter's description points at them):\n" +

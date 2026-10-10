@@ -3,6 +3,12 @@ import { clerkStrategy } from "./clerk-strategies";
 import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
+/** The technical details, folded: Linear's collapsible section is `+++ Title` ... `+++`. */
+export function withLinearDetails(description: string, details?: { title: string; markdown: string }): string {
+  if (!details?.markdown.trim()) return description;
+  return `${description.replace(/\s+$/, "")}\n\n+++ ${details.title}\n\n${details.markdown.trim()}\n\n+++`;
+}
+
 export type LinearTok = { token: string };
 
 export async function getLinearToken(userId: string): Promise<LinearTok | null> {
@@ -527,7 +533,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         projects: meta.projects.map((p) => ({ id: p.id, name: p.name })),
       };
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, project, comment, extraFields, evidence }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, project, comment, extraFields, evidence, details }) {
       let description = descriptionMarkdown;
       // Upload each evidence file and embed it inline (Linear-hosted asset URL).
       const embeds: string[] = [];
@@ -557,7 +563,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       if (embeds.length && !description.includes("uploads.linear.app")) {
         description += "\n\n## Evidence\n\n" + embeds.join("\n\n");
       }
-      description = withBriefAttribution(description);
+      description = withBriefAttribution(withLinearDetails(description, details));
 
       // Resolve the agent's label/state names to ids - best-effort, never fatal.
       let labelIds: string[] | undefined;

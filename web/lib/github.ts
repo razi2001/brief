@@ -309,6 +309,12 @@ export function promoteSectionHeadings(markdown: string): string {
     .join("\n");
 }
 
+/** The technical details, folded: GitHub renders <details> as a disclosure. */
+export function withGithubDetails(body: string, details?: { title: string; markdown: string }): string {
+  if (!details?.markdown.trim()) return body;
+  return `${body.replace(/\s+$/, "")}\n\n<details>\n<summary>${details.title}</summary>\n\n${details.markdown.trim()}\n\n</details>`;
+}
+
 export function buildGithubBody(
   descriptionMarkdown: string,
   evidence: Array<{ filename: string; contentType: string; caption?: string; url?: string }>,
@@ -640,12 +646,13 @@ export function makeGithubTracker(tok: GithubTok): Tracker {
       comment,
       extraFields,
       evidence,
+      details,
     }) {
       const ref = parseRepo(targetId);
       if (!ref) throw new Error(`GitHub: "${targetId}" is not a repository id (expected owner/repo).`);
       const { owner, repo } = ref;
 
-      const body = withBriefAttribution(buildGithubBody(descriptionMarkdown, evidence));
+      const body = withBriefAttribution(withGithubDetails(buildGithubBody(descriptionMarkdown, evidence), details));
 
       const existing = await repoLabels(owner, repo);
       const norm = (s: string) => s.trim().toLowerCase();

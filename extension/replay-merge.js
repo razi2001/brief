@@ -89,7 +89,9 @@ export function buildTimeline({ focus, tabs, start, end }) {
 export function skipIdle(events, segments, { maxGapMs = 5000, keepMs = 1500, end } = {}) {
   // activity = recorded events; the stretch end counts too so a trailing gap
   // (e.g. sitting on an unwatched tab) is squeezed as well
-  const marks = events.map((e) => e.timestamp);
+  // custom events (network calls, console) aren't activity: an app that polls
+  // every few seconds would otherwise never have dead time to cut
+  const marks = events.filter((e) => e.type !== 5).map((e) => e.timestamp);
   if (end != null) marks.push(end);
   const cuts = []; // [t, cumulative shift applied to anything at or after t]
   let shift = 0;

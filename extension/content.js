@@ -352,6 +352,12 @@
         status: d.status,
         reason: d.reason,
       });
+    } else if (d.__brief === 'network') {
+      report('network', { method: d.method, url: d.url, status: d.status, ms: d.ms, reason: d.reason });
+    } else if (d.__brief === 'console-warn') {
+      report('console-warn', { args: d.args });
+    } else if (d.__brief === 'nav') {
+      report('nav', { title: d.title });
     }
   });
 

@@ -2,6 +2,7 @@
 // Thin coordinator: collects per-tab events, manages offscreen recorder,
 // relays messages between bar (in content script) and offscreen.
 
+import { installPageCapture } from './page-capture.js';
 import { APP_URL } from "./config.js";
 import { getDraft, setDraft, updateDraft, emptyDraft, genId, landRecording, migrateInboxToDraft } from "./draft.js";
 import { fileDraft } from "./filing.js";
@@ -555,7 +556,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 await chrome.scripting.executeScript({
                   target: { tabId: tab.id },
                   world: 'MAIN',
-                  func: installConsoleCapture,
+                  func: installPageCapture,
                 });
               } catch (err) {
                 console.warn('[brief/background] console capture inject:', err);
@@ -700,7 +701,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           STATE.startedAt = s.startedAt;
           ACTIVE_BAR_TAB_ID = tabId;
           try {
-            await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: installConsoleCapture });
+            await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: installPageCapture });
           } catch (err) {
             console.warn('[brief/background] console capture re-inject:', err);
           }
@@ -938,112 +939,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
   return true;
 });
-
-// ---------- Page-world console capture (injected via executeScript world:'MAIN') ----------
-// Patches console.error and window error handlers. Each captured event posts a
-// message that our content script picks up and forwards as an EVENT.
-function installConsoleCapture() {
-  if (window.__briefConsoleInstalled) return;
-  window.__briefConsoleInstalled = true;
-
-  const serialize = (a) => {
-    try {
-      if (a == null) return String(a);
-      if (typeof a === 'string') return a.slice(0, 500);
-      if (a instanceof Error) return `${a.name}: ${a.message}`;
-      return JSON.stringify(a).slice(0, 500);
-    } catch {
-      return String(a).slice(0, 500);
-    }
-  };
-
-  const orig = console.error;
-  console.error = function (...args) {
-    try {
-      window.postMessage({
-        __brief: 'console-error',
-        args: args.map(serialize),
-      }, '*');
-    } catch {}
-    return orig.apply(this, args);
-  };
-
-  window.addEventListener('error', (e) => {
-    try {
-      window.postMessage({
-        __brief: 'js-error',
-        message: e.message,
-        filename: e.filename,
-        lineno: e.lineno,
-        colno: e.colno,
-      }, '*');
-    } catch {}
-  });
-
-  window.addEventListener('unhandledrejection', (e) => {
-    try {
-      window.postMessage({
-        __brief: 'promise-rejection',
-        reason: serialize(e.reason),
-      }, '*');
-    } catch {}
-  });
-
-  // --- Network failures: patch fetch + XHR. Report transport errors and
-  // non-2xx responses so the ticket can list what failed. ---
-  const shortUrl = (u) => {
-    try {
-      const s = String(u);
-      return s.length > 300 ? s.slice(0, 300) + '…' : s;
-    } catch { return ''; }
-  };
-  const postNet = (method, url, status, reason) => {
-    try {
-      window.postMessage({
-        __brief: 'network-error',
-        method: (method || 'GET').toUpperCase(),
-        url: shortUrl(url),
-        status: status || 0,
-        reason: reason || '',
-      }, '*');
-    } catch {}
-  };
-
-  if (typeof window.fetch === 'function') {
-    const origFetch = window.fetch;
-    window.fetch = function (input, init) {
-      const method = (init && init.method) || (input && input.method) || 'GET';
-      const url = (typeof input === 'string') ? input : (input && input.url) || '';
-      return origFetch.apply(this, arguments).then((res) => {
-        if (res && !res.ok) postNet(method, url, res.status, res.statusText);
-        return res;
-      }).catch((err) => {
-        postNet(method, url, 0, (err && err.message) || 'network error');
-        throw err;
-      });
-    };
-  }
-
-  try {
-    const XHR = window.XMLHttpRequest;
-    if (XHR && XHR.prototype) {
-      const open = XHR.prototype.open;
-      const send = XHR.prototype.send;
-      XHR.prototype.open = function (method, url) {
-        this.__brief_m = method; this.__brief_u = url;
-        return open.apply(this, arguments);
-      };
-      XHR.prototype.send = function () {
-        this.addEventListener('load', () => {
-          if (this.status >= 400) postNet(this.__brief_m, this.__brief_u, this.status, this.statusText);
-        });
-        this.addEventListener('error', () => postNet(this.__brief_m, this.__brief_u, 0, 'network error'));
-        this.addEventListener('timeout', () => postNet(this.__brief_m, this.__brief_u, 0, 'timeout'));
-        return send.apply(this, arguments);
-      };
-    }
-  } catch {}
-}
 
 // Brief Cloud pairing: the web app pushes/revokes the token (externally_connectable).
 //
