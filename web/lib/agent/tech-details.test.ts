@@ -86,3 +86,45 @@ describe("technical details from a recording", () => {
     expect(renderTechDetails(techFromRecording({}))).toBe("");
   });
 });
+
+describe("clock times, trace ids and failed bodies", () => {
+  const AT = Date.UTC(2026, 9, 9, 18, 36, 25, 0); // 2026-10-09 18:36:25.000 UTC
+  // a replay whose idle time was cut: on the video the call is at 0:02,
+  // but it really happened 40 s after the page loaded
+  const cut = {
+    events: [
+      { type: 4, timestamp: T0, data: { href: "https://app.test/a" } },
+      custom(0, { kind: "nav", url: "https://app.test/a", at: AT }),
+      custom(2000, {
+        kind: "network", method: "POST", url: "https://api.test/pay", status: 500, ms: 1200, reason: "Internal Server Error",
+        at: AT + 40_412, trace: "x-request-id: 7f3a9c", request: '{"amount":5,"card":"***"}', response: '{"error":"card declined by gateway"}',
+      }),
+      custom(2100, { kind: "network", method: "GET", url: "https://api.test/me", status: 200, ms: 40, at: AT + 40_500, trace: "traceparent: 00-abc-01" }),
+      custom(2500, { kind: "console-error", args: ["pay failed"], at: AT + 41_000 }),
+    ],
+  };
+
+  it("shows the video time and the real UTC time, unshifted by the cut", () => {
+    const md = renderTechDetails(techFromReplay(cut));
+    expect(md).toContain("Times: into the video, then the clock in UTC (2026-10-09)");
+    expect(md).toContain("0:00  18:36:25.000  app.test/a");
+    expect(md).toMatch(/0:02 {2}18:37:05\.412 {2}POST {3}api\.test\/pay\s+500\s+1\.2 s/);
+    expect(md).toContain("0:02  18:37:06.000  error  pay failed");
+  });
+
+  it("puts the trace id and a failed call's bodies right under it", () => {
+    const md = renderTechDetails(techFromReplay(cut));
+    expect(md).toMatch(/1\.2 s\n\s+trace {5}x-request-id: 7f3a9c\n\s+request {3}\{"amount":5,"card":"\*\*\*"\}\n\s+response {2}\{"error":"card declined by gateway"\}/);
+    expect(md).toMatch(/40 ms\n\s+trace {5}traceparent: 00-abc-01/);
+  });
+
+  it("hands the agent what the server said", () => {
+    expect(techForAgent(techFromReplay(cut))).toContain('response: {"error":"card declined by gateway"}');
+  });
+
+  it("an older capture without clock times shows the video time only", () => {
+    const md = renderTechDetails(techFromReplay(replay));
+    expect(md.startsWith("Times: into the video.")).toBe(true);
+    expect(md).not.toMatch(/\d\d:\d\d:\d\d\.\d{3}/);
+  });
+});

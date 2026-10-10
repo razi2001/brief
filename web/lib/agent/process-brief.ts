@@ -552,7 +552,7 @@ export async function processBrief(
                   ? renderTechDetails((brief.json as { techDetails: TechDetails }).techDetails)
                   : "";
                 created = await tracker.fileIssue({
-                  details: techMd ? { title: "Technical details", markdown: techMd } : undefined,
+                  details: techMd ? { title: "Technical logs", markdown: techMd } : undefined,
                   targetId: args.targetId,
                   title: issueTitle,
                   descriptionMarkdown: issueDescription,

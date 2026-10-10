@@ -334,17 +334,19 @@
   window.addEventListener('message', (e) => {
     const d = e.data;
     if (!d || typeof d.__brief !== 'string') return;
+    // `at`: the real time it happened (epoch ms), for clock times in the logs
     if (d.__brief === 'console-error') {
-      report('console-error', { args: d.args });
+      report('console-error', { args: d.args, at: d.at });
     } else if (d.__brief === 'js-error') {
       report('js-error', {
+        at: d.at,
         message: d.message,
         filename: d.filename,
         lineno: d.lineno,
         colno: d.colno,
       });
     } else if (d.__brief === 'promise-rejection') {
-      report('promise-rejection', { reason: d.reason });
+      report('promise-rejection', { reason: d.reason, at: d.at });
     } else if (d.__brief === 'network-error') {
       report('network-error', {
         method: d.method,
@@ -353,11 +355,14 @@
         reason: d.reason,
       });
     } else if (d.__brief === 'network') {
-      report('network', { method: d.method, url: d.url, status: d.status, ms: d.ms, reason: d.reason });
+      report('network', {
+        method: d.method, url: d.url, status: d.status, ms: d.ms, reason: d.reason, at: d.at,
+        trace: d.trace, request: d.request, response: d.response,
+      });
     } else if (d.__brief === 'console-warn') {
-      report('console-warn', { args: d.args });
+      report('console-warn', { args: d.args, at: d.at });
     } else if (d.__brief === 'nav') {
-      report('nav', { title: d.title });
+      report('nav', { title: d.title, at: d.at });
     }
   });
 
