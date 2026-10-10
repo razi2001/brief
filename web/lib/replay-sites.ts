@@ -69,7 +69,17 @@ export function siteMatches(pattern: string, url: string): boolean {
   return pattern.includes(":") ? u.host === pattern : u.hostname === pattern;
 }
 
-/** What the extension records on: the team's sites plus the user's own, once each. */
-export function mergeSiteLists(team: string[], mine: string[]): string[] {
-  return [...new Set([...team, ...mine])];
+// Like Ticket rules: with a team, you follow the team's sites or use your own
+// - one list applies, never both. Without a team, your own.
+export type ReplayMode = "inherit" | "override";
+
+/** The mode in force. Unset: your own if you had saved any, else the team's. */
+export function replayModeOf(stored: unknown, mine: string[]): ReplayMode {
+  if (stored === "inherit" || stored === "override") return stored;
+  return mine.length ? "override" : "inherit";
+}
+
+/** The sites the extension records on for this user. */
+export function effectiveReplaySites({ hasTeam, mode, team, mine }: { hasTeam: boolean; mode: ReplayMode; team: string[]; mine: string[] }): string[] {
+  return hasTeam && mode === "inherit" ? team : mine;
 }

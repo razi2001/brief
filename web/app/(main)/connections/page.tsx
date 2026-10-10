@@ -2,12 +2,12 @@ import { requireUserId } from "@/lib/auth";
 import SettingsView from "@/components/SettingsView";
 import { getTrackerContext } from "@/lib/briefs-server";
 import { getOrg, getOrgReplaySites, getOrgTeam } from "@/lib/org-server";
-import { getGuidanceContext, getUserReplaySites } from "@/lib/settings";
+import { getGuidanceContext, getUserReplay } from "@/lib/settings";
 import { getGithubToken, listGithubOrgs } from "@/lib/github";
 
 export default async function ConnectionsPage() {
   const userId = await requireUserId();
-  const [ctx, guidance, team, mySites] = await Promise.all([
+  const [ctx, guidance, team, me] = await Promise.all([
     getTrackerContext(),
     getGuidanceContext(userId),
     // Best-effort, like the podium: no org, or a failed read, means no section.
@@ -18,7 +18,7 @@ export default async function ConnectionsPage() {
           : null,
       )
       .catch(() => null),
-    getUserReplaySites(userId),
+    getUserReplay(userId),
   ]);
 
   // GitHub is the only tracker that can be connected without resolving to an
@@ -39,7 +39,8 @@ export default async function ConnectionsPage() {
       team={team}
       githubOrgs={githubOrgs}
       guidance={guidance}
-      mySites={mySites}
+      mySites={me.sites}
+      replayMode={me.mode}
     />
   );
 }

@@ -10,19 +10,14 @@ const m = (userId: string, fullName: string, extra: Partial<TeamMember> = {}): T
 });
 
 describe("sortTeam", () => {
-  it("puts you first", () => {
-    const out = sortTeam([m("a", "Ana"), m("r", "Razi", { isYou: true })]);
-    expect(out.map((x) => x.fullName)).toEqual(["Razi", "Ana"]);
+  it("puts whoever filed the most tickets first", () => {
+    const out = sortTeam([m("1", "Adam", { filed: 1 }), m("2", "Zoe", { filed: 90 }), m("r", "Razi", { isYou: true, filed: 44 })]);
+    expect(out.map((x) => x.fullName)).toEqual(["Zoe", "Razi", "Adam"]);
   });
 
-  it("sorts everyone else by name, ignoring case", () => {
+  it("breaks a tie by name, ignoring case", () => {
     const out = sortTeam([m("1", "bob"), m("2", "Alice"), m("3", "carol")]);
     expect(out.map((x) => x.fullName)).toEqual(["Alice", "bob", "carol"]);
-  });
-
-  it("orders by name, not by tickets filed", () => {
-    const out = sortTeam([m("1", "Zoe", { filed: 90 }), m("2", "Adam", { filed: 1 })]);
-    expect(out.map((x) => x.fullName)).toEqual(["Adam", "Zoe"]);
   });
 
   it("keeps two people with the same name in a stable order", () => {

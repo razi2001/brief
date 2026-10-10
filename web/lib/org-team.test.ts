@@ -35,10 +35,10 @@ const ROWS = [
 ];
 
 describe("getOrgTeam", () => {
-  it("lists everyone in the org, you first, then by name", async () => {
+  it("lists everyone in the org, most tickets filed first", async () => {
     const { db } = stubDb(["u1", "u2", "u3"], ROWS);
     const team = await getOrgTeam("linear:acme", "u1", db);
-    expect(team.map((x) => x.fullName)).toEqual(["Razi Fezzani", "Ana", "jonas Weber"]);
+    expect(team.map((x) => x.fullName)).toEqual(["Razi Fezzani", "jonas Weber", "Ana"]);
     expect(team[0].isYou).toBe(true);
     expect(team[0].imageUrl).toBe("https://img.test/u1");
   });

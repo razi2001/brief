@@ -4,7 +4,7 @@ import TicketPreferences, { GithubOrgPicker } from "@/components/TicketPreferenc
 import SettingsList from "@/components/SettingsList";
 import Avatar from "@/components/Avatar";
 import { TrackerLogo } from "@/components/TrackerLogo";
-import { mergeSiteLists } from "@/lib/replay-sites";
+import { effectiveReplaySites, type ReplayMode } from "@/lib/replay-sites";
 import ReplaySites from "@/components/ReplaySites";
 import { providerName } from "@/lib/trackers/registry";
 import type { ProviderKey } from "@/components/provider-labels";
@@ -21,11 +21,13 @@ export type SettingsViewProps = {
   githubOrgs: Array<{ login: string; avatarUrl?: string }>;
   guidance: GuidanceContext;
   mySites: string[];
+  replayMode: ReplayMode;
 };
 
-export default function SettingsView({ tracker, team, githubOrgs, guidance, mySites }: SettingsViewProps) {
+export default function SettingsView({ tracker, team, githubOrgs, guidance, mySites, replayMode }: SettingsViewProps) {
   const hasTeam = !!team && team.members.length > 0;
-  const sites = mergeSiteLists(team?.replaySites ?? [], mySites);
+  // the list that applies: the team's, or your own (like Ticket rules)
+  const sites = effectiveReplaySites({ hasTeam: !!team, mode: replayMode, team: team?.replaySites ?? [], mine: mySites });
   const rule = guidance.effective.trim().split(/\r?\n/)[0] ?? "";
 
   const group = (label: string) => (
@@ -127,7 +129,13 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
               ) : (
                 <span className="text-muted">Off</span>
               ),
-              body: <ReplaySites team={team && { name: team.org.name, sites: team.replaySites }} mine={mySites} />,
+              body: (
+                <ReplaySites
+                  team={team && { name: team.org.name, sites: team.replaySites, members: team.members.length }}
+                  mine={mySites}
+                  mode={replayMode}
+                />
+              ),
             },
           ]}
         />

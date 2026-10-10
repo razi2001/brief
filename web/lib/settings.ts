@@ -1,7 +1,7 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import { effectiveGuidance, migratedMode, type GuidanceMode } from "@/lib/guidance";
 import { getOrg, getOrgMemberIds, getOrgSettings } from "@/lib/org-server";
-import { cleanSiteList } from "@/lib/replay-sites";
+import { cleanSiteList, replayModeOf, type ReplayMode } from "@/lib/replay-sites";
 
 /**
  * Account-level settings: the natural-language ticket guidance the server agent
@@ -114,13 +114,17 @@ export async function getGuidanceContext(userId: string): Promise<GuidanceContex
   }
 }
 
-/** The user's own Replay sites (Settings → Replay → Your sites). Empty on any failure. */
-export async function getUserReplaySites(userId: string): Promise<string[]> {
+/**
+ * The user's own Replay sites and whether they follow the team's or use these
+ * (Settings → Replay, like Ticket rules). Empty, team's, on any failure.
+ */
+export async function getUserReplay(userId: string): Promise<{ sites: string[]; mode: ReplayMode }> {
   try {
     const client = await clerkClient();
     const user = await client.users.getUser(userId);
-    return cleanSiteList(user.privateMetadata?.replaySites);
+    const sites = cleanSiteList(user.privateMetadata?.replaySites);
+    return { sites, mode: replayModeOf(user.privateMetadata?.replaySitesMode, sites) };
   } catch {
-    return [];
+    return { sites: [], mode: "inherit" };
   }
 }

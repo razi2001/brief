@@ -51,6 +51,14 @@ export async function POST(req: NextRequest) {
     }
     updates.replaySites = cleanSiteList(body.replaySites);
   }
+  // Replay: follow the team's sites or use your own (like ticketGuidanceMode)
+  if ("replaySitesMode" in body) {
+    const mode = String(body.replaySitesMode ?? "");
+    if (mode !== "inherit" && mode !== "override") {
+      return NextResponse.json({ error: "invalid replaySitesMode" }, { status: 400 });
+    }
+    updates.replaySitesMode = mode;
+  }
   if ("role" in body) {
     updates.role = String(body.role ?? "").trim().slice(0, MAX_ROLE);
   }

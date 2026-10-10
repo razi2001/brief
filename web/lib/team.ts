@@ -16,17 +16,14 @@ export type TeamMember = {
 };
 
 /**
- * You first, then everyone else by name.
- *
- * Alphabetical rather than by tickets on purpose: this is a roster, not a second
- * leaderboard - the podium already ranks people, and a list that reshuffles
- * whenever someone files reads as noise. User id breaks ties so two people with
- * the same name keep their places between renders.
+ * Most tickets filed first: who reports the most leads the list. Ties go by
+ * name (ignoring case), then user id, so two people with the same count and
+ * name keep their places between renders.
  */
 export function sortTeam(members: TeamMember[]): TeamMember[] {
   return [...members].sort(
     (a, b) =>
-      Number(b.isYou) - Number(a.isYou) ||
+      b.filed - a.filed ||
       a.fullName.localeCompare(b.fullName, undefined, { sensitivity: "base" }) ||
       a.userId.localeCompare(b.userId),
   );

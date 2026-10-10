@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeSitePattern, cleanSiteList, siteMatches, mergeSiteLists, MAX_REPLAY_SITES } from "./replay-sites";
+import { normalizeSitePattern, cleanSiteList, siteMatches, effectiveReplaySites, replayModeOf, MAX_REPLAY_SITES } from "./replay-sites";
 
 describe("normalizeSitePattern", () => {
   it("accepts hosts, ports and wildcards; reduces URLs to their host", () => {
@@ -44,10 +44,18 @@ describe("siteMatches", () => {
   });
 });
 
-describe("mergeSiteLists", () => {
-  it("is the team's sites plus your own, once each, team first", () => {
-    expect(mergeSiteLists(["*.thunders.ai", "app.x.io"], ["localhost:3000", "app.x.io"])).toEqual(["*.thunders.ai", "app.x.io", "localhost:3000"]);
-    expect(mergeSiteLists([], ["mine.dev"])).toEqual(["mine.dev"]);
-    expect(mergeSiteLists([], [])).toEqual([]);
+describe("which list applies (like Ticket rules)", () => {
+  it("with a team: the team's sites, or your own when you chose them - never both", () => {
+    expect(effectiveReplaySites({ hasTeam: true, mode: "inherit", team: ["*.acme.com"], mine: ["localhost:3000"] })).toEqual(["*.acme.com"]);
+    expect(effectiveReplaySites({ hasTeam: true, mode: "override", team: ["*.acme.com"], mine: ["localhost:3000"] })).toEqual(["localhost:3000"]);
+  });
+  it("without a team: your own", () => {
+    expect(effectiveReplaySites({ hasTeam: false, mode: "inherit", team: [], mine: ["localhost:3000"] })).toEqual(["localhost:3000"]);
+  });
+  it("unset: your own if you had saved some (nothing changes for you), else the team's", () => {
+    expect(replayModeOf(undefined, ["localhost:3000"])).toBe("override");
+    expect(replayModeOf(undefined, [])).toBe("inherit");
+    expect(replayModeOf("inherit", ["localhost:3000"])).toBe("inherit");
+    expect(replayModeOf("junk", [])).toBe("inherit");
   });
 });

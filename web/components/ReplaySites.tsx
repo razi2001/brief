@@ -1,71 +1,181 @@
 "use client";
 
-import { useState, type ClipboardEvent } from "react";
+import { useEffect, useState, type ClipboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { normalizeSitePattern, MAX_REPLAY_SITES } from "@/lib/replay-sites";
-import { Eyebrow, buttonClass } from "./SettingsSection";
+import { normalizeSitePattern, MAX_REPLAY_SITES, type ReplayMode } from "@/lib/replay-sites";
+import { Eyebrow, buttonClass, ghostButtonClass } from "./SettingsSection";
 
 /**
- * Replay, on Settings: the sites the extension keeps the last minute on. Like
- * Ticket preferences, two lists: the team's (when the tracker resolves to an
- * org; everyone in it records there) and your own (always; only you). The
- * extension records on both.
+ * Replay, on Settings: the sites the extension keeps the last minute on.
+ * Like Ticket rules: with a team you either follow the team's sites or use
+ * your own - one list applies, the one shown. Changing the team's sites goes
+ * through a confirmation that names who it affects and what changes, because
+ * it starts (or stops) recording for everyone following them.
  */
-export default function ReplaySites({
-  team,
-  mine,
-}: {
-  team: { name: string; sites: string[] } | null;
-  mine: string[];
-}) {
+type Team = { name: string; sites: string[]; members: number };
+type Change = { added?: string; removed?: string };
+
+export default function ReplaySites({ team, mine, mode: initialMode }: { team: Team | null; mine: string[]; mode: ReplayMode }) {
+  const router = useRouter();
+  const [mode, setMode] = useState<ReplayMode>(team ? initialMode : "override");
+  const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState<{ change: Change; answer: (ok: boolean) => void } | null>(null);
+
+  async function switchMode(next: ReplayMode) {
+    if (next === mode) return;
+    const prev = mode;
+    setMode(next);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ replaySitesMode: next }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      router.refresh(); // the row's summary
+    } catch {
+      setMode(prev);
+      setError("Couldn't switch. Reload and try again.");
+    }
+  }
+
+  const confirmTeam = (change: Change) => new Promise<boolean>((answer) => setAsking({ change, answer }));
+
   return (
-    <div className="card divide-y divide-[var(--color-hairline)]">
-      {team && (
-        <SiteList
-          label="Team"
-          tag={team.name}
-          initial={team.sites}
-          save={async (sites) => {
-            const res = await fetch("/api/org/replay-sites", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ sites }),
-            });
-            const j = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
-            return j.sites as string[];
-          }}
+    <div>
+      <div className="card divide-y divide-[var(--color-hairline)]">
+        {team && (
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="inline-flex rounded-lg border hairline bg-[rgba(26,22,18,.03)] p-0.5">
+              {(
+                [
+                  ["inherit", "Use team sites"],
+                  ["override", "Use my own"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => switchMode(value)}
+                  aria-pressed={mode === value}
+                  className={`h-7 cursor-pointer rounded-md px-3 text-xs transition-colors ${
+                    mode === value ? "bg-[#fffdf8] text-ink shadow-[0_1px_2px_rgba(26,22,18,.1)]" : "text-muted hover:text-ink"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="pill text-muted">
+              {team.name} · {team.members === 1 ? "just you" : `${team.members} people`}
+            </span>
+          </div>
+        )}
+
+        {team && mode === "inherit" ? (
+          <SiteList
+            key="team"
+            label="Team sites"
+            footer={team.members === 1 ? `Default for anyone who joins ${team.name}` : `For everyone in ${team.name} using the team sites`}
+            initial={team.sites}
+            confirm={confirmTeam}
+            save={async (sites) => {
+              const res = await fetch("/api/org/replay-sites", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ sites }),
+              });
+              const j = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+              return j.sites as string[];
+            }}
+          />
+        ) : (
+          <SiteList
+            key="mine"
+            label={team ? "Your sites" : undefined}
+            footer="Only affects you"
+            initial={mine}
+            save={async (sites) => {
+              const res = await fetch("/api/settings", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ replaySites: sites }),
+              });
+              const j = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+              return j.replaySites as string[];
+            }}
+          />
+        )}
+      </div>
+      {error && <p className="mt-2 text-xs text-[#c62828]">{error}</p>}
+      {asking && team && (
+        <ConfirmTeamChange
+          team={team}
+          change={asking.change}
+          onAnswer={(ok) => { asking.answer(ok); setAsking(null); }}
         />
       )}
-      <SiteList
-        label={team ? "Only you" : undefined}
-        initial={mine}
-        save={async (sites) => {
-          const res = await fetch("/api/settings", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ replaySites: sites }),
-          });
-          const j = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
-          return j.replaySites as string[];
-        }}
-      />
+    </div>
+  );
+}
+
+/** The blast radius, named: how many people, and the exact site added or removed. */
+function ConfirmTeamChange({ team, change, onAnswer }: { team: Team; change: Change; onAnswer: (ok: boolean) => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onAnswer(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onAnswer]);
+  const solo = team.members === 1;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Confirm team Replay sites change"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(26,22,18,.45)] px-4"
+      onClick={() => onAnswer(false)}
+    >
+      <div className="ai-float w-full max-w-md rounded-[15px] border hairline bg-[#fffdf8] p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-display text-xl text-ink">
+          {solo ? `Set the Replay sites for ${team.name}?` : `Change Replay sites for ${team.members} people?`}
+        </h3>
+        <p className="mt-1.5 text-xs text-muted">
+          {solo
+            ? `You're the only one here so far. These become the sites for anyone who joins ${team.name}.`
+            : `Everyone in ${team.name} who uses the team sites will ${change.added ? "start" : "stop"} recording on this site.`}
+        </p>
+        <div className="mt-3 rounded-xl border hairline bg-[rgba(26,22,18,.03)] px-3 py-2.5 font-mono text-[12px] leading-relaxed">
+          {change.added && <div className="text-[#2e7d32]">+ {change.added}</div>}
+          {change.removed && <div className="text-[#c62828]">− {change.removed}</div>}
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" onClick={() => onAnswer(false)} className={ghostButtonClass}>Cancel</button>
+          <button type="button" onClick={() => onAnswer(true)} className={buttonClass}>
+            {solo ? "Save team sites" : "Update for everyone"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
 
 // One list: the sites as chips, then the field to add one. Every change saves
-// the whole list at once; a failed save puts the previous list back.
+// the whole list at once (after `confirm`, when given); a failed save puts the
+// previous list back.
 function SiteList({
   label,
-  tag,
+  footer,
   initial,
+  confirm,
   save: send,
 }: {
   label?: string;
-  tag?: string;
+  footer?: string;
   initial: string[];
+  confirm?: (change: Change) => Promise<boolean>;
   save: (sites: string[]) => Promise<string[]>;
 }) {
   const [sites, setSites] = useState<string[]>(initial);
@@ -73,7 +183,8 @@ function SiteList({
   const [saving, setSaving] = useState(false);
   const router = useRouter();
 
-  async function save(next: string[]) {
+  async function save(next: string[], change: Change) {
+    if (confirm && !(await confirm(change))) return;
     const prev = sites;
     setSites(next);
     setSaving(true);
@@ -94,12 +205,12 @@ function SiteList({
 
   return (
     <div className="px-4 py-4">
-      {label && <Eyebrow aside={tag && <span className="pill text-muted">{tag}</span>}>{label}</Eyebrow>}
+      {label && <Eyebrow>{label}</Eyebrow>}
       {sites.length > 0 && (
         <ul className={`${label ? "mt-3" : ""} flex flex-wrap gap-1.5`}>
           {sites.map((s) => (
             <li key={s}>
-              <SiteChip site={s} disabled={saving} onRemove={() => save(sites.filter((x) => x !== s))} />
+              <SiteChip site={s} disabled={saving} onRemove={() => save(sites.filter((x) => x !== s), { removed: s })} />
             </li>
           ))}
         </ul>
@@ -107,8 +218,9 @@ function SiteList({
       <SiteField
         full={sites.length >= MAX_REPLAY_SITES}
         busy={saving}
-        onAdd={(p) => { if (!sites.includes(p)) save([...sites, p]); }}
+        onAdd={(p) => { if (!sites.includes(p)) save([...sites, p], { added: p }); }}
       />
+      {footer && <p className="mt-2.5 text-xs text-muted">{footer}</p>}
       {error && <p className="mt-2 text-xs text-[#c62828]">{error}</p>}
     </div>
   );
