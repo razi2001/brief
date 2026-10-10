@@ -310,9 +310,11 @@ export function promoteSectionHeadings(markdown: string): string {
 }
 
 /** The technical details, folded: GitHub renders <details> as a disclosure. */
-export function withGithubDetails(body: string, details?: { title: string; markdown: string }): string {
-  if (!details?.markdown.trim()) return body;
-  return `${body.replace(/\s+$/, "")}\n\n<details>\n<summary>${details.title}</summary>\n\n${details.markdown.trim()}\n\n</details>`;
+export function withGithubDetails(body: string, details?: Array<{ title: string; markdown: string }>): string {
+  // each video's logs folded on their own, under their own title
+  const folds = (details ?? []).filter((d) => d.markdown.trim())
+    .map((d) => `<details>\n<summary>${d.title}</summary>\n\n${d.markdown.trim()}\n\n</details>`);
+  return folds.length ? `${body.replace(/\s+$/, "")}\n\n${folds.join("\n\n")}` : body;
 }
 
 export function buildGithubBody(

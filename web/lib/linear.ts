@@ -3,10 +3,10 @@ import { clerkStrategy } from "./clerk-strategies";
 import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 
-/** The technical details, folded: Linear's collapsible section is `+++ Title` ... `+++`. */
-export function withLinearDetails(description: string, details?: { title: string; markdown: string }): string {
-  if (!details?.markdown.trim()) return description;
-  return `${description.replace(/\s+$/, "")}\n\n+++ ${details.title}\n\n${details.markdown.trim()}\n\n+++`;
+/** The technical logs, each video's folded on its own: Linear's collapsible section is `+++ Title` ... `+++`. */
+export function withLinearDetails(description: string, details?: Array<{ title: string; markdown: string }>): string {
+  const folds = (details ?? []).filter((d) => d.markdown.trim()).map((d) => `+++ ${d.title}\n\n${d.markdown.trim()}\n\n+++`);
+  return folds.length ? `${description.replace(/\s+$/, "")}\n\n${folds.join("\n\n")}` : description;
 }
 
 export type LinearTok = { token: string };

@@ -8,7 +8,7 @@ import { processBrief, type BriefInput } from "@/lib/agent/process-brief";
 import { composeDraftTicket } from "@/lib/agent/compose-draft";
 import { transcribeAudio, transcriptionHint } from "@/lib/agent/transcribe";
 import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides } from "@/lib/agent/overrides";
-import { techFromReplay, techFromRecording, isEmpty as isTechEmpty } from "@/lib/agent/tech-details";
+import { techFromReplay, techFromRecording, isEmpty as isTechEmpty, type VideoLogs } from "@/lib/agent/tech-details";
 import { summarizeReplay, type ReplaySummary } from "@/lib/agent/replay-steps";
 
 type ReplayFrame = { file: string; t?: number; url?: string | null; note?: string | null };
@@ -123,7 +123,7 @@ export async function loadBriefInput(
   // A recording's capture events give the same details when there's no replay.
   {
     const tech = techFromRecording(json);
-    if (!isTechEmpty(tech)) json.techDetails = tech;
+    if (!isTechEmpty(tech)) (json.techLogs ??= [] as VideoLogs[]).push({ label: "Screen recording", td: tech });
   }
   const replayBuf = await dl(`${prefix}/replay.json`);
   if (replayBuf) {
@@ -131,7 +131,7 @@ export async function loadBriefInput(
       const file = JSON.parse(replayBuf.toString("utf8"));
       // exact page trail, network calls and console, on the replay's clock
       const tech = techFromReplay(file);
-      if (!isTechEmpty(tech) && json.includeReplay !== false) json.techDetails = tech;
+      if (!isTechEmpty(tech) && json.includeReplay !== false) (json.techLogs ??= [] as VideoLogs[]).push({ label: "Replay", td: tech });
       json.replay = {
         ...summarizeReplay(file),
         frames: Array.isArray(file.frames) ? file.frames : [],

@@ -70,7 +70,16 @@ const clock = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
-export function summarizeReplay(file: ReplayFile, maxSteps = 40): ReplaySummary {
+/** One thing the user did, on the replay's clock. */
+export interface ReplayAction {
+  t: number;
+  kind: "open" | "reload" | "click" | "type" | "check" | "uncheck" | "tab";
+  /** the page for open/reload, the element (quoted label) otherwise */
+  what: string;
+}
+
+/** Everything the user did, in order (the agent's steps and the logs' timeline). */
+export function replayActions(file: ReplayFile): ReplayAction[] {
   const events = Array.isArray(file?.events) ? file.events : [];
   const chips = Array.isArray(file?.chips) ? file.chips : [];
   const t0 = events[0]?.timestamp ?? 0;
@@ -117,14 +126,16 @@ export function summarizeReplay(file: ReplayFile, maxSteps = 40): ReplaySummary 
     return nodes.get(id);
   };
 
-  const steps: Array<{ t: number; s: string }> = [];
+  const steps: ReplayAction[] = [];
   let lastHref = "";
   let lastInput = -1;
   for (const e of events) {
     const t = (e?.timestamp ?? t0) - t0;
     if (e?.type === META) {
       const href = String(e.data?.href ?? "");
-      if (href && href !== lastHref) steps.push({ t, s: `Opened ${href}` });
+      // the same address loading again is a reload (the recorder's own
+      // re-snapshots of a page were dropped when the replay was stitched)
+      if (href) steps.push({ t, kind: href === lastHref ? "reload" : "open", what: href });
       lastHref = href;
       lastInput = -1;
     } else if (e?.type === FULL) {
@@ -137,16 +148,16 @@ export function summarizeReplay(file: ReplayFile, maxSteps = 40): ReplaySummary 
         for (const add of d.adds ?? []) index(add.node, add.parentId);
       } else if (d.source === SRC_MOUSE && d.type === CLICK && d.id != null) {
         const n = target(d.id);
-        if (n && n.type === ELEMENT) steps.push({ t, s: `Clicked ${describe(n)}` });
+        if (n && n.type === ELEMENT) steps.push({ t, kind: "click", what: describe(n) });
         lastInput = -1;
       } else if (d.source === SRC_INPUT && d.id != null && d.id !== lastInput) {
         const n = nodes.get(d.id);
         if (n) {
           const kind = attr(n, "type").toLowerCase();
           if (typeof d.isChecked === "boolean" && /checkbox|radio/.test(kind)) {
-            steps.push({ t, s: `${d.isChecked ? "Checked" : "Unchecked"} ${describe(n)}` });
+            steps.push({ t, kind: d.isChecked ? "check" : "uncheck", what: describe(n) });
           } else {
-            steps.push({ t, s: `Typed into ${describe(n)}` });
+            steps.push({ t, kind: "type", what: describe(n) });
           }
         }
         lastInput = d.id;
@@ -154,11 +165,20 @@ export function summarizeReplay(file: ReplayFile, maxSteps = 40): ReplaySummary 
     }
   }
   for (const c of chips) {
-    if (!c.recorded) steps.push({ t: c.a, s: "Switched to a tab that is not recorded" });
+    if (!c.recorded) steps.push({ t: c.a, kind: "tab", what: "a tab that is not recorded" });
   }
-  steps.sort((x, y) => x.t - y.t);
+  return steps.sort((x, y) => x.t - y.t);
+}
 
-  const lines = steps.map((x) => `${clock(x.t)} ${x.s}`);
+const SAY: Record<ReplayAction["kind"], string> = {
+  open: "Opened", reload: "Reloaded", click: "Clicked", type: "Typed into", check: "Checked", uncheck: "Unchecked", tab: "Switched to",
+};
+
+export function summarizeReplay(file: ReplayFile, maxSteps = 40): ReplaySummary {
+  const events = Array.isArray(file?.events) ? file.events : [];
+  const chips = Array.isArray(file?.chips) ? file.chips : [];
+  const t0 = events[0]?.timestamp ?? 0;
+  const lines = replayActions(file).map((x) => `${clock(x.t)} ${SAY[x.kind]} ${x.what}`);
   const kept = lines.length > maxSteps ? [...lines.slice(0, 5), "…", ...lines.slice(-(maxSteps - 6))] : lines;
   return {
     durationMs: file?.durationMs ?? (events.length ? events[events.length - 1].timestamp - t0 : 0),

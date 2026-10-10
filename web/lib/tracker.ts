@@ -133,11 +133,12 @@ export interface IssueInput {
    */
   extraFields?: Record<string, unknown>;
   /**
-   * The technical details (pages, network calls, console) from the capture,
-   * as Markdown. Exact data, never the agent's: each adapter appends it after
-   * the evidence, folded (GitHub <details>, Linear +++, Jira expand).
+   * The technical logs (network calls, console, pages) from the capture, one
+   * section per video, as Markdown. Exact data, never the agent's: each
+   * adapter appends them after the evidence, each folded under its own title
+   * (GitHub <details>, Linear +++, Jira expand).
    */
-  details?: { title: string; markdown: string };
+  details?: Array<{ title: string; markdown: string }>;
   // Each evidence file, optionally with a one-line human caption the agent wrote
   // for it. The adapter renders the caption directly above the embedded image
   // (Linear) or in the body next to the attachment reference (Jira).

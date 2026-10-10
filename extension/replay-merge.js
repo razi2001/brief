@@ -14,6 +14,7 @@
 
 const META = 4;
 const FULL = 2;
+const CUSTOM = 5; // rrweb custom events: the page capture's network/console log
 
 export function focusIntervals(focus, start, end) {
   const log = [...focus].sort((a, b) => a.t - b.t);
@@ -74,6 +75,9 @@ export function buildTimeline({ focus, tabs, start, end }) {
         pageLoad = e.__page;
       }
       if (e.type === FULL && skipFull) { skipFull = false; continue; }
+      // the page's own log (network, console) from before this stretch isn't
+      // part of it: pulled up to its start it would all read "0:00"
+      if (e.type === CUSTOM && e.timestamp < a) continue;
       const { __page, ...clean } = e;
       events.push(clean.timestamp < a ? { ...clean, timestamp: a } : clean);
     }
@@ -133,6 +137,7 @@ export function sliceTimeline(events, segments, a, b) {
   if (m < 0) m = events.findIndex((e, i) => e.type === META && events[i + 1]?.type === FULL);
   const out = [];
   for (let i = Math.max(m, 0); i < events.length && events[i].timestamp <= b; i++) {
+    if (events[i].type === CUSTOM && events[i].timestamp < a) continue; // see buildTimeline
     out.push(events[i].timestamp < a ? { ...events[i], timestamp: a } : events[i]);
   }
   return {

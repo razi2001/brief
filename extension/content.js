@@ -282,6 +282,7 @@
         payload: {
           type: eventType,
           tMs: Date.now() - startedAt,
+          at: Date.now(), // the real time; page-capture events bring their own
           url: location.href,
           ...detail,
         },
@@ -362,7 +363,7 @@
     } else if (d.__brief === 'console-warn') {
       report('console-warn', { args: d.args, at: d.at });
     } else if (d.__brief === 'nav') {
-      report('nav', { title: d.title, at: d.at });
+      report('nav', { title: d.title, at: d.at, load: !!d.load });
     }
   });
 

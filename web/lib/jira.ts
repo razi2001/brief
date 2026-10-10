@@ -66,16 +66,17 @@ function parseInline(input: string): AdfNode[] {
  * The description document: the body, the technical details folded in an
  * expand, then the attribution (always last, under its divider).
  */
-export function jiraDescription(body: string, details?: { title: string; markdown: string }): AdfNode {
+export function jiraDescription(body: string, details?: Array<{ title: string; markdown: string }>): AdfNode {
   const doc = markdownToAdf(withBriefAttribution(body));
-  if (!details?.markdown.trim()) return doc;
-  const inner = markdownToAdf(details.markdown).content ?? [];
-  const expand: AdfNode = { type: "expand", attrs: { title: details.title }, content: inner };
+  // each video's logs in an expand of their own, under their own title
+  const expands: AdfNode[] = (details ?? []).filter((d) => d.markdown.trim())
+    .map((d) => ({ type: "expand", attrs: { title: d.title }, content: markdownToAdf(d.markdown).content ?? [] }));
+  if (!expands.length) return doc;
   const content = doc.content ?? [];
   // the attribution is the trailing rule + paragraph withBriefAttribution added
   const ruleAt = content.map((n) => n.type).lastIndexOf("rule");
   const at = ruleAt >= 0 ? ruleAt : content.length;
-  return { ...doc, content: [...content.slice(0, at), expand, ...content.slice(at)] };
+  return { ...doc, content: [...content.slice(0, at), ...expands, ...content.slice(at)] };
 }
 
 export function markdownToAdf(markdown: string): AdfNode {

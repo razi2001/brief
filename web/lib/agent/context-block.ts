@@ -1,4 +1,4 @@
-import { techForAgent } from "./tech-details";
+import { videoLogsForAgent } from "./tech-details";
 // Pure helper: distil the high-signal context out of brief.json into a compact,
 // prominent text block for the filing agent. No SDK/IO deps, so it's unit-tested
 // directly (context-block.test.ts).
@@ -48,7 +48,7 @@ export function buildContextBlock(json: unknown): string {
   // The exact capture: page trail, failed/slow network calls, console errors.
   // The ticket shows the full list itself (appended, folded); the agent's job
   // is to name what explains the bug in the write-up.
-  const tech = j.techDetails ? techForAgent(j.techDetails) : "";
+  const tech = Array.isArray(j.techLogs) ? videoLogsForAgent(j.techLogs) : "";
   if (tech) {
     sections.push(
       "TECHNICAL CAPTURE (exact, times are into the capture - name in the summary or Actual the call or error that explains the bug, if one does; the full list is appended to the ticket automatically, never write it yourself):\n" +

@@ -11,7 +11,8 @@
 //   network          every fetch / XHR: method, url, status, ms, and the
 //                    backend's trace id when the response carries one; a
 //                    FAILED call (4xx/5xx/no answer) also its request and
-//                    response bodies - text only, 2 KB each, secrets masked
+//                    response bodies, a SLOW one (1 s+) its request body -
+//                    text only, 2 KB each, secrets masked
 //   network-error    a failed one (kept for servers that predate `network`)
 //   console-error / console-warn / js-error / promise-rejection
 //   nav              the page's address (on load, and as the app changes it)
@@ -105,7 +106,10 @@ export function installPageCapture() {
     const failed = !c.status || c.status >= 400;
     const msg = { method: m, url: u, status: c.status || 0, ms: Math.round(c.ms), reason: c.reason || '' };
     if (c.trace) msg.trace = c.trace;
-    if (failed && c.request) msg.request = maskBody(c.request);
+    // a failed call: what was sent and what came back; a slow one: what was
+    // sent (often why it was slow). Never for calls that just worked.
+    const slow = c.ms >= 1000;
+    if ((failed || slow) && c.request) msg.request = maskBody(c.request);
     if (failed && c.response) msg.response = maskBody(c.response);
     post({ __brief: 'network', ...msg });
     if (failed) post({ __brief: 'network-error', method: m, url: u, status: c.status || 0, reason: c.reason || '' });
@@ -168,7 +172,8 @@ export function installPageCapture() {
 
   // ---- the page's address: where it starts, then as the app changes it ----
   let last = location.href;
-  post({ __brief: 'nav', url: clean(location.href), title: document.title });
+  // `load`: the page itself (re)loaded, as opposed to the app changing its address
+  post({ __brief: 'nav', url: clean(location.href), title: document.title, load: true });
   const nav = () => {
     if (location.href === last) return;
     last = location.href;

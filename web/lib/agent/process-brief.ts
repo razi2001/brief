@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
 import { buildContextBlock } from "./context-block";
-import { renderTechDetails, type TechDetails } from "./tech-details";
+import { videoLogSections, type VideoLogs } from "./tech-details";
 import { agentModel, chatParams } from "./model";
 import type { Tracker, IssueResult } from "../tracker";
 
@@ -548,11 +548,10 @@ export async function processBrief(
                   fixed ? fixed.description : normalizeSectionLabels(String(args.description ?? "")),
                   brief.replayUrl,
                 );
-                const techMd = (brief.json as { techDetails?: TechDetails })?.techDetails
-                  ? renderTechDetails((brief.json as { techDetails: TechDetails }).techDetails)
-                  : "";
+                const logs = (brief.json as { techLogs?: VideoLogs[] })?.techLogs;
+                const sections = Array.isArray(logs) ? videoLogSections(logs) : [];
                 created = await tracker.fileIssue({
-                  details: techMd ? { title: "Technical logs", markdown: techMd } : undefined,
+                  details: sections.length ? sections : undefined,
                   targetId: args.targetId,
                   title: issueTitle,
                   descriptionMarkdown: issueDescription,

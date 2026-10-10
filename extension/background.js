@@ -368,6 +368,48 @@ async function setRecSession(s) {
   } catch {}
 }
 
+// The recording's event log (clicks, page changes, network calls, console) -
+// what becomes the ticket's technical logs. It used to live only in STATE, so a
+// worker recycled mid-recording (MV3 does that after ~30s without events) lost
+// everything collected so far, and dropped what came after (STATE.recording was
+// false again). Kept in session storage too, flushed in small batches.
+const REC_EVENTS_KEY = 'recEvents';
+const REC_EVENTS_MAX = 5000;
+let recEventsQueue = [];
+let recEventsChain = Promise.resolve();
+function persistRecEvent(ev) {
+  recEventsQueue.push(ev);
+  if (recEventsQueue.length > 1) return recEventsChain; // a flush is already queued
+  recEventsChain = recEventsChain.then(async () => {
+    await new Promise((r) => setTimeout(r, 250));
+    const batch = recEventsQueue;
+    recEventsQueue = [];
+    try {
+      const prev = (await chrome.storage.session.get(REC_EVENTS_KEY))[REC_EVENTS_KEY] || [];
+      await chrome.storage.session.set({ [REC_EVENTS_KEY]: prev.concat(batch).slice(-REC_EVENTS_MAX) });
+    } catch {}
+  });
+  return recEventsChain;
+}
+async function getRecEvents() {
+  await recEventsChain;
+  try {
+    const stored = (await chrome.storage.session.get(REC_EVENTS_KEY))[REC_EVENTS_KEY];
+    return stored && stored.length >= STATE.events.length ? stored : STATE.events.slice();
+  } catch { return STATE.events.slice(); }
+}
+async function clearRecEvents() {
+  recEventsQueue = [];
+  await recEventsChain;
+  try { await chrome.storage.session.remove(REC_EVENTS_KEY); } catch {}
+}
+// The page the recording started on, from the session when STATE was lost.
+async function recPage() {
+  if (STATE.activeTabAtStart) return { pageUrl: STATE.activeTabAtStart.url || null, pageTitle: STATE.activeTabAtStart.title || null };
+  const s = await getRecSession();
+  return { pageUrl: s?.pageUrl || null, pageTitle: s?.pageTitle || null };
+}
+
 // Stop + save the live recording from here - the bar isn't around to do it (its
 // tab was closed, or it never came back after a navigation and the recording
 // overran the cap). Mirrors bar.js stopAndSave + finishToInbox: STOP the
@@ -540,6 +582,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           STATE.briefId = message.briefId;
           STATE.startedAt = message.startedAt || Date.now();
           STATE.events = [];
+          await clearRecEvents();
           try {
             const tab = sender?.tab
               ? { url: sender.tab.url, title: sender.tab.title, id: sender.tab.id }
@@ -547,7 +590,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             STATE.activeTabAtStart = tab;
             if (tab?.id) {
               ACTIVE_BAR_TAB_ID = tab.id;
-              await setRecSession({ briefId: message.briefId, tabId: tab.id, startedAt: STATE.startedAt, muted: false, intent: 'brief' });
+              await setRecSession({ briefId: message.briefId, tabId: tab.id, startedAt: STATE.startedAt, muted: false, intent: 'brief', pageUrl: tab.url || null, pageTitle: tab.title || null });
               // The bar's runtime.sendMessage never reaches content scripts (only
               // tabs.sendMessage lands there) - arm the page's click/key/error
               // capture from here, or the event log stays empty.
@@ -879,19 +922,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
 
-        case 'EVENT':
+        case 'EVENT': {
+          // A worker recycled mid-recording comes back with STATE empty: the
+          // live session (session storage) says whether this tab is recording.
+          if (!STATE.recording && message.payload) {
+            const s = await getRecSession();
+            if (s && sender?.tab?.id === s.tabId) {
+              STATE.recording = true;
+              STATE.briefId = s.briefId;
+              STATE.startedAt = s.startedAt;
+            }
+          }
           if (STATE.recording && message.payload) {
             STATE.events.push(message.payload);
+            persistRecEvent(message.payload);
           }
           sendResponse({ ok: true });
           break;
+        }
 
         case 'GET_BRIEF_META':
-          sendResponse({
-            events: STATE.events.slice(),
-            pageUrl: STATE.activeTabAtStart?.url || null,
-            pageTitle: STATE.activeTabAtStart?.title || null,
-          });
+          sendResponse({ events: await getRecEvents(), ...(await recPage()) });
           break;
 
         case 'GET_UPLOAD_CONTEXT': {
@@ -906,11 +957,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             sendResponse({
               token: briefCloudToken || null,
               entry,
-              meta: {
-                events: STATE.events.slice(),
-                pageUrl: STATE.activeTabAtStart?.url || null,
-                pageTitle: STATE.activeTabAtStart?.title || null,
-              },
+              meta: { events: await getRecEvents(), ...(await recPage()) },
             });
           } catch (err) {
             sendResponse({ token: null, entry: null, meta: { events: [], pageUrl: null, pageTitle: null }, error: String(err?.message || err) });
