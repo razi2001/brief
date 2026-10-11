@@ -5,7 +5,7 @@
 import { installPageCapture } from './page-capture.js';
 import { APP_URL } from "./config.js";
 import { getDraft, setDraft, updateDraft, emptyDraft, genId, landRecording, migrateInboxToDraft } from "./draft.js";
-import { fileDraft, resumeFiling, filingKeys } from "./filing.js";
+import { fileDraft, fileDraftObject, resumeFiling, filingKeys } from "./filing.js";
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
 import { putChunk, prune as pruneReplay, allMeta, deleteChunks, clearAll as clearReplay } from "./replay-store.js";
@@ -99,9 +99,11 @@ async function resetBeforeRecording() {
   await new Promise((r) => setTimeout(r, 150));
 }
 
-// Right-click on a watched page: "Brief: replay the last minute". The item only
-// exists on the org's replay sites (the only pages recorded), so it is rebuilt
-// whenever that list changes. Same rule as the popup: pairing first.
+// Right-click on a watched page: "Let AI draft this bug". One item, so Chrome
+// shows it right in the menu (two or more get folded into a submenu under the
+// extension's name). It only exists on the org's replay sites (the only pages
+// recorded), so it is rebuilt whenever that list changes. Editing the last
+// minute by hand stays in the popup (+ → Replay).
 
 // Site patterns -> Chrome match patterns (ports can't be expressed: any port).
 function menuPatterns(sites) {
@@ -120,7 +122,7 @@ function refreshReplayMenu() {
     await chrome.contextMenus.removeAll();
     const patterns = menuPatterns(await getReplaySites());
     if (!patterns.length) return;
-    chrome.contextMenus.create({ id: 'brief-replay', title: 'Brief: replay the last minute', contexts: ['all'], documentUrlPatterns: patterns });
+    chrome.contextMenus.create({ id: 'brief-report', title: 'Let AI draft this bug', contexts: ['all'], documentUrlPatterns: patterns });
   }).catch((err) => console.warn('[brief/background] replay menu:', err));
   return menuChain;
 }
@@ -128,24 +130,169 @@ chrome.runtime.onInstalled.addListener(() => { refreshReplayMenu(); });
 chrome.runtime.onStartup.addListener(() => { refreshReplayMenu(); });
 chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.replaySites) refreshReplayMenu(); });
 
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== 'brief-replay') return;
+// ---------- "Let AI draft this bug" (one-click report) ----------
+// A shortcut or the right-click item: the last minute becomes a
+// draft with no typing and nothing opened. The recorders are flushed here, the
+// offscreen document rebuilds the replay, finds what looks wrong, renders the
+// video and its stills (auto-report.js) and answers AUTO_REPORT_BUILT; the
+// draft is then filed on its own - the one in the popup is never touched. A
+// small toast on the page says what's happening. Pending reports live in
+// storage, so a worker restart mid-way doesn't lose one.
+
+
+// The toolbar icon tells the story, not the page: a small ring turns on the
+// Brief icon while a report is being made, then a green ✓ (or a red !) badge
+// for a few seconds. Several reports at once keep one ring going.
+let spin = null;
+let spinners = 0;
+const iconBitmaps = {};
+async function baseIcon(size) {
+  if (!iconBitmaps[size]) {
+    const res = await fetch(chrome.runtime.getURL(`icons/icon${size}.png`));
+    iconBitmaps[size] = await createImageBitmap(await res.blob());
+  }
+  return iconBitmaps[size];
+}
+function spinFrame(bmp, size, k) {
+  const c = new OffscreenCanvas(size, size);
+  const g = c.getContext('2d');
+  g.drawImage(bmp, 0, 0, size, size);
+  const r = size * 0.27;
+  const cx = size - r - size * 0.02, cy = size - r - size * 0.02;
+  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fillStyle = '#ffffff'; g.fill();
+  g.beginPath(); g.arc(cx, cy, r * 0.62, k, k + Math.PI * 1.35);
+  g.strokeStyle = '#dd6936'; g.lineWidth = Math.max(1.6, size * 0.09); g.lineCap = 'round'; g.stroke();
+  return g.getImageData(0, 0, size, size);
+}
+async function iconBusy(on) {
+  spinners = Math.max(0, spinners + (on ? 1 : -1));
+  if (spinners > 0 && !spin) {
+    const [b16, b32] = await Promise.all([baseIcon(16), baseIcon(32)]);
+    let k = 0;
+    // each setIcon is an extension API call: it also keeps the worker up
+    spin = setInterval(() => {
+      k += 0.45;
+      chrome.action.setIcon({ imageData: { 16: spinFrame(b16, 16, k), 32: spinFrame(b32, 32, k) } }).catch(() => {});
+    }, 80);
+  } else if (spinners === 0 && spin) {
+    clearInterval(spin);
+    spin = null;
+    chrome.action.setIcon({ path: { 16: 'icons/icon16.png', 32: 'icons/icon32.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' } }).catch(() => {});
+  }
+}
+async function iconResult(ok) {
+  await chrome.action.setBadgeText({ text: ok ? '✓' : '!' }).catch(() => {});
+  await chrome.action.setBadgeBackgroundColor({ color: ok ? '#2e7d32' : '#cf3b2e' }).catch(() => {});
+  await chrome.action.setBadgeTextColor?.({ color: '#ffffff' }).catch(() => {});
+  setTimeout(() => refreshBadge(), 4000);
+}
+
+
+/**
+ * What happened to the last few one-click reports, for the popup to say why
+ * one didn't go through (and for the worker console: [brief/report]).
+ */
+async function reportLog(entry) {
+  console.log('[brief/report]', entry.ok ? 'ok' : 'failed', entry.error || '', entry.detail || '');
+  const { autoReportLog = [] } = await chrome.storage.local.get('autoReportLog');
+  await chrome.storage.local.set({ autoReportLog: [{ at: Date.now(), ...entry }, ...autoReportLog].slice(0, 10) });
+}
+
+/** A message to the offscreen document that was just created may beat its listener: try again. */
+async function askOffscreen(message, tries = 4) {
+  let last = null;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await chrome.runtime.sendMessage({ target: 'offscreen', viaBackground: true, ...message });
+      if (r) return r;
+    } catch (err) { last = err; }
+    await new Promise((res) => setTimeout(res, 250 * (i + 1)));
+  }
+  throw last || new Error('the offscreen document did not answer');
+}
+
+async function startAutoReport(tab) {
+  const page = (() => { try { return new URL(tab?.url || '').host; } catch { return ''; } })();
   try {
     await startup;
     const { briefCloudToken } = await chrome.storage.local.get('briefCloudToken');
     if (!briefCloudToken) {
+      await reportLog({ ok: false, error: 'Brief isn’t connected: open the extension to sign in', page });
       await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
       return;
     }
-    let d = await getDraft();
-    if (!d) { d = emptyDraft(); await setDraft(d); }
-    await chrome.tabs.create({
-      url: chrome.runtime.getURL(`replay.html#at=${Date.now()}&pick=${encodeURIComponent(d.id)}`),
-      ...(tab?.id != null ? { openerTabId: tab.id } : {}),
-    });
+    if (!tab?.url) return;
+    // Only Replay sites are recorded.
+    if (!(await isWatched(tab.url))) {
+      await reportLog({ ok: false, error: `${page || 'This page'} isn’t recorded: add it under Settings, Replay`, page });
+      iconResult(false);
+      return;
+    }
+    const at = Date.now();
+    const draftId = genId();
+    const { autoReports = {} } = await chrome.storage.local.get('autoReports');
+    autoReports[draftId] = { at, tabId: tab.id, page };
+    await chrome.storage.local.set({ autoReports });
+    iconBusy(true);
+
+    // everything recorded so far, in the buffer
+    const { replayLiveTabs = [], replayFocus = [] } = await chrome.storage.session.get(['replayLiveTabs', 'replayFocus']);
+    await Promise.all(replayLiveTabs.map((id) => Promise.race([
+      chrome.tabs.sendMessage(id, { type: 'REPLAY_FLUSH' }, { frameId: 0 }).catch(() => {}),
+      new Promise((r) => setTimeout(r, 1500)),
+    ])));
+    await ensureOffscreenDocument();
+    await bumpUploadsPending(1);
+    try {
+      await askOffscreen({ type: 'AUTO_REPORT_BUILD', draftId, at, focus: replayFocus });
+    } catch (err) {
+      await bumpUploadsPending(-1);
+      await dropAutoReport(draftId);
+      iconBusy(false);
+      iconResult(false);
+      await reportLog({ ok: false, error: 'Couldn’t start the report', detail: String(err?.message || err), page });
+    }
   } catch (err) {
-    console.warn('[brief/background] replay menu click:', err);
+    iconBusy(false);
+    iconResult(false);
+    await reportLog({ ok: false, error: 'Something went wrong', detail: String(err?.message || err), page });
   }
+}
+
+async function dropAutoReport(draftId) {
+  const { autoReports = {} } = await chrome.storage.local.get('autoReports');
+  const entry = autoReports[draftId];
+  delete autoReports[draftId];
+  await chrome.storage.local.set({ autoReports });
+  return entry;
+}
+
+/** The offscreen document built it: file it as a draft, on its own. */
+async function autoReportBuilt(draftId, result) {
+  const entry = await dropAutoReport(draftId);
+  if (!entry) return;
+  iconBusy(false);
+  if (!result?.ok) {
+    iconResult(false);
+    await reportLog({ ok: false, error: result?.error === 'Nothing recorded in the last minute' ? 'Nothing was recorded in the last minute' : 'Couldn’t build the report', detail: result?.error, page: entry.page });
+    return;
+  }
+  const d = { ...emptyDraft(), id: draftId, createdAt: entry.at, autoReport: true, replay: result.replay };
+  const res = await fileDraftObject(d, 'draft');
+  iconResult(res.ok);
+  await reportLog(res.ok
+    ? { ok: true, page: entry.page, detail: result.renderError ? `filed without video: ${result.renderError}` : `${result.suspects} suspect(s)` }
+    : { ok: false, error: 'Couldn’t file the draft', detail: res.error, page: entry.page });
+}
+
+chrome.commands?.onCommand.addListener(async (command, tab) => {
+  if (command !== 'report-now') return;
+  const active = tab?.id != null ? tab : (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+  await startAutoReport(active);
+});
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === 'brief-report') await startAutoReport(tab);
 });
 
 // ---------- Draft badge ----------
@@ -296,6 +443,12 @@ const startup = migrateInboxToDraft()
   .then(clearStaleFiling)
   .then(pruneOrphanBlobs)
   .then(() => resumeFiling())
+  .then(async () => {
+    const { autoReports = {} } = await chrome.storage.local.get('autoReports');
+    const live = Object.fromEntries(Object.entries(autoReports).filter(([, r]) => Date.now() - r.at < 10 * 60_000));
+    await chrome.storage.local.set({ autoReports: live });
+    for (let i = 0; i < Object.keys(live).length; i++) iconBusy(true);
+  })
   .then(() => refreshBadge())
   .catch(() => {});
 
@@ -765,7 +918,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (editorTab != null) await chrome.tabs.remove(editorTab).catch(() => {});
             if (message.backTo != null) await chrome.tabs.update(message.backTo, { active: true }).catch(() => {});
             if (message.windowId != null) await chrome.windows.update(message.windowId, { focused: true }).catch(() => {});
-            setTimeout(() => {
+            // (a one-click report came from the page, not the popup: it stays shut)
+            if (message.popup !== false) setTimeout(() => {
               chrome.action.openPopup(message.windowId != null ? { windowId: message.windowId } : undefined).catch(() => {});
             }, 200);
           }, Math.max(0, Number(message.delay) || 0));
@@ -776,6 +930,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // The offscreen recorder ran well past the cap with no bar to stop it
           // (the recorded tab never came back). Stop + save from here.
           await stopRecordingFromBackground();
+          sendResponse({ ok: true });
+          break;
+
+        case 'REPORT_NOW': {
+          // One-click report for a given tab (the e2e suite sends this; a
+          // popup button could too).
+          const tab = message.tabId != null ? await chrome.tabs.get(message.tabId).catch(() => null) : null;
+          await startAutoReport(tab);
+          sendResponse({ ok: true });
+          break;
+        }
+
+        case 'AUTO_REPORT_BUILT':
+          await startup;
+          await autoReportBuilt(message.draftId, message.result);
           sendResponse({ ok: true });
           break;
 

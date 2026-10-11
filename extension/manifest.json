@@ -71,5 +71,14 @@
         "<all_urls>"
       ]
     }
-  ]
+  ],
+  "commands": {
+    "report-now": {
+      "suggested_key": {
+        "default": "Alt+Shift+B",
+        "mac": "Alt+Shift+B"
+      },
+      "description": "Let AI draft this bug"
+    }
+  }
 }

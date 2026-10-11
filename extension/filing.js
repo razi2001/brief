@@ -78,6 +78,7 @@ function buildOverrides(d) {
     includeVideo: !!d.includeVideo,
     transcript: d.transcript || '',
     description: d.description || '',
+    ...(d.autoReport ? { autoReport: true } : {}),
     extra: (d.extra || []).filter((p) => (p.key || '').trim() || (p.value || '').trim()),
     screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
     ...(d.replay ? { includeReplay: d.replay.attach !== false, replayNote: d.replay.note || '' } : {}),
@@ -220,6 +221,17 @@ async function fileOne(d, mode) {
 // result lands behind the popup's cloud button.
 //
 // Resolves { ok, queued } or { ok: false, error }.
+/**
+ * File a draft that was never the popup's (a one-click report): handed off
+ * the same way, the current draft untouched.
+ */
+export async function fileDraftObject(d, mode = 'draft') {
+  if (!isReadyDraft(d)) return { ok: false, error: 'Nothing to file' };
+  await addFilingDraft(d, mode);
+  fileInBackground(d, mode).catch((err) => console.warn('[brief/filing] background filing:', err));
+  return { ok: true, queued: true };
+}
+
 export async function fileDraft(mode) {
   const d = await getDraft();
   if (!d) return { ok: false, error: 'Nothing to file' };

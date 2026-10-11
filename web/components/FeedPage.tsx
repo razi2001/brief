@@ -27,14 +27,7 @@ export default async function FeedPage({ view }: { view: "tickets" | "drafts" })
   const [ctx, { data: activeData }] = await Promise.all([
     view === "tickets" ? getTrackerContext() : Promise.resolve(null),
     // Archived briefs are treated as deleted - never fetched, never shown.
-    admin
-      .from("briefs")
-      .select(BRIEF_COLUMNS)
-      .eq("user_id", userId)
-      .is("archived_at", null)
-      .filter("status", view === "drafts" ? "eq" : "neq", "drafted")
-      .order("created_at", { ascending: false })
-      .limit(40),
+    feedQuery(admin, userId, view),
   ]);
   const active = (activeData ?? []) as BriefRow[];
 
@@ -53,4 +46,18 @@ export default async function FeedPage({ view }: { view: "tickets" | "drafts" })
   return (
     <BriefsFeed view={view} briefs={dashboardBriefs} counts={counts} isProcessing={isProcessing} />
   );
+}
+
+/**
+ * One list's briefs. A draft being written up is "processing" like a ticket
+ * being filed; only filing claims a start time (or already has a body). So
+ * Drafts takes it from the first second, and Tickets never shows it.
+ */
+function feedQuery(admin: ReturnType<typeof createAdminSupabase>, userId: string, view: "tickets" | "drafts") {
+  const q = admin.from("briefs").select(BRIEF_COLUMNS).eq("user_id", userId).is("archived_at", null);
+  const scoped =
+    view === "drafts"
+      ? q.or("status.eq.drafted,and(status.eq.processing,filing_started_at.is.null,ticket_body.is.null)")
+      : q.neq("status", "drafted").or("status.neq.processing,filing_started_at.not.is.null,ticket_body.not.is.null");
+  return scoped.order("created_at", { ascending: false }).limit(40);
 }

@@ -984,6 +984,16 @@ resetBtn?.addEventListener('click', openReset);
     const { failedDraft } = await chrome.storage.local.get('failedDraft');
     if (failedDraft) showFailedDraft(failedDraft);
   } catch {}
+  // A one-click report (shortcut / right-click) that didn't go through: say
+  // why, once - the toolbar icon could only show "!".
+  try {
+    const { autoReportLog = [], autoReportSeen = 0 } = await chrome.storage.local.get(['autoReportLog', 'autoReportSeen']);
+    const last = autoReportLog[0];
+    if (last && !last.ok && last.at > autoReportSeen && Date.now() - last.at < 30 * 60_000) {
+      showInlineError(`AI draft didn’t work: ${last.error}${last.detail ? ` (${last.detail})` : ''}`);
+    }
+    if (last) await chrome.storage.local.set({ autoReportSeen: last.at });
+  } catch {}
   if (draft.fileError && !draft.filing) {
     showInlineError(`Couldn’t create brief: ${draft.fileError}`);
     await persist((d) => { d.fileError = null; });

@@ -29,8 +29,10 @@ export interface BriefJson {
   recordingMarks?: Array<{ t: number; note?: string }>;
   keyframes?: Array<{ file?: string; timestamp?: number }>;
   recording?: { file?: unknown };
-  replay?: ReplaySummary & { frames?: ReplayFrame[]; marks?: Array<{ t: number; note?: string }> };
+  replay?: ReplaySummary & { frames?: ReplayFrame[]; marks?: Array<{ t: number; note?: string; auto?: boolean }> };
   techLogs?: VideoLogs[];
+  /** One-click report: nothing typed, the replay and what Brief noticed in it are all there is. */
+  autoReport?: boolean;
   [key: string]: unknown;
 }
 
@@ -53,6 +55,8 @@ export interface BriefOverrides {
   recordingMarks?: Array<{ t: number; note?: string }>;
   /** A trimmed recording: the part of the original capture it keeps (ms). */
   recordingTrim?: { a: number; b: number };
+  /** One-click report from the extension (shortcut / right-click). */
+  autoReport?: boolean;
 }
 
 /** Overlay the user's latest edits onto parsed brief.json without mutating it.
@@ -66,6 +70,7 @@ export function mergeBriefOverrides(json: unknown, overrides: BriefOverrides | n
   if (Array.isArray(overrides.screenshots)) base.screenshots = overrides.screenshots;
   if (typeof overrides.includeReplay === "boolean") base.includeReplay = overrides.includeReplay;
   if (typeof overrides.replayNote === "string") base.replayNote = overrides.replayNote;
+  if (overrides.autoReport === true) base.autoReport = true;
   if (Array.isArray(overrides.recordingMarks)) {
     base.recordingMarks = overrides.recordingMarks
       .filter((m) => m && typeof m.t === "number" && isFinite(m.t) && m.t >= 0)

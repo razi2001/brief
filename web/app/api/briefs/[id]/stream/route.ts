@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { loadBriefInput, draftBriefById } from "@/lib/agent/run-processing";
 import { briefPhase } from "@/lib/brief-filing";
+import { draftJob, holdDraftJob, runDraftJob } from "@/lib/agent/draft-jobs";
 import { buildStreamMessages, parseDraftMarkdown } from "@/lib/agent/compose-draft";
 import { agentModel, chatParams } from "@/lib/agent/model";
 import { getUserSettings } from "@/lib/settings";
@@ -37,6 +38,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // what tells the two apart.
   if (briefPhase(brief) !== "writing") return new Response(null, { status: 204 });
 
+  // Already being written in the background (the /draft route starts it the
+  // moment the extension hands it over): wait for that run, then let the page
+  // refresh onto the finished draft - never a second model run.
+  const running = draftJob(id);
+  if (running) {
+    await Promise.race([running, new Promise((r) => setTimeout(r, 120_000))]);
+    return new Response(null, { status: 204 });
+  }
+
   const { ticketGuidance, role } = await getUserSettings(userId);
   const guidance = [role ? `The reporter's role: ${role}.` : "", ticketGuidance].filter(Boolean).join("\n");
 
@@ -45,7 +55,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     ({ input } = await loadBriefInput(admin, brief.storage_prefix as string, {}));
   } catch {
     after(async () => {
-      await draftBriefById(userId, id).catch(() => {});
+      await runDraftJob(id, () => draftBriefById(userId, id));
     });
     return new Response(null, { status: 204 });
   }
@@ -79,6 +89,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .is("filing_started_at", null);
   };
 
+  // This write runs here, inline: a background one mustn't start alongside it.
+  const release = holdDraftJob(id);
   const stream = new ReadableStream({
     async start(controller) {
       let full = "";
@@ -99,6 +111,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         // Aborted (client left) or a model error - don't persist a partial; the
         // after() net below guarantees a write.
       } finally {
+        release();
         try {
           controller.close();
         } catch {
@@ -115,7 +128,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       .eq("id", id)
       .maybeSingle();
     if (data && briefPhase(data) === "writing") {
-      await draftBriefById(userId, id).catch(() => {});
+      await runDraftJob(id, () => draftBriefById(userId, id));
     }
   });
 

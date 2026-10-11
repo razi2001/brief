@@ -316,7 +316,7 @@
   await evalIn(P.sid, `document.querySelector('[data-add]').click()`); await sleep(500);
   const ch2 = await evalIn(P.sid, `document.querySelector('#chRep .cs')?.textContent`);
   const mf = await W(`chrome.runtime.getManifest()`);
-  check('no shortcut any more; right-click menu permission in place', ch2 === 'The last 60 seconds' && !mf.commands && mf.permissions.includes('contextMenus'), JSON.stringify({ ch2, commands: mf.commands || null }));
+  check('no replay shortcut (only one-click report); right-click menu permission in place', ch2 === 'The last 60 seconds' && Object.keys(mf.commands || {}).join() === 'report-now' && mf.permissions.includes('contextMenus'), JSON.stringify({ ch2, commands: mf.commands || null }));
   await shot(P.sid, 'chooser-replay.png');
   await W(`chrome.storage.local.set({ draft: ${JSON.stringify(keep)} })`);
   await b.send('Page.reload', {}, P.sid); await sleep(1800);

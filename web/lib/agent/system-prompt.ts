@@ -40,7 +40,7 @@ WRITE IT LIKE A TEAMMATE FILED IT FROM SCRATCH
   - For a feature request: the desired behaviour and the reason it matters.
   - When the TECHNICAL CAPTURE shows a failed or slow call, or a console error, that explains what the reporter saw, name it in one line in the summary or under Actual (method, path, status, duration - e.g. "GET /api/test-cases took 7.9 s"). Do NOT list the calls, paste logs, or write a technical/logs/network section: the exact capture is appended to the ticket automatically, folded at the bottom.
   - Plain punctuation only: never use an em-dash or en-dash. Use periods, commas, colons, or parentheses instead. (Hyphens in compound words are fine.)
-  - **Context** - ALWAYS include the page URL when one is present (and the browser if relevant), e.g. a short "Environment" or "Context" line. A teammate must be able to see where this happened.
+  - **Context** - ALWAYS include the page URL when one is present (and the browser if relevant), e.g. a short "Environment" or "Context" line. A teammate must be able to see where this happened. Write it as a Markdown link with the page title as its text - e.g. "**Context:** [Test Cases - Thunders App](https://app.thunders.ai/#/test-projects/…/test-cases)" - never a bare pasted URL.
   - Do NOT narrate the screenshots in the body, and do NOT write an "Evidence" heading or section yourself - the system appends one, so writing your own produces the heading twice with the same caption repeated under it. Each screenshot gets its own caption via screenshot_notes and appears under that appended section. Reference them in prose only when it genuinely helps the story, never by file name.
 - Keep it tight and skimmable. A short, correct ticket beats a long speculative one.
 

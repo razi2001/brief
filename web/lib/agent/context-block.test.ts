@@ -118,3 +118,32 @@ describe("buildContextBlock: key moments", () => {
     expect(out).toContain("- 0:04 into the replay");
   });
 });
+
+describe("one-click reports", () => {
+  const replay = {
+    steps: ["Opened Checkout", "Clicked Pay"],
+    marks: [
+      { t: 4200, note: "POST /api/orders failed (500)", auto: true },
+      { t: 9000, note: "the total is wrong" },
+    ],
+  };
+
+  it("lists what Brief noticed as SUSPECTS, apart from the reporter's own marks", () => {
+    const block = buildContextBlock({ replay });
+    expect(block).toContain("SUSPECTS");
+    expect(block).toContain("0:04 into the replay: POST /api/orders failed (500)");
+    expect(block).toMatch(/KEY MOMENTS[^]*0:09 into the replay: the total is wrong/);
+    expect(block.split("POST /api/orders failed").length - 1).toBe(1);
+  });
+
+  it("tells the agent to find the bug, and never invent one, when nothing was typed", () => {
+    const block = buildContextBlock({ autoReport: true, replay });
+    expect(block).toContain("ONE-CLICK REPORT");
+    expect(block).toMatch(/do NOT invent a bug/);
+  });
+
+  it("a typed description wins: no one-click instruction then", () => {
+    const block = buildContextBlock({ autoReport: true, description: "Pay button does nothing", replay });
+    expect(block).not.toContain("ONE-CLICK REPORT");
+  });
+});

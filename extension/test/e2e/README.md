@@ -7,6 +7,8 @@ driven over the DevTools protocol, against a small test site served locally.
 |---|---|
 | `editor` | the editor for recordings, replays and screenshots (trim, crop, voice, marks, Space), Replay recording across tabs, saving a replay and its key-moment stills, the replay rendered to a video, technical logs (network calls with timings and trace ids, masked bodies, console), blob: images kept, filing uploads |
 | `recording-logs` | a recording keeps its event log when the service worker is recycled mid-recording |
+| `filing-restart` | a ticket filed in the background survives the worker being shut down mid-filing: its files are kept, it resumes, it's filed once |
+| `auto-report` | "Let AI draft this bug": the last minute becomes a draft with nothing opened - suspects found (a failed call), stills taken there, uploaded, the toolbar icon says it; an unrecorded page is explained in the popup |
 
 ## Run
 
@@ -17,6 +19,10 @@ CHROME_PATH=<the chrome binary it printed> node extension/test/e2e/run.mjs
 
 `node extension/test/e2e/run.mjs editor` runs one suite. Screenshots and the
 rendered replay video are written to `$E2E_OUT` (a temp folder by default).
+
+The suites intercept every call to Brief Cloud (nothing leaves the machine).
+`node --check` on a `.js` file misses syntax errors in these ES modules: check a
+`.mjs` copy, or just run the suites.
 
 Branded Chrome (137+) ignores unpacked extensions loaded this way: use Chrome
 for Testing.

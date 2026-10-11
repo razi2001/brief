@@ -21,6 +21,14 @@ export function buildContextBlock(json: unknown): string {
   // finally console/network errors as SUPPORTING context only - never the headline.
   const sections: string[] = [];
 
+  // One key press, nothing typed: the bug has to be found, not just written up.
+  if (j.autoReport === true && !(typeof j.description === "string" && j.description.trim())) {
+    sections.push(
+      "ONE-CLICK REPORT (the reporter pressed one key the moment something went wrong and typed nothing): work out what went wrong from the SUSPECTS, the replay stills and the technical capture. " +
+        "Write the ticket about the most likely failure, and say what it was in the title. If nothing clearly failed, do NOT invent a bug: title it after what the reporter was doing (e.g. \"Checkout: unexpected behaviour after applying a coupon\"), describe the steps and what is visible, and say plainly that no error was captured.",
+    );
+  }
+
   if (typeof j.description === "string" && j.description.trim()) {
     sections.push(
       "REPORTER'S DESCRIPTION (the primary signal - this is what the ticket is about; everything else corroborates it):\n" +
@@ -66,8 +74,17 @@ export function buildContextBlock(json: unknown): string {
   for (const m of Array.isArray(j.recordingMarks) ? j.recordingMarks : []) {
     if (typeof m?.t === "number") markLines.push(`- ${clockOf(m.t)} into the recording${m.note?.trim() ? `: ${String(m.note).trim().slice(0, 300)}` : ""}`);
   }
+  const suspectLines: string[] = [];
   for (const m of Array.isArray(j.replay?.marks) ? j.replay.marks : []) {
-    if (typeof m?.t === "number") markLines.push(`- ${clockOf(m.t)} into the replay${m.note?.trim() ? `: ${String(m.note).trim().slice(0, 300)}` : ""}`);
+    if (typeof m?.t !== "number") continue;
+    const line = `- ${clockOf(m.t)} into the replay${m.note?.trim() ? `: ${String(m.note).trim().slice(0, 300)}` : ""}`;
+    (m.auto ? suspectLines : markLines).push(line);
+  }
+  if (suspectLines.length) {
+    sections.push(
+      "SUSPECTS (found automatically in the replay - failed calls, errors, repeated or dead clicks, error text on the page; the stills labelled \"Brief noticed\" are at these times). Likely where it broke, but verify each against the stills and the capture; ignore one that doesn't fit:\n" +
+        suspectLines.join("\n"),
+    );
   }
   if (markLines.length) {
     sections.push(

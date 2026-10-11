@@ -75,3 +75,10 @@ describe("a trimmed recording's event log", () => {
     expect(trimEvents(events, { a: 0, b: 1e9 })).toEqual(events);
   });
 });
+
+describe("autoReport override", () => {
+  it("marks a one-click report, and only when set", () => {
+    expect(mergeBriefOverrides({}, { autoReport: true }).autoReport).toBe(true);
+    expect(mergeBriefOverrides({}, {}).autoReport).toBeUndefined();
+  });
+});

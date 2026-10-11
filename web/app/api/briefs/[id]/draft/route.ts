@@ -1,10 +1,12 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { randomBytes } from "crypto";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { mergeBriefOverrides } from "@/lib/agent/overrides";
 import { briefPhase } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
+import { draftBriefById } from "@/lib/agent/run-processing";
+import { runDraftJob } from "@/lib/agent/draft-jobs";
 
 export const maxDuration = 300;
 
@@ -96,6 +98,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     })
     .eq("id", id)
     .eq("user_id", userId);
+
+  // Write it now, in the background. The draft used to be written only when
+  // its page was opened (the page streamed it) - fine when saving a draft
+  // opened that page, but the extension hands drafts off now and opens
+  // nothing, so a draft sat "writing" until someone happened to look.
+  after(async () => {
+    await runDraftJob(id, () => draftBriefById(userId, id));
+  });
 
   return jsonCors({ queued: true, shareId });
 }

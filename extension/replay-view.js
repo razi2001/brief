@@ -10,6 +10,7 @@
 // stretches are always squeezed out; unwatched tabs are never recorded.
 
 import { readAll } from './replay-store.js';
+import { completeFocus, stretches, keyMoments } from './replay-moments.js';
 import { buildTimeline, skipIdle, cutTimeline, inlineBlobImages } from './replay-merge.js';
 import { putFile, getFile, deleteFile, replayKey, replayVoiceKey, replayFramesKey } from './filestore.js';
 import { updateDraft } from './draft.js';
@@ -20,7 +21,6 @@ import { clock } from './editor/timeline.js';
 
 const WINDOW_MS = 60_000;
 const THUMBS = 8;
-const host = (url) => { try { return new URL(url).host; } catch { return url || ''; } };
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
 const Player = () => window.rrwebPlayer?.default || window.rrwebPlayer?.Player;
 
@@ -28,38 +28,6 @@ async function flushLiveTabs() {
   const { replayLiveTabs = [] } = await chrome.storage.session.get('replayLiveTabs');
   await Promise.all(replayLiveTabs.map((tabId) => withTimeout(
     chrome.tabs.sendMessage(tabId, { type: 'REPLAY_FLUSH' }, { frameId: 0 }).catch(() => {}), 1500)));
-}
-
-// The log may start after the window does; guess the tab in front before its
-// first entry from where the recorded activity was.
-function completeFocus(focus, tabs, start) {
-  const log = [...focus].sort((a, b) => a.t - b.t);
-  if (log.length && log[0].t <= start) return log;
-  const until = log.length ? log[0].t : Infinity;
-  let best = null;
-  let bestN = 0;
-  for (const [tabId, t] of tabs) {
-    const n = t.events.filter((e) => e.timestamp >= start && e.timestamp < until).length;
-    if (n > bestN) { best = tabId; bestN = n; }
-  }
-  if (best == null && log.length) best = log[0].tabId;
-  return best == null ? log : [{ t: start, tabId: best }, ...log];
-}
-
-// Where the replay went, for the agent's steps (replay.json `chips`): same-site
-// runs collapse; page loads and glances (< 1s) at other tabs are not stops.
-function stretches(segments) {
-  const out = [];
-  for (const s of segments) {
-    if (!s.recorded && (s.loading || s.b - s.a < 1000)) { if (out.length) out[out.length - 1].b = s.b; continue; }
-    const label = s.recorded ? host(s.url) : 'Unwatched tab';
-    const last = out[out.length - 1];
-    if (last && last.label === label && last.recorded === s.recorded) { last.b = s.b; continue; }
-    out.push({ ...s, label });
-  }
-  while (out.length && !out[0].recorded) out.shift();
-  while (out.length && !out[out.length - 1].recorded) out.pop();
-  return out;
 }
 
 function replayAdapter(stage, events) {
@@ -75,7 +43,7 @@ function replayAdapter(stage, events) {
   const P = Player();
   const player = new P({
     target: box,
-    props: { events, width: size.width, height: size.height, autoPlay: false, showController: false, skipInactive: false, mouseTail: false },
+    props: { events, width: size.width, height: size.height, autoPlay: false, showController: false, skipInactive: false, mouseTail: false, showWarning: false },
   });
   const rep = player.getReplayer();
   const duration = player.getMetaData().totalTime;
@@ -119,7 +87,7 @@ function liveCells(events, duration) {
     make: (cell, i, n) => setTimeout(() => {
       const r = cell.getBoundingClientRect();
       const P = Player();
-      const p = new P({ target: cell, props: { events, width: Math.max(20, r.width), height: Math.max(20, r.height), autoPlay: false, showController: false, mouseTail: false } });
+      const p = new P({ target: cell, props: { events, width: Math.max(20, r.width), height: Math.max(20, r.height), autoPlay: false, showController: false, mouseTail: false, showWarning: false } });
       p.goto(((i + 0.5) / n) * duration, false);
     }, 150 + i * 120),
   };
@@ -145,31 +113,6 @@ async function grabPoster(box, crop, maxW = 1200) {
   }
 }
 
-// The moments the agent should see (source ms from the start): every mark the
-// reporter placed first, then - up to four in all - the first page as it
-// opens, the last page it went to, just after the last click, and where the
-// kept part ends. Chrome lets an extension screenshot twice a second, so
-// every still costs half a second of the user's time.
-function keyMoments({ a, b }, segments, t0, clicks, marks = []) {
-  const pages = stretches(segments)
-    .filter((s) => s.recorded && s.a - t0 < b && s.b - t0 > a)
-    .map((s) => ({ t: Math.max(a, s.a - t0) + 400, note: `Opened ${s.title || s.label}` }));
-  const lastClick = clicks.filter((c) => c >= a && c < b).pop();
-  const picks = [pages[0], pages.length > 1 ? pages[pages.length - 1] : null,
-    lastClick != null ? { t: lastClick + 350, note: 'Just after the last click' } : null];
-  const marked = marks.filter((m) => m.t >= a && m.t <= b).slice(0, 6)
-    .map((m) => ({ t: m.t, note: m.note ? `Marked by the reporter: ${m.note}` : 'Marked by the reporter', marked: true }));
-  const room = Math.max(0, 3 - marked.length);
-  const out = [];
-  for (const m of picks.filter(Boolean).sort((x, y) => x.t - y.t)) {
-    if (out.length >= room) break;
-    const clear = [...out, ...marked].every((o) => Math.abs(o.t - m.t) >= 1000);
-    if (m.t < b - 900 && clear) out.push(m);
-  }
-  const all = [...marked, ...out].sort((x, y) => x.t - y.t);
-  if (!marked.some((m) => b - m.t < 900)) all.push({ t: Math.max(a, b - 80), note: 'Where it ends' });
-  return all;
-}
 
 // While the stills are taken: everything but the picture fades back behind a
 // label and a progress bar, so the jumps read as a step, not a glitch. The

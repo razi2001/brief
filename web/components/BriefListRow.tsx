@@ -47,6 +47,7 @@ function initial(name?: string): string {
  */
 export default function BriefListRow({
   brief: b,
+  view = "tickets",
   onArchive,
   onArchiveFailed,
   leaving = false,
@@ -55,6 +56,8 @@ export default function BriefListRow({
   onToggleSelect,
 }: {
   brief: DashboardBrief;
+  /** The list it's in: in Drafts a processing brief is being written, not filed. */
+  view?: "tickets" | "drafts";
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
   leaving?: boolean;
@@ -74,7 +77,8 @@ export default function BriefListRow({
   // tickets; filed rows also get a "open in tracker" action. Old filed briefs
   // without a share link fall back to opening the tracker directly.
   // the brief opens inside the app: drafts under Drafts, the rest under Tickets
-  const briefHref = b.share_id ? `/${isDraft ? "drafts" : "tickets"}/${b.share_id}` : undefined;
+  const writing = isProcessing && view === "drafts";
+  const briefHref = b.share_id ? `/${isDraft || writing ? "drafts" : "tickets"}/${b.share_id}` : undefined;
   // A ticket the tracker no longer has: nothing to open there, so the row and
   // its id chip fall back to the Brief page.
   const trackerHref = ti?.deleted ? undefined : ti?.url || b.ticket_url || undefined;
@@ -228,7 +232,7 @@ export default function BriefListRow({
       <div className={`min-w-0${dim}`}>
         {isProcessing ? (
           <StatusBadge compact color="#dd6936">
-            Filing <Elapsed since={b.updated_at || b.created_at} />
+            {writing ? "Writing" : "Filing"} <Elapsed since={b.updated_at || b.created_at} />
           </StatusBadge>
         ) : isFailed ? (
           <StatusBadge compact color="#c62828" title="Didn't file">

@@ -592,6 +592,7 @@ export default function BriefsFeed({
                   <BriefListRow
                     key={b.id}
                     brief={b}
+                    view={view}
                     onArchive={onArchive}
                     onArchiveFailed={onArchiveFailed}
                     leaving={leaving.has(b.id)}

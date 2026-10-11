@@ -152,6 +152,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
           break;
         }
+        case 'AUTO_REPORT_BUILD':
+          // One-click report: rebuild the last minute, find what looks wrong,
+          // render the video and its stills - no page on screen. ACK now; the
+          // result goes back as AUTO_REPORT_BUILT (any worker can take it).
+          sendResponse({ ok: true });
+          renderChain = renderChain.then(async () => {
+            let result;
+            try {
+              const { buildAutoReport } = await import('./auto-report.js');
+              result = await buildAutoReport(message);
+            } catch (err) {
+              log('auto report failed:', err?.message || err);
+              result = { ok: false, error: String(err?.message || err) };
+            }
+            chrome.runtime.sendMessage({ type: 'AUTO_REPORT_BUILT', draftId: message.draftId, result }).catch(() => {});
+            chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
+          });
+          break;
         case 'RENDER_REPLAY':
           // Turn a saved replay into a video, in the background. ACK now; the
           // result lands in IndexedDB (filing waits for it) and is reported

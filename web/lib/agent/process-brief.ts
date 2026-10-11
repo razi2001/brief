@@ -385,7 +385,7 @@ export async function processBrief(
       "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the URL, and finally the console/network errors as supporting detail. " +
       "Build a single coherent account of what the user did, what they expected, and what actually happened. The description defines what the ticket is about; the screenshots/frames are ground truth for what is on screen; treat the narration as a rough draft and the console/network errors as extra context, not the headline. " +
       "Account for EVERY screenshot the reporter attached: explain what each one shows and weave in the reporter's note for it, so the evidence is described in the ticket, not just attached. Likewise fold any reporter-provided details (the structured fields) into the body. " +
-      "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present.",
+      "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present, as a Markdown link with the page title as its text, never a bare URL.",
   });
 
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);

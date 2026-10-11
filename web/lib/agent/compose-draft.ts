@@ -120,7 +120,7 @@ export async function composeDraftTicket(
       (frameCount ? `the ${frameCount} time-ordered screen frames, ` : "") +
       "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the console errors, and the URL. " +
       "Build a single coherent account of what the user did, what they expected, and what actually happened; resolve disagreements in favor of the screenshots/console/events over the narration. " +
-      "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present.",
+      "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present, as a Markdown link with the page title as its text, never a bare URL.",
   });
 
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);

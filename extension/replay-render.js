@@ -182,7 +182,10 @@ async function encodeVoice(blob, offsetMs, endMs, muxer) {
  * voiceBlob: its voice-over (webm/opus) or null.
  * Resolves a video/webm Blob.
  */
-export async function renderReplay(payload, voiceBlob, { onProgress } = {}) {
+// `stillsAt` (ms into the replay): pictures taken in the same pass, as JPEG
+// data: URLs, handed to `onStill(index, dataUrl)` - the one-click report gets
+// its key-moment stills this way, with no page on screen.
+export async function renderReplay(payload, voiceBlob, { onProgress, stillsAt = [], onStill } = {}) {
   const started = performance.now();
   await loadLibs();
   const events = payload.events;
@@ -199,9 +202,12 @@ export async function renderReplay(payload, voiceBlob, { onProgress } = {}) {
   stage.style.cssText = `position:absolute;left:0;top:0;width:${W}px;height:${H}px;overflow:hidden`;
   document.body.appendChild(stage);
   const Player = window.rrwebPlayer.default || window.rrwebPlayer;
+  // rrweb warns when a change points at a node outside its snapshot (normal
+  // for a buffer that starts mid-session): it skips it and goes on - and the
+  // warning lands in chrome://extensions as an error. Quiet.
   const player = new Player({
     target: stage,
-    props: { events, width: W, height: H, autoPlay: false, showController: false, skipInactive: false, mouseTail: false },
+    props: { events, width: W, height: H, autoPlay: false, showController: false, skipInactive: false, mouseTail: false, showWarning: false },
   });
   const rep = player.getReplayer();
   const total = player.getMetaData().totalTime;
@@ -238,6 +244,12 @@ export async function renderReplay(payload, voiceBlob, { onProgress } = {}) {
     let lastSig = -1;
     let started0 = false;
     let encoded = 0;
+    const pending = stillsAt.map((t, index) => ({ t, index })).sort((x, y) => x.t - y.t);
+    const takeStill = async (index) => {
+      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+      const url = await new Promise((resolve) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = () => resolve(null); fr.readAsDataURL(blob); });
+      if (url) onStill?.(index, url);
+    };
     for (let i = 0; i <= n; i++) {
       if (encError) throw encError;
       if (performance.now() - started > BUDGET_MS) throw new Error('took too long');
@@ -276,8 +288,11 @@ export async function renderReplay(payload, voiceBlob, { onProgress } = {}) {
       enc.encode(frame, { keyFrame: first || i % (FPS * 2) === 0 });
       encoded++;
       frame.close();
+      while (pending.length && pending[0].t <= t) await takeStill(pending.shift().index);
       onProgress?.(i / n);
     }
+    // moments at the very end: the last picture
+    while (pending.length) await takeStill(pending.shift().index);
     await enc.flush();
     if (withVoice) await encodeVoice(voiceBlob, payload.voice.offsetMs || 0, total, muxer);
     muxer.finalize();

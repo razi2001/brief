@@ -1,3 +1,4 @@
+import { cleanUrl } from "@/lib/clean-url";
 import { errorMessage } from "@/lib/errors";
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -119,6 +120,10 @@ export async function loadBriefInput(
   // The popup's edits (corrected transcript, per-shot notes, description, extra)
   // are authoritative over the capture-owned brief.json.
   const json = mergeBriefOverrides(rawJson, opts.overrides);
+  // Page addresses without their tracking parameters (_gl, _ga, utm_…): the
+  // agent copies them into the ticket, where they read as italic gibberish.
+  if (typeof json.pageUrl === "string") json.pageUrl = cleanUrl(json.pageUrl);
+  if (Array.isArray(json.events)) json.events = json.events.map((e) => (typeof e?.url === "string" ? { ...e, url: cleanUrl(e.url) } : e));
   // An attached replay (rrweb events) reaches the agent as plain steps (with
   // the URL at each), plus its stills and narration below.
   // A recording's capture events give the same details when there's no replay.
@@ -135,7 +140,7 @@ export async function loadBriefInput(
       if (!isTechEmpty(tech) && json.includeReplay !== false) (json.techLogs ??= [] as VideoLogs[]).push({ label: "Replay", td: tech });
       json.replay = {
         ...summarizeReplay(file),
-        frames: Array.isArray(file.frames) ? file.frames : [],
+        frames: Array.isArray(file.frames) ? file.frames.map((f: { url?: string | null }) => ({ ...f, url: cleanUrl(f?.url) })) : [],
         marks: Array.isArray(file.marks) ? file.marks : [],
       };
     } catch (e) {

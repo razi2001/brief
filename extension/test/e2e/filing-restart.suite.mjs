@@ -18,8 +18,13 @@
   const watchWorker = (sid) => b.send('Fetch.enable', { patterns: [{ urlPattern: APP + '/*' }, { urlPattern: 'https://up.test/*' }] }, sid).catch(() => {});
   b.on((m) => {
     if (m.method === 'Fetch.requestPaused') answer(m.sessionId, m.params);
-    if (m.method === 'Target.attachedToTarget' && m.params.targetInfo.type === 'service_worker' && m.params.targetInfo.url.includes(extId)) {
-      watchWorker(m.params.sessionId).then(() => b.send('Runtime.runIfWaitingForDebugger', {}, m.params.sessionId).catch(() => {}));
+    // Every new target waits for us (waitForDebuggerOnStart): the extension's
+    // (worker, offscreen renderer, pages) get their Brief calls answered here,
+    // then everything is let go - a target left waiting never runs.
+    if (m.method === 'Target.attachedToTarget') {
+      const sid = m.params.sessionId;
+      const ours = m.params.targetInfo.url.includes(extId);
+      (ours ? watchWorker(sid) : Promise.resolve()).then(() => b.send('Runtime.runIfWaitingForDebugger', {}, sid).catch(() => {}));
     }
   });
   await b.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });

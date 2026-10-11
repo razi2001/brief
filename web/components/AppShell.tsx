@@ -24,13 +24,17 @@ export default function AppShell({ children, headerRight, workspace, status, hid
   return (
     <div className="flex min-h-dvh flex-col text-ink sm:flex-row">
       <aside className="sidebar flex shrink-0 items-center gap-3 px-3 py-2.5 sm:sticky sm:top-0 sm:h-dvh sm:w-[248px] sm:flex-col sm:items-stretch sm:gap-0 sm:px-3 sm:py-4">
-        <Link href="/dashboard" className="flex items-center gap-2 rounded-lg px-2 py-1.5 no-underline transition-colors hover:bg-white/40">
-          <BrandMark size={30} />
-          <span className="font-display text-[1.875rem] leading-none text-ink">Brief</span>
+        {/* One brand block: the mark, the wordmark, and the workspace as a
+            quiet line under it (not a second logo). */}
+        <Link href="/dashboard" className="flex items-center gap-3 rounded-xl px-2 py-1.5 no-underline transition-colors hover:bg-white/40">
+          <BrandMark size={34} className="shrink-0" />
+          <span className="flex min-w-0 flex-col">
+            <span className="font-display text-[1.75rem] leading-[0.95] text-ink">Brief</span>
+            {workspace && <span className="hidden min-w-0 sm:block">{workspace}</span>}
+          </span>
         </Link>
-        {workspace && <div className="hidden sm:block">{workspace}</div>}
         {!hideNav && (
-          <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto sm:mt-6 sm:flex-none sm:overflow-visible">
+          <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto sm:mt-7 sm:flex-none sm:overflow-visible">
             <Nav />
           </div>
         )}
