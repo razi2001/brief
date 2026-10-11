@@ -1,8 +1,9 @@
+import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getUserId } from "@/lib/auth";
-import { getTrackerContext, attachTicketInfo, type BriefRow } from "@/lib/briefs-server";
+import { getTrackerContext, attachTicketInfoFast, type BriefRow } from "@/lib/briefs-server";
 import { providerName as providerLabelFor } from "@/lib/trackers/registry";
 import type { ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
@@ -44,11 +45,12 @@ export type ShareRow = {
 const SHARE_COLUMNS =
   "id, user_id, status, title, source_kind, created_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, ticket_body, filing_started_at, storage_prefix, ticket_provider";
 
-export async function loadBrief(shareId: string): Promise<ShareRow | null> {
+/** One read per request, shared by the page and its metadata. */
+export const loadBrief = cache(async (shareId: string): Promise<ShareRow | null> => {
   const admin = createAdminSupabase();
   const { data } = await admin.from("briefs").select(SHARE_COLUMNS).eq("share_id", shareId).maybeSingle();
   return (data as ShareRow | null) ?? null;
-}
+});
 
 type Asset = BriefAsset;
 
@@ -59,31 +61,33 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
     const { data } = await admin.storage.from("briefs").createSignedUrl(p, 3600);
     return data?.signedUrl ?? null;
   };
-  const assets: Asset[] = [];
-
-  const { data: shotList } = await admin.storage.from("briefs").list(`${prefix}/screenshots`);
-  let n = 0;
-  for (const o of (shotList ?? []).map((o) => o.name).sort()) {
-    const url = await sign(`${prefix}/screenshots/${o}`);
-    if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: `screenshots/${o}` });
-  }
-
-  const { data: rootList } = await admin.storage.from("briefs").list(prefix);
+  // Both listings at once, then every signature at once - one round trip
+  // each, not one per file.
+  const [{ data: shotList }, { data: rootList }] = await Promise.all([
+    admin.storage.from("briefs").list(`${prefix}/screenshots`),
+    admin.storage.from("briefs").list(prefix),
+  ]);
+  const shots = (shotList ?? []).map((o) => o.name).sort();
   const rootNames = new Set((rootList ?? []).map((o) => o.name));
-  if (rootNames.has("screenshot.png")) {
-    const url = await sign(`${prefix}/screenshot.png`);
-    if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: "screenshot.png" });
-  }
-  if (rootNames.has("recording.webm")) {
-    const url = await sign(`${prefix}/recording.webm`);
-    if (url) assets.push({ url, filename: `${idBase}-recording.webm`, kind: "video", path: "recording.webm" });
-  }
-  // The extension's replay (rrweb events + the edit), played in the page.
-  if (rootNames.has("replay.json")) {
-    const url = await sign(`${prefix}/replay.json`);
-    const voiceUrl = rootNames.has("replay-voice.webm") ? (await sign(`${prefix}/replay-voice.webm`)) ?? undefined : undefined;
-    if (url) assets.push({ url, filename: `${idBase}-replay.json`, kind: "replay", path: "replay.json", voiceUrl });
-  }
+  const has = (f: string) => rootNames.has(f);
+  const [shotUrls, legacyShot, recording, replay, voice] = await Promise.all([
+    Promise.all(shots.map((o) => sign(`${prefix}/screenshots/${o}`))),
+    has("screenshot.png") ? sign(`${prefix}/screenshot.png`) : null,
+    has("recording.webm") ? sign(`${prefix}/recording.webm`) : null,
+    // The extension's replay (rrweb events + the edit), played in the page.
+    has("replay.json") ? sign(`${prefix}/replay.json`) : null,
+    has("replay-voice.webm") ? sign(`${prefix}/replay-voice.webm`) : null,
+  ]);
+
+  const assets: Asset[] = [];
+  let n = 0;
+  shots.forEach((o, i) => {
+    const url = shotUrls[i];
+    if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: `screenshots/${o}` });
+  });
+  if (legacyShot) assets.push({ url: legacyShot, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: "screenshot.png" });
+  if (recording) assets.push({ url: recording, filename: `${idBase}-recording.webm`, kind: "video", path: "recording.webm" });
+  if (replay) assets.push({ url: replay, filename: `${idBase}-replay.json`, kind: "replay", path: "replay.json", voiceUrl: voice ?? undefined });
   return assets;
 }
 
@@ -186,10 +190,8 @@ function Frame({
  * Everything between (states, live tracker mirror, assistant) is shared.
  */
 export default async function BriefView({ shareId, section }: { shareId: string; section?: "tickets" | "drafts" }) {
-  const brief = await loadBrief(shareId);
+  const [brief, viewerId] = await Promise.all([loadBrief(shareId), getUserId()]);
   if (!brief) notFound();
-
-  const viewerId = await getUserId();
   const inApp = !!section;
 
   // The brief's real state - ticket_url wins over the status column, so a row
@@ -244,25 +246,46 @@ export default async function BriefView({ shareId, section }: { shareId: string;
   const withRail = isOwner;
   const railMode: ChatMode = writing ? "writing" : isDraft ? "ready" : filing ? "filing" : "filed";
 
-  // Which trackers the owner could export this draft to.
-  let connected: ProviderKey[] = [];
-  if (isOwner && isDraft) {
-    const ctx = await getTrackerContext();
-    connected = ctx.connected;
-  }
-
   const idBase = (brief.ticket_identifier || "brief").toLowerCase();
-  // No evidence while writing - a lone screenshot under a skeleton reads as
-  // broken (and signing URLs for a page that won't show them is waste).
-  const assets = inProgress ? [] : await loadMedia(brief.storage_prefix, idBase);
   const provider = providerOf(brief.ticket_url, brief.ticket_provider);
   const providerLabel = providerLabelFor(provider);
 
-  // Filed → mirror the tracker LIVE: title and status can change in Linear/Jira
-  // after filing (moved to "Duplicate", renamed, closed…). Fetch the current
-  // state using the OWNER's token (server-side, so it works for any viewer) and
-  // fall back to the stored snapshot if the tracker/token is unavailable.
-  // attachTicketInfo also writes the fresh snapshot back for the next load.
+  // Everything else this page needs, all at once:
+  //  - which trackers the owner could export this draft to;
+  //  - the evidence (none while writing - a lone screenshot under a skeleton
+  //    reads as broken, and signing URLs nobody will see is waste);
+  //  - filed → the ticket as the tracker has it NOW (title and status move
+  //    after filing: renamed, closed, "Duplicate"…), read with the OWNER's
+  //    token so it works for any viewer, time-boxed, falling back to the
+  //    stored snapshot (and writing the fresh one back for the next load).
+  const filedRow =
+    phase === "filed" && brief.ticket_identifier
+      ? ({
+          id: brief.id,
+          status: brief.status,
+          title: brief.title,
+          source_kind: brief.source_kind,
+          created_at: brief.created_at,
+          updated_at: null,
+          ticket_url: brief.ticket_url,
+          ticket_identifier: brief.ticket_identifier,
+          ticket_title: brief.ticket_title,
+          ticket_state_name: brief.ticket_state_name,
+          ticket_state_color: brief.ticket_state_color,
+          share_id: null,
+          error: null,
+          archived_at: null,
+          seq: null,
+          ticket_provider: brief.ticket_provider,
+        } satisfies BriefRow)
+      : null;
+  const [ctx, assets, liveRows] = await Promise.all([
+    isOwner && isDraft ? getTrackerContext() : Promise.resolve(null),
+    inProgress ? Promise.resolve([] as Asset[]) : loadMedia(brief.storage_prefix, idBase),
+    filedRow ? attachTicketInfoFast(brief.user_id, [filedRow], [provider], createAdminSupabase()) : Promise.resolve(null),
+  ]);
+  const connected: ProviderKey[] = ctx?.connected ?? [];
+
   let live: {
     title: string;
     stateName: string;
@@ -271,32 +294,8 @@ export default async function BriefView({ shareId, section }: { shareId: string;
     url?: string;
     deleted?: boolean;
   } | null = null;
-  if (phase === "filed" && brief.ticket_identifier) {
-    const row = {
-      id: brief.id,
-      status: brief.status,
-      title: brief.title,
-      source_kind: brief.source_kind,
-      created_at: brief.created_at,
-      updated_at: null,
-      ticket_url: brief.ticket_url,
-      ticket_identifier: brief.ticket_identifier,
-      ticket_title: brief.ticket_title,
-      ticket_state_name: brief.ticket_state_name,
-      ticket_state_color: brief.ticket_state_color,
-      share_id: null,
-      error: null,
-      archived_at: null,
-      seq: null,
-      ticket_provider: brief.ticket_provider,
-    } satisfies BriefRow;
-    const [merged] = await attachTicketInfo(
-      brief.user_id,
-      [row],
-      [provider],
-      1,
-      createAdminSupabase(),
-    );
+  {
+    const merged = liveRows?.[0];
     if (merged?.ticket) {
       live = {
         title: merged.ticket.title,

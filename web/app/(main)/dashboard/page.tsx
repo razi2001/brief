@@ -59,9 +59,16 @@ export default async function Dashboard() {
 
   // WAVE 2 - the leaderboard and the headline numbers, together. Best-effort:
   // no org, or an aggregate that fails, simply means less on the page.
-  const [boards, roi] = await Promise.all([
+  // The extension is set up once it holds a live pairing token - asked here
+  // too, rather than in a third round trip after these.
+  const [boards, roi, { count: tokens }] = await Promise.all([
     org ? getLeaderboards(org.key, userId, admin) : { month: [], all: [] },
     org ? getOrgRoi(org.key, admin) : getRoiFor([userId], admin),
+    admin
+      .from("extension_tokens")
+      .select("user_id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .is("revoked_at", null),
   ]);
 
   if (org) after(() => warmOrgMemberships(admin));
@@ -87,12 +94,6 @@ export default async function Dashboard() {
 
   if (!!ctx.user && !ctx.onboarded && filed.length === 0) redirect("/welcome");
 
-  // the extension is set up once it holds a live pairing token
-  const { count: tokens } = await admin
-    .from("extension_tokens")
-    .select("user_id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .is("revoked_at", null);
 
   return (
     <>
@@ -111,6 +112,7 @@ export default async function Dashboard() {
         org={org}
         roi={roi}
         boards={shownBoards}
+        quipSeed={new Date().getTime() % 9973}
       />
     </>
   );

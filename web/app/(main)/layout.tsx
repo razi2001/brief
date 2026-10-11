@@ -15,7 +15,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   return (
     <AppShell
       workspace={
-        <Suspense fallback={null}>
+        // A placeholder the size of the team line, so the nav below never
+        // jumps when the name arrives.
+        <Suspense fallback={<div className="mt-4 flex h-8 items-center gap-2.5 px-3"><span className="h-6 w-6 animate-pulse rounded-md bg-white/50" /><span className="h-3 w-24 animate-pulse rounded bg-white/50" /></div>}>
           <SidebarWorkspace />
         </Suspense>
       }

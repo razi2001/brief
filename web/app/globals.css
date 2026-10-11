@@ -418,6 +418,10 @@ a {
   display: inline-block;
   animation: status-swap 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+/* Content that arrives after the frame (the sidebar's team line) settles in. */
+.fade-in {
+  animation: status-swap 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 
 /* ── Ambient cloud background ───────────────────────────────────────── */
 

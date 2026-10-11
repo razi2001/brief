@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { PodiumEntry } from "@/lib/org-server";
 import Avatar from "./Avatar";
 import { Hatted } from "./PodiumHats";
@@ -83,33 +83,17 @@ const QUIPS: Record<1 | 2 | 3, string[]> = {
 };
 
 /**
- * A speech bubble that swaps to a new random line every 7-12 seconds, each
- * place on its own clock so they read like a conversation. The first line is
- * picked from the ticket count, so the server and the browser agree.
+ * A speech bubble with one line for this place. The line is picked per page
+ * load (the server sends the seed), so it changes when you come back, never
+ * while you're reading it - and the server and the browser agree on it.
  */
 function Quip({ rank, seed }: { rank: 1 | 2 | 3; seed: number }) {
   const lines = QUIPS[rank];
-  const [i, setI] = useState(seed % lines.length);
-  useEffect(() => {
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    let t: ReturnType<typeof setTimeout>;
-    const next = () => {
-      t = setTimeout(() => {
-        setI((cur) => (cur + 1 + Math.floor(Math.random() * (lines.length - 1))) % lines.length);
-        next();
-      }, 7000 + Math.random() * 5000);
-    };
-    next();
-    return () => clearTimeout(t);
-  }, [lines.length]);
+  const i = Math.abs(seed + rank * 7) % lines.length;
   const first = rank === 1;
   const tint = first ? "rgba(221,105,54,.1)" : "rgba(255,255,255,.85)";
   return (
-    <div
-      key={i}
-      className="podium-brag relative z-10 mb-2 flex flex-col items-center"
-      style={{ animationDelay: i === seed % lines.length ? `${900 - (3 - rank) * 200}ms` : "0ms" }}
-    >
+    <div className="podium-brag relative z-10 mb-2 flex flex-col items-center" style={{ animationDelay: `${900 - (3 - rank) * 200}ms` }}>
       <p
         className={`w-max rounded-2xl px-3 py-1.5 leading-relaxed ${
           first ? "max-w-[17rem] text-xs text-accent" : "max-w-[12rem] text-[11px] text-ink-2 shadow-[0_0_0_1px_rgba(26,22,18,.06)]"
@@ -239,6 +223,7 @@ export default function Podium({
   all,
   orgName,
   inviteSeats = false,
+  quipSeed,
 }: {
   month: PodiumEntry[];
   all: PodiumEntry[];
@@ -247,6 +232,8 @@ export default function Podium({
    *  dashed seat that copies the invite link. The dashboard turns this on, so
    *  the leaderboard is there from the first person. */
   inviteSeats?: boolean;
+  /** Picks each place's line; a new one per page load. */
+  quipSeed?: number;
 }) {
   const [range, setRange] = useState<"month" | "all">("month");
   const entries = range === "month" ? month : all;
@@ -313,7 +300,7 @@ export default function Podium({
           const step = entry.rank === 1 ? 2 : entry.rank === 2 ? 1 : 0;
           return (
             <li key={entry.userId} className="relative flex min-w-0 flex-col items-center text-center">
-              {entry.rank <= 3 && <Quip rank={entry.rank as 1 | 2 | 3} seed={entry.filed} />}
+              {entry.rank <= 3 && <Quip rank={entry.rank as 1 | 2 | 3} seed={quipSeed ?? entry.filed} />}
               <div className="animate-rise relative isolate flex flex-col items-center" style={{ animationDelay: `${300 + step * 150}ms` }}>
                 {first && <span aria-hidden className="lb-rays" />}
                 <Hatted rank={entry.rank}>

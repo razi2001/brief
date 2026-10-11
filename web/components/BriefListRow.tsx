@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import RetryButton from "./RetryButton";
 import ArchiveButton from "./ArchiveButton";
 import StatusBadge from "./StatusBadge";
@@ -118,15 +119,21 @@ export default function BriefListRow({
       {/* Full-row click target for filed rows. Absolutely positioned, so it
           covers the row without being a grid cell; interactive cells layer over
           it with `relative z-10`. */}
-      {asLink && (
-        <a
-          href={href}
-          target={hrefExternal ? "_blank" : undefined}
-          rel="noreferrer"
-          aria-label={hrefExternal ? `${title}, open in ${providerName}` : title}
-          className="absolute inset-0"
-        />
-      )}
+      {/* In-app pages go through the router (a plain <a> reloaded the whole
+          app - the sidebar flickered and it felt slow); the tracker opens in a
+          new tab. */}
+      {asLink && href &&
+        (hrefExternal ? (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            aria-label={`${title}, open in ${providerName}`}
+            className="absolute inset-0"
+          />
+        ) : (
+          <Link href={href} aria-label={title} className="absolute inset-0" />
+        ))}
 
       {/* 1 · Checkbox (always reserves its track - no layout shift on hover) */}
       <button
@@ -189,7 +196,7 @@ export default function BriefListRow({
           // No tracker id yet → its own Brief identity (brief-N), the way Linear
           // shows ENG-1. It opens the Brief page.
           briefHref ? (
-            <a
+            <Link
               href={briefHref}
               title="Open the Brief page"
               aria-label="Open the Brief page"
@@ -197,7 +204,7 @@ export default function BriefListRow({
             >
               <BrandMark size={14} className="shrink-0 rounded-[3px]" />
               <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
-            </a>
+            </Link>
           ) : (
             <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
               <BrandMark size={14} className="shrink-0 rounded-[3px]" />

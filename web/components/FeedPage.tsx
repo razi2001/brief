@@ -1,10 +1,11 @@
+import { after } from "next/server";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import BriefsFeed, { type Counts } from "@/components/BriefsFeed";
 import {
   recoverOrphans,
   getTrackerContext,
-  attachTicketInfo,
+  attachTicketInfoFast,
   BRIEF_COLUMNS,
   type BriefRow,
 } from "@/lib/briefs-server";
@@ -16,26 +17,31 @@ import {
  */
 export default async function FeedPage({ view }: { view: "tickets" | "drafts" }) {
   const userId = await requireUserId();
-  const ctx = await getTrackerContext();
-
   const admin = createAdminSupabase();
-  await recoverOrphans(admin, userId);
 
-  // Archived briefs are treated as deleted - never fetched, never shown.
-  const { data: activeData } = await admin
-    .from("briefs")
-    .select(BRIEF_COLUMNS)
-    .eq("user_id", userId)
-    .is("archived_at", null)
-    .filter("status", view === "drafts" ? "eq" : "neq", "drafted")
-    .order("created_at", { ascending: false })
-    .limit(40);
+  // Fixing stuck rows only matters for the NEXT render; don't hold this one.
+  after(() => recoverOrphans(admin, userId));
+
+  // The list and (for Tickets) the connected trackers, together. Drafts have
+  // no tracker ticket, so they never ask Clerk or a tracker anything.
+  const [ctx, { data: activeData }] = await Promise.all([
+    view === "tickets" ? getTrackerContext() : Promise.resolve(null),
+    // Archived briefs are treated as deleted - never fetched, never shown.
+    admin
+      .from("briefs")
+      .select(BRIEF_COLUMNS)
+      .eq("user_id", userId)
+      .is("archived_at", null)
+      .filter("status", view === "drafts" ? "eq" : "neq", "drafted")
+      .order("created_at", { ascending: false })
+      .limit(40),
+  ]);
   const active = (activeData ?? []) as BriefRow[];
 
   // Only 'processing' is in-progress; 'uploaded' is an unfiled draft (hidden).
   const isProcessing = active.some((b) => b.status === "processing");
 
-  const dashboardBriefs = await attachTicketInfo(userId, active, ctx.connected, 60, admin);
+  const dashboardBriefs = await attachTicketInfoFast(userId, active, ctx?.connected ?? [], admin);
 
   const counts: Counts = {
     filed: active.filter((b) => b.status === "filed").length,

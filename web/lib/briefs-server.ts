@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
@@ -318,3 +319,35 @@ export async function attachTicketInfo(
   if (writeBacks.length) await Promise.allSettled(writeBacks);
   return out;
 }
+
+/**
+ * attachTicketInfo with a time budget. The live read from Linear/Jira is the
+ * slowest thing on a page, and the snapshot it falls back to is usually what
+ * it would say anyway - so wait `budgetMs` at most, then render the snapshot
+ * and let the live read finish after the response (it writes the fresh status
+ * back, so the next load has it).
+ */
+export async function attachTicketInfoFast(
+  userId: string,
+  list: BriefRow[],
+  connected: ProviderKey[],
+  admin: SupabaseClient,
+  budgetMs = 700,
+): Promise<DashboardBrief[]> {
+  if (!list.some((b) => b.status === "filed" && b.ticket_identifier)) {
+    return attachTicketInfo(userId, list, [], 0, admin);
+  }
+  const live = attachTicketInfo(userId, list, connected, 60, admin);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const first = await Promise.race([
+    live,
+    new Promise<null>((r) => {
+      timer = setTimeout(() => r(null), budgetMs);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (first) return first;
+  after(() => live.then(() => {}, () => {}));
+  return attachTicketInfo(userId, list, [], 0, admin);
+}
+

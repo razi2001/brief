@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { TrackerLogo } from "./TrackerLogo";
 import { PROVIDER_LABELS, type ProviderKey } from "./provider-labels";
@@ -57,15 +58,15 @@ export default function ExportButtons({
     // No tracker yet → a clear accent-outline CTA (distinct from the solid
     // "Export" primary, but still obviously the thing to do next).
     return (
-      <a
-        href="/connections"
+      <Link
+        href="/connections#tracker"
         className="btn !text-accent"
       >
         Connect a tracker
         <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M5 12h14M13 6l6 6-6 6" />
         </svg>
-      </a>
+      </Link>
     );
   }
 

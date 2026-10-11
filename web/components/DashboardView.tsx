@@ -26,6 +26,8 @@ export type DashboardViewProps = {
   /** The team's when there is one, otherwise yours. */
   roi: RoiSummary | null;
   boards: { month: PodiumEntry[]; all: PodiumEntry[] };
+  /** Picks the leaderboard's lines, fresh per page load. */
+  quipSeed?: number;
 };
 
 export default function DashboardView(p: DashboardViewProps) {
@@ -115,7 +117,7 @@ export default function DashboardView(p: DashboardViewProps) {
       {/* the leaderboard from the first person: open places are invite seats */}
       {(p.boards.month.length > 0 || p.boards.all.length > 0) && (
         <section className="mt-4">
-          <Podium month={p.boards.month} all={p.boards.all} orgName={p.org?.name ?? "Your team"} inviteSeats />
+          <Podium month={p.boards.month} all={p.boards.all} orgName={p.org?.name ?? "Your team"} inviteSeats quipSeed={p.quipSeed} />
           {p.filed > 0 && (
             <p className="mt-2.5 px-1 text-xs text-muted">
               You · <span className="text-ink">{p.filed}</span> filed
@@ -175,17 +177,28 @@ function GettingStarted(p: DashboardViewProps) {
               )}
             </span>
             <span className={`flex-1 text-sm ${s.done ? "text-muted" : "text-ink"}`}>{s.done ? s.done_label : s.label}</span>
-            {!s.done && s.action && (
-              <a
-                href={s.action.href}
-                {...(s.action.external ? { target: "_blank", rel: "noreferrer" } : {})}
-                className={`inline-flex h-8 items-center rounded-lg px-3.5 text-xs no-underline transition ${
-                  i === next ? "bg-accent text-cream hover:brightness-95" : "border hairline text-ink-2 hover:text-ink"
-                }`}
-              >
-                {s.action.text}
-              </a>
-            )}
+            {!s.done && s.action &&
+              (s.action.external ? (
+                <a
+                  href={s.action.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={`inline-flex h-8 items-center rounded-lg px-3.5 text-xs no-underline transition ${
+                    i === next ? "bg-accent text-cream hover:brightness-95" : "border hairline text-ink-2 hover:text-ink"
+                  }`}
+                >
+                  {s.action.text}
+                </a>
+              ) : (
+                <Link
+                  href={s.action.href}
+                  className={`inline-flex h-8 items-center rounded-lg px-3.5 text-xs no-underline transition ${
+                    i === next ? "bg-accent text-cream hover:brightness-95" : "border hairline text-ink-2 hover:text-ink"
+                  }`}
+                >
+                  {s.action.text}
+                </Link>
+              ))}
           </li>
         ))}
       </ol>
