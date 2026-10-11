@@ -101,7 +101,7 @@
   check('an unrecorded page: logged with the reason, ! on the icon', log2?.ok === false && /isn’t recorded/.test(log2.error) && badge2 === '!', JSON.stringify({ log2, badge2 }));
   const P = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
   const said = await evalIn(P.sid, `document.querySelector('#errBar')?.textContent || ''`);
-  check('opening the extension says why the report didn’t go through', /AI draft didn’t work: .*isn’t recorded/.test(said), said);
+  check('opening the extension says why the report didn’t go through', /Brief it didn’t work: .*isn’t recorded/.test(said), said);
 }
 
 main().catch((e) => { console.error(e); results.push({ ok: false }); }).finally(() => {

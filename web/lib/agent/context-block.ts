@@ -25,7 +25,7 @@ export function buildContextBlock(json: unknown): string {
   if (j.autoReport === true && !(typeof j.description === "string" && j.description.trim())) {
     sections.push(
       "ONE-CLICK REPORT (the reporter pressed one key the moment something went wrong and typed nothing): work out what went wrong from the SUSPECTS, the replay stills and the technical capture. " +
-        "Write the ticket about the most likely failure, and say what it was in the title. If nothing clearly failed, do NOT invent a bug: title it after what the reporter was doing (e.g. \"Checkout: unexpected behaviour after applying a coupon\"), describe the steps and what is visible, and say plainly that no error was captured.",
+        "Write the ticket about the most likely failure, described as the user experienced it (the title, summary, Expected and Actual stay functional; the failing call or error goes in Technical notes). If nothing clearly failed, do NOT invent a bug: title it after what the reporter was doing (e.g. \"Checkout: unexpected behaviour after applying a coupon\"), describe the steps and what is visible, and say plainly that no error was captured.",
     );
   }
 
@@ -60,7 +60,7 @@ export function buildContextBlock(json: unknown): string {
   const tech = Array.isArray(j.techLogs) ? videoLogsForAgent(j.techLogs) : "";
   if (tech) {
     sections.push(
-      "TECHNICAL CAPTURE (exact, times are into the capture - name in the summary or Actual the call or error that explains the bug, if one does; the full list is appended to the ticket automatically, never write it yourself):\n" +
+      "TECHNICAL CAPTURE (exact, times are into the capture - if a call or error here explains the bug, name it under a separate \"Technical notes\" section at the end, never in the summary, Expected or Actual; the full list is appended to the ticket automatically, never write it yourself):\n" +
         tech,
     );
   }

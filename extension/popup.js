@@ -990,7 +990,7 @@ resetBtn?.addEventListener('click', openReset);
     const { autoReportLog = [], autoReportSeen = 0 } = await chrome.storage.local.get(['autoReportLog', 'autoReportSeen']);
     const last = autoReportLog[0];
     if (last && !last.ok && last.at > autoReportSeen && Date.now() - last.at < 30 * 60_000) {
-      showInlineError(`AI draft didn’t work: ${last.error}${last.detail ? ` (${last.detail})` : ''}`);
+      showInlineError(`Brief it didn’t work: ${last.error}${last.detail ? ` (${last.detail})` : ''}`);
     }
     if (last) await chrome.storage.local.set({ autoReportSeen: last.at });
   } catch {}

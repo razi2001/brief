@@ -9,7 +9,7 @@
     if (!body && p.request.hasPostData) body = (await b.send('Fetch.getRequestPostData', { requestId: p.requestId }, sid).catch(() => ({ postData: '' }))).postData;
     calls.push({ url, method: p.request.method, body });
     let res = { ok: true, shareId: 's-1' };
-    if (url.endsWith('/api/briefs')) {
+    if (url.endsWith('/api/briefs') || url.endsWith('/files')) {
       const files = JSON.parse(body || '{}').files || [];
       res = { briefId: 'b-1', uploads: Object.fromEntries(files.map((f) => [f, { signedUrl: 'https://up.test/' + encodeURIComponent(f) }])) };
     }
@@ -74,6 +74,29 @@
   check('the filing resumes and the ticket is filed', st === 0 && calls.some((c) => /\/api\/briefs\/b-1\/process$/.test(c.url)), JSON.stringify(calls.map((c) => c.method + ' ' + c.url)));
   check('with its replay, its video and its stills', files.includes('replay.json') && files.includes('replay.webm') && files.some((f) => f.startsWith('replay-frames/')), JSON.stringify(files));
   check('filed once, not twice', calls.filter((c) => c.url.endsWith('/api/briefs')).length === 1, String(calls.filter((c) => c.url.endsWith('/api/briefs')).length));
+
+  // ---- a draft doesn't wait for its replay video: it goes now, the video follows ----
+  calls.length = 0;
+  await W(`(async () => {
+    const fsm = await import('./filestore.js');
+    const id = 'd-draft';
+    const replay = { v: 2, events: [{ type: 4, timestamp: 1, data: {} }, { type: 2, timestamp: 2, data: {} }], chips: [], durationMs: 3000, frames: [], marks: [] };
+    await fsm.putFile(fsm.replayKey(id), new Blob([JSON.stringify(replay)], { type: 'application/json' }));
+    await chrome.storage.local.set({ draft: { id, createdAt: Date.now(), screenshots: [], description: 'list is empty', replay: { durationMs: 3000, sites: ['app.brief.localhost'], video: { rev: 7, status: 'rendering' } } } });
+  })()`);
+  await W(`chrome.runtime.sendMessage({ type: 'FILE_DRAFT', mode: 'draft' })`);
+  let drafted = false;
+  for (let i = 0; i < 20 && !drafted; i++) { await sleep(500); drafted = calls.some((c) => c.url.endsWith('/draft')); }
+  const firstFiles = (() => { const c = calls.find((x) => x.url.endsWith('/api/briefs')); return c ? JSON.parse(c.body).files : []; })();
+  check('a draft goes to Brief right away, without waiting for its video', drafted && firstFiles.includes('replay.json') && !firstFiles.includes('replay.webm'), JSON.stringify(firstFiles));
+  await W(`(async () => {
+    const fsm = await import('./filestore.js');
+    await fsm.putFile(fsm.replayVideoKey('d-draft'), new Blob([new Uint8Array(2048)], { type: 'video/webm' }));
+    await fsm.putFile(fsm.replayVideoStateKey('d-draft'), new Blob([JSON.stringify({ rev: 7, status: 'ready' })], { type: 'application/json' }));
+  })()`);
+  let added = null;
+  for (let i = 0; i < 20 && !added; i++) { await sleep(500); added = calls.find((c) => /\/api\/briefs\/b-1\/files$/.test(c.url)); }
+  check('its video is added once rendered', !!added && JSON.parse(added.body).files.includes('replay.webm') && calls.some((c) => c.url.includes('up.test/replay.webm')), JSON.stringify(calls.map((c) => c.method + ' ' + c.url)));
 }
 
 main().catch((e) => { console.error(e); results.push({ ok: false }); }).finally(() => {

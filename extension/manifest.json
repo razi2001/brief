@@ -78,7 +78,7 @@
         "default": "Alt+Shift+B",
         "mac": "Alt+Shift+B"
       },
-      "description": "Let AI draft this bug"
+      "description": "Brief it"
     }
   }
 }

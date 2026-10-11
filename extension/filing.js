@@ -16,6 +16,14 @@ import { deleteFile, draftKeys, getFile, replayKey, replayVoiceKey, replayFrames
 // is, long before Create; if not, filing waits for it - a ticket without the
 // video is the fallback only when the render failed or never reports back.
 const VIDEO_WAIT_MS = 4 * 60 * 1000;
+/** The replay's video if it's already rendered, without waiting for it. */
+async function replayVideoNow(d) {
+  const rev = d.replay?.video?.rev;
+  if (!rev) return null;
+  const st = await getFile(replayVideoStateKey(d.id)).then((b) => b && b.text()).then((t) => t && JSON.parse(t)).catch(() => null);
+  return st?.rev === rev && st.status === 'ready' ? getFile(replayVideoKey(d.id)) : null;
+}
+
 async function replayVideo(d) {
   const rev = d.replay?.video?.rev;
   if (!rev) return null;
@@ -45,7 +53,7 @@ function buildScreenshotFiles(d) {
 }
 
 // The replay, when one is attached (kept in the blob store), and its voice-over.
-async function buildReplayFiles(d) {
+async function buildReplayFiles(d, { waitVideo = true } = {}) {
   if (!d.replay) return [];
   const files = [];
   const blob = await getFile(replayKey(d.id));
@@ -54,8 +62,9 @@ async function buildReplayFiles(d) {
   if (voice) files.push({ name: 'replay-voice.webm', blob: voice, contentType: 'audio/webm' });
   // the replay as a video, for trackers that take uploads (only when attached)
   if (d.replay.attach !== false) {
-    const video = await replayVideo(d);
+    const video = waitVideo ? await replayVideo(d) : await replayVideoNow(d);
     if (video) files.push({ name: 'replay.webm', blob: video, contentType: 'video/webm' });
+    d.videoSent = !!video;
   }
   // the key-moment stills, named as replay.json's `frames` list them
   const framesBlob = d.replay.frames ? await getFile(replayFramesKey(d.id)) : null;
@@ -118,8 +127,8 @@ async function activePageContext() {
 // Make sure the brief exists as a cloud draft: create it + upload brief.json and
 // the screenshots on first send, or push new screenshots into an existing draft
 // (a recording's draft was created by the offscreen upload). Mutates `d`.
-async function ensureUploaded(d) {
-  const shotFiles = [...buildScreenshotFiles(d), ...(await buildReplayFiles(d))];
+async function ensureUploaded(d, opts) {
+  const shotFiles = [...buildScreenshotFiles(d), ...(await buildReplayFiles(d, opts))];
   if (!d.cloudBriefId) {
     const page = await activePageContext();
     const { files, meta } = buildBriefJsonAndMeta(d, page);
@@ -183,8 +192,13 @@ export async function filingKeys() {
 }
 
 async function fileOne(d, mode) {
+  // A draft is written from the replay's steps and stills, not its video: it
+  // goes up at once and the video follows when it's rendered (it can take
+  // minutes, and the draft used to wait for it). A ticket waits - the video
+  // is attached to it in the tracker.
+  const draft = mode !== 'ticket';
   const run = async () => {
-    await ensureUploaded(d);
+    await ensureUploaded(d, { waitVideo: !draft });
     const overrides = buildOverrides(d);
     return mode === 'ticket' ? processBrief(d.cloudBriefId, overrides) : createDraft(d.cloudBriefId, overrides);
   };
@@ -205,6 +219,11 @@ async function fileOne(d, mode) {
     if (!now || !isReadyDraft(now)) await setDraft(back);
     else await chrome.storage.local.set({ failedDraft: back });
     return;
+  }
+  // the draft's video, once rendered, joins it (best-effort: the draft stands without it)
+  if (draft && d.cloudBriefId && d.replay?.video && d.replay.attach !== false && !d.videoSent) {
+    const video = await replayVideo(d);
+    if (video) await uploadFilesToDraft(d.cloudBriefId, [{ name: 'replay.webm', blob: video, contentType: 'video/webm' }]).catch(() => {});
   }
   for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
   await dropFilingDraft(d.id);

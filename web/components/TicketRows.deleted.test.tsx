@@ -70,7 +70,7 @@ describe("BriefListRow for a ticket the tracker no longer has", () => {
     expect(container.querySelector('[title="Deleted in Linear"]')).not.toBeNull();
   });
 
-  it("a live ticket: the row opens it in the app, its id opens the tracker", () => {
+  it("a live ticket: the row and its id open it in the tracker, in a new tab", () => {
     const { container } = render(
       <ul>
         <BriefListRow brief={brief(liveTicket)} />
@@ -78,7 +78,8 @@ describe("BriefListRow for a ticket the tracker no longer has", () => {
     );
 
     expect(hrefsIn(container)).toContain(TRACKER);
-    expect(hrefsIn(container)).toContain("/tickets/s1");
+    expect(hrefsIn(container)).not.toContain("/tickets/s1");
+    for (const a of container.querySelectorAll(`a[href="${TRACKER}"]`)) expect(a.getAttribute("target")).toBe("_blank");
     // no separate Brief-page logo on a ticket any more
     expect(container.querySelector('[aria-label="Open the Brief page"]')).toBeNull();
     expect(container.textContent).toContain("Todo");
@@ -118,7 +119,7 @@ describe("BriefListRow opens every ticket in its own tracker", () => {
     expect(link?.getAttribute("href")).toBe(GH);
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(container.textContent).toContain("web#12");
-    // the row itself still opens the ticket inside the app
-    expect(hrefsIn(container)).toContain("/tickets/s1");
+    // the row opens it on GitHub too
+    expect(hrefsIn(container).filter((h) => h === GH).length).toBeGreaterThanOrEqual(2);
   });
 });

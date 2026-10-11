@@ -82,10 +82,10 @@ export default function BriefListRow({
   // A ticket the tracker no longer has: nothing to open there, so the row and
   // its id chip fall back to the Brief page.
   const trackerHref = ti?.deleted ? undefined : ti?.url || b.ticket_url || undefined;
-  // Every row opens the brief inside the app (sidebar + breadcrumb); a filed
-  // one's tracker id opens it in Linear/Jira. Old filed briefs with no share
-  // link fall back to the tracker.
-  const href = briefHref || (isFiled ? trackerHref : undefined);
+  // A filed ticket opens where it lives now - Linear, Jira, GitHub - in a new
+  // tab. Everything else (drafts, filing, didn't file, a ticket the tracker
+  // deleted) opens inside the app.
+  const href = (isFiled && trackerHref) || briefHref;
   const asLink = !!href;
   const hrefExternal = !!href && href !== briefHref; // tracker link → new tab
   // Linear, Jira, GitHub - every tracker by its own name, so its id opens it there

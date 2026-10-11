@@ -99,7 +99,7 @@ async function resetBeforeRecording() {
   await new Promise((r) => setTimeout(r, 150));
 }
 
-// Right-click on a watched page: "Let AI draft this bug". One item, so Chrome
+// Right-click on a watched page: "Brief it". One item, so Chrome
 // shows it right in the menu (two or more get folded into a submenu under the
 // extension's name). It only exists on the org's replay sites (the only pages
 // recorded), so it is rebuilt whenever that list changes. Editing the last
@@ -122,7 +122,7 @@ function refreshReplayMenu() {
     await chrome.contextMenus.removeAll();
     const patterns = menuPatterns(await getReplaySites());
     if (!patterns.length) return;
-    chrome.contextMenus.create({ id: 'brief-report', title: 'Let AI draft this bug', contexts: ['all'], documentUrlPatterns: patterns });
+    chrome.contextMenus.create({ id: 'brief-report', title: 'Brief it', contexts: ['all'], documentUrlPatterns: patterns });
   }).catch((err) => console.warn('[brief/background] replay menu:', err));
   return menuChain;
 }
@@ -130,7 +130,7 @@ chrome.runtime.onInstalled.addListener(() => { refreshReplayMenu(); });
 chrome.runtime.onStartup.addListener(() => { refreshReplayMenu(); });
 chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.replaySites) refreshReplayMenu(); });
 
-// ---------- "Let AI draft this bug" (one-click report) ----------
+// ---------- "Brief it" (one-click report) ----------
 // A shortcut or the right-click item: the last minute becomes a
 // draft with no typing and nothing opened. The recorders are flushed here, the
 // offscreen document rebuilds the replay, finds what looks wrong, renders the
