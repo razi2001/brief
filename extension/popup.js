@@ -18,6 +18,7 @@ const descField = $('#descField');
 const kvList = $('#kvList');
 const addFieldBtn = $('#addFieldBtn');
 const createBtn = $('#createBtn');
+const draftBtn = $('#draftBtn');
 const briefCloudBtn = $('#briefCloudBtn');
 const brandMark = $('#brandMark');
 const scrim = $('#scrim');
@@ -244,18 +245,24 @@ function initAdditionalData() {
 
 function updateCreate() {
   const label = createBtn.querySelector('.ctk-label');
-  const noTracker = bcTracker === null;
   const uploading = !!draft.uploading;
   // Filing lives on the draft (the worker runs it), so a reopened popup shows
   // the in-progress state too.
   const filing = !!draft.filing;
   const ready = isReadyDraft(draft);
   createBtn.disabled = filing || uploading || !ready;
-  // One action: file to whichever tracker the account has configured, or - with
-  // none configured - write the brief up on its own page.
+  // Two actions, the same for everyone: Create ticket files to the tracker
+  // (without one it says so and offers to connect), Save as draft writes the
+  // brief up on its own page with no ticket.
+  draftBtn.hidden = false;
+  draftBtn.disabled = filing || uploading || !ready;
+  const draftLabel = draftBtn.querySelector('.draft-label');
+  const savingDraft = filing && draft.filingMode === 'draft';
+  if (draftLabel) draftLabel.innerHTML = savingDraft ? '<span class="btn-spin"></span> Saving…' : 'Save as draft';
   if (label) {
-    if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Creating…'}`;
-    else label.textContent = uploading ? 'Uploading…' : noTracker ? 'Create brief' : 'Create ticket';
+    if (savingDraft) label.textContent = 'Create ticket';
+    else if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Creating…'}`;
+    else label.textContent = uploading ? 'Uploading…' : 'Create ticket';
   }
 }
 
@@ -707,7 +714,7 @@ async function startFiling(mode) {
       toast(res.alreadyFiled ? 'Already filed' : 'Ticket queued');
       return;
     }
-    showDone('Brief created', res.shareId ? 'Opening your brief…' : 'Opening your tickets…');
+    showDone('Draft saved', res.shareId ? 'Opening your draft…' : 'Opening your drafts…');
     return;
   }
   if (res?.error === 'already_filing') return; // an earlier ask is still running; the draft flag shows it
@@ -717,18 +724,23 @@ async function startFiling(mode) {
   showInlineError(`Couldn’t create brief: ${res?.error || 'unknown error'}`);
 }
 
-// The primary action. With a tracker connected we file directly; with none the
-// primary IS the draft. If we don't yet know the tracker status (fast click on
-// open), resolve it first so we route correctly.
+// The primary action: file to the connected tracker. With none connected it
+// says so and offers to connect one (the draft is kept, and Save as draft
+// still works). If we don't yet know the tracker status (fast click on open),
+// resolve it first.
 async function primaryCreate() {
   if (bcTracker === undefined) {
     try {
       const st = await fetchAccountStatus();
       if (st) { bcConnected = st.connected; bcTracker = st.tracker; }
-    } catch { /* fall through: treat as draft, which always works */ }
+    } catch { /* unknown: try to file, the server says if there's no tracker */ }
     updateCreate();
   }
-  startFiling(bcTracker ? 'ticket' : 'draft');
+  if (bcTracker === null && bcConnected) {
+    showInlineError('Connect a tracker to create tickets.', { linkText: 'Connect', url: `${APP_URL}/connections#tracker` });
+    return;
+  }
+  startFiling('ticket');
 }
 
 // A ticket that failed in the background while a new draft was already in
@@ -953,6 +965,7 @@ gallery.addEventListener('click', async (e) => {
   if (shot) return openShot(shot.getAttribute('data-shot'));
 });
 createBtn.addEventListener('click', primaryCreate);
+draftBtn.addEventListener('click', () => startFiling('draft'));
 resetBtn?.addEventListener('click', openReset);
 
 // ---------- boot ----------

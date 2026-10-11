@@ -131,7 +131,18 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 .addfield svg { width:12px; height:12px; }
 
 /* ---------- CREATE ---------- */
-.create-wrap { padding:18px 18px 16px; }
+.create-wrap { padding:18px 18px 12px; }
+/* The quiet second action under Create ticket: write it up on its own page,
+   no ticket yet. A text link, not a second button. Only shown when a tracker
+   is connected - without one, Create already makes a draft. */
+.draft-btn { display:flex; align-items:center; justify-content:center; gap:7px; margin:8px auto 0; padding:5px 10px;
+  border:none; border-radius:8px; background:none; cursor:pointer; color:var(--muted);
+  font-family:var(--mono); font-size:12px; letter-spacing:.01em;
+  transition:color var(--t), background var(--t), opacity var(--t); }
+.draft-btn:hover { color:var(--ink); background:rgba(26,22,18,.05); }
+.draft-btn:disabled { opacity:.45; cursor:default; pointer-events:none; }
+.draft-btn[hidden] { display:none; }
+.draft-btn .btn-spin { border-color:rgba(26,22,18,.2); border-top-color:var(--ink-2); }
 /* The one action: file to the tracker the account has configured, or write the
    brief up on its own page when there is none. Shape, glow, press and disabled
    all live on the button - it is a single control now, so nothing can drift. */

@@ -5,6 +5,7 @@ import ArchiveButton from "./ArchiveButton";
 import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
 import { shortIdentifier } from "@/lib/ticket-sync";
+import { PROVIDER_LABELS } from "./provider-labels";
 import BrandMark from "./BrandMark";
 import Elapsed from "./Elapsed";
 import type { DashboardBrief } from "@/lib/brief-types";
@@ -71,17 +72,19 @@ export default function BriefListRow({
   // The row opens the Brief page (canonical view) for both drafts and filed
   // tickets; filed rows also get a "open in tracker" action. Old filed briefs
   // without a share link fall back to opening the tracker directly.
-  const briefHref = b.share_id ? `/b/${b.share_id}` : undefined;
+  // the brief opens inside the app: drafts under Drafts, the rest under Tickets
+  const briefHref = b.share_id ? `/${isDraft ? "drafts" : "tickets"}/${b.share_id}` : undefined;
   // A ticket the tracker no longer has: nothing to open there, so the row and
   // its id chip fall back to the Brief page.
   const trackerHref = ti?.deleted ? undefined : ti?.url || b.ticket_url || undefined;
-  // Row click opens the brief's PRIMARY home: once it's filed, that's the
-  // tracker ticket (prioritized, new tab); before then it's the Brief page. The
-  // id-cell logos still open each home explicitly.
-  const href = isFiled ? trackerHref || briefHref : briefHref;
+  // Every row opens the brief inside the app (sidebar + breadcrumb); a filed
+  // one's tracker id opens it in Linear/Jira. Old filed briefs with no share
+  // link fall back to the tracker.
+  const href = briefHref || (isFiled ? trackerHref : undefined);
   const asLink = !!href;
   const hrefExternal = !!href && href !== briefHref; // tracker link → new tab
-  const providerName = b.provider === "jira" ? "Jira" : "Linear";
+  // Linear, Jira, GitHub - every tracker by its own name, so its id opens it there
+  const providerName = PROVIDER_LABELS[b.provider ?? "linear"] ?? "Linear";
 
   const title =
     ti?.title ||
@@ -160,19 +163,9 @@ export default function BriefListRow({
             <RetryButton briefId={b.id} />
           </span>
         ) : !isFailed && b.ticket_identifier ? (
-          // Filed → both homes: the Brief mark opens the Brief page, the tracker
-          // id (logo + id) opens the ticket in Linear/Jira.
+          // Filed → the row opens it here in the app; the tracker id (logo + id)
+          // opens the ticket in Linear/Jira.
           <span className="inline-flex min-w-0 items-center gap-1.5">
-            {briefHref && (
-              <a
-                href={briefHref}
-                title="Open the Brief page"
-                aria-label="Open the Brief page"
-                className="relative z-10 flex shrink-0 items-center rounded-[4px] opacity-75 transition-opacity hover:opacity-100 max-sm:hidden"
-              >
-                <BrandMark size={14} className="rounded-[3px]" />
-              </a>
-            )}
             {trackerHref ? (
               <a
                 href={trackerHref}

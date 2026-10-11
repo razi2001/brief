@@ -122,11 +122,11 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   return opts;
 }
 
-function EmptyState({ filtered }: { filtered: boolean }) {
+function EmptyState({ filtered, view = "tickets" }: { filtered: boolean; view?: "tickets" | "drafts" }) {
   return (
     <div className="animate-rise mt-7 flex flex-col items-center gap-3 rounded-xl border border-dashed border-[rgba(26,22,18,0.14)] px-4 py-16 text-center">
       <BrandMark size={32} className="opacity-90" />
-      <p className="text-[14px] font-medium text-ink">{filtered ? "Nothing matches" : "No tickets yet"}</p>
+      <p className="text-[14px] font-medium text-ink">{filtered ? "Nothing matches" : view === "drafts" ? "No drafts" : "No tickets yet"}</p>
     </div>
   );
 }
@@ -168,10 +168,13 @@ function SummaryLine({ counts }: { counts: Counts }) {
  * Extracted from the old DashboardTabs so it can live on its own /tickets route.
  */
 export default function BriefsFeed({
+  view = "tickets",
   briefs,
   counts,
   isProcessing,
 }: {
+  /** Tickets (filed, filing, didn't file) or Drafts (written up, never filed). */
+  view?: "tickets" | "drafts";
   briefs: DashboardBrief[];
   counts: Counts;
   isProcessing: boolean;
@@ -463,7 +466,7 @@ export default function BriefsFeed({
   return (
     <section>
       <header className="flex items-center justify-between gap-4">
-        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Tickets</h1>
+        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">{view === "drafts" ? "Drafts" : "Tickets"}</h1>
         <div className="flex shrink-0 items-center gap-2">
           {/* Global escape hatch: clear every column filter at once. Only shown
               when something is actually filtered (incl. when the list is empty,
@@ -654,7 +657,7 @@ export default function BriefsFeed({
           )}
         </>
       ) : (
-        <EmptyState filtered={false} />
+        <EmptyState filtered={false} view={view} />
       )}
     </section>
   );

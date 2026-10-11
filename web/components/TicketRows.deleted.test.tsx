@@ -60,8 +60,8 @@ describe("BriefListRow for a ticket the tracker no longer has", () => {
 
     const hrefs = hrefsIn(container);
     expect(hrefs).not.toContain(TRACKER);
-    expect(hrefs).toContain("/b/s1");
-    for (const a of container.querySelectorAll('a[href="/b/s1"]')) {
+    expect(hrefs).toContain("/tickets/s1");
+    for (const a of container.querySelectorAll('a[href="/tickets/s1"]')) {
       expect(a.getAttribute("target")).toBeNull();
     }
     // The identity and the state still read at a glance.
@@ -70,7 +70,7 @@ describe("BriefListRow for a ticket the tracker no longer has", () => {
     expect(container.querySelector('[title="Deleted in Linear"]')).not.toBeNull();
   });
 
-  it("still opens the tracker for a live ticket", () => {
+  it("a live ticket: the row opens it in the app, its id opens the tracker", () => {
     const { container } = render(
       <ul>
         <BriefListRow brief={brief(liveTicket)} />
@@ -78,6 +78,9 @@ describe("BriefListRow for a ticket the tracker no longer has", () => {
     );
 
     expect(hrefsIn(container)).toContain(TRACKER);
+    expect(hrefsIn(container)).toContain("/tickets/s1");
+    // no separate Brief-page logo on a ticket any more
+    expect(container.querySelector('[aria-label="Open the Brief page"]')).toBeNull();
     expect(container.textContent).toContain("Todo");
   });
 });
@@ -98,5 +101,24 @@ describe("TicketList for a ticket the tracker no longer has", () => {
     const link = container.querySelector("li a");
     expect(link?.getAttribute("href")).toBe(TRACKER);
     expect(link?.getAttribute("target")).toBe("_blank");
+  });
+});
+
+describe("BriefListRow opens every ticket in its own tracker", () => {
+  it("a GitHub issue's id opens GitHub, named as GitHub", () => {
+    const GH = "https://github.com/acme/web/issues/12";
+    const { container } = render(
+      <ul>
+        <BriefListRow
+          brief={{ ...brief({ ...liveTicket, url: GH }), ticket_url: GH, ticket_identifier: "acme/web#12", provider: "github" }}
+        />
+      </ul>,
+    );
+    const link = container.querySelector('a[aria-label="Open in GitHub"]');
+    expect(link?.getAttribute("href")).toBe(GH);
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(container.textContent).toContain("web#12");
+    // the row itself still opens the ticket inside the app
+    expect(hrefsIn(container)).toContain("/tickets/s1");
   });
 });

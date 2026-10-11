@@ -220,6 +220,14 @@ a {
   }
 }
 
+/* A strip that scrolls sideways without showing a bar (the mobile nav). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* Thin, warm scrollbar for cards that overflow (the reporter roster). The OS
    default renders as a heavy grey slab on the cream surface. */
 .thin-scroll {

@@ -30,7 +30,7 @@ export default function AppShell({ children, headerRight, workspace, status, hid
         </Link>
         {workspace && <div className="hidden sm:block">{workspace}</div>}
         {!hideNav && (
-          <div className="min-w-0 flex-1 overflow-x-auto sm:mt-6 sm:flex-none sm:overflow-visible">
+          <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto sm:mt-6 sm:flex-none sm:overflow-visible">
             <Nav />
           </div>
         )}

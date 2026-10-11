@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ReactNode } from "react";
 import BrandMark from "./BrandMark";
 import EvidenceCard from "./EvidenceCard";
@@ -27,12 +28,12 @@ export function BriefPageFrame({
           <span className="font-display text-[1.375rem] leading-none text-ink">Brief</span>
         </a>
         {signedIn ? (
-          <a href="/tickets" className="btn">
+          <Link href="/tickets" className="btn">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
             All tickets
-          </a>
+          </Link>
         ) : (
           <a href="https://cloud.get-brief.app" target="_blank" rel="noreferrer" className="btn">
             Try it free

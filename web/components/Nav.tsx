@@ -13,6 +13,7 @@ const icon = (d: ReactNode) => (
 const ITEMS = [
   { href: "/dashboard", label: "Home", icon: icon(<><rect x="2" y="2" width="5" height="6" rx="1.2" /><rect x="9" y="2" width="5" height="3.5" rx="1.2" /><rect x="9" y="7.5" width="5" height="6.5" rx="1.2" /><rect x="2" y="10" width="5" height="4" rx="1.2" /></>) },
   { href: "/tickets", label: "Tickets", icon: icon(<><path d="M3 4h10M3 8h10M3 12h6" /></>) },
+  { href: "/drafts", label: "Drafts", icon: icon(<><path d="M9.5 2.5H4.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5.5" /><path d="m12.8 2.2 1 1L9 8l-1.6.6.6-1.6 4.8-4.8Z" /></>) },
   { href: "/connections", label: "Settings", icon: icon(<><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6" /></>) },
 ] as const;
 
@@ -32,7 +33,7 @@ export default function Nav() {
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
-            className={`flex shrink-0 items-center gap-3 rounded-[10px] px-3 py-2 text-[15px] font-medium no-underline transition-colors ${
+            className={`flex shrink-0 items-center gap-2 rounded-[10px] px-2.5 py-1.5 text-[14px] font-medium no-underline sm:gap-3 sm:px-3 sm:py-2 sm:text-[15px] transition-colors ${
               active
                 ? "bg-white/80 text-ink shadow-[0_1px_2px_rgba(26,22,18,.06),0_0_0_1px_rgba(26,22,18,.06)]"
                 : "text-ink-2/80 hover:bg-white/45 hover:text-ink"
