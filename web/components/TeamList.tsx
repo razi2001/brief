@@ -18,27 +18,27 @@ export default function TeamList({ members }: { members: TeamMember[] }) {
 
   return (
     <div>
-      <ul className="card thin-scroll max-h-[26rem] overflow-y-auto px-4 py-1">
+      <ul className="card thin-scroll max-h-[26rem] overflow-y-auto py-1">
         {members.map((member) => (
           <li
             key={member.userId}
-            className="flex items-center gap-3 border-b hairline py-2.5 last:border-b-0"
+            className="flex h-11 items-center gap-2.5 px-3.5"
           >
-            <Avatar name={member.fullName} imageUrl={member.imageUrl} size={30} />
+            <Avatar name={member.fullName} imageUrl={member.imageUrl} size={24} />
             {/* The name holds its width and the title gives way first: on a
                 phone the two shrank together and cut every name in half. */}
             <span className="flex min-w-0 flex-1 items-baseline gap-2">
               <span className="max-w-full shrink-0 truncate text-sm text-ink">
                 {member.fullName}
-                {member.isYou && <span className="ml-1 text-[0.6875rem] text-accent">you</span>}
+                {member.isYou && <span className="ml-1.5 text-xs text-muted">you</span>}
               </span>
               {member.title && (
-                <span className="min-w-0 truncate text-[0.6875rem] italic text-muted">
+                <span className="min-w-0 truncate text-[13px] text-muted">
                   {member.title}
                 </span>
               )}
             </span>
-            <span className="shrink-0 text-xs text-muted">
+            <span className="shrink-0 text-[13px] tabular-nums text-muted">
               {member.filed} {member.filed === 1 ? "ticket" : "tickets"}
             </span>
           </li>

@@ -9,7 +9,14 @@ import { providerOf } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
-import EvidenceCard from "@/components/EvidenceCard";
+import {
+  BriefPageFrame,
+  ReadingColumn,
+  BriefFooter,
+  TicketMeta,
+  Attachments,
+  type BriefAsset,
+} from "@/components/BriefPage";
 import PollReload from "@/components/PollReload";
 import LiveWriter from "@/components/LiveWriter";
 import ProgressCycler, { WRITING_STEPS, FILING_STEPS } from "@/components/ProgressCycler";
@@ -45,15 +52,7 @@ async function loadBrief(shareId: string): Promise<ShareRow | null> {
   return (data as ShareRow | null) ?? null;
 }
 
-type Asset = {
-  url: string;
-  filename: string;
-  kind: "image" | "video" | "replay";
-  /** The replay's voice-over, when it has one. */
-  voiceUrl?: string;
-  /** Storage-relative path - the owner's remove control targets this. */
-  path: string;
-};
+type Asset = BriefAsset;
 
 /** Signed URLs (1h) for the evidence still kept in storage for this brief. */
 async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
@@ -108,54 +107,6 @@ function formatDate(iso?: string | null): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function BriefFooter() {
-  return (
-    <footer className="mt-16 border-t border-hairline pt-6">
-      <a
-        href="https://cloud.get-brief.app"
-        target="_blank"
-        rel="noreferrer"
-        className="group flex flex-wrap items-center justify-between gap-3 no-underline"
-      >
-        <span className="flex items-center gap-2.5">
-          <BrandMark size={24} />
-          <span className="text-sm text-muted">
-            Captured with <span className="text-ink-2">Brief</span> — record a bug, file the perfect ticket in seconds.
-          </span>
-        </span>
-        <span className="font-mono text-xs text-accent group-hover:underline">Try it free →</span>
-      </a>
-    </footer>
-  );
-}
-
-function CenterCard({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="mx-auto w-full max-w-2xl px-5 py-20 font-sans sm:px-8">
-      <div className="card flex flex-col items-center gap-4 px-6 py-16 text-center">{children}</div>
-      <BriefFooter />
-    </main>
-  );
-}
-
-function BackLink() {
-  return (
-    <a
-      href="/tickets"
-      className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted no-underline transition-colors hover:text-ink"
-    >
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M19 12H5M12 19l-7-7 7-7" />
-      </svg>
-      All tickets
-    </a>
-  );
-}
-
-const ARTICLE_BASE =
-  "rounded-2xl border border-hairline bg-[#fffdf8] px-6 py-8 shadow-[0_1px_3px_rgba(26,22,18,0.05),0_14px_40px_-20px_rgba(26,22,18,0.18)] sm:px-12 sm:py-11";
-const ARTICLE_CLASS = `brief-page-in ${ARTICLE_BASE}`;
-
 /** One skeleton bar that rises in (staggered) - reads as a line being written.
  *  --skd staggers the slow sheen too, so the bars shimmer in sequence. */
 function Bar({ w, h = 14, delay = 0 }: { w: string; h?: number; delay?: number }) {
@@ -181,13 +132,16 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
   // ── Couldn't be written ──
   if (phase === "failed") {
     return (
-      <CenterCard>
-        <BrandMark size={32} />
-        <p className="font-display text-2xl text-ink">This one couldn&apos;t be written up.</p>
-        <p className="max-w-xs text-sm text-muted">
-          Something went wrong turning this capture into a ticket. Try again from the Brief extension.
-        </p>
-      </CenterCard>
+      <BriefPageFrame signedIn={!!viewerId}>
+        <ReadingColumn className="flex flex-col items-center gap-3 py-24 text-center sm:py-28">
+          <BrandMark size={32} />
+          <p className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">This one couldn&apos;t be written up.</p>
+          <p className="max-w-xs text-[13px] text-muted">
+            Something went wrong turning this capture into a ticket. Try again from the Brief extension.
+          </p>
+        </ReadingColumn>
+        <BriefFooter />
+      </BriefPageFrame>
     );
   }
 
@@ -308,14 +262,12 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         is a floating panel (below), so it reserves no column and leaves no empty
         space beside the doc. Extra bottom padding on owner drafts clears the
         floating panel. */}
-    <main
-      className={`mx-auto w-full max-w-3xl px-4 py-10 font-sans sm:px-6 sm:py-12 ${withRail ? "pb-44 sm:pb-48" : ""}`}
-    >
-      {viewerId && <BackLink />}
+    <BriefPageFrame signedIn={!!viewerId}>
+      <ReadingColumn className={withRail ? "pb-44 sm:pb-48" : ""}>
       {/* The writing state doesn't fade in - only the resolved ticket does, so
           the writing→ready hand-off is ONE gentle settle, not two page fades
           ("loaded twice"). */}
-      <article className={inProgress ? ARTICLE_BASE : ARTICLE_CLASS}>
+      <article className={inProgress ? undefined : "brief-page-in"}>
       {inProgress ? (
         isOwner && writing ? (
           // The owner watches their ticket stream in, token by token. The
@@ -324,12 +276,12 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         ) : (
           // Visitors: moving status + skeleton + soft poll until the write lands.
           <>
-            <div className="mb-7">
-              <ProgressCycler messages={filing ? FILING_STEPS : WRITING_STEPS} />
+            <div className="mb-6">
+              <ProgressCycler messages={filing ? FILING_STEPS : WRITING_STEPS} className="text-[13px]" />
             </div>
             <PollReload />
             {brief.title ? (
-              <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{brief.title}</h1>
+              <h1 className="text-[28px] font-semibold leading-[1.2] tracking-[-0.022em] text-ink sm:text-[32px]">{brief.title}</h1>
             ) : (
               <div className="flex flex-col gap-2.5">
                 <Bar w="78%" h={30} />
@@ -357,30 +309,18 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
         )
       ) : (
         <>
-          {/* ── Meta strip ── */}
-          <div className="mb-7 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[0.8125rem] text-muted">
-            <span className="inline-flex items-center gap-1.5 text-ink-2">
-              <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: stateColor }} />
-              {stateName}
-            </span>
-            {!isDraft && ticketIdentifier && (
-              <>
-                <span className="text-hairline">·</span>
-                <span className="text-accent">{ticketIdentifier}</span>
-              </>
-            )}
-            {reported && (
-              <>
-                <span className="text-hairline">·</span>
-                <span>{reported}</span>
-              </>
-            )}
-          </div>
+          {/* ── Meta row ── */}
+          <TicketMeta
+            stateName={stateName}
+            stateColor={stateColor}
+            identifier={!isDraft ? ticketIdentifier : null}
+            reported={reported}
+          />
 
           {/* Poll to the filed view while an export is in flight (soft refresh). */}
           {filing && <PollReload />}
 
-          {/* ── Ticket: toolbar + title + body (owner can edit) ── */}
+          {/* ── Ticket: title + toolbar + body (owner can edit) ── */}
           <TicketDoc
             briefId={brief.id}
             shareId={shareId}
@@ -396,35 +336,16 @@ export default async function SharePage({ params }: { params: Promise<{ shareId:
             connected={connected}
           />
 
-          {/* ── Evidence ── */}
-          {assets.length > 0 && (
-            <section className="mt-10">
-              <h2 className="mb-3 font-mono text-[0.6875rem] font-semibold uppercase tracking-[0.1em] text-muted">
-                Evidence
-              </h2>
-              <div className="flex flex-col gap-4">
-                {assets.map((a, i) => (
-                  <EvidenceCard
-                    key={a.path}
-                    briefId={brief.id}
-                    url={a.url}
-                    filename={a.filename}
-                    path={a.path}
-                    kind={a.kind}
-                    voiceUrl={a.voiceUrl}
-                    canRemove={isOwner}
-                    index={i}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
+          {/* ── Attachments ── (the ticket's own text often has an "Evidence"
+              section already: this is the media itself, so it says so) */}
+          <Attachments briefId={brief.id} assets={assets} canRemove={isOwner} />
         </>
       )}
       </article>
+      </ReadingColumn>
 
       <BriefFooter />
-    </main>
+    </BriefPageFrame>
 
     {/* Floating assistant - fixed to the viewport, reserves no layout column. */}
     {withRail && (

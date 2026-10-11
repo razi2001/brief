@@ -19,8 +19,8 @@ export type SettingsRow = {
  * Settings as one list: a row per setting with its current value, and a click
  * opens the editor in place (one at a time). A link to #id opens that row.
  *
- * An open row's editor is indented under the label and drawn as a plain
- * hairline panel (globals.css .settings-row-body), not a floating card.
+ * An open row's editor is indented under the label, on a soft inset band
+ * (globals.css .settings-row-body flattens the cards inside it).
  */
 export default function SettingsList({ rows, initialOpen = null }: { rows: SettingsRow[]; initialOpen?: string | null }) {
   const [open, setOpen] = useState<string | null>(initialOpen);
@@ -39,13 +39,16 @@ export default function SettingsList({ rows, initialOpen = null }: { rows: Setti
     <div className="card overflow-hidden">
       {rows.map((r, i) => {
         const on = open === r.id && !!r.body;
+        // Label left, current value right: the row reads like Linear's settings.
         const head = (
           <>
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[rgba(221,105,54,.1)] text-accent">
-              <SettingsGlyph icon={r.icon} size={17} />
+            <span className="grid h-6 w-6 shrink-0 place-items-center text-muted">
+              <SettingsGlyph icon={r.icon} size={16} />
             </span>
-            <span className="w-28 shrink-0 text-sm text-ink sm:w-32">{r.label}</span>
-            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-sm">{r.summary}</span>
+            <span className="shrink-0 text-sm text-ink">{r.label}</span>
+            <span className="ml-auto flex min-w-0 items-center gap-2 overflow-hidden pl-3 text-[13px]">
+              {r.summary}
+            </span>
           </>
         );
         return (
@@ -56,38 +59,37 @@ export default function SettingsList({ rows, initialOpen = null }: { rows: Setti
                 onClick={() => setOpen(on ? null : r.id)}
                 aria-expanded={on}
                 aria-controls={`${r.id}-body`}
-                className={`group flex w-full cursor-pointer items-center gap-3.5 px-5 py-4 text-left transition-colors ${
-                  on ? "" : "hover:bg-[rgba(26,22,18,.025)]"
-                }`}
+                title={on ? undefined : r.action}
+                className="group flex h-12 w-full cursor-pointer items-center gap-2.5 px-4 text-left transition-colors hover:bg-surface-2"
               >
                 {head}
-                {r.action && !on && (
-                  <span className="hidden shrink-0 text-xs text-muted transition-colors group-hover:text-accent sm:inline">
-                    {r.action}
-                  </span>
-                )}
                 <svg
                   viewBox="0 0 24 24"
-                  width="16"
-                  height="16"
+                  width="14"
+                  height="14"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
-                  className={`shrink-0 text-muted transition-transform duration-200 group-hover:text-accent ${on ? "rotate-90" : ""}`}
+                  className={`shrink-0 text-muted/70 transition-transform duration-200 group-hover:text-ink-2 ${on ? "rotate-90" : ""}`}
                 >
                   <path d="m9 6 6 6-6 6" />
                 </svg>
               </button>
             ) : (
-              <div className="flex items-center gap-3.5 px-5 py-4">{head}</div>
+              // Same columns as an opening row, with the chevron's width kept
+              // so values line up down the list.
+              <div className="flex h-12 items-center gap-2.5 px-4">
+                {head}
+                <span aria-hidden="true" className="w-3.5 shrink-0" />
+              </div>
             )}
             {on && (
               <div
                 id={`${r.id}-body`}
-                className="settings-row-body px-5 pb-5 sm:pl-[4.375rem]"
+                className="settings-row-body border-t hairline bg-surface-2/60 px-4 pt-4 pb-5 sm:pl-[3.25rem]"
               >
                 {r.body}
               </div>

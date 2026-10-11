@@ -78,8 +78,8 @@ export default function ColumnFilter({
         aria-controls={panelId}
         onClick={() => setOpen((o) => !o)}
         title={`Filter by ${label.toLowerCase()}`}
-        className={`group/cf flex w-full min-w-0 items-center gap-1 font-mono text-[0.5625rem] uppercase tracking-wider transition-colors ${
-          active ? "text-accent" : "text-muted hover:text-ink"
+        className={`group/cf -mx-1.5 flex w-[calc(100%+0.75rem)] min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-colors ${
+          active ? "text-accent" : "text-muted hover:bg-[rgba(26,22,18,0.05)] hover:text-ink-2"
         }`}
       >
         <span className="truncate">{label}</span>
@@ -88,15 +88,15 @@ export default function ColumnFilter({
         ) : (
           <svg
             aria-hidden
-            width="9"
-            height="9"
+            width="10"
+            height="10"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="shrink-0 opacity-0 transition-opacity group-hover/cf:opacity-60"
+            className="shrink-0 opacity-0 transition-opacity group-hover/cf:opacity-70"
           >
             <path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z" />
           </svg>
@@ -107,13 +107,13 @@ export default function ColumnFilter({
         <div
           id={panelId}
           role="menu"
-          className={`card animate-rise absolute z-30 mt-2 ${align === "right" ? "right-0" : "left-0"} ${
-            kind === "search" ? "w-[200px]" : "w-[200px]"
-          } p-2`}
-          style={{ background: "#fbf8f1", backdropFilter: "none", boxShadow: "0 12px 32px rgba(26,22,18,.16)" }}
+          className={`animate-rise absolute z-30 mt-1.5 w-[220px] rounded-[10px] border border-hairline bg-surface p-1.5 ${
+            align === "right" ? "right-0" : "left-0"
+          }`}
+          style={{ boxShadow: "0 1px 2px rgba(26,22,18,.05), 0 12px 32px -8px rgba(26,22,18,.2)" }}
         >
           {kind === "search" ? (
-            <div className="flex items-center gap-1.5 rounded-md border border-hairline bg-cream/60 px-2">
+            <div className="flex items-center gap-1.5 rounded-md border border-hairline bg-surface-2/60 px-2 focus-within:border-accent/40">
               <svg aria-hidden width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted">
                 <circle cx="11" cy="11" r="7" />
                 <path d="m21 21-4.3-4.3" />
@@ -124,7 +124,7 @@ export default function ColumnFilter({
                 value={value ?? ""}
                 onChange={(e) => onChange?.(e.target.value)}
                 placeholder={placeholder}
-                className="w-full bg-transparent py-1.5 font-mono text-[0.75rem] text-ink placeholder:text-muted/70 focus:outline-none"
+                className="w-full bg-transparent py-1.5 text-[13px] text-ink placeholder:text-muted/70 focus:outline-none"
               />
               {value && (
                 <button
@@ -142,12 +142,12 @@ export default function ColumnFilter({
           ) : (
             <>
               {onReset && (
-                <div className="flex items-center justify-between px-1 pb-1.5">
-                  <span className="text-[0.625rem] uppercase tracking-[0.12em] text-muted">{label}</span>
+                <div className="flex items-center justify-between px-2 pb-1 pt-0.5">
+                  <span className="text-xs text-muted">{label}</span>
                   <button
                     type="button"
                     onClick={onReset}
-                    className="text-[0.6875rem] text-muted no-underline transition-colors hover:text-accent hover:underline"
+                    className="text-xs text-muted no-underline transition-colors hover:text-accent"
                   >
                     Reset
                   </button>
@@ -163,12 +163,12 @@ export default function ColumnFilter({
                         role={single ? "menuitemradio" : "menuitemcheckbox"}
                         aria-checked={checked}
                         onClick={() => onToggle?.(o.key)}
-                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-cream-2/60"
+                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2"
                       >
                         <span
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center border transition-colors ${
-                            single ? "rounded-full" : "rounded"
-                          } ${checked ? "border-accent bg-accent text-cream" : "border-hairline bg-transparent text-transparent"}`}
+                          className={`flex h-[15px] w-[15px] shrink-0 items-center justify-center border transition-colors ${
+                            single ? "rounded-full" : "rounded-[4px]"
+                          } ${checked ? "border-accent bg-accent text-white" : "border-[rgba(26,22,18,0.22)] bg-surface text-transparent"}`}
                         >
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                             <path d="M5 12l5 5L20 6" />
@@ -177,7 +177,7 @@ export default function ColumnFilter({
                         {o.color && (
                           <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: o.color }} />
                         )}
-                        <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink-2">{o.label}</span>
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{o.label}</span>
                       </button>
                     </li>
                   );

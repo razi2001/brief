@@ -289,7 +289,7 @@ export default function TicketChat({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="ai-float chat-pop fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full border border-[rgba(26,22,18,0.16)] bg-[#fffdf8] px-4 py-2.5 text-[0.8125rem] font-medium text-ink transition hover:bg-cream-2/40"
+        className="ai-float chat-pop fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-full border border-[rgba(26,22,18,0.14)] bg-surface px-4 py-2 text-[13px] font-medium text-ink transition hover:bg-surface-2"
       >
         <Spark className={working ? "ai-spark text-accent" : "text-accent"} />
         Assistant
@@ -298,10 +298,10 @@ export default function TicketChat({
   }
 
   return (
-    <aside className="ai-float chat-pop fixed inset-x-4 bottom-4 z-40 overflow-hidden rounded-2xl border border-[rgba(26,22,18,0.16)] bg-[#fffdf8] font-sans transition-[border-color,box-shadow] focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.12),0_26px_60px_-14px_rgba(26,22,18,0.4)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[370px]">
+    <aside className="ai-float chat-pop fixed inset-x-4 bottom-4 z-40 overflow-hidden rounded-[14px] border border-[rgba(26,22,18,0.14)] bg-surface font-sans transition-[border-color,box-shadow] focus-within:border-accent/60 focus-within:shadow-[0_0_0_3px_rgba(221,105,54,0.12),0_26px_60px_-14px_rgba(26,22,18,0.4)] sm:inset-x-auto sm:bottom-6 sm:right-6 sm:w-[370px]">
       {/* Slim header: identity + minimize (the only chrome). */}
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-hairline pl-3.5 pr-2">
-        <span className="inline-flex items-center gap-1.5 text-[0.75rem] font-medium text-ink-2">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink-2">
           <Spark className={working ? "ai-spark text-accent" : "text-accent"} size={12} />
           Assistant
         </span>
@@ -310,7 +310,7 @@ export default function TicketChat({
           onClick={() => setOpen(false)}
           aria-label="Minimize assistant"
           title="Minimize"
-          className="flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-ink"
         >
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="m6 9 6 6 6-6" />
@@ -320,7 +320,7 @@ export default function TicketChat({
       {mode === "filed" ? (
         // The quiet record: where it lives now.
         <div className="flex flex-col gap-3 p-4">
-          <span className="inline-flex items-center gap-2 text-[0.8125rem] text-ink-2">
+          <span className="inline-flex items-center gap-2 text-[13px] text-ink-2">
             <span className="inline-block h-2 w-2 rounded-full bg-[#2e7d32]" aria-hidden />
             Filed to {providerName}
           </span>
@@ -329,7 +329,7 @@ export default function TicketChat({
               href={ticketUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-hairline bg-cream/50 px-3 py-1.5 text-xs text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink"
+              className="btn w-fit"
             >
               <TrackerLogo kind={providerName.toLowerCase()} size={13} />
               Open in {providerName}
@@ -358,7 +358,7 @@ export default function TicketChat({
                     ? "Filing to your tracker…"
                     : "Ask AI to edit the ticket…"
               }
-              className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[0.8125rem] leading-relaxed text-ink outline-none placeholder:text-muted disabled:opacity-70"
+              className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-muted disabled:opacity-70"
             />
             <button
               type="button"
@@ -366,7 +366,7 @@ export default function TicketChat({
               disabled={composerDisabled || !input.trim()}
               aria-label="Send"
               className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition ${
-                input.trim() && !composerDisabled ? "bg-accent text-cream hover:brightness-95" : "bg-cream-2 text-muted/50"
+                input.trim() && !composerDisabled ? "bg-accent text-white hover:brightness-95" : "bg-surface-2 text-muted/50"
               }`}
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -377,13 +377,13 @@ export default function TicketChat({
 
           {/* Idle → gentle prompts. */}
           {showChips && (
-            <div className="flex flex-wrap gap-1 border-t border-hairline px-3 py-2.5">
+            <div className="flex flex-wrap gap-1.5 border-t border-hairline bg-surface-2/50 px-3 py-2.5">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.label}
                   type="button"
                   onClick={() => void send(s.prompt)}
-                  className="rounded-md px-2 py-1 text-xs text-ink-2 transition-colors hover:bg-accent/10 hover:text-accent"
+                  className="rounded-md border border-hairline bg-surface px-2 py-1 text-xs font-medium text-ink-2 transition-colors hover:border-accent/30 hover:bg-accent/[0.06] hover:text-accent"
                 >
                   {s.label}
                 </button>
@@ -451,7 +451,7 @@ export default function TicketChat({
                   </button>
                 </div>
               ) : last.kind === "answer" ? (
-                <p className="text-[0.8125rem] leading-relaxed text-ink-2">{last.text}</p>
+                <p className="text-[13px] leading-relaxed text-ink-2">{last.text}</p>
               ) : last.kind === "none" ? (
                 <p className="text-xs text-muted">{last.text}</p>
               ) : (

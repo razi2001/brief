@@ -105,7 +105,7 @@ export default function ReplayPlayer({ url, voiceUrl }: { url: string; voiceUrl?
     setPlaying(true);
   }
 
-  if (failed) return <p className="p-6 font-mono text-xs text-muted">Replay unavailable.</p>;
+  if (failed) return <p className="bg-surface-2 p-6 text-center text-xs text-muted">Replay unavailable</p>;
 
   return (
     <div className="bg-ink">
@@ -117,12 +117,12 @@ export default function ReplayPlayer({ url, voiceUrl }: { url: string; voiceUrl?
       >
         <div ref={inner} className="absolute left-0 top-0 origin-top-left [&_.rr-player]:!bg-transparent [&_.rr-player]:!shadow-none" />
       </div>
-      <div className="flex items-center gap-3 bg-cream px-3 py-2.5">
+      <div className="flex items-center gap-3 border-t border-hairline bg-surface px-3 py-2">
         <button
           type="button"
           onClick={toggle}
           aria-label={playing ? "Pause" : "Play"}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-ink text-cream"
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-cream transition-opacity hover:opacity-85"
         >
           {playing ? (
             <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2" /><rect x="14" y="5" width="4" height="14" rx="1.2" /></svg>

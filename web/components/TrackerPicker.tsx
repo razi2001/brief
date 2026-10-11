@@ -87,7 +87,10 @@ function Check() {
   );
 }
 
-const LINK = "text-xs tracking-wide no-underline hover:underline disabled:opacity-50";
+// The card's actions: Linear-sized buttons (globals.css .btn / .btn-accent).
+const PRIMARY = "btn-accent h-7 cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50";
+const QUIET = "btn h-7 cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50";
+const STATUS = "inline-flex items-center gap-1.5 text-xs";
 
 export default function TrackerPicker({
   options,
@@ -193,14 +196,15 @@ export default function TrackerPicker({
       if (stale.includes(key)) {
         return (
           <>
-            <span className="pill border-[rgba(221,105,54,.35)] bg-[rgba(221,105,54,.1)] text-accent">
+            <span className={`${STATUS} text-accent`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
               Reconnect needed
             </span>
             <button
               type="button"
               onClick={() => onConnect(key)}
               disabled={isBusy}
-              className={`${LINK} text-accent`}
+              className={PRIMARY}
             >
               {isBusy ? "Reconnecting…" : "Reconnect →"}
             </button>
@@ -209,14 +213,15 @@ export default function TrackerPicker({
       }
       return (
         <>
-          <span className="pill border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] text-[#2e7d32]">
+          <span className={`${STATUS} text-muted`}>
+            <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d32]" aria-hidden="true" />
             Connected ✓
           </span>
           <button
             type="button"
             onClick={() => onDisconnect(key)}
             disabled={isBusy}
-            className={`${LINK} text-muted hover:text-accent`}
+            className={QUIET}
           >
             {isBusy ? "Disconnecting…" : "Disconnect"}
           </button>
@@ -232,7 +237,7 @@ export default function TrackerPicker({
             type="button"
             onClick={() => setSelected(connected)}
             disabled={isBusy}
-            className={`${LINK} text-muted hover:text-ink`}
+            className={QUIET}
           >
             Cancel
           </button>
@@ -241,7 +246,7 @@ export default function TrackerPicker({
             onClick={() => onConnect(key)}
             disabled={isBusy}
             title={`Disconnects ${current}`}
-            className={`${LINK} text-accent`}
+            className={PRIMARY}
           >
             {isBusy ? "Switching…" : `Switch to ${shown.name} →`}
           </button>
@@ -254,7 +259,7 @@ export default function TrackerPicker({
         type="button"
         onClick={() => onConnect(key)}
         disabled={isBusy}
-        className={`${LINK} text-accent`}
+        className={PRIMARY}
       >
         {isBusy ? "Connecting…" : `Connect ${shown.name} →`}
       </button>
@@ -267,15 +272,15 @@ export default function TrackerPicker({
     // relative z-10: .card's backdrop-filter makes every card its own stacking
     // context, which traps the menu's z-index inside this one - without lifting
     // the whole card, the next section's card paints over the open dropdown.
-    <div ref={rootRef} className="card relative z-10 px-4 py-3.5">
+    <div ref={rootRef} className="card relative z-10 px-3.5 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
           <span
-            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border bg-[#fffdf8] ${
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-surface ${
               shown ? "hairline" : "border-dashed border-[rgba(26,22,18,.25)]"
             }`}
           >
-            {shown && <TrackerLogo kind={shown.key} size={20} />}
+            {shown && <TrackerLogo kind={shown.key} size={18} />}
           </span>
 
           <div className="relative min-w-0">
@@ -291,12 +296,12 @@ export default function TrackerPicker({
               // relative -left-1, not -mx-1: a negative margin shrinks the box
               // the container sizes itself to, which truncated "Choose a
               // tracker" whenever there was no caption line to widen it.
-              className="relative -left-1 inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 text-sm text-ink transition-colors hover:bg-cream-2/70 disabled:cursor-default disabled:opacity-60"
+              className="relative -left-1 inline-flex max-w-full cursor-pointer items-center gap-1 rounded-md px-1 py-0.5 text-sm font-medium text-ink transition-colors hover:bg-surface-2 disabled:cursor-default disabled:opacity-60"
             >
               <span className="truncate">{shown ? shown.name : "Choose a tracker"}</span>
               <Chevron />
             </button>
-            {shown && <p className="mt-0.5 text-xs text-muted">{shown.caption}</p>}
+            {shown && <p className="text-[13px] text-muted">{shown.caption}</p>}
 
             {open && (
               <ul
@@ -307,12 +312,8 @@ export default function TrackerPicker({
                 aria-label="Issue tracker"
                 aria-activedescendant={`${listId}-${options[active]?.key}`}
                 onKeyDown={onListKey}
-                className="card animate-rise absolute left-0 top-full z-20 mt-2 w-[220px] p-1.5 outline-none"
-                style={{
-                  background: "#fbf8f1",
-                  backdropFilter: "none",
-                  boxShadow: "0 12px 32px rgba(26,22,18,.16)",
-                }}
+                className="absolute left-0 top-full z-20 mt-1.5 w-[220px] rounded-lg border hairline bg-surface p-1 outline-none"
+                style={{ boxShadow: "0 1px 2px rgba(26,22,18,.06), 0 12px 32px -8px rgba(26,22,18,.18)" }}
               >
                 {options.map((o, i) => (
                   <li
@@ -322,21 +323,21 @@ export default function TrackerPicker({
                     aria-selected={o.key === selected}
                     onClick={() => choose(o.key)}
                     onMouseEnter={() => setActive(i)}
-                    className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-2 transition-colors ${
-                      i === active ? "bg-cream-2/70" : ""
+                    className={`flex h-8 cursor-pointer items-center gap-2 rounded-md px-2 transition-colors ${
+                      i === active ? "bg-surface-2" : ""
                     }`}
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border hairline bg-[#fffdf8]">
-                      <TrackerLogo kind={o.key} size={15} />
+                    <span className="grid w-4 shrink-0 place-items-center">
+                      <TrackerLogo kind={o.key} size={14} />
                     </span>
                     {/* Name only: the card already shows the chosen tracker's
                         caption, and at this width the captions truncated to
                         mush ("Files tickets …"). */}
-                    <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
                       {o.name}
                     </span>
                     {o.key === connected && (
-                      <span className="shrink-0 text-[0.6875rem] text-[#2e7d32]">connected</span>
+                      <span className="shrink-0 text-xs text-muted">connected</span>
                     )}
                     <span className="w-3 shrink-0 text-accent">
                       {o.key === selected && <Check />}
@@ -348,10 +349,10 @@ export default function TrackerPicker({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-3">{actions()}</div>
+        <div className="flex shrink-0 items-center gap-2.5">{actions()}</div>
       </div>
 
-      {message && <p className="mt-2 border-t hairline pt-2 text-xs text-muted">{message}</p>}
+      {message && <p className="mt-3 border-t hairline pt-2.5 text-xs text-muted">{message}</p>}
     </div>
   );
 }

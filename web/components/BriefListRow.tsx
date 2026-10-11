@@ -33,14 +33,14 @@ function initial(name?: string): string {
 
 /**
  * One Linear-like row in the Briefs feed, laid out on the shared `.ticket-grid`
- * column tracks (checkbox · title · status · id · updated · assignee · actions)
+ * column tracks (checkbox · id · title · status · assignee · updated · actions)
  * so every row's meta lands in the same column down the whole list - even when
  * a cell is empty, its track still holds the space.
  *
  * Every cell is a DIRECT grid child. Navigation for filed rows is a full-row
  * absolute overlay <a> (covers the row, but isn't a grid cell); the interactive
  * cells (checkbox, retry, archive) sit above it via `relative z-10`, so
- * clicking them never navigates. Processing rows show a live "filing… m:ss";
+ * clicking them never navigates. Processing rows show a live "Filing m:ss";
  * failed rows show a Retry; the exit animation (`brief-leaving`) lives here.
  */
 export default function BriefListRow({
@@ -106,9 +106,9 @@ export default function BriefListRow({
 
   return (
     <li
-      className={`group animate-rise ticket-grid relative py-3 pl-3 pr-2.5 transition-colors hover:bg-cream-2/30${
-        leaving ? " brief-leaving" : ""
-      }${selected ? " bg-cream-2/50" : ""}`}
+      className={`group animate-rise ticket-grid relative min-h-[42px] py-2 pl-3 pr-2.5 transition-colors max-sm:gap-x-2 max-sm:[grid-template-columns:1.5rem_5.25rem_minmax(0,1fr)_0.75rem_1.75rem] ${
+        selected ? "bg-accent/[0.05] hover:bg-accent/[0.07]" : "hover:bg-surface-2"
+      }${leaving ? " brief-leaving" : ""}`}
     >
       {isProcessing && <span aria-hidden className="queue-bar" />}
 
@@ -120,7 +120,7 @@ export default function BriefListRow({
           href={href}
           target={hrefExternal ? "_blank" : undefined}
           rel="noreferrer"
-          aria-label={hrefExternal ? `${title} — open in ${providerName}` : title}
+          aria-label={hrefExternal ? `${title}, open in ${providerName}` : title}
           className="absolute inset-0"
         />
       )}
@@ -141,8 +141,10 @@ export default function BriefListRow({
         }`}
       >
         <span
-          className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
-            selected ? "border-accent bg-accent text-cream" : "border-hairline bg-transparent text-transparent"
+          className={`flex h-[15px] w-[15px] items-center justify-center rounded-[4px] border transition-colors ${
+            selected
+              ? "border-accent bg-accent text-white"
+              : "border-[rgba(26,22,18,0.22)] bg-surface text-transparent"
           }`}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -158,15 +160,15 @@ export default function BriefListRow({
             <RetryButton briefId={b.id} />
           </span>
         ) : !isFailed && b.ticket_identifier ? (
-          // Filed → both homes as tappable chips: the Brief logo opens the Brief
-          // page, the tracker chip (logo + id + ↗) opens the ticket in Linear/Jira.
-          <span className="inline-flex min-w-0 items-center gap-1">
+          // Filed → both homes: the Brief mark opens the Brief page, the tracker
+          // id (logo + id) opens the ticket in Linear/Jira.
+          <span className="inline-flex min-w-0 items-center gap-1.5">
             {briefHref && (
               <a
                 href={briefHref}
                 title="Open the Brief page"
                 aria-label="Open the Brief page"
-                className="relative z-10 flex shrink-0 items-center rounded-md bg-cream-2/70 p-1 transition-colors hover:bg-accent/15"
+                className="relative z-10 flex shrink-0 items-center rounded-[4px] opacity-75 transition-opacity hover:opacity-100 max-sm:hidden"
               >
                 <BrandMark size={14} className="rounded-[3px]" />
               </a>
@@ -178,71 +180,67 @@ export default function BriefListRow({
                 rel="noreferrer"
                 title={`${b.ticket_identifier} - open in ${providerName}`}
                 aria-label={`Open in ${providerName}`}
-                className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-accent transition-colors hover:bg-accent/15"
+                className="relative z-10 inline-flex min-w-0 items-center gap-1.5 py-0.5 font-mono text-xs text-muted no-underline transition-colors hover:text-ink"
               >
-                <TrackerLogo kind={b.provider ?? "linear"} size={13} />
+                <TrackerLogo kind={b.provider ?? "linear"} size={12} />
                 <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
-                <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 opacity-70" aria-hidden="true">
-                  <path d="M7 17 17 7M8 7h9v9" />
-                </svg>
               </a>
             ) : (
-              <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-accent">
-                <TrackerLogo kind={b.provider ?? "linear"} size={13} />
+              <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
+                <TrackerLogo kind={b.provider ?? "linear"} size={12} />
                 <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
               </span>
             )}
           </span>
         ) : isDraft || isProcessing ? (
           // No tracker id yet → its own Brief identity (brief-N), the way Linear
-          // shows ENG-1. The chip opens the Brief page.
+          // shows ENG-1. It opens the Brief page.
           briefHref ? (
             <a
               href={briefHref}
               title="Open the Brief page"
               aria-label="Open the Brief page"
-              className="relative z-10 inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-ink-2 transition-colors hover:bg-accent/15 hover:text-ink"
+              className="relative z-10 inline-flex min-w-0 items-center gap-1.5 py-0.5 font-mono text-xs text-muted no-underline transition-colors hover:text-ink"
             >
               <BrandMark size={14} className="shrink-0 rounded-[3px]" />
               <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
             </a>
           ) : (
-            <span className="inline-flex min-w-0 items-center gap-1 rounded-md bg-cream-2/70 px-1.5 py-1 font-mono text-[0.625rem] text-ink-2">
+            <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
               <BrandMark size={14} className="shrink-0 rounded-[3px]" />
               <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
             </span>
           )
         ) : (
-          <span className="font-mono text-[0.625rem] text-muted/50">—</span>
+          <span aria-hidden />
         )}
       </div>
 
       {/* 3 · Title (+ inline error on failed rows) */}
       <div className={`min-w-0${dim}`}>
-        <p className={`truncate text-[0.625rem] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
+        <p className={`truncate text-[13.5px] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
           {title}
         </p>
-        {isFailed && b.error && (
-          <p className="mt-0.5 truncate text-[0.6875rem] text-muted">{b.error}</p>
-        )}
+        {isFailed && b.error && <p className="mt-0.5 truncate text-xs text-muted">{b.error}</p>}
       </div>
 
-      {/* 4 · Status - readable chip (filing / didn't file / tracker state) */}
+      {/* 4 · Status (filing / didn't file / tracker state) */}
       <div className={`min-w-0${dim}`}>
         {isProcessing ? (
-          <StatusBadge color="#dd6936">
-            filing… <Elapsed since={b.updated_at || b.created_at} />
+          <StatusBadge compact color="#dd6936">
+            Filing <Elapsed since={b.updated_at || b.created_at} />
           </StatusBadge>
         ) : isFailed ? (
-          <StatusBadge color="#c62828" title="Didn't file">
-            didn&apos;t file
+          <StatusBadge compact color="#c62828" title="Didn't file">
+            Didn&apos;t file
           </StatusBadge>
         ) : isDraft ? (
-          <StatusBadge color="#8a8378" title="Draft - not filed">
-            draft
+          <StatusBadge compact color="#8a8378" title="Draft - not filed">
+            Draft
           </StatusBadge>
         ) : (
           <StatusBadge
+            compact
             color={ti?.stateColor || "#2e7d32"}
             title={ti?.deleted ? `Deleted in ${providerName}` : ti?.stateName || "Filed"}
           >
@@ -261,33 +259,34 @@ export default function BriefListRow({
                 src={ti.assignee.avatarUrl}
                 alt=""
                 title={ti.assignee.name}
-                className="h-5 w-5 shrink-0 rounded-full border border-hairline object-cover"
+                className="h-5 w-5 shrink-0 rounded-full object-cover ring-1 ring-hairline"
               />
             ) : (
               <span
                 title={ti.assignee.name}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-hairline bg-cream-2 text-[0.625rem] text-ink-2"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cream-2 text-[10px] font-medium text-ink-2"
               >
                 {initial(ti.assignee.name)}
               </span>
             )}
-            <span className="truncate text-[0.625rem] text-ink-2">{ti.assignee.name}</span>
+            <span className="truncate text-[13px] text-ink-2">{ti.assignee.name}</span>
           </>
         ) : (
-          <span className="text-[0.625rem] text-muted/50">—</span>
+          <span
+            title="Unassigned"
+            className="h-5 w-5 shrink-0 rounded-full border border-dashed border-[rgba(26,22,18,0.25)]"
+          />
         )}
       </div>
 
       {/* 6 · Updated (hidden < sm) */}
-      <span className={`hidden truncate font-mono text-[0.625rem] text-muted sm:block${dim}`}>
+      <span className={`hidden truncate text-xs tabular-nums text-muted sm:block${dim}`}>
         {relativeTime(b.created_at)}
       </span>
 
-      {/* 7 · Row action - Archive is the only removal (acts like delete). The
-          logos in the ID cell handle opening (Brief page / tracker), so this is
-          the single hover action. Faint until hover; hidden while a batch
-          selection is active (the floating bar handles that); the cell still
-          holds its track. */}
+      {/* 7 · Row action - Archive is the only removal (acts like delete). Faint
+          until hover; hidden while a batch selection is active (the floating
+          bar handles that); the cell still holds its track. */}
       <div className="relative z-10 flex items-center justify-end gap-0.5">
         {!anySelected && (
           <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />

@@ -37,7 +37,7 @@ export default function CopyLinkButton({
         onClick={copy}
         title={done ? "Link copied" : "Copy share link"}
         aria-label="Copy share link"
-        className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-ink-2 focus-visible:opacity-100 group-hover:opacity-100"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-[rgba(26,22,18,0.06)] hover:text-ink focus-visible:opacity-100 group-hover:opacity-100"
       >
         {done ? (
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -57,7 +57,7 @@ export default function CopyLinkButton({
     <button
       type="button"
       onClick={copy}
-      className="inline-flex items-center gap-1.5 rounded-[10px] border border-hairline bg-cream/60 px-3 py-1.5 text-xs text-ink-2 transition-colors hover:bg-cream-2/70 hover:text-ink"
+      className="btn"
     >
       {done ? (
         <>

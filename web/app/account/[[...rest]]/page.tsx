@@ -1,27 +1,24 @@
 import { UserProfile } from "@clerk/nextjs";
 import Link from "next/link";
-import BrandMark from "@/components/BrandMark";
+import StandalonePage from "@/components/StandalonePage";
+import { clerkProfileSheet } from "@/components/clerk-sheet";
 
 export default function Account() {
   return (
-    <div className="min-h-full text-ink">
-      <header className="border-b hairline">
-        <div className="mx-auto flex w-full max-w-[760px] items-center justify-between px-4 py-4">
-          <Link href="/dashboard" className="flex items-center gap-2.5 no-underline">
-            <BrandMark size={28} />
-            <span className="font-display text-2xl leading-none text-ink">Brief</span>
-          </Link>
-          <Link
-            href="/dashboard"
-            className="text-xs tracking-wide text-muted hover:text-ink no-underline"
-          >
-            ← back to dashboard
-          </Link>
-        </div>
-      </header>
-      <main className="mx-auto flex w-full max-w-[760px] flex-col items-center px-4 py-10 sm:py-14">
-        <UserProfile />
-      </main>
-    </div>
+    <StandalonePage
+      homeHref="/dashboard"
+      right={
+        <Link href="/dashboard" className="btn">
+          <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M10 3.5 5.5 8l4.5 4.5" />
+          </svg>
+          Back home
+        </Link>
+      }
+    >
+      <div className="w-full max-w-[880px]">
+        <UserProfile appearance={clerkProfileSheet} />
+      </div>
+    </StandalonePage>
   );
 }

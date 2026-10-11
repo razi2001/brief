@@ -73,8 +73,8 @@ export default function FilterPopover({
         aria-controls={panelId}
         aria-label="Filter briefs"
         onClick={() => onOpenChange(!open)}
-        className={`relative inline-flex h-8 w-8 items-center justify-center rounded-lg border border-hairline text-muted transition-colors duration-150 hover:bg-cream-2/70 hover:text-ink ${
-          open ? "bg-cream-2/70 text-ink" : ""
+        className={`btn relative h-8 w-8 justify-center !p-0 ${
+          open ? "bg-surface-2 text-ink" : ""
         }`}
       >
         <svg
@@ -93,7 +93,7 @@ export default function FilterPopover({
         {!isDefault && (
           <span
             aria-hidden="true"
-            className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent ring-2 ring-cream"
+            className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent ring-2 ring-surface"
           />
         )}
       </button>
@@ -102,17 +102,15 @@ export default function FilterPopover({
         <div
           id={panelId}
           role="menu"
-          className="card animate-rise absolute right-0 z-20 mt-2 w-[220px] p-2"
-          style={{ background: "#fbf8f1", backdropFilter: "none", boxShadow: "0 12px 32px rgba(26,22,18,.16)" }}
+          className="animate-rise absolute right-0 z-20 mt-1.5 w-[220px] rounded-[10px] border border-hairline bg-surface p-1.5"
+          style={{ boxShadow: "0 1px 2px rgba(26,22,18,.05), 0 12px 32px -8px rgba(26,22,18,.2)" }}
         >
           <div className="flex items-center justify-between px-2 pb-1.5 pt-1">
-            <span className="text-[0.625rem] uppercase tracking-[0.12em] text-muted">
-              Show
-            </span>
+            <span className="text-xs text-muted">Show</span>
             <button
               type="button"
               onClick={onReset}
-              className="text-[0.6875rem] text-muted no-underline transition-colors hover:text-accent hover:underline"
+              className="text-xs text-muted no-underline transition-colors hover:text-accent"
             >
               Reset
             </button>
@@ -128,13 +126,13 @@ export default function FilterPopover({
                     role="menuitemcheckbox"
                     aria-checked={checked}
                     onClick={() => onToggle(o.key)}
-                    className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-cream-2/60"
+                    className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2"
                   >
                     <span
                       className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
                         checked
-                          ? "border-accent bg-accent text-cream"
-                          : "border-hairline bg-transparent text-transparent"
+                          ? "border-accent bg-accent text-white"
+                          : "border-[rgba(26,22,18,0.22)] bg-surface text-transparent"
                       }`}
                     >
                       <svg
@@ -155,7 +153,7 @@ export default function FilterPopover({
                       className="inline-block h-2 w-2 shrink-0 rounded-full"
                       style={{ backgroundColor: o.color }}
                     />
-                    <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink-2">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">
                       {o.label}
                     </span>
                   </button>
@@ -171,13 +169,13 @@ export default function FilterPopover({
               role="menuitemcheckbox"
               aria-checked={showArchived}
               onClick={onToggleArchived}
-              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-cream-2/60"
+              className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2"
             >
               <span
                 className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
                   showArchived
-                    ? "border-accent bg-accent text-cream"
-                    : "border-hairline bg-transparent text-transparent"
+                    ? "border-accent bg-accent text-white"
+                    : "border-[rgba(26,22,18,0.22)] bg-surface text-transparent"
                 }`}
               >
                 <svg
@@ -194,7 +192,7 @@ export default function FilterPopover({
                   <path d="M5 12l5 5L20 6" />
                 </svg>
               </span>
-              <span className="min-w-0 flex-1 truncate text-[0.8125rem] text-ink-2">
+              <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">
                 Show archived
               </span>
             </button>

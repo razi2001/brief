@@ -68,7 +68,7 @@ export default function ArchiveButton({
       disabled={done}
       title="Archive"
       aria-label="Archive this ticket"
-      className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-cream-2 hover:text-ink-2 focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
+      className="flex h-7 w-7 items-center justify-center rounded-md text-muted opacity-0 transition-[opacity,color,background-color] duration-150 hover:bg-[rgba(26,22,18,0.06)] hover:text-ink focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-40"
     >
       <svg
         viewBox="0 0 24 24"

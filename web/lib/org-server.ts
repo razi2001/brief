@@ -625,7 +625,19 @@ export async function getOrgRoi(
 ): Promise<RoiSummary | null> {
   const admin = db ?? createAdminSupabase();
   try {
-    const memberIds = await getOrgMemberIds(orgKeyValue, admin);
+    return await getRoiFor(await getOrgMemberIds(orgKeyValue, admin), admin);
+  } catch {
+    return null;
+  }
+}
+
+/** The same headline for any set of people - a team, or just you. */
+export async function getRoiFor(
+  memberIds: string[],
+  db?: SupabaseClient,
+): Promise<RoiSummary | null> {
+  const admin = db ?? createAdminSupabase();
+  try {
     if (memberIds.length === 0) return null;
     const { data, error } = await admin.rpc("org_roi", { member_ids: memberIds });
     if (error) throw error;

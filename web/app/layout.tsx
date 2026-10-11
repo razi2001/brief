@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { Inter, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
 import CloudBackground from "@/components/CloudBackground";
 import ExtensionTokenSync from "@/components/ExtensionTokenSync";
@@ -10,6 +10,11 @@ const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
   style: ["normal", "italic"],
+});
+
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
 });
 
 const jetbrainsMono = JetBrains_Mono({
@@ -34,16 +39,16 @@ export default function RootLayout({
           colorPrimary: "#dd6936",
           colorBackground: "#f5f1e8",
           colorText: "#1a1612",
-          colorInputBackground: "#fffdf8",
+          colorInputBackground: "#ffffff",
           colorInputText: "#1a1612",
           borderRadius: "10px",
-          fontFamily: "var(--font-mono)",
+          fontFamily: "var(--font-inter)",
         },
       }}
     >
       <html
         lang="en"
-        className={`${instrumentSerif.variable} ${jetbrainsMono.variable} h-full antialiased`}
+        className={`${inter.variable} ${instrumentSerif.variable} ${jetbrainsMono.variable} h-full antialiased`}
       >
         <body className="min-h-full flex flex-col bg-cream text-ink">
           <CloudBackground />

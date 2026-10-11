@@ -21,6 +21,7 @@ export default function EvidenceCard({
   voiceUrl,
   canRemove,
   index,
+  tile = false,
 }: {
   briefId: string;
   url: string;
@@ -31,6 +32,8 @@ export default function EvidenceCard({
   voiceUrl?: string;
   canRemove: boolean;
   index: number;
+  /** A grid tile: the media sits in a fixed 16:10 frame so tiles line up. */
+  tile?: boolean;
 }) {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
@@ -69,7 +72,7 @@ export default function EvidenceCard({
 
   return (
     <div
-      className={`group/ev relative overflow-hidden rounded-xl border border-hairline bg-cream/40 transition-[opacity,transform] duration-200 ${
+      className={`group/ev relative overflow-hidden rounded-xl border border-hairline bg-surface shadow-[0_1px_2px_rgba(26,22,18,0.04)] transition-[opacity,transform,border-color] duration-200 hover:border-[rgba(26,22,18,0.16)] ${
         leaving ? "scale-[0.99] opacity-0" : ""
       }`}
     >
@@ -79,7 +82,7 @@ export default function EvidenceCard({
             <button
               type="button"
               onClick={remove}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#c62828]/30 bg-[#c62828] px-2.5 text-xs font-medium text-white shadow-sm transition hover:brightness-95"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#c62828]/30 bg-[#c62828] px-2.5 text-xs font-medium text-white shadow-sm transition hover:brightness-95"
             >
               Remove?
             </button>
@@ -89,7 +92,7 @@ export default function EvidenceCard({
               onClick={arm}
               title="Remove from this brief"
               aria-label="Remove evidence"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-hairline bg-cream/90 text-ink-2 opacity-0 shadow-sm backdrop-blur transition group-hover/ev:opacity-100 hover:bg-cream hover:text-[#c62828] focus-visible:opacity-100"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-hairline bg-surface/95 text-ink-2 opacity-0 shadow-sm backdrop-blur transition group-hover/ev:opacity-100 hover:bg-surface hover:text-[#c62828] focus-visible:opacity-100"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M10 11v6M14 11v6" />
@@ -98,17 +101,27 @@ export default function EvidenceCard({
           ))}
       </div>
       {/* DownloadButton positions itself top-right; shift it left of Remove. */}
-      <div className={canRemove ? "[&>button]:right-12" : undefined}>
+      <div className={canRemove ? "[&>button]:right-11" : undefined}>
         <DownloadButton url={url} filename={filename} />
       </div>
       {kind === "image" ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt={`Evidence ${index + 1}`} className="w-full" />
+        <img
+          src={url}
+          alt={`Evidence ${index + 1}`}
+          className={tile ? "aspect-[16/10] w-full bg-surface-2 object-contain" : "w-full"}
+        />
       ) : kind === "replay" ? (
         <ReplayPlayer url={url} voiceUrl={voiceUrl} />
       ) : (
         <video src={url} controls className="w-full bg-ink" />
       )}
+      <div className="flex items-center gap-2 border-t border-hairline px-3 py-2 text-xs text-muted">
+        <span className="shrink-0 text-ink-2">
+          {kind === "image" ? "Screenshot" : kind === "replay" ? "Replay" : "Recording"}
+        </span>
+        <span className="min-w-0 truncate font-mono text-[11px]">{filename}</span>
+      </div>
     </div>
   );
 }

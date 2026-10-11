@@ -55,7 +55,7 @@ export default function DownloadButton({
         type="button"
         onClick={download}
         disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-cream/60 px-3 py-1.5 text-xs text-ink-2 transition-colors hover:bg-cream-2/70 hover:text-ink disabled:opacity-60"
+        className="btn disabled:opacity-60"
       >
         {ICON}
         Download
@@ -70,7 +70,7 @@ export default function DownloadButton({
       disabled={busy}
       title="Download"
       aria-label="Download asset"
-      className="absolute right-2.5 top-2.5 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-hairline bg-cream/90 text-ink-2 opacity-0 shadow-sm backdrop-blur transition group-hover/ev:opacity-100 hover:bg-cream hover:text-ink focus-visible:opacity-100 disabled:opacity-60"
+      className="absolute right-2.5 top-2.5 z-10 inline-flex h-7 w-7 items-center justify-center rounded-md border border-hairline bg-surface/95 text-ink-2 opacity-0 shadow-sm backdrop-blur transition group-hover/ev:opacity-100 hover:bg-surface hover:text-ink focus-visible:opacity-100 disabled:opacity-60"
     >
       {ICON}
     </button>

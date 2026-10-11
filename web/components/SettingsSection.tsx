@@ -50,20 +50,36 @@ export function SettingsGlyph({ icon, size = 16 }: { icon: SettingsIcon; size?: 
   );
 }
 
-/** Small uppercase label over a block inside a section. */
+/** A block's label inside an open row: sentence case, Linear-quiet. */
 export function Eyebrow({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-[0.6875rem] uppercase tracking-[0.12em] text-muted">{children}</span>
+      <span className="text-[13px] font-medium text-ink-2">{children}</span>
       {aside}
     </div>
   );
 }
 
-/** The page's one button style: compact, accent. */
+/** The page's primary button: compact, accent (globals.css .btn-accent). */
 export const buttonClass =
-  "inline-flex h-9 shrink-0 cursor-pointer items-center rounded-lg bg-accent px-4 text-xs tracking-[0.02em] text-cream transition hover:brightness-95 disabled:cursor-not-allowed disabled:bg-cream-2 disabled:text-muted disabled:hover:brightness-100";
+  "btn-accent h-8 shrink-0 cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none disabled:hover:filter-none";
 
-/** Quiet secondary button. */
+/** Quiet secondary button (globals.css .btn). */
 export const ghostButtonClass =
-  "inline-flex h-9 shrink-0 cursor-pointer items-center rounded-lg border hairline px-4 text-xs text-ink-2 transition hover:border-ink/30 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40";
+  "btn h-8 shrink-0 cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-45";
+
+/** The two-option switch ("team" / "my own"): a compact segmented control. */
+export const segmentedClass = "inline-flex rounded-lg bg-[rgba(26,22,18,.05)] p-0.5";
+export function segmentClass(on: boolean): string {
+  return `h-6 cursor-pointer rounded-md px-2.5 text-xs font-medium transition-colors ${
+    on ? "bg-surface text-ink shadow-[0_1px_2px_rgba(26,22,18,.12)]" : "text-muted hover:text-ink-2"
+  }`;
+}
+
+/** Text fields on this page: white, hairline, accent focus ring. */
+export const fieldFocusClass = "focus:border-accent/50 focus:ring-[3px] focus:ring-accent/20";
+
+/** The blast-radius confirmations (team defaults, team sites). */
+export const dialogBackdropClass =
+  "fixed inset-0 z-50 flex items-center justify-center bg-[rgba(26,22,18,.32)] px-4";
+export const dialogPanelClass = "ai-float w-full max-w-md rounded-xl border hairline bg-surface p-5";

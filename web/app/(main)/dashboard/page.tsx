@@ -1,50 +1,26 @@
-import Link from "next/link";
 import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { requireUserId } from "@/lib/auth";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import AutoRefresh from "@/components/AutoRefresh";
 import RefreshButton from "@/components/RefreshButton";
-import StatStrip, { type Stat } from "@/components/StatStrip";
-import TrendChart, { type TrendDay } from "@/components/TrendChart";
-import StatusBreakdown, { type StatusSegment } from "@/components/StatusBreakdown";
-import TicketList from "@/components/TicketList";
-import Podium from "@/components/Podium";
-import RoiHeadline from "@/components/RoiHeadline";
+import DashboardView from "@/components/DashboardView";
+import { providerName } from "@/lib/trackers/registry";
 import {
   recoverOrphans,
   getTrackerContext,
-  attachTicketInfo,
   BRIEF_COLUMNS,
   type BriefRow,
 } from "@/lib/briefs-server";
+import { TITLES } from "@/lib/podium";
 import {
+  type PodiumEntry,
   getLeaderboards,
   getOrg,
   getOrgRoi,
+  getRoiFor,
   warmOrgMemberships,
 } from "@/lib/org-server";
-import { showPodium } from "@/lib/podium";
-
-/** Local YYYY-MM-DD key for a timestamp (day bucketing for the trend chart). */
-function dayKey(d: Date): string {
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, "0");
-  const day = `${d.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-/** The last `n` calendar days (oldest → newest), each zero-initialized. */
-function buildDays(n: number): TrendDay[] {
-  const out: TrendDay[] = [];
-  const now = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(now.getDate() - i);
-    out.push({ date: dayKey(d), count: 0 });
-  }
-  return out;
-}
 
 export default async function Dashboard() {
   const userId = await requireUserId();
@@ -81,175 +57,61 @@ export default async function Dashboard() {
     (b) => b.created_at && new Date(b.created_at).getTime() >= weekAgo,
   ).length;
 
-  // Trend: filed per day over the last 14 days.
-  const days = buildDays(14);
-  const dayIndex = new Map(days.map((d, i) => [d.date, i]));
-  for (const b of filed) {
-    if (!b.created_at) continue;
-    const idx = dayIndex.get(dayKey(new Date(b.created_at)));
-    if (idx !== undefined) days[idx].count++;
-  }
-
-  // WAVE 2 - the live tracker read and the leaderboard. Each needs wave 1;
-  // neither needs the other, so they overlap instead of queueing.
-  //
-  // The leaderboard is scoped to whichever workspace this user's token
-  // resolves to - never to anything the request asked for. Best-effort
-  // throughout: no org, or an aggregate that fails, simply means no podium.
-  const [dashboardBriefs, boards, roi] = await Promise.all([
-    attachTicketInfo(userId, list, ctx.connected, 60, admin),
+  // WAVE 2 - the leaderboard and the headline numbers, together. Best-effort:
+  // no org, or an aggregate that fails, simply means less on the page.
+  const [boards, roi] = await Promise.all([
     org ? getLeaderboards(org.key, userId, admin) : { month: [], all: [] },
-    org ? getOrgRoi(org.key, admin) : null,
+    org ? getOrgRoi(org.key, admin) : getRoiFor([userId], admin),
   ]);
-  const filedBriefs = dashboardBriefs.filter((b) => b.status === "filed");
-  // Recent tickets includes in-progress ones (filing now) so a just-queued ticket
-  // shows up immediately with its name; drafts ('uploaded') and failed are excluded.
-  const recent = dashboardBriefs
-    .filter((b) => b.status === "filed" || b.status === "processing")
-    .slice(0, 4);
 
-  // Status breakdown: group filed tickets by their live tracker state.
-  const segMap = new Map<string, StatusSegment>();
-  for (const b of filedBriefs) {
-    const label = b.ticket?.stateName ?? "Filed";
-    const color = b.ticket?.stateColor || "#2e7d32";
-    const seg = segMap.get(label);
-    if (seg) seg.count++;
-    else segMap.set(label, { label, count: 1, color });
-  }
-  const segments = [...segMap.values()].sort((a, b) => b.count - a.count);
-
-  const stats: Stat[] = [
-    { label: "Tickets filed", value: filed.length, color: "#2e7d32" },
-    { label: "This week", value: thisWeek, color: "#dd6936" },
-    {
-      label: "In progress",
-      value: processing.length,
-      color: "#dd6936",
-      pulse: processing.length > 0,
-    },
-  ];
-
-
-  // Colleagues who have filed but never opened Brief have no cached membership,
-  // so they are missing from the leaderboard through no fault of their own.
-  // Resolve a few of them after the response is sent - costs this render
-  // nothing, and the org fills itself in over a handful of loads.
   if (org) after(() => warmOrgMemberships(admin));
 
-  const hasBriefs = list.length > 0;
-  // First-run onboarding lives on its own page. Send not-yet-onboarded users
-  // there; users who already have filed tickets predate the wizard - never
-  // nag them with it.
+  // The leaderboard shows from the first person: with no team (or nobody on
+  // the board yet) you stand on it alone, and the open places invite others.
+  const monthAgo = new Date().getTime() - 30 * 24 * 60 * 60 * 1000;
+  const me = (n: number): PodiumEntry => ({
+    userId,
+    rank: 1,
+    filed: n,
+    title: TITLES.first,
+    name: ctx.user?.fullName || ctx.user?.firstName || "You",
+    imageUrl: ctx.user?.imageUrl,
+    isYou: true,
+  });
+  const shownBoards = {
+    month: boards.month.length
+      ? boards.month
+      : [me(filed.filter((b) => b.created_at && new Date(b.created_at).getTime() >= monthAgo).length)],
+    all: boards.all.length ? boards.all : [me(filed.length)],
+  };
+
   if (!!ctx.user && !ctx.onboarded && filed.length === 0) redirect("/welcome");
+
+  // the extension is set up once it holds a live pairing token
+  const { count: tokens } = await admin
+    .from("extension_tokens")
+    .select("user_id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .is("revoked_at", null);
 
   return (
     <>
-      {/* Live status: always kept in sync - fast poll while anything is
-          filing, slow background poll otherwise, instant refresh on tab
-          focus. Manual refresh stays for impatient moments. */}
-      <div className="mb-4 flex items-center justify-end gap-2">
+      {/* Live status: a fast poll while anything is filing, a slow one
+          otherwise, a refresh on tab focus; the button for impatient moments. */}
+      <div className="mx-auto -mb-8 flex w-full max-w-[960px] items-center justify-end gap-2">
         <AutoRefresh active={processing.length > 0} />
         <RefreshButton />
       </div>
-      {/* Org-level, so NOT gated on whether this particular person has filed
-          anything. A teammate who joined today has no briefs of their own and
-          was seeing an all but empty page - while their org had eighty tickets
-          and a leaderboard sitting right there, which is exactly what should
-          greet them. */}
-      {org && roi && <RoiHeadline roi={roi} orgName={org.name} />}
-
-      {hasBriefs ? (
-        <>
-          {/* The podium leads when there is one - it is the thing people come
-              back for - and takes half the width beside the trend, which
-              leaves the status breakdown full width underneath. With no
-              podium the original trend|breakdown pair stands as it was, so
-              neither layout ever has a lone half-width card. */}
-          {org && (showPodium(boards.month) || showPodium(boards.all)) ? (
-            <>
-              {/* Podium on the left, the two charts stacked on the right.
-                  Activity alone left a tall empty column beside the podium;
-                  status fills it instead of sitting full width underneath.
-                  items-start so neither column stretches to match the other. */}
-              <div className="grid grid-cols-1 items-start gap-5 md:grid-cols-2">
-                <Podium
-                  month={boards.month}
-                  all={boards.all}
-                  orgName={org.name}
-                />
-                <div className="flex flex-col gap-5">
-                  <TrendChart days={days} tall />
-                  {segments.length > 0 && <StatusBreakdown segments={segments} />}
-                  <StatStrip stats={stats} />
-                </div>
-              </div>
-            </>
-          ) : (
-            <>
-            <StatStrip stats={stats} />
-            <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2">
-              <TrendChart days={days} />
-              {segments.length > 0 ? (
-                <StatusBreakdown segments={segments} />
-              ) : (
-                <div className="card flex items-center justify-center px-4 py-4 text-center text-sm text-muted">
-                  Connect a tracker to see live ticket status.
-                </div>
-              )}
-            </div>
-            </>
-          )}
-
-          {recent.length > 0 && (
-            <section className="mt-8">
-              <div className="mb-3 flex items-baseline justify-between">
-                <h2 className="font-display text-2xl text-ink">Recent tickets</h2>
-                <Link
-                  href="/tickets"
-                  className="font-mono text-xs tracking-wide text-accent no-underline hover:underline"
-                >
-                  All tickets →
-                </Link>
-              </div>
-              <TicketList briefs={recent} />
-            </section>
-          )}
-        </>
-      ) : (
-        // Nothing of their own yet. The org's podium still belongs on the page -
-        // full width, since there is no second column to sit beside.
-        org &&
-        (showPodium(boards.month) || showPodium(boards.all)) && (
-          <Podium month={boards.month} all={boards.all} orgName={org.name} />
-        )
-      )}
-
-      {/* Onboarding done (or skipped) but nothing captured yet - one quiet
-          pointer at the extension instead of a blank page. */}
-      {!hasBriefs && (
-        <div className="card mt-6 px-5 py-10 text-center">
-          <p className="font-display text-xl text-ink">no tickets yet.</p>
-          <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted">
-            hit ✦ in the extension, talk through a bug, and it lands here -
-            written up and filed.
-          </p>
-        </div>
-      )}
-
-      <footer className="mt-16 border-t hairline pt-6 text-center">
-        <p className="text-xs text-muted">
-          <a
-            href="https://get-brief.app"
-            target="_blank"
-            rel="noreferrer"
-            className="text-muted no-underline hover:text-accent hover:underline"
-          >
-            get-brief.app
-          </a>{" "}
-          · what&apos;s the brief?
-        </p>
-      </footer>
+      <DashboardView
+        hasTracker={ctx.connected.length > 0}
+        trackerName={ctx.connected[0] ? providerName(ctx.connected[0]) : undefined}
+        extensionPaired={(tokens ?? 0) > 0}
+        filed={filed.length}
+        thisWeek={thisWeek}
+        org={org}
+        roi={roi}
+        boards={shownBoards}
+      />
     </>
   );
 }

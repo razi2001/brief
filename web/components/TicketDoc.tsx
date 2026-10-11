@@ -39,7 +39,7 @@ const EditableBody = memo(
         onInput={onInput}
         onBlur={onBlur}
         onKeyDown={onKeyDown}
-        className="ticket-prose mt-6 outline-none"
+        className="ticket-prose mt-7 outline-none"
         dangerouslySetInnerHTML={{ __html: html }}
       />
     );
@@ -64,7 +64,7 @@ const ICON = {
 // Secondary actions: quiet ghost buttons so they never compete with the accent
 // primary (Export / Connect). Borderless at rest, subtle bg on hover.
 const BTN_GHOST =
-  "inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted no-underline transition-colors hover:bg-cream-2/70 hover:text-ink disabled:opacity-60";
+  "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[13px] font-medium text-muted no-underline transition-colors hover:bg-surface-2 hover:text-ink disabled:opacity-60";
 
 type AssetMeta = { filename: string; kind: "image" | "video" };
 
@@ -377,13 +377,28 @@ export default function TicketDoc({
 
   return (
     <div>
-      {/* Action toolbar - one accent primary, then quiet ghost secondaries. */}
-      <div className="mb-8 flex flex-wrap items-center gap-1">
+      {/* Title (editable in place for the owner) */}
+      <h1
+        ref={titleRef}
+        contentEditable={canEdit}
+        suppressContentEditableWarning
+        onInput={canEdit ? scheduleSave : undefined}
+        onBlur={canEdit ? flushSave : undefined}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); bodyRef.current?.focus(); }
+        }}
+        className="text-[28px] font-semibold leading-[1.2] tracking-[-0.022em] text-ink outline-none sm:text-[32px]"
+      >
+        {initialTitle}
+      </h1>
+
+      {/* Action toolbar - one primary, then quiet ghost secondaries. */}
+      <div className="mt-5 flex flex-wrap items-center gap-1 border-b border-hairline pb-5">
         {/* Primary: export the draft, or open the filed ticket. */}
         {isOwner && isDraft && <ExportButtons briefId={briefId} connected={connected} />}
         {!isDraft && ticketUrl && (
           <a
-            className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-cream/50 px-3 py-1.5 text-xs font-medium text-ink-2 no-underline transition-colors hover:bg-cream-2/70 hover:text-ink"
+            className="btn"
             href={ticketUrl}
             target="_blank"
             rel="noreferrer"
@@ -396,13 +411,13 @@ export default function TicketDoc({
 
         {/* Thin divider between the primary and the quiet secondaries. */}
         {((isOwner && isDraft) || (!isDraft && ticketUrl)) && (
-          <span className="mx-1.5 h-4 w-px bg-hairline" aria-hidden />
+          <span className="mx-1.5 h-4 w-px bg-[rgba(26,22,18,0.12)] max-sm:hidden" aria-hidden />
         )}
 
         <button
           type="button"
           className={BTN_GHOST}
-          title="Shareable link — anyone with it can view this brief"
+          title="Copy share link"
           onClick={() => copy("link", `${window.location.origin}/b/${shareId}`)}
         >
           {copied === "link" ? ICON.check : ICON.share}
@@ -415,34 +430,20 @@ export default function TicketDoc({
 
         {/* Owner's filing status lives in the assistant rail; visitors (no
             rail) get the moving status here in the toolbar. */}
-        {filing && !isOwner && <ProgressCycler messages={FILING_STEPS} className="ml-1 text-xs" />}
+        {filing && !isOwner && <ProgressCycler messages={FILING_STEPS} className="ml-1.5 text-[13px]" />}
         {aiEditing && (
-          <span className="ml-1 inline-flex items-center gap-1.5 text-xs text-accent">
+          <span className="ml-1.5 inline-flex items-center gap-1.5 text-[13px] text-accent">
             <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />
             Assistant is editing…
           </span>
         )}
         {canEdit && !aiEditing && status !== "idle" && (
-          <span className={`ml-1 text-xs ${status === "error" ? "text-[#c62828]" : "text-muted"}`}>
+          <span className={`ml-auto text-xs ${status === "error" ? "text-[#c62828]" : "text-muted"}`}>
             {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "Couldn't save"}
           </span>
         )}
       </div>
 
-      {/* Title (editable in place for the owner) */}
-      <h1
-        ref={titleRef}
-        contentEditable={canEdit}
-        suppressContentEditableWarning
-        onInput={canEdit ? scheduleSave : undefined}
-        onBlur={canEdit ? flushSave : undefined}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") { e.preventDefault(); bodyRef.current?.focus(); }
-        }}
-        className="font-display text-3xl leading-[1.08] text-ink outline-none sm:text-[2.7rem]"
-      >
-        {initialTitle}
-      </h1>
 
       {/* Body - server-rendered (no flash); editable in place for the owner.
           Frozen after mount (see EditableBody) so edits are never wiped. */}
@@ -458,7 +459,7 @@ export default function TicketDoc({
       {/* Floating selection toolbar (owner) */}
       {canEdit && !aiEditing && bubble && (
         <div className="fixed z-50 -translate-x-1/2" style={{ top: bubble.y, left: bubble.left }}>
-          <div className="flex items-center gap-0.5 rounded-lg border border-[rgba(245,241,232,0.14)] bg-ink p-1 shadow-[0_8px_28px_rgba(26,22,18,0.35)]">
+          <div className="flex items-center gap-0.5 rounded-[9px] border border-[rgba(245,241,232,0.14)] bg-ink p-1 shadow-[0_8px_28px_rgba(26,22,18,0.35)]">
             <button type="button" title="Heading" className={`${bubbleBtn} text-[0.8125rem] font-bold`} onMouseDown={noMouseSteal} onClick={() => format("heading")}>H</button>
             <span className="mx-0.5 h-4 w-px self-center bg-cream/20" aria-hidden />
             <button type="button" title="Bold (⌘B)" className={`${bubbleBtn} font-bold`} onMouseDown={noMouseSteal} onClick={() => format("bold")}>B</button>

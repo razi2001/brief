@@ -8,9 +8,14 @@
   --color-ink-2: #3a3530;
   --color-muted: #8a8378;
   --color-accent: #dd6936;
-  --color-hairline: rgba(26, 22, 18, 0.12);
+  --color-hairline: rgba(26, 22, 18, 0.09);
+  /* the floating panel and white cards that sit on the sky */
+  --color-surface: #fffdfa;
+  --color-surface-2: #f7f4ee;
 
-  /* Fonts (wired from next/font in layout.tsx) */
+  /* Fonts (wired from next/font in layout.tsx). Inter carries the interface,
+     the serif titles and big numbers, mono only ids and code. */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-display);
   --font-mono: var(--font-mono);
 
@@ -37,7 +42,9 @@
 body {
   background: var(--color-cream);
   color: var(--color-ink);
-  font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -57,14 +64,40 @@ a {
     border-color: var(--color-hairline);
   }
 
-  .card {
-    /* Translucent warm-white so the drifting clouds glow faintly through. */
-    background: rgba(255, 253, 248, 0.72);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  /* The page: one floating panel on the sky, a touch translucent so the
+     clouds still glow faintly through it. */
+  /* The sidebar: its own warm sunset gradient, peach at the top deepening
+     to apricot, still a touch see-through so the clouds pass behind it. */
+  .sidebar {
+    background:
+      radial-gradient(ellipse 120% 40% at 0% 0%, rgba(255, 244, 232, 0.7), transparent 70%),
+      linear-gradient(180deg, rgba(254, 240, 228, 0.78) 0%, rgba(252, 228, 210, 0.78) 50%, rgba(248, 214, 192, 0.82) 100%);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  /* A white sheet floating on the sky (the ticket page, sign-in, welcome),
+     the colour of cloud: white at the top fading to a soft cream. */
+  .panel {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 252, 246, 0.9) 100%);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--color-hairline);
-    border-radius: var(--radius-brief);
-    box-shadow: 0 1px 2px rgba(26, 22, 18, 0.05);
+    box-shadow:
+      0 1px 2px rgba(26, 22, 18, 0.04),
+      0 12px 40px -18px rgba(26, 22, 18, 0.18);
+  }
+  @media (min-width: 640px) {
+    .panel {
+      border-radius: 14px;
+    }
+  }
+
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-hairline);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(26, 22, 18, 0.04);
     transition:
       transform 0.2s cubic-bezier(0.22, 1, 0.36, 1),
       box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1),
@@ -77,11 +110,12 @@ a {
     gap: 0.5rem;
     background: var(--color-accent);
     color: var(--color-cream);
-    border-radius: var(--radius-brief);
-    padding: 0.55rem 1rem;
+    border-radius: 8px;
+    padding: 0.45rem 0.85rem;
     font-size: 0.8125rem;
-    letter-spacing: 0.02em;
+    font-weight: 500;
     border: 1px solid transparent;
+    box-shadow: 0 1px 2px rgba(221, 105, 54, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.18);
     transition: filter 0.15s ease;
     text-decoration: none;
   }
@@ -89,15 +123,45 @@ a {
     filter: brightness(0.94);
   }
 
+  /* The quiet button: white, a hairline, Linear-sized. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--color-surface);
+    color: var(--color-ink-2);
+    border: 1px solid var(--color-hairline);
+    border-radius: 8px;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(26, 22, 18, 0.04);
+    transition: background-color 0.15s ease, color 0.15s ease;
+    text-decoration: none;
+  }
+  .btn:hover {
+    background: var(--color-surface-2);
+    color: var(--color-ink);
+  }
+  .btn:disabled,
+  .btn-accent:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    filter: none;
+  }
+  .btn:disabled:hover {
+    background: var(--color-surface);
+    color: var(--color-ink-2);
+  }
+
   .pill {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     border-radius: 999px;
-    padding: 0.15rem 0.6rem;
-    font-size: 0.6875rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    padding: 0.1rem 0.55rem;
+    font-size: 0.75rem;
+    font-weight: 500;
     border: 1px solid var(--color-hairline);
   }
 
@@ -349,46 +413,63 @@ a {
 
 /* ── Ambient cloud background ───────────────────────────────────────── */
 
-/* Ported faithfully from get-brief.app: soft SVG cloud shapes drifting in
-   parallax layers (back/mid/front), tinted warm-white over the cream base. */
+/* A warm sky: cream gradient, a soft sun glow top right, and puffy clouds
+   travelling right to left across the whole width in three depths. */
 .sky {
   position: fixed;
   inset: 0;
   z-index: -10;
   overflow: hidden;
   pointer-events: none;
-  background: var(--color-cream);
+  background:
+    radial-gradient(ellipse 55% 45% at 85% -5%, rgba(255, 220, 185, 0.35), transparent 70%),
+    radial-gradient(ellipse 60% 50% at 0% 100%, rgba(255, 240, 225, 0.4), transparent 70%),
+    linear-gradient(180deg, #f3ece0 0%, #f7f2ea 50%, #faf7f1 100%);
+}
+.sky-sun {
+  position: absolute;
+  right: 9%;
+  top: -120px;
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 224, 192, 0.35), rgba(255, 224, 192, 0) 70%);
+  animation: sun-breathe 12s ease-in-out infinite;
+}
+@keyframes sun-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.08); opacity: 1; }
 }
 .sky .cloud {
   position: absolute;
-  color: #fffdf6;
+  left: 0;
   will-change: transform;
+  animation-name: cloud-travel;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
 }
 .sky .cloud svg {
   display: block;
   width: 100%;
   height: auto;
+  overflow: visible;
 }
-/* back layer - large, faded, slow */
-.sky .bg-1 { top: 8%;  left: -4%;  width: 320px; opacity: 0.32; animation: drift-r 180s linear infinite; }
-.sky .bg-2 { top: 54%; right: -6%; width: 360px; opacity: 0.28; animation: drift-l 210s -40s linear infinite; }
-/* mid layer */
-.sky .mid-1 { top: 22%; left: 36%; width: 220px; opacity: 0.55; animation: drift-r 120s -20s linear infinite; }
-.sky .mid-2 { top: 68%; left: 14%; width: 200px; opacity: 0.5;  animation: drift-l 140s -60s linear infinite; }
-.sky .mid-3 { top: 40%; right: 8%; width: 240px; opacity: 0.55; animation: drift-r 130s -90s linear infinite; }
-/* front layer - small, more opaque, faster */
-.sky .fg-1 { top: 12%; right: 22%; width: 130px; opacity: 0.85; animation: drift-l 80s linear infinite; }
-.sky .fg-2 { top: 80%; left: 46%; width: 120px; opacity: 0.8;  animation: drift-r 70s -25s linear infinite; }
-
-@keyframes drift-r {
-  0%   { transform: translate3d(0, 0, 0); }
-  50%  { transform: translate3d(40px, -4px, 0); }
-  100% { transform: translate3d(0, 0, 0); }
+/* far: small, hazy, slow */
+.sky .cloud-far { opacity: 0.65; filter: blur(1.5px); }
+/* mid */
+.sky .cloud-mid { opacity: 0.75; filter: drop-shadow(0 8px 16px rgba(170, 130, 90, 0.05)); }
+/* near: big, crisp, with a soft shadow underneath */
+.sky .cloud-near { opacity: 0.9; filter: drop-shadow(0 12px 22px rgba(170, 130, 90, 0.07)); }
+.sky .cloud-bob {
+  animation: cloud-bob 9s ease-in-out infinite;
 }
-@keyframes drift-l {
-  0%   { transform: translate3d(0, 0, 0); }
-  50%  { transform: translate3d(-40px, 3px, 0); }
-  100% { transform: translate3d(0, 0, 0); }
+@keyframes cloud-travel {
+  from { transform: translate3d(110vw, 0, 0); }
+  to { transform: translate3d(-40vw, 0, 0); }
+}
+@keyframes cloud-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
 }
 
 /* Podium hats (components/PodiumHats.tsx): 2nd and 3rd place bob, each at its
@@ -416,7 +497,141 @@ a {
   transform: scaleY(0.12);
 }
 
+
+/* Dashboard: bugs drop out of the sky and land on a bank of cloud. */
+@keyframes bug-fall {
+  0% { opacity: 0; transform: translateY(-240px) rotate(-30deg); }
+  8% { opacity: 1; }
+  70% { transform: translateY(0) rotate(0deg); }
+  82% { transform: translateY(-8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.bug-fall {
+  animation: bug-fall 0.95s cubic-bezier(0.5, 0, 0.75, 0) both;
+}
+.bug {
+  transform: rotate(var(--rot));
+}
+@keyframes bug-hop {
+  0% { transform: rotate(var(--rot)) translateY(0); }
+  35% { transform: rotate(calc(var(--rot) + 40deg)) translateY(-16px); }
+  70% { transform: rotate(calc(var(--rot) - 20deg)) translateY(0); }
+  85% { transform: rotate(calc(var(--rot) + 8deg)) translateY(-3px); }
+  100% { transform: rotate(var(--rot)) translateY(0); }
+}
+.bug-hop {
+  animation: bug-hop 0.6s ease-out;
+}
+.cloud-bank .cloud-puff {
+  animation: puff-breathe 7s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+@keyframes puff-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04, 1.07); }
+}
+/* the invite card's empty seats breathe, one after another */
+.invite-seat {
+  animation: seat-breathe 2.4s ease-in-out infinite;
+}
+@keyframes seat-breathe {
+  0%, 100% { transform: scale(1); border-color: rgba(26, 22, 18, 0.22); }
+  50% { transform: scale(1.06); border-color: rgba(221, 105, 54, 0.55); }
+}
+/* the time-saved cells fill one by one */
+.reactor-on {
+  background: var(--color-accent);
+  animation: reactor-charge 0.3s ease-out both;
+}
+@keyframes reactor-charge {
+  from { opacity: 0.15; }
+  to { opacity: 1; }
+}
+
+/* The leaderboard's little world: a peach sky with drifting clouds, sun rays
+   turning behind the leader, sparkles on the winner's column, a cloud floor. */
+.lb-sky {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 50% 60% at 50% 38%, rgba(255, 214, 178, 0.45), transparent 70%),
+    linear-gradient(180deg, #fdf0e3 0%, #fef7ef 55%, #fffdfa 100%);
+}
+.lb-cloud {
+  position: absolute;
+  opacity: 0.85;
+  animation-name: lb-drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes lb-drift {
+  from { left: -25%; }
+  to { left: 105%; }
+}
+.lb-rays {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: -1;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 186, 130, 0.38) 0deg 9deg, transparent 9deg 22.5deg);
+  -webkit-mask-image: radial-gradient(circle, black 18%, transparent 68%);
+  mask-image: radial-gradient(circle, black 18%, transparent 68%);
+  transform: translate(-50%, -50%);
+  animation: lb-spin 36s linear infinite;
+}
+@keyframes lb-spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+.lb-spark {
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.9));
+  animation: lb-twinkle 2.4s ease-in-out infinite;
+}
+@keyframes lb-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1) rotate(45deg); }
+}
+.lb-floor {
+  height: 30px;
+  background:
+    radial-gradient(circle at 50% 100%, #ffffff 62%, transparent 63%) 0 0 / 46px 22px repeat-x,
+    linear-gradient(#ffffff, #ffffff) 0 20px / 100% 100% no-repeat;
+  filter: drop-shadow(0 -3px 6px rgba(170, 130, 90, 0.12));
+}
+
+/* The leaderboard: columns rise from the baseline, the leader's quip pops in. */
+.podium-block {
+  transform-origin: bottom;
+  animation: podium-rise 0.75s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes podium-rise {
+  from { transform: scaleY(0.001); }
+  to { transform: scaleY(1); }
+}
+.podium-brag {
+  animation: podium-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes podium-pop {
+  from { opacity: 0; transform: scale(0.4) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .podium-block,
+  .podium-brag,
+  .lb-cloud,
+  .lb-rays,
+  .lb-spark,
+  .cloud-bank .cloud-puff,
+  .bug-fall,
+  .bug-hop,
+  .invite-seat,
+  .reactor-on,
   .animate-rise,
   .animate-bar-rise,
   .shimmer,
@@ -436,7 +651,9 @@ a {
   .queue-bar::before {
     animation: none;
   }
-  .sky .cloud {
+  .sky .cloud,
+  .sky .cloud-bob,
+  .sky-sun {
     animation: none !important;
   }
 }
@@ -447,7 +664,7 @@ a {
 .ticket-prose {
   /* Clean sans for the reading/editing surface (Linear-like); mono is reserved
      for code spans/blocks below. */
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-inter), ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 0.95rem;
   line-height: 1.7;
   color: var(--color-ink-2);
@@ -525,7 +742,7 @@ a {
   text-align: left;
   vertical-align: top;
 }
-.ticket-prose th { background: var(--color-cream-2); font-weight: 700; color: var(--color-ink); }
+.ticket-prose th { background: var(--color-surface-2); font-weight: 600; color: var(--color-ink); }
 .ticket-prose[contenteditable]:focus { outline: none; }
 .ticket-prose[contenteditable] { caret-color: var(--color-accent); }
 

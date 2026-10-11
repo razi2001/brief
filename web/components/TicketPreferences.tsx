@@ -4,7 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { diffLines, hasChanges } from "@/lib/text-diff";
 import type { GuidanceMode } from "@/lib/guidance";
-import { Eyebrow, buttonClass, ghostButtonClass } from "./SettingsSection";
+import {
+  Eyebrow,
+  buttonClass,
+  ghostButtonClass,
+  segmentedClass,
+  segmentClass,
+  fieldFocusClass,
+  dialogBackdropClass,
+  dialogPanelClass,
+} from "./SettingsSection";
 
 /**
  * Ticket guidance editor: the team's shared defaults, and this user's personal
@@ -27,8 +36,7 @@ const PLACEHOLDER = `e.g. Status: Backlog. Priority: Medium.
 Label every ticket "inbound".
 Bugs → Engineering, features → Product.`;
 
-const textareaClass =
-  "block w-full resize-y rounded-lg border hairline bg-[#fffdf8] px-3.5 py-3 font-mono text-[13px] leading-relaxed text-ink outline-none transition-colors placeholder:text-muted/50 focus:border-accent";
+const textareaClass = `block w-full resize-y rounded-lg border hairline bg-surface px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none transition-[border-color,box-shadow] placeholder:text-muted/60 ${fieldFocusClass}`;
 
 type Props = {
   mode: GuidanceMode;
@@ -131,8 +139,8 @@ export default function TicketPreferences(props: Props) {
     <div>
       <div className="card divide-y divide-[var(--color-hairline)]">
         {props.hasOrg && (
-          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <div className="inline-flex rounded-lg border hairline bg-[rgba(26,22,18,.03)] p-0.5">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
+            <div className={segmentedClass}>
               {(
                 [
                   ["inherit", "Use team defaults"],
@@ -144,15 +152,13 @@ export default function TicketPreferences(props: Props) {
                   type="button"
                   onClick={() => switchMode(value)}
                   aria-pressed={mode === value}
-                  className={`h-7 cursor-pointer rounded-md px-3 text-xs transition-colors ${
-                    mode === value ? "bg-[#fffdf8] text-ink shadow-[0_1px_2px_rgba(26,22,18,.1)]" : "text-muted hover:text-ink"
-                  }`}
+                  className={segmentClass(mode === value)}
                 >
                   {label}
                 </button>
               ))}
             </div>
-            <span className="pill text-muted">
+            <span className="text-xs text-muted">
               {props.orgName} · {members === 1 ? "just you" : `${members} people`}
             </span>
           </div>
@@ -163,7 +169,7 @@ export default function TicketPreferences(props: Props) {
             <Eyebrow
               aside={
                 updatedBy && (
-                  <span className="text-[0.6875rem] text-muted">
+                  <span className="text-xs text-muted">
                     {updatedBy}
                     {props.orgUpdatedAt ? ` · ${timeAgo(props.orgUpdatedAt)}` : ""}
                   </span>
@@ -179,7 +185,7 @@ export default function TicketPreferences(props: Props) {
               spellCheck={false}
               placeholder={PLACEHOLDER}
               aria-label="Team defaults"
-              className={`mt-3 ${textareaClass}`}
+              className={`mt-2 ${textareaClass}`}
             />
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <button
@@ -209,7 +215,7 @@ export default function TicketPreferences(props: Props) {
               spellCheck={false}
               placeholder={PLACEHOLDER}
               aria-label="Your preferences"
-              className={`mt-3 ${textareaClass}`}
+              className={`mt-2 ${textareaClass}`}
             />
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <button
@@ -226,7 +232,7 @@ export default function TicketPreferences(props: Props) {
         )}
       </div>
 
-      {error && <p className="mt-3 text-xs text-[#c62828]">{error}</p>}
+      {error && <p className="mt-2.5 text-xs text-[#c62828]">{error}</p>}
 
       {confirming && (
         <ConfirmDialog
@@ -281,23 +287,23 @@ function ConfirmDialog({
       role="dialog"
       aria-modal="true"
       aria-label="Confirm team default change"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(26,22,18,.45)] px-4"
+      className={dialogBackdropClass}
       onClick={onCancel}
     >
       <div
-        className="ai-float w-full max-w-md rounded-[15px] border hairline bg-[#fffdf8] p-5"
+        className={dialogPanelClass}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="font-display text-xl text-ink">
+        <h3 className="text-[15px] font-semibold text-ink">
           {solo ? `Set the defaults for ${orgName}?` : `Change defaults for ${members} people?`}
         </h3>
-        <p className="mt-1.5 text-xs text-muted">
+        <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
           {solo
             ? `You're the only one here so far. These apply to you now, and become the starting point for anyone who joins ${orgName}.`
             : `This changes how Brief files tickets for everyone in ${orgName} who hasn't set their own override.`}
         </p>
 
-        <div className="mt-3 max-h-56 overflow-y-auto rounded-xl border hairline bg-[rgba(26,22,18,.03)] px-3 py-2.5 font-mono text-[12px] leading-relaxed">
+        <div className="mt-3.5 max-h-56 overflow-y-auto rounded-lg border hairline bg-surface-2 px-3 py-2.5 font-mono text-[12px] leading-relaxed">
           {diff.map((line, i) => (
             <div
               key={i}
@@ -317,7 +323,7 @@ function ConfirmDialog({
           ))}
         </div>
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onCancel} className={ghostButtonClass}>
             Cancel
           </button>
@@ -369,7 +375,7 @@ export function GithubOrgPicker({ orgs }: { orgs: Array<{ login: string; avatarU
   return (
     <div>
       <Eyebrow>Your GitHub organization</Eyebrow>
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-2.5 flex flex-wrap gap-2">
         {orgs.map((o) => (
           <button
             key={o.login}

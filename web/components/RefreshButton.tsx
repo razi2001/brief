@@ -19,7 +19,7 @@ export default function RefreshButton() {
       title="Refresh tickets"
       aria-label="Refresh tickets"
       disabled={pending}
-      className="flex h-8 w-8 items-center justify-center rounded-lg border border-hairline text-muted transition-colors hover:bg-cream-2/70 hover:text-ink disabled:opacity-60"
+      className="btn h-8 w-8 justify-center !p-0 text-muted disabled:opacity-60"
     >
       <svg
         viewBox="0 0 24 24"

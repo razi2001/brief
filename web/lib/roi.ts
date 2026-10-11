@@ -26,6 +26,14 @@
  */
 export const MINUTES_BY_HAND = 15;
 
+/**
+ * The most capture time one ticket is charged. The measured figure is
+ * created_at -> updated_at, and updated_at also moves whenever the ticket's
+ * status syncs back from the tracker - days later - so an uncapped mean ran
+ * into days and wiped the saving out entirely. A real capture is minutes.
+ */
+export const MAX_CAPTURE_SECONDS = 5 * 60;
+
 /** Below this the sentence isn't worth the space, and rounds to "0 hours". */
 const MIN_HOURS = 1;
 
@@ -51,7 +59,7 @@ export function summarizeRoi(input: RoiInput): RoiSummary | null {
   // Can't have carried evidence more often than it was filed.
   const withEvidence = Math.min(filed, Math.max(0, Math.floor(input.withEvidence)));
 
-  const avgSeconds = Math.max(0, input.avgSeconds);
+  const avgSeconds = Math.min(MAX_CAPTURE_SECONDS, Math.max(0, input.avgSeconds));
   // Net, not gross: capture is quick but it isn't nothing, and claiming the
   // full by-hand estimate would be overstating it.
   const savedMinutes = filed * MINUTES_BY_HAND - (filed * avgSeconds) / 60;

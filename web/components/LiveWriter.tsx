@@ -20,7 +20,7 @@ function WritingSkeleton({ title }: { title?: string | null }) {
   return (
     <>
       {title ? (
-        <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{title}</h1>
+        <h1 className="text-[28px] font-semibold leading-[1.2] tracking-[-0.022em] text-ink sm:text-[32px]">{title}</h1>
       ) : (
         <div className="flex flex-col gap-2.5">
           <Bar w="78%" h={30} />
@@ -119,9 +119,9 @@ export default function LiveWriter({
   return (
     <>
       {title ? (
-        <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{title}</h1>
+        <h1 className="text-[28px] font-semibold leading-[1.2] tracking-[-0.022em] text-ink sm:text-[32px]">{title}</h1>
       ) : fallbackTitle ? (
-        <h1 className="font-display text-3xl leading-[1.08] text-ink sm:text-[2.7rem]">{fallbackTitle}</h1>
+        <h1 className="text-[28px] font-semibold leading-[1.2] tracking-[-0.022em] text-ink sm:text-[32px]">{fallbackTitle}</h1>
       ) : (
         <div className="flex flex-col gap-2.5">
           <Bar w="78%" h={30} />
@@ -129,7 +129,7 @@ export default function LiveWriter({
         </div>
       )}
       <div
-        className="ticket-prose mt-6"
+        className="ticket-prose mt-7"
         dangerouslySetInnerHTML={{ __html: mdToHtml(body) + '<span class="writing-caret"></span>' }}
       />
     </>

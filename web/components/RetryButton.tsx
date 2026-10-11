@@ -35,14 +35,14 @@ export default function RetryButton({ briefId }: { briefId: string }) {
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 font-mono text-[0.625rem]">
+    <span className="inline-flex items-center gap-1.5 text-xs">
       <button
         type="button"
         onClick={retry}
         disabled={pending}
-        className="text-accent no-underline hover:underline disabled:opacity-60"
+        className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/[0.06] px-2 py-0.5 font-medium text-accent transition-colors hover:bg-accent/[0.12] disabled:opacity-60"
       >
-        {pending ? "retrying…" : "retry"}
+        {pending ? "Retrying…" : "Retry"}
       </button>
       {error && <span className="max-w-[8rem] truncate text-[#c62828]" title={error}>{error}</span>}
     </span>

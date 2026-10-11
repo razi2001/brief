@@ -31,16 +31,18 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
   const rule = guidance.effective.trim().split(/\r?\n/)[0] ?? "";
 
   const group = (label: string) => (
-    <h2 className="mb-2.5 px-1 text-[0.6875rem] uppercase tracking-[0.14em] text-muted">{label}</h2>
+    <h2 className="mb-2 px-0.5 text-[13px] font-medium text-ink-2">{label}</h2>
   );
 
   return (
     // The app shell is wide (for the tickets table); settings read better
-    // narrower, so clamp this page and center it in the shell.
-    <div className="mx-auto w-full max-w-[760px]">
-      <h1 className="font-display text-3xl leading-none text-ink">Settings</h1>
+    // narrower, so clamp this page to a Linear-width column.
+    <div className="mx-auto w-full max-w-[720px]">
+      <header className="flex items-center justify-between gap-4">
+        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Settings</h1>
+      </header>
 
-      <div className="mt-8">
+      <div className="mt-7">
         {group("Workspace")}
         <SettingsList
           initialOpen={tracker ? null : "tracker"}
@@ -52,12 +54,13 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
               action: tracker ? "Change" : "Connect",
               summary: tracker ? (
                 <>
-                  <TrackerLogo kind={tracker} size={18} />
-                  <span className="truncate text-ink">{providerName(tracker)}</span>
-                  <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-[#2e7d32]">
+                  <span className="inline-flex shrink-0 items-center gap-1.5 text-muted">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#2e7d32]" />
                     Connected
                   </span>
+                  <span className="h-3 w-px shrink-0 bg-[var(--color-hairline)]" aria-hidden="true" />
+                  <TrackerLogo kind={tracker} size={14} />
+                  <span className="truncate text-ink-2">{providerName(tracker)}</span>
                 </>
               ) : (
                 <span className="text-muted">Not connected</span>
@@ -71,15 +74,15 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
               action: hasTeam ? "View" : "Pick",
               summary: hasTeam ? (
                 <>
-                  <span className="flex shrink-0 pl-1">
-                    {team.members.slice(0, 4).map((m) => (
-                      <span key={m.userId} className="-ml-1 rounded-full ring-2 ring-[#fffdf8]">
-                        <Avatar name={m.fullName} imageUrl={m.imageUrl} size={24} />
-                      </span>
-                    ))}
-                  </span>
                   <span className="truncate text-muted">
                     {teamSummary(team.org.name, providerName(team.org.provider), team.members.length)}
+                  </span>
+                  <span className="hidden shrink-0 pl-1 sm:flex">
+                    {team.members.slice(0, 4).map((m) => (
+                      <span key={m.userId} className="-ml-1 rounded-full ring-2 ring-surface group-hover:ring-surface-2">
+                        <Avatar name={m.fullName} imageUrl={m.imageUrl} size={22} />
+                      </span>
+                    ))}
                   </span>
                 </>
               ) : githubOrgs.length > 0 ? (
@@ -106,7 +109,7 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
               icon: "rules",
               action: rule ? "Edit" : "Add rules",
               summary: rule ? (
-                <span className="truncate font-mono text-[13px] text-ink-2">{rule}</span>
+                <span className="truncate text-muted">{rule}</span>
               ) : (
                 <span className="text-muted">Not set</span>
               ),
@@ -120,11 +123,11 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
               summary: sites.length ? (
                 <>
                   {sites.slice(0, 2).map((x) => (
-                    <span key={x} className="shrink-0 rounded-md border hairline bg-[#fffdf8] px-2 py-0.5 font-mono text-xs text-ink">
+                    <span key={x} className="min-w-0 truncate rounded-[5px] bg-[rgba(26,22,18,.05)] px-1.5 py-px font-mono text-xs text-ink-2">
                       {x}
                     </span>
                   ))}
-                  {sites.length > 2 && <span className="shrink-0 text-xs text-muted">+{sites.length - 2}</span>}
+                  {sites.length > 2 && <span className="shrink-0 text-muted">+{sites.length - 2}</span>}
                 </>
               ) : (
                 <span className="text-muted">Off</span>

@@ -1,39 +1,83 @@
 /**
- * Ambient cloud background - a faithful port of get-brief.app's sky: soft SVG
- * cloud shapes (cloudA/cloudB) drifting in parallax layers over the cream base.
- * Fixed behind everything (decorative, pointer-events: none). Rendered once in
- * app/layout.tsx so every page shares the same calm, alive backdrop. Frozen
- * under prefers-reduced-motion (handled in globals.css).
+ * The sky behind every page: a warm cream gradient with a soft sun glow, and
+ * puffy clouds - lit from above, shaded underneath - travelling slowly across
+ * in three depths (far ones small, hazy and slow; near ones big and crisper).
+ * Fixed and decorative (pointer-events: none). Rendered once in
+ * app/layout.tsx; the app panel is translucent so the clouds glide visibly
+ * behind it. Frozen under prefers-reduced-motion (globals.css).
  */
+
+// [layer, top %, width px, travel seconds, delay seconds, shape]
+const CLOUDS: Array<[string, number, number, number, number, "a" | "b" | "c"]> = [
+  ["far", 6, 260, 260, -30, "b"],
+  ["far", 34, 220, 300, -170, "a"],
+  ["far", 62, 300, 280, -90, "c"],
+  ["far", 86, 240, 320, -240, "b"],
+  ["mid", 14, 300, 190, -60, "c"],
+  ["mid", 46, 260, 210, -150, "b"],
+  ["mid", 74, 320, 200, -20, "a"],
+  ["near", 24, 340, 150, -100, "a"],
+  ["near", 58, 300, 170, -10, "b"],
+  ["near", 90, 360, 160, -70, "c"],
+];
+
 export default function CloudBackground() {
   return (
     <div className="sky" aria-hidden="true">
-      {/* cloud shape definitions (same paths as the marketing site) */}
       <svg width="0" height="0" style={{ position: "absolute" }} aria-hidden="true">
-        <symbol id="cloudA" viewBox="0 0 100 36">
-          <path
-            d="M16 28 C6 28 4 18 12 16 C10 8 22 4 26 12 C30 4 46 6 46 16 C56 14 60 24 52 28 Z"
-            fill="currentColor"
-          />
+        <defs>
+          <linearGradient id="cloudFill" gradientUnits="userSpaceOnUse" x1="0" y1="4" x2="0" y2="84">
+            <stop offset="0" stopColor="#ffffff" />
+            <stop offset="0.6" stopColor="#fffcf6" />
+            <stop offset="1" stopColor="#f6efe4" />
+          </linearGradient>
+        </defs>
+        {/* three silhouettes, each a flat-bottomed heap of round puffs */}
+        <symbol id="cloudA" viewBox="0 0 200 90">
+          <g fill="url(#cloudFill)">
+            <circle cx="62" cy="52" r="26" />
+            <circle cx="96" cy="38" r="34" />
+            <circle cx="136" cy="50" r="26" />
+            <circle cx="160" cy="62" r="18" />
+            <circle cx="38" cy="64" r="16" />
+            <rect x="34" y="56" width="140" height="26" rx="13" />
+          </g>
         </symbol>
-        <symbol id="cloudB" viewBox="0 0 120 40">
-          <path
-            d="M14 32 C2 32 2 18 12 18 C8 10 24 4 30 14 C34 4 54 6 54 18 C60 12 78 14 76 22 C90 22 90 34 80 34 Z"
-            fill="currentColor"
-          />
+        <symbol id="cloudB" viewBox="0 0 240 90">
+          <g fill="url(#cloudFill)">
+            <circle cx="50" cy="60" r="20" />
+            <circle cx="82" cy="44" r="28" />
+            <circle cx="122" cy="34" r="32" />
+            <circle cx="162" cy="46" r="26" />
+            <circle cx="196" cy="62" r="18" />
+            <rect x="34" y="58" width="180" height="24" rx="12" />
+          </g>
+        </symbol>
+        <symbol id="cloudC" viewBox="0 0 180 80">
+          <g fill="url(#cloudFill)">
+            <circle cx="56" cy="50" r="22" />
+            <circle cx="88" cy="36" r="28" />
+            <circle cx="122" cy="48" r="22" />
+            <rect x="34" y="50" width="112" height="22" rx="11" />
+          </g>
         </symbol>
       </svg>
 
-      {/* back layer */}
-      <div className="cloud bg-1"><svg viewBox="0 0 120 40"><use href="#cloudB" /></svg></div>
-      <div className="cloud bg-2"><svg viewBox="0 0 120 40"><use href="#cloudB" /></svg></div>
-      {/* mid layer */}
-      <div className="cloud mid-1"><svg viewBox="0 0 100 36"><use href="#cloudA" /></svg></div>
-      <div className="cloud mid-2"><svg viewBox="0 0 120 40"><use href="#cloudB" /></svg></div>
-      <div className="cloud mid-3"><svg viewBox="0 0 120 40"><use href="#cloudB" /></svg></div>
-      {/* front layer */}
-      <div className="cloud fg-1"><svg viewBox="0 0 100 36"><use href="#cloudA" /></svg></div>
-      <div className="cloud fg-2"><svg viewBox="0 0 100 36"><use href="#cloudA" /></svg></div>
+      <div className="sky-sun" />
+
+      {CLOUDS.map(([layer, top, width, dur, delay, shape], i) => (
+        <div
+          key={i}
+          className={`cloud cloud-${layer}`}
+          style={{ top: `${top}%`, width, animationDuration: `${dur}s`, animationDelay: `${delay}s` }}
+        >
+          <div className="cloud-bob" style={{ animationDelay: `${-i * 1.7}s` }}>
+            <svg viewBox={shape === "b" ? "0 0 240 90" : shape === "a" ? "0 0 200 90" : "0 0 180 80"}>
+              <use href={`#cloud${shape.toUpperCase()}`} />
+            </svg>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

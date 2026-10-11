@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import StandalonePage, { SHEET } from "./StandalonePage";
 
 /**
  * Client-only mount for <Onboarding/>, for the same reason as
@@ -11,12 +12,16 @@ import dynamic from "next/dynamic";
 const Onboarding = dynamic(() => import("./Onboarding"), {
   ssr: false,
   loading: () => (
-    <main className="flex min-h-screen flex-col items-center px-4 py-10 sm:py-14">
-      <div className="h-12 w-12 rounded-2xl bg-cream-2" />
-      <div className="mt-6 h-10 w-72 max-w-full rounded bg-cream-2" />
-      <div className="mt-3 h-3 w-80 max-w-full rounded bg-cream-2" />
-      <div className="card mt-12 h-64 w-full max-w-[620px] bg-cream-2/40" />
-    </main>
+    <StandalonePage>
+      <div className={`${SHEET} max-w-[560px] overflow-hidden`}>
+        <div className="px-6 pb-5 pt-7 sm:px-8 sm:pt-8">
+          <div className="h-8 w-60 max-w-full rounded-md bg-surface-2" />
+          <div className="mt-2.5 h-3 w-72 max-w-full rounded bg-surface-2" />
+          <div className="mt-6 h-[18px] w-64 max-w-full rounded bg-surface-2" />
+        </div>
+        <div className="h-[420px] border-t hairline" />
+      </div>
+    </StandalonePage>
   ),
 });
 

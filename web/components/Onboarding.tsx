@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import BrandMark from "./BrandMark";
+import StandalonePage, { SHEET } from "./StandalonePage";
 import { TrackerLogo } from "./TrackerLogo";
 import { TRACKER_DEFS, useTrackerConnect } from "./useTrackerConnect";
 import { ROLES, SOURCES } from "@/lib/onboarding-options";
@@ -31,41 +32,47 @@ async function saveSettings(body: Record<string, unknown>): Promise<boolean> {
   }
 }
 
+function Check({ size = 9 }: { size?: number }) {
+  return (
+    <svg viewBox="0 0 12 12" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2.5 6.2 5 8.5l4.5-5" />
+    </svg>
+  );
+}
+
 function StepRail({ current, trackerDone }: { current: Step; trackerDone: boolean }) {
   const labels: Record<Step, string> = {
-    you: "you",
-    tracker: "your tracker",
-    extension: "the extension",
+    you: "You",
+    tracker: "Tracker",
+    extension: "Extension",
   };
   const currentIdx = STEP_ORDER.indexOf(current);
   return (
-    <ol className="flex items-center justify-center gap-3 sm:gap-5">
+    <ol className="flex items-center gap-2 sm:gap-3">
       {STEP_ORDER.map((s, i) => {
         const done = i < currentIdx || (s === "tracker" && trackerDone && currentIdx > 0);
         const active = s === current;
         return (
-          <li key={s} className="flex items-center gap-2">
-            {i > 0 && (
-              <span aria-hidden="true" className="mr-1 hidden h-px w-6 bg-hairline sm:mr-3 sm:block sm:w-10" />
-            )}
-            <span
-              aria-hidden="true"
-              className={`flex h-6 w-6 items-center justify-center rounded-full border text-[0.6875rem] transition-colors ${
-                done
-                  ? "border-[rgba(221,105,54,.4)] bg-[rgba(221,105,54,.1)] text-accent"
-                  : active
-                    ? "border-accent bg-accent text-cream"
-                    : "border-hairline bg-cream-2 text-muted"
-              }`}
-            >
-              {done ? "✓" : i + 1}
-            </span>
-            <span
-              className={`font-mono text-[0.6875rem] uppercase tracking-[0.12em] ${
-                active ? "text-ink" : "text-muted"
-              }`}
-            >
-              {labels[s]}
+          <li key={s} className="flex items-center gap-2 sm:gap-3">
+            {i > 0 && <span aria-hidden="true" className="h-px w-4 bg-hairline sm:w-8" />}
+            <span className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className={`flex h-[18px] w-[18px] items-center justify-center rounded-full text-[10px] font-semibold tabular-nums transition-colors ${
+                  done
+                    ? "bg-accent/12 text-accent"
+                    : active
+                      ? "bg-accent text-white"
+                      : "border hairline bg-surface text-muted"
+                }`}
+              >
+                {done ? <Check /> : i + 1}
+              </span>
+              <span
+                className={`text-[13px] ${active ? "font-medium text-ink" : done ? "text-ink-2" : "text-muted"}`}
+              >
+                {labels[s]}
+              </span>
             </span>
           </li>
         );
@@ -90,11 +97,9 @@ function ChipGrid({
 }) {
   return (
     <div>
-      <p className="font-mono text-[0.6875rem] uppercase tracking-[0.12em] text-muted">
-        {label}
-      </p>
+      <p className="text-[13px] font-medium text-ink-2">{label}</p>
       <div
-        className="mt-2.5 grid gap-2"
+        className="mt-2 grid gap-1.5"
         style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
       >
         {options.map((o) => {
@@ -105,23 +110,23 @@ function ChipGrid({
               type="button"
               onClick={() => onSelect(active ? "" : o.label)}
               aria-pressed={active}
-              className={`flex items-center gap-2.5 rounded-xl border px-3.5 py-3 text-left font-mono text-[0.8125rem] transition-colors ${
+              className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-[13px] transition-colors ${
                 active
-                  ? "border-accent bg-[rgba(221,105,54,.1)] text-accent"
-                  : "border-hairline bg-[#fffdf8] text-ink-2 hover:border-[rgba(221,105,54,.4)] hover:text-ink"
+                  ? "border-accent/50 bg-accent/[0.06] text-ink shadow-[0_0_0_1px_rgba(221,105,54,.2)]"
+                  : "hairline bg-surface text-ink-2 hover:bg-surface-2 hover:text-ink"
               }`}
             >
               {o.icon && (
                 <span
                   aria-hidden="true"
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-lg text-[0.75rem] ${
-                    active ? "bg-[rgba(221,105,54,.16)] text-accent" : "bg-cream-2 text-muted"
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-[11px] ${
+                    active ? "bg-accent/15 text-accent" : "bg-surface-2 text-muted"
                   }`}
                 >
                   {o.icon}
                 </span>
               )}
-              <span className="min-w-0 truncate">{o.label}</span>
+              <span className="min-w-0 leading-snug">{o.label}</span>
             </button>
           );
         })}
@@ -182,72 +187,62 @@ export default function Onboarding({
   }
 
   const stepTitle: Record<Step, string> = {
-    you: "tell us about you.",
-    tracker: "connect your tracker.",
-    extension: "install the extension.",
+    you: "Tell us about you",
+    tracker: "Connect your tracker",
+    extension: "Install the extension",
   };
   const stepSub: Record<Step, string> = {
     you: "Brief uses this to write tickets the way your team expects them.",
     tracker: "Brief writes tickets straight into it - no copy-paste, ever.",
-    extension: "this is how you capture a bug: record, talk, done.",
+    extension: "This is how you capture a bug: record, talk, done.",
   };
 
+  const backLink = "text-[13px] text-muted no-underline transition-colors hover:text-ink";
+
   return (
-    <main className="flex min-h-screen flex-col items-center px-4 py-10 text-ink sm:py-14">
-      {/* Brand moment */}
-      <div className="flex flex-col items-center text-center">
-        <BrandMark size={48} />
-        <h1 className="font-display mt-5 text-4xl leading-tight sm:text-5xl">
-          welcome, <em className="italic text-accent">{greetingName}</em>.
-        </h1>
-        <p className="mt-2 max-w-md text-sm text-muted">
-          two minutes of setup, then your bugs file themselves.
-        </p>
-      </div>
-
-      <div className="mt-8 w-full max-w-[620px]">
-        <StepRail current={step} trackerDone={trackerConnected} />
-
-        <div className="card animate-rise mt-6 px-6 py-7 sm:px-8 sm:py-8" key={step}>
-          <h2 className="font-display text-2xl leading-snug sm:text-3xl">
-            {stepTitle[step]}
-          </h2>
-          <p className="mt-1.5 text-sm text-muted">{stepSub[step]}</p>
-
-          {/* ---- Step 1: you (role + source) ---- */}
-          {step === "you" && (
-            <div className="mt-6 flex flex-col gap-6">
-              <ChipGrid
-                label="What do you do?"
-                options={ROLES}
-                selected={role}
-                onSelect={setRole}
-                columns={2}
-              />
-              <ChipGrid
-                label="How'd you hear about Brief?"
-                options={SOURCES.map((s) => ({ label: s }))}
-                selected={source}
-                onSelect={setSource}
-                columns={2}
-              />
-              <div className="flex items-center justify-end">
-                <button
-                  type="button"
-                  onClick={submitYou}
-                  disabled={savingYou}
-                  className="btn-accent cursor-pointer disabled:opacity-60"
-                >
-                  {savingYou ? "Saving…" : "Continue →"}
-                </button>
-              </div>
+    <StandalonePage>
+      <div className="w-full max-w-[560px]">
+        <div className={`${SHEET} overflow-hidden`}>
+          {/* Greeting + where you are */}
+          <div className="px-6 pb-5 pt-7 sm:px-8 sm:pt-8">
+            <h1 className="text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">
+              Welcome, {greetingName}
+            </h1>
+            <p className="mt-1 text-[13px] text-muted">
+              Two minutes of setup, then your bugs file themselves.
+            </p>
+            <div className="mt-5">
+              <StepRail current={step} trackerDone={trackerConnected} />
             </div>
-          )}
+          </div>
 
-          {/* ---- Step 2: tracker ---- */}
-          {step === "tracker" && (
-            <div className="mt-6">
-              <div className="flex flex-col gap-3">
+          <div className="animate-rise border-t hairline px-6 py-6 sm:px-8 sm:py-7" key={step}>
+            <h2 className="text-[15px] font-semibold text-ink">{stepTitle[step]}</h2>
+            <p className="mt-1 text-[13px] text-muted">{stepSub[step]}</p>
+
+            {/* ---- Step 1: you (role + source) ---- */}
+            {step === "you" && (
+              <div className="mt-5 flex flex-col gap-5">
+                <ChipGrid
+                  label="What do you do?"
+                  options={ROLES}
+                  selected={role}
+                  onSelect={setRole}
+                  columns={2}
+                />
+                <ChipGrid
+                  label="How'd you hear about Brief?"
+                  options={SOURCES.map((s) => ({ label: s }))}
+                  selected={source}
+                  onSelect={setSource}
+                  columns={2}
+                />
+              </div>
+            )}
+
+            {/* ---- Step 2: tracker ---- */}
+            {step === "tracker" && (
+              <div className="mt-5 flex flex-col gap-2">
                 {TRACKER_DEFS.map((t) => {
                   const isBusy = !!busy[t.key];
                   // A click-time error wins; otherwise show why the LAST
@@ -259,19 +254,19 @@ export default function Onboarding({
                         type="button"
                         onClick={() => connect(t)}
                         disabled={!isLoaded || isBusy}
-                        className="flex w-full items-center justify-between gap-3 rounded-xl border hairline bg-[#fffdf8] px-4 py-3.5 text-left transition-colors hover:border-[rgba(221,105,54,.45)] disabled:opacity-60"
+                        className="flex w-full items-center justify-between gap-3 rounded-lg border hairline bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
                       >
-                        <span className="flex min-w-0 items-center gap-3.5">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border hairline bg-cream-2/50">
-                            <TrackerLogo kind={t.key} size={20} />
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border hairline bg-surface-2">
+                            <TrackerLogo kind={t.key} size={16} />
                           </span>
                           <span className="min-w-0">
-                            <span className="block text-sm text-ink">{t.name}</span>
-                            <span className="block text-xs text-muted">{t.caption}</span>
+                            <span className="block text-[13px] font-medium text-ink">{t.name}</span>
+                            <span className="block truncate text-xs text-muted">{t.caption}</span>
                           </span>
                         </span>
-                        <span className="shrink-0 font-mono text-xs text-accent">
-                          {isBusy ? "Connecting…" : "Connect →"}
+                        <span className="shrink-0 text-[13px] font-medium text-accent">
+                          {isBusy ? "Connecting…" : "Connect"}
                         </span>
                       </button>
                       {error && (
@@ -281,106 +276,115 @@ export default function Onboarding({
                   );
                 })}
               </div>
-              <div className="mt-5 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setStep("you")}
-                  className="font-mono text-xs text-muted no-underline hover:text-ink hover:underline"
-                >
-                  ← back
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep("extension")}
-                  className="font-mono text-xs text-muted no-underline hover:text-accent hover:underline"
-                >
-                  I&apos;ll connect it later →
-                </button>
-              </div>
-            </div>
-          )}
+            )}
 
-          {/* ---- Step 3: extension ---- */}
-          {step === "extension" && (
-            <div className="mt-6 flex flex-col gap-5">
-              {trackerConnected && (
-                <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[rgba(46,125,50,.35)] bg-[rgba(46,125,50,.1)] px-3 py-1 font-mono text-xs text-[#2e7d32]">
-                  tracker connected ✓
-                </span>
-              )}
+            {/* ---- Step 3: extension ---- */}
+            {step === "extension" && (
+              <div className="mt-5 flex flex-col gap-4">
+                {trackerConnected && (
+                  <span className="pill w-fit border-[rgba(46,125,50,.3)] bg-[rgba(46,125,50,.08)] text-[#2e7d32]">
+                    <Check size={10} />
+                    Tracker connected
+                  </span>
+                )}
 
-              {/* Install card - groups the store action with its two setup steps
-                  so the button doesn't float in empty space. */}
-              <div className="rounded-2xl border hairline bg-[#fffdf8] p-5">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <BrandMark size={40} className="shrink-0 rounded-xl" />
-                    <div className="min-w-0">
-                      <p className="text-sm text-ink">Brief for Chrome</p>
-                      <p className="mt-0.5 text-xs text-muted">Free · Chrome Web Store</p>
+                {/* Install card - groups the store action with its two setup steps
+                    so the button doesn't float in empty space. */}
+                <div className="overflow-hidden rounded-xl border hairline bg-surface">
+                  <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div className="flex items-center gap-3">
+                      <BrandMark size={36} className="shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium text-ink">Brief for Chrome</p>
+                        <p className="mt-0.5 text-xs text-muted">Free · Chrome Web Store</p>
+                      </div>
                     </div>
+                    <a
+                      href={CHROME_STORE_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-accent shrink-0 no-underline"
+                    >
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
+                      Add to Chrome
+                    </a>
                   </div>
-                  <a
-                    href={CHROME_STORE_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-accent shrink-0 no-underline"
-                  >
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                    Add to Chrome
-                  </a>
+
+                  <ol className="flex flex-col gap-2.5 border-t hairline bg-surface-2/60 px-4 py-3.5">
+                    <li className="flex items-start gap-2.5 text-[13px] text-ink-2">
+                      <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border hairline bg-surface text-[10px] font-semibold tabular-nums text-muted">
+                        1
+                      </span>
+                      <span>Pin Brief to your toolbar so it&apos;s one click away.</span>
+                    </li>
+                    <li className="flex items-start gap-2.5 text-[13px] text-ink-2">
+                      <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border hairline bg-surface text-[10px] font-semibold tabular-nums text-muted">
+                        2
+                      </span>
+                      <span>
+                        Open it and hit{" "}
+                        <span className="font-medium text-ink">Connect to Brief Cloud</span> - it
+                        pairs with this account instantly. Then record a bug and it
+                        files itself.
+                      </span>
+                    </li>
+                  </ol>
                 </div>
-
-                <ol className="mt-5 flex flex-col gap-3 border-t hairline pt-5">
-                  <li className="flex items-start gap-3 text-sm text-ink-2">
-                    <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cream-2 font-mono text-[0.625rem] text-muted">
-                      1
-                    </span>
-                    <span>Pin Brief to your toolbar so it&apos;s one click away.</span>
-                  </li>
-                  <li className="flex items-start gap-3 text-sm text-ink-2">
-                    <span className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cream-2 font-mono text-[0.625rem] text-muted">
-                      2
-                    </span>
-                    <span>
-                      Open it and hit{" "}
-                      <span className="text-ink">Connect to Brief Cloud</span> - it
-                      pairs with this account instantly. Then record a bug and it
-                      files itself.
-                    </span>
-                  </li>
-                </ol>
               </div>
+            )}
+          </div>
 
-              <div className="flex items-center justify-between">
+          {/* Footer: back on the left, the step's forward action on the right */}
+          <div className="flex items-center justify-between gap-3 border-t hairline bg-surface-2/60 px-6 py-3.5 sm:px-8">
+            {step === "you" && (
+              <>
+                <span />
+                <button
+                  type="button"
+                  onClick={submitYou}
+                  disabled={savingYou}
+                  className="btn-accent cursor-pointer disabled:opacity-60"
+                >
+                  {savingYou ? "Saving…" : "Continue"}
+                </button>
+              </>
+            )}
+            {step === "tracker" && (
+              <>
+                <button type="button" onClick={() => setStep("you")} className={backLink}>
+                  Back
+                </button>
+                <button type="button" onClick={() => setStep("extension")} className="btn cursor-pointer">
+                  I&apos;ll connect it later
+                </button>
+              </>
+            )}
+            {step === "extension" && (
+              <>
                 {/* With a tracker connected the tracker step has nothing left to
                     do (and would immediately bounce forward) - hide "back". */}
                 {trackerConnected ? (
                   <span />
                 ) : (
-                  <button
-                    type="button"
-                    onClick={() => setStep("tracker")}
-                    className="font-mono text-xs text-muted no-underline hover:text-ink hover:underline"
-                  >
-                    ← back
+                  <button type="button" onClick={() => setStep("tracker")} className={backLink}>
+                    Back
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={finish}
                   disabled={finishing}
-                  className="cursor-pointer rounded-xl border border-hairline bg-transparent px-4 py-2 font-mono text-[0.8125rem] text-ink transition-colors hover:bg-cream-2 disabled:opacity-60"
+                  className="btn cursor-pointer disabled:opacity-60"
                 >
-                  {finishing ? "Saving…" : "All set - open my dashboard"}
+                  {finishing ? "Saving…" : "All set, take me home"}
                 </button>
-              </div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Quiet escape hatch - never trap the user in a wizard. */}
@@ -390,19 +394,13 @@ export default function Onboarding({
               type="button"
               onClick={finish}
               disabled={finishing}
-              className="font-mono text-[0.6875rem] text-muted no-underline hover:text-ink hover:underline disabled:opacity-60"
+              className="text-xs text-muted no-underline transition-colors hover:text-ink disabled:opacity-60"
             >
-              skip setup - straight to the dashboard
+              Skip setup, straight home
             </button>
           </p>
         )}
       </div>
-
-      <footer className="mt-auto pt-10 text-center">
-        <p className="font-display text-sm italic text-muted">
-          what&apos;s the <em className="text-accent">brief</em>?
-        </p>
-      </footer>
-    </main>
+    </StandalonePage>
   );
 }

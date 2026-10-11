@@ -15,15 +15,15 @@ import type { ProviderKey } from "./provider-labels";
 
 function SkeletonCard() {
   return (
-    <div className="card flex items-center justify-between gap-3 px-4 py-3.5">
+    <div className="card flex items-center justify-between gap-3 px-3.5 py-3">
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="h-10 w-10 shrink-0 rounded-xl bg-cream-2" />
+        <div className="h-9 w-9 shrink-0 rounded-lg bg-surface-2" />
         <div className="min-w-0 flex-1">
-          <div className="h-3.5 w-24 rounded bg-cream-2" />
-          <div className="mt-2 h-2.5 w-48 max-w-full rounded bg-cream-2" />
+          <div className="h-3 w-20 rounded bg-surface-2" />
+          <div className="mt-2 h-2.5 w-44 max-w-full rounded bg-surface-2" />
         </div>
       </div>
-      <div className="h-6 w-20 shrink-0 rounded-full bg-cream-2" />
+      <div className="h-7 w-24 shrink-0 rounded-lg bg-surface-2" />
     </div>
   );
 }

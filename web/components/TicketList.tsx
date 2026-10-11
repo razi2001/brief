@@ -38,11 +38,11 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
       {/* Column header - same .ticket-grid-ro tracks as the rows (and the same
           meta widths as the Tickets feed), so every column lines up. */}
       <div className="ticket-grid-ro border-b border-hairline px-4 py-2">
-        <span className="font-mono text-[0.5625rem] uppercase tracking-wider text-muted">ID</span>
-        <span className="font-mono text-[0.5625rem] uppercase tracking-wider text-muted">Title</span>
-        <span className="font-mono text-[0.5625rem] uppercase tracking-wider text-muted">Status</span>
-        <span className="hidden font-mono text-[0.5625rem] uppercase tracking-wider text-muted sm:block">Assignee</span>
-        <span className="hidden font-mono text-[0.5625rem] uppercase tracking-wider text-muted sm:block">Updated</span>
+        <span className="text-xs font-medium text-muted">ID</span>
+        <span className="text-xs font-medium text-muted">Title</span>
+        <span className="text-xs font-medium text-muted">Status</span>
+        <span className="hidden text-xs font-medium text-muted sm:block">Assignee</span>
+        <span className="hidden text-xs font-medium text-muted sm:block">Updated</span>
       </div>
       <ul className="divide-y divide-hairline">
         {briefs.map((b) => {
@@ -65,22 +65,22 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
           const cells = (
             <>
               {/* 1 · Tracker id */}
-              <span className="flex min-w-0 items-center gap-1.5 truncate font-mono text-[0.625rem] text-accent">
+              <span className="flex min-w-0 items-center gap-1.5 truncate font-mono text-xs text-muted">
                 {!isProcessing && b.ticket_identifier ? (
                   <>
-                    <TrackerLogo kind={b.provider ?? "linear"} size={13} />
+                    <TrackerLogo kind={b.provider ?? "linear"} size={12} />
                     <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
                   </>
                 ) : (
-                  <span className="text-muted/50">—</span>
+                  <span aria-hidden />
                 )}
               </span>
               {/* 2 · Title */}
-              <span className="min-w-0 truncate text-[0.625rem] text-ink">{title}</span>
+              <span className="min-w-0 truncate text-[13.5px] text-ink">{title}</span>
               {/* 3 · Status */}
               <div className="min-w-0">
                 <StatusBadge color={dot} title={stateName}>
-                  {isProcessing ? "creating…" : stateName}
+                  {stateName}
                 </StatusBadge>
               </div>
               {/* 4 · Assignee - avatar + name (hidden < sm) */}
@@ -93,24 +93,27 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
                         src={ti.assignee.avatarUrl}
                         alt=""
                         title={ti.assignee.name}
-                        className="h-5 w-5 shrink-0 rounded-full border border-hairline object-cover"
+                        className="h-5 w-5 shrink-0 rounded-full object-cover ring-1 ring-hairline"
                       />
                     ) : (
                       <span
                         title={ti.assignee.name}
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-hairline bg-cream-2 text-[0.625rem] text-ink-2"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cream-2 text-[10px] font-medium text-ink-2"
                       >
                         {initial(ti.assignee.name)}
                       </span>
                     )}
-                    <span className="truncate text-[0.625rem] text-ink-2">{ti.assignee.name}</span>
+                    <span className="truncate text-[13px] text-ink-2">{ti.assignee.name}</span>
                   </>
                 ) : (
-                  <span className="text-[0.625rem] text-muted/50">—</span>
+                  <span
+                    title="Unassigned"
+                    className="h-5 w-5 shrink-0 rounded-full border border-dashed border-[rgba(26,22,18,0.25)]"
+                  />
                 )}
               </span>
               {/* 5 · Updated (hidden < sm) */}
-              <span className="hidden truncate font-mono text-[0.625rem] text-muted sm:block">
+              <span className="hidden truncate text-xs tabular-nums text-muted sm:block">
                 {relativeTime(b.created_at)}
               </span>
             </>
@@ -122,12 +125,12 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
                   href={href}
                   target={external ? "_blank" : undefined}
                   rel={external ? "noreferrer" : undefined}
-                  className="ticket-grid-ro px-4 py-3 no-underline transition-colors hover:bg-cream-2/40"
+                  className="ticket-grid-ro min-h-[42px] px-4 py-2 no-underline transition-colors hover:bg-surface-2"
                 >
                   {cells}
                 </a>
               ) : (
-                <div className="ticket-grid-ro px-4 py-3 transition-colors hover:bg-cream-2/40">{cells}</div>
+                <div className="ticket-grid-ro min-h-[42px] px-4 py-2 transition-colors hover:bg-surface-2">{cells}</div>
               )}
             </li>
           );

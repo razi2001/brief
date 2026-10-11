@@ -54,11 +54,11 @@ const COL_VAR: Record<ColKey, string> = {
   assignee: "--tk-assignee",
   upd: "--tk-upd",
 };
-const COL_DEFAULTS: Record<ColKey, number> = { id: 124, status: 88, assignee: 144, upd: 64 };
+const COL_DEFAULTS: Record<ColKey, number> = { id: 124, status: 112, assignee: 144, upd: 64 };
 const COL_MIN: Record<ColKey, number> = { id: 56, status: 56, assignee: 64, upd: 48 };
 const COL_MAX: Record<ColKey, number> = { id: 220, status: 200, assignee: 300, upd: 120 };
 // Bumped suffix so the rebalanced defaults take effect over any older saved widths.
-const COL_STORE_KEY = "tickets:colw:v6";
+const COL_STORE_KEY = "tickets:colw:v7";
 
 // A handle is a divider between two columns. Dragging right grows `inc` and/or
 // shrinks `dec`; the dragged edge tracks the cursor (drag right → the column on
@@ -124,16 +124,9 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
 
 function EmptyState({ filtered }: { filtered: boolean }) {
   return (
-    <div className="card brief-card animate-rise mt-4 flex flex-col items-center gap-3 px-4 py-14 text-center">
-      <BrandMark size={36} />
-      <p className="font-display text-xl text-ink">
-        {filtered ? "nothing matches." : "no tickets yet."}
-      </p>
-      <p className="max-w-xs text-sm text-muted">
-        {filtered
-          ? "no tickets in the selected statuses - adjust the filter to see more."
-          : "hit ✦ in the extension, talk through a bug, and it lands here - written up and filed."}
-      </p>
+    <div className="animate-rise mt-7 flex flex-col items-center gap-3 rounded-xl border border-dashed border-[rgba(26,22,18,0.14)] px-4 py-16 text-center">
+      <BrandMark size={32} className="opacity-90" />
+      <p className="text-[14px] font-medium text-ink">{filtered ? "Nothing matches" : "No tickets yet"}</p>
     </div>
   );
 }
@@ -147,19 +140,17 @@ function SummaryLine({ counts }: { counts: Counts }) {
   if (counts.failed > 0)
     parts.push({ color: "#c62828", text: `${counts.failed} didn't file` });
 
-  if (parts.length === 0)
-    return <p className="mt-1.5 font-mono text-xs text-muted">nothing yet</p>;
+  if (parts.length === 0) return null;
 
   return (
-    <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-muted">
+    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-muted">
       {parts.map((p, i) => (
-        <span key={i} className="inline-flex items-center gap-1.5">
+        <span key={i} className="inline-flex items-center gap-1.5 tabular-nums">
           <span
             className={`inline-block h-1.5 w-1.5 rounded-full ${p.pulse ? "dot-pulse" : ""}`}
             style={{ backgroundColor: p.color }}
           />
           {p.text}
-          {i < parts.length - 1 && <span className="ml-1.5 text-hairline">·</span>}
         </span>
       ))}
     </p>
@@ -410,7 +401,7 @@ export default function BriefsFeed({
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize column"
-        title="Drag to resize · double-click to reset"
+        title="Drag to resize, double-click to reset"
         className="group/rz absolute -right-[10px] top-0 z-20 hidden h-full w-[16px] cursor-col-resize touch-none sm:block"
       >
         <span className="pointer-events-none absolute left-1/2 top-1/2 h-3.5 w-px -translate-x-1/2 -translate-y-1/2 rounded bg-hairline transition-colors group-hover/rz:bg-accent" />
@@ -471,11 +462,8 @@ export default function BriefsFeed({
 
   return (
     <section>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="font-display text-3xl leading-none text-ink">Tickets</h1>
-          <SummaryLine counts={liveCounts} />
-        </div>
+      <header className="flex items-center justify-between gap-4">
+        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Tickets</h1>
         <div className="flex shrink-0 items-center gap-2">
           {/* Global escape hatch: clear every column filter at once. Only shown
               when something is actually filtered (incl. when the list is empty,
@@ -485,7 +473,7 @@ export default function BriefsFeed({
               type="button"
               onClick={reset}
               title="Clear all filters"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-hairline px-2.5 text-xs text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
+              className="btn h-8"
             >
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z" />
@@ -497,6 +485,9 @@ export default function BriefsFeed({
           <AutoRefresh active={isProcessing} />
           <RefreshButton />
         </div>
+      </header>
+      <div className="mt-3">
+        <SummaryLine counts={liveCounts} />
       </div>
 
       {liveBriefs.length > 0 ? (
@@ -504,11 +495,11 @@ export default function BriefsFeed({
           {/* overflow-visible so the column-filter popovers can escape the card;
               the row list clips its own bottom corners instead. gridVars sets the
               resizable column widths once - they cascade to the header and rows. */}
-          <div className="card mt-5 overflow-visible p-0" style={gridVars}>
+          <div className="card mt-6 overflow-visible p-0" style={gridVars}>
             {/* Column header - a quiet, sticky row whose labels double as the
                 per-column filter triggers. Built on the same .ticket-grid as the
                 rows, so each label sits exactly above its column. */}
-            <div className="ticket-grid sticky top-0 z-20 rounded-t-[10px] border-b border-hairline bg-cream-2/70 py-2 pl-3 pr-2.5 backdrop-blur">
+            <div className="ticket-grid sticky top-0 z-20 rounded-t-[11px] border-b border-hairline bg-surface/95 py-1.5 pl-3 pr-2.5 backdrop-blur max-sm:gap-x-2 max-sm:[grid-template-columns:1.5rem_5.25rem_minmax(0,1fr)_0.75rem_1.75rem]">
               <button
                 type="button"
                 role="checkbox"
@@ -519,10 +510,10 @@ export default function BriefsFeed({
                 className="flex items-center justify-center"
               >
                 <span
-                  className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                  className={`flex h-[15px] w-[15px] items-center justify-center rounded-[4px] border transition-colors ${
                     allVisibleSelected || anySelected
-                      ? "border-accent bg-accent text-cream"
-                      : "border-hairline bg-transparent text-transparent hover:border-muted"
+                      ? "border-accent bg-accent text-white"
+                      : "border-[rgba(26,22,18,0.22)] bg-surface text-transparent hover:border-muted"
                   }`}
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -553,7 +544,7 @@ export default function BriefsFeed({
                 {/* Drag right to extend the title (shrinks Status). */}
                 {resizeHandle({ dec: "status" })}
               </div>
-              <div className="relative min-w-0">
+              <div className="relative min-w-0 max-sm:col-span-2 max-sm:-ml-4">
                 <ColumnFilter
                   label="Status"
                   kind="checklist"
@@ -590,10 +581,10 @@ export default function BriefsFeed({
                   onToggle={(k) => setUpdatedRange(k)}
                 />
               </div>
-              <span aria-hidden />
+              <span aria-hidden className="max-sm:hidden" />
             </div>
             {visible.length > 0 ? (
-              <ul className="divide-y divide-hairline overflow-hidden rounded-b-[10px]">
+              <ul className="divide-y divide-hairline overflow-hidden rounded-b-[11px]">
                 {visible.map((b) => (
                   <BriefListRow
                     key={b.id}
@@ -610,17 +601,10 @@ export default function BriefsFeed({
             ) : (
               // Filtered down to nothing - but the header (and its filters) stay
               // put, plus a Clear button, so you can always get back.
-              <div className="animate-rise px-4 py-14 text-center">
-                <p className="font-display text-xl text-ink">nothing matches.</p>
-                <p className="mx-auto mt-1.5 max-w-xs text-sm text-muted">
-                  no tickets match the current filters.
-                </p>
+              <div className="animate-rise flex flex-col items-center gap-3 px-4 py-14 text-center">
+                <p className="text-[14px] font-medium text-ink">Nothing matches</p>
                 {filtersActive && (
-                  <button
-                    type="button"
-                    onClick={reset}
-                    className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-hairline px-3 py-1.5 text-xs text-muted transition-colors hover:bg-cream-2/70 hover:text-ink"
-                  >
+                  <button type="button" onClick={reset} className="btn">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z" />
                       <path d="M3 3l18 18" />
@@ -638,14 +622,14 @@ export default function BriefsFeed({
               isn't. */}
           {anySelected && (
             <div className="pointer-events-none sticky bottom-4 z-20 mt-3 flex justify-center">
-              <div className="animate-bar-rise pointer-events-auto flex items-center gap-1 rounded-xl border border-[rgba(245,241,232,0.12)] bg-ink px-2 py-1.5 text-cream shadow-[0_10px_34px_rgba(26,22,18,0.3)]">
-                <span className="px-2 font-mono text-xs text-cream/90">{selected.size} selected</span>
+              <div className="animate-bar-rise pointer-events-auto flex items-center gap-1 rounded-[10px] border border-[rgba(245,241,232,0.12)] bg-ink px-1.5 py-1 text-cream shadow-[0_10px_34px_rgba(26,22,18,0.3)]">
+                <span className="px-2 text-[13px] tabular-nums text-cream/90">{selected.size} selected</span>
                 <span className="mx-0.5 h-4 w-px bg-cream/20" />
                 <button
                   type="button"
                   onClick={archiveSelected}
                   title="Archive selected"
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-cream/90 transition-colors hover:bg-cream/10 hover:text-cream"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-cream/90 transition-colors hover:bg-cream/10 hover:text-cream"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <rect x="3" y="4" width="18" height="4" rx="1" />
@@ -659,7 +643,7 @@ export default function BriefsFeed({
                   onClick={clearSelection}
                   title="Clear selection"
                   aria-label="Clear selection"
-                  className="inline-flex items-center justify-center rounded-lg p-1.5 text-cream/70 transition-colors hover:bg-cream/10 hover:text-cream"
+                  className="inline-flex items-center justify-center rounded-md p-1.5 text-cream/70 transition-colors hover:bg-cream/10 hover:text-cream"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M6 6l12 12M18 6L6 18" />

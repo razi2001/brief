@@ -242,4 +242,36 @@ describe("Podium hats", () => {
     const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
     expect(container.textContent).not.toContain("♔");
   });
+
+  describe("with invite seats (the dashboard)", () => {
+    it("alone: you stand on top, both other places are invite seats", () => {
+      render(<Podium month={[entries[0]]} all={[entries[0]]} orgName="Acme" inviteSeats />);
+      const steps = screen.getAllByRole("listitem");
+      expect(steps).toHaveLength(3);
+      expect(within(steps[1]).getByText("razi")).toBeTruthy();
+      expect(within(steps[0]).getByText("Invite")).toBeTruthy();
+      expect(within(steps[2]).getByText("Invite")).toBeTruthy();
+      expect(screen.queryByText("just you so far", { exact: false })).toBeNull();
+    });
+
+    it("two people: only third place is open", () => {
+      render(<Podium month={entries.slice(0, 2)} all={entries.slice(0, 2)} orgName="Acme" inviteSeats />);
+      expect(screen.getAllByText("Invite")).toHaveLength(1);
+      expect(screen.getByText("jonas")).toBeTruthy();
+    });
+
+    it("a full podium has no open seats", () => {
+      render(<Podium month={entries} all={entries} orgName="Acme" inviteSeats />);
+      expect(screen.queryByText("Invite")).toBeNull();
+    });
+
+    it("an open seat copies the sign-up link", async () => {
+      let copied = "";
+      Object.assign(navigator, { clipboard: { writeText: async (t: string) => void (copied = t) } });
+      render(<Podium month={[entries[0]]} all={[entries[0]]} orgName="Acme" inviteSeats />);
+      fireEvent.click(screen.getAllByText("Invite")[0]);
+      expect(await screen.findByText("Link copied")).toBeTruthy();
+      expect(copied).toBe(`${window.location.origin}/sign-up`);
+    });
+  });
 });

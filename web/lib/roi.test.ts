@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarizeRoi, MINUTES_BY_HAND } from "./roi";
+import { summarizeRoi, MINUTES_BY_HAND, MAX_CAPTURE_SECONDS } from "./roi";
 
 describe("summarizeRoi", () => {
   it("counts the tickets and the ones that carried evidence", () => {
@@ -38,6 +38,14 @@ describe("summarizeRoi", () => {
   it("holds up when capture time is missing", () => {
     const r = summarizeRoi({ filed: 40, withEvidence: 30, avgSeconds: 0 });
     expect(r?.hoursSaved).toBe(10);
+  });
+
+  it("caps capture time, so tracker syncs moving updated_at days later can't wipe the saving out", () => {
+    // 32 tickets whose updated_at moved ~2 days after capture (status write-back).
+    const r = summarizeRoi({ filed: 32, withEvidence: 20, avgSeconds: 2 * 24 * 3600 });
+    expect(r).not.toBeNull();
+    // charged at most MAX_CAPTURE_SECONDS each: 32 x (15 - 5) min = 320 min
+    expect(r!.hoursSaved).toBe(Math.round((32 * (MINUTES_BY_HAND * 60 - MAX_CAPTURE_SECONDS)) / 3600));
   });
 
   it("never claims more evidence than there are tickets", () => {

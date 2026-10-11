@@ -54,8 +54,9 @@ export default function AutoRefresh({
   if (!active) return null;
 
   return (
-    <span className="text-xs text-muted" aria-live="polite">
-      updating…
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted" aria-live="polite">
+      <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+      Updating…
     </span>
   );
 }
