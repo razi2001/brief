@@ -8,7 +8,7 @@
 // draft (a reopened popup shows "Filing…" or the error), and opens the brief page
 // when done.
 
-import { TICKETS_URL, uploadDraft, uploadFilesToDraft, processBrief, createDraft, briefPageUrl } from './cloud.js';
+import { uploadDraft, uploadFilesToDraft, processBrief, createDraft } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft } from './draft.js';
 import { deleteFile, draftKeys, getFile, replayKey, replayVoiceKey, replayFramesKey, replayVideoKey, replayVideoStateKey } from './filestore.js';
 
@@ -143,10 +143,11 @@ async function dropFilingDraft(id) {
   await chrome.storage.local.set({ filingDrafts });
 }
 
-async function fileInBackground(d) {
+async function fileInBackground(d, mode = 'ticket') {
   const run = async () => {
     await ensureUploaded(d);
-    return processBrief(d.cloudBriefId, buildOverrides(d));
+    const overrides = buildOverrides(d);
+    return mode === 'ticket' ? processBrief(d.cloudBriefId, overrides) : createDraft(d.cloudBriefId, overrides);
   };
   try {
     try {
@@ -168,81 +169,28 @@ async function fileInBackground(d) {
   }
   for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
   await dropFilingDraft(d.id);
-  // Unseen until the cloud button is clicked: the popup marks it with a dot.
-  await chrome.storage.local.set({ ticketsUnseen: Date.now() }).catch(() => {});
+  // Unseen until the cloud button is clicked: the popup marks it with a dot,
+  // and the button opens the list it landed in (Tickets or Drafts).
+  await chrome.storage.local.set({ ticketsUnseen: Date.now(), unseenView: mode === 'ticket' ? 'tickets' : 'drafts' }).catch(() => {});
 }
 
-async function failFiling(id, err) {
-  const error = String(err?.message || err);
-  await updateDraft(id, (x) => { x.filing = false; x.fileError = error; });
-  return { ok: false, error };
-}
-
-// One brief, one action. `mode` = 'ticket' files straight to the connected
-// tracker (the server queues it and writes in the background); 'draft' writes it
-// up with no tracker. Either way the brief gets a hosted page, which is where we
-// land - it shows the writing/filing state and resolves itself.
+// One brief, one action, and the same experience either way. `mode` = 'ticket'
+// files straight to the connected tracker; 'draft' writes it up with no ticket.
+// Neither makes you wait: the draft is handed off (kept under `filingDrafts`
+// with its blobs, which are keyed by its id), a fresh one takes its place right
+// away, and the upload + write-up finish here in the worker. No tab opens - the
+// result lands behind the popup's cloud button.
 //
-// `openTab(url)` is supplied by the worker (it owns tab opening). Resolves
-// { ok, shareId, alreadyFiled } or { ok: false, error }; the same outcome is
-// written onto the draft so a popup that missed the response still knows.
-export async function fileDraft(mode, { openTab }) {
+// Resolves { ok, queued } or { ok: false, error }.
+export async function fileDraft(mode) {
   const d = await getDraft();
   if (!d) return { ok: false, error: 'Nothing to file' };
   if (d.filing) return { ok: false, error: 'already_filing' };
   if (d.uploading) return { ok: false, error: 'The recording is still uploading' };
   if (!isReadyDraft(d)) return { ok: false, error: 'Nothing to file' };
 
-  // A ticket doesn't make you wait: the draft is handed off (kept under
-  // `filingDrafts` with its blobs, which are keyed by its id), a fresh one takes
-  // its place right away, and the upload + filing finish here in the worker.
-  if (mode === 'ticket') {
-    await addFilingDraft(d);
-    await setDraft(emptyDraft());
-    fileInBackground(d).catch((err) => console.warn('[brief/filing] background filing:', err));
-    return { ok: true, queued: true };
-  }
-
-  await updateDraft(d.id, (x) => { x.filing = true; x.filingMode = mode; x.filingStartedAt = Date.now(); x.fileError = null; });
-  d.filing = true;
-
-  const run = async () => {
-    await ensureUploaded(d);
-    const overrides = buildOverrides(d);
-    return mode === 'ticket' ? processBrief(d.cloudBriefId, overrides) : createDraft(d.cloudBriefId, overrides);
-  };
-
-  let shareId = null;
-  let alreadyFiled = false;
-  try {
-    shareId = await run();
-  } catch (err) {
-    if (err?.code === 'already_filed' && err.shareId) {
-      // The server says this capture already has a ticket (a re-submit). Not an
-      // error for the user - the ticket exists. Land on it like a success.
-      shareId = err.shareId;
-      alreadyFiled = true;
-    } else if (err?.status === 404 && d.cloudBriefId) {
-      // The cloud draft is gone (deleted on the web) - re-create it and retry once.
-      d.cloudBriefId = null;
-      await updateDraft(d.id, (x) => { x.cloudBriefId = null; });
-      try { shareId = await run(); } catch (err2) { return failFiling(d.id, err2); }
-    } else {
-      return failFiling(d.id, err);
-    }
-  }
-
-  // Filed: this draft is spent. Its local media (the video kept for playback,
-  // each screenshot's clean capture) goes with it - the cloud has the evidence now.
-  for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
-  // Start a fresh draft. A ticket opens no tab: it is written in the background
-  // and the popup points at the tickets list (the cloud button) instead - a tab
-  // per ticket got in the way. A draft has no tracker ticket to look at, so its
-  // own brief page IS the thing you just made: that one still opens.
-  await clearDraft();
+  await addFilingDraft(d);
   await setDraft(emptyDraft());
-  // Unseen until the cloud button is clicked: the popup marks it with a dot.
-  if (mode === 'ticket') await chrome.storage.local.set({ ticketsUnseen: Date.now() }).catch(() => {});
-  else openTab(shareId ? briefPageUrl(shareId) : TICKETS_URL);
-  return { ok: true, shareId, alreadyFiled };
+  fileInBackground(d, mode).catch((err) => console.warn('[brief/filing] background filing:', err));
+  return { ok: true, queued: true };
 }

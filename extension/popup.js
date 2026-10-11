@@ -5,7 +5,7 @@
 // happens in bottom sheets. Capture (screenshot/video) runs on the page, so those
 // actions close the popup and it reopens when the capture lands.
 
-import { APP_URL, TICKETS_URL, getCloudToken, fetchAccountStatus, transcribeNote } from './cloud.js';
+import { APP_URL, TICKETS_URL as TICKETS_URL_BASE, getCloudToken, fetchAccountStatus, transcribeNote } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft } from './draft.js';
 import { putFile, hasFile, deleteFile, recKey, shotKey, replayKey, replayVoiceKey, draftKeys } from './filestore.js';
 import { syncReplaySites } from './replay-sites.js';
@@ -676,24 +676,14 @@ function probeVideoFile(file) {
 // The worker does the actual work (filing.js): the popup dies the instant it
 // loses focus, so an upload + file flow run here was dropped whenever the user
 // clicked away after Create. We ask, mirror progress from the draft's `filing`
-// flag, and if the popup is still open when it lands, play the confirmation.
-// The worker opens the brief page either way.
+// flag; the result lands behind the cloud button.
 // Display names for every tracker /api/me can report. Anything unrecognised
 // still files fine - it just reads as "your tracker" while it does.
 const TRACKER_NAMES = { linear: 'Linear', jira: 'Jira', github: 'GitHub' };
 function trackerName() { return TRACKER_NAMES[bcTracker] || 'your tracker'; }
-function showDone(title, sub) {
-  const t = exportDone.querySelector('.export-done-title');
-  const s = exportDone.querySelector('.export-done-sub');
-  if (t) t.textContent = title;
-  if (s) s.textContent = sub;
-  exportDone.hidden = false;
-  // The worker opens the brief page after the same beat, which closes us anyway.
-  setTimeout(() => window.close(), 1200);
-}
-
 // `mode`: 'ticket' files straight to the connected tracker; 'draft' writes the
-// brief up with no tracker. Both land on the brief's hosted page.
+// brief up with no ticket. Both are handed to the worker and land behind the
+// cloud button.
 async function startFiling(mode) {
   clearInlineError();
   if (!isReadyDraft(draft) || draft.uploading || draft.filing) return;
@@ -707,14 +697,11 @@ async function startFiling(mode) {
   try { res = await chrome.runtime.sendMessage({ type: 'FILE_DRAFT', mode }); }
   catch (err) { res = { ok: false, error: String(err?.message || err) }; }
   if (res?.ok) {
-    if (mode === 'ticket') {
-      // No tab and no wait: the worker files it in the background (the cloud
-      // spins until it lands) and this popup is already on a fresh draft.
-      flyToCloud();
-      toast(res.alreadyFiled ? 'Already filed' : 'Ticket queued');
-      return;
-    }
-    showDone('Draft saved', res.shareId ? 'Opening your draft…' : 'Opening your drafts…');
+    // Ticket or draft, the same: no tab and no wait. The worker finishes it in
+    // the background (the cloud spins until it lands) and this popup is already
+    // on a fresh draft.
+    flyToCloud();
+    toast(mode === 'ticket' ? 'Ticket queued' : 'Draft queued');
     return;
   }
   if (res?.error === 'already_filing') return; // an earlier ask is still running; the draft flag shows it
@@ -788,14 +775,18 @@ chrome.storage.local.get('ticketsUnseen').then(({ ticketsUnseen }) => {
   if (ticketsUnseen) briefCloudBtn?.classList.add('unseen');
 }).catch(() => {});
 
+// The cloud button opens the list the last capture landed in: Drafts after a
+// draft, Tickets otherwise.
 async function openTicketsTab() {
+  const { unseenView } = await chrome.storage.local.get('unseenView').catch(() => ({}));
+  const TICKETS_URL = unseenView === 'drafts' ? `${APP_URL}/drafts` : TICKETS_URL_BASE;
   try {
-    const ticketTabs = await chrome.tabs.query({ url: `${TICKETS_URL}*` });
+    const ticketTabs = await chrome.tabs.query({ url: [`${TICKETS_URL_BASE}*`, `${APP_URL}/drafts*`] });
     if (ticketTabs.length && ticketTabs[0].id != null) {
       const tab = ticketTabs[0];
-      await chrome.tabs.update(tab.id, { active: true });
+      await chrome.tabs.update(tab.id, { active: true, url: TICKETS_URL });
       try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
-      chrome.tabs.reload(tab.id); return;
+      return;
     }
     const appTabs = await chrome.tabs.query({ url: `${APP_URL}/*` });
     if (appTabs.length && appTabs[0].id != null) {
@@ -808,9 +799,9 @@ async function openTicketsTab() {
   await chrome.tabs.create({ url: TICKETS_URL }).catch(() => {});
 }
 briefCloudBtn?.addEventListener('click', async () => {
-  chrome.storage.local.remove('ticketsUnseen').catch(() => {});
   let token = null; try { token = await getCloudToken(); } catch {}
   if (token) await openTicketsTab();
+  chrome.storage.local.remove(['ticketsUnseen', 'unseenView']).catch(() => {});
   else await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
   window.close();
 });

@@ -374,6 +374,16 @@ export default function TicketDoc({
 
   const bubbleBtn = "flex h-7 w-7 items-center justify-center rounded-md text-cream/80 transition-colors hover:bg-cream/15 hover:text-cream";
   const noMouseSteal = (e: React.MouseEvent) => e.preventDefault();
+  const aiBtn = "flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-cream/85 transition-colors hover:bg-cream/15 hover:text-cream";
+  // Hand the selected passage to the assistant: run `prompt` on just that
+  // text, or (no prompt) quote it in the composer to say what to do.
+  function askAI(prompt?: string) {
+    const quote = window.getSelection()?.toString().trim();
+    if (!quote) return;
+    window.dispatchEvent(new CustomEvent("brief:ai:ask", { detail: { prompt, quote } }));
+    window.getSelection()?.removeAllRanges();
+    setBubble(null);
+  }
 
   return (
     <div>
@@ -465,6 +475,13 @@ export default function TicketDoc({
             <button type="button" title="Bold (⌘B)" className={`${bubbleBtn} font-bold`} onMouseDown={noMouseSteal} onClick={() => format("bold")}>B</button>
             <button type="button" title="Italic (⌘I)" className={`${bubbleBtn} italic`} onMouseDown={noMouseSteal} onClick={() => format("italic")}>I</button>
             <button type="button" title="Code (⌘E)" className={bubbleBtn} onMouseDown={noMouseSteal} onClick={() => format("code")}>{ICON.code}</button>
+            <span className="mx-0.5 h-4 w-px self-center bg-cream/20" aria-hidden />
+            <button type="button" className={aiBtn} onMouseDown={noMouseSteal} onClick={() => askAI("Improve this passage: clearer and better written, same meaning.")}>
+              <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" className="text-accent" aria-hidden="true"><path d="M12 3l1.9 6.1L20 11l-6.1 1.9L12 19l-1.9-6.1L4 11l6.1-1.9z" /></svg>
+              Improve
+            </button>
+            <button type="button" className={aiBtn} onMouseDown={noMouseSteal} onClick={() => askAI("Make this passage shorter, keep what matters.")}>Shorten</button>
+            <button type="button" className={aiBtn} onMouseDown={noMouseSteal} onClick={() => askAI()}>Ask AI</button>
           </div>
         </div>
       )}
