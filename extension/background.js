@@ -5,7 +5,7 @@
 import { installPageCapture } from './page-capture.js';
 import { APP_URL } from "./config.js";
 import { getDraft, setDraft, updateDraft, emptyDraft, genId, landRecording, migrateInboxToDraft } from "./draft.js";
-import { fileDraft } from "./filing.js";
+import { fileDraft, resumeFiling, filingKeys } from "./filing.js";
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
 import { putChunk, prune as pruneReplay, allMeta, deleteChunks, clearAll as clearReplay } from "./replay-store.js";
@@ -284,7 +284,8 @@ async function clearStaleFiling() {
 // owns them when a brief is filed mid-flight or the browser dies. Startup is the
 // safe moment to drop whatever the current draft no longer references.
 async function pruneOrphanBlobs() {
-  try { await pruneFiles(draftKeys(await getDraft())); }
+  // ...except what drafts still being filed in the background need.
+  try { await pruneFiles([...draftKeys(await getDraft()), ...(await filingKeys())]); }
   catch (err) { console.warn('[brief/background] blob prune:', err); }
 }
 
@@ -294,6 +295,7 @@ async function pruneOrphanBlobs() {
 const startup = migrateInboxToDraft()
   .then(clearStaleFiling)
   .then(pruneOrphanBlobs)
+  .then(() => resumeFiling())
   .then(() => refreshBadge())
   .catch(() => {});
 

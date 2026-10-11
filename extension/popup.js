@@ -801,8 +801,8 @@ async function openTicketsTab() {
 briefCloudBtn?.addEventListener('click', async () => {
   let token = null; try { token = await getCloudToken(); } catch {}
   if (token) await openTicketsTab();
-  chrome.storage.local.remove(['ticketsUnseen', 'unseenView']).catch(() => {});
   else await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {});
+  chrome.storage.local.remove(['ticketsUnseen', 'unseenView']).catch(() => {});
   window.close();
 });
 

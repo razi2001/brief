@@ -125,6 +125,9 @@ async function ensureUploaded(d) {
     const id = await uploadDraft([...files, ...shotFiles], meta);
     d.cloudBriefId = id;
     await updateDraft(d.id, (x) => { x.cloudBriefId = id; });
+    // a filing that resumes after a worker restart goes on with this upload
+    const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
+    if (filingDrafts[d.id]) { filingDrafts[d.id].cloudBriefId = id; await chrome.storage.local.set({ filingDrafts }); }
   } else if (shotFiles.length) {
     await uploadFilesToDraft(d.cloudBriefId, shotFiles);
   }
@@ -132,9 +135,9 @@ async function ensureUploaded(d) {
 
 // Drafts being filed in the background, by id (the popup spins the cloud while
 // any are in flight).
-async function addFilingDraft(d) {
+async function addFilingDraft(d, mode) {
   const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
-  filingDrafts[d.id] = { ...d, filingStartedAt: Date.now() };
+  filingDrafts[d.id] = { ...d, filingMode: mode, filingStartedAt: Date.now() };
   await chrome.storage.local.set({ filingDrafts });
 }
 async function dropFilingDraft(id) {
@@ -143,7 +146,42 @@ async function dropFilingDraft(id) {
   await chrome.storage.local.set({ filingDrafts });
 }
 
+// Filings running in THIS worker, so a resume never starts one twice.
+const running = new Set();
+
+// Chrome shuts an idle extension worker down after ~30s, and a filing can
+// wait minutes for its replay video - a pending promise alone doesn't count
+// as activity. So while one runs, an extension API call every 20s keeps the
+// worker up; and if it goes down anyway (browser closed, crash), the next
+// worker resumes what's left in `filingDrafts` (resumeFiling), with its
+// blobs kept (filingKeys) instead of swept as orphans.
 async function fileInBackground(d, mode = 'ticket') {
+  if (running.has(d.id)) return;
+  running.add(d.id);
+  const keepAlive = setInterval(() => { chrome.runtime.getPlatformInfo().catch(() => {}); }, 20_000);
+  try {
+    await fileOne(d, mode);
+  } finally {
+    clearInterval(keepAlive);
+    running.delete(d.id);
+  }
+}
+
+/** Pick up filings a previous worker left unfinished. */
+export async function resumeFiling() {
+  const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
+  for (const d of Object.values(filingDrafts)) {
+    fileInBackground(d, d.filingMode || 'ticket').catch((err) => console.warn('[brief/filing] resume:', err));
+  }
+}
+
+/** Every blob the drafts being filed still need (kept when pruning). */
+export async function filingKeys() {
+  const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
+  return Object.values(filingDrafts).flatMap((d) => draftKeys(d));
+}
+
+async function fileOne(d, mode) {
   const run = async () => {
     await ensureUploaded(d);
     const overrides = buildOverrides(d);
@@ -189,7 +227,7 @@ export async function fileDraft(mode) {
   if (d.uploading) return { ok: false, error: 'The recording is still uploading' };
   if (!isReadyDraft(d)) return { ok: false, error: 'Nothing to file' };
 
-  await addFilingDraft(d);
+  await addFilingDraft(d, mode);
   await setDraft(emptyDraft());
   fileInBackground(d, mode).catch((err) => console.warn('[brief/filing] background filing:', err));
   return { ok: true, queued: true };

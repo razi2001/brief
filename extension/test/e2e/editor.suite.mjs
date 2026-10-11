@@ -281,7 +281,9 @@
     globalThis.fetch = async (u, o) => { seen.push({ u: String(u), body: o && o.body }); return new Response(JSON.stringify({ briefId: 'b1', uploads: { 'brief.json': { signedUrl: 'https://up.test/1' }, 'replay.json': { signedUrl: 'https://up.test/2' }, 'replay-voice.webm': { signedUrl: 'https://up.test/3' }, 'replay.webm': { signedUrl: 'https://up.test/v' }, ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => ['replay-frames/frame-' + String(i + 1).padStart(2, '0') + '.jpg', { signedUrl: 'https://up.test/f' + i }])) } }), { status: 200 }); };
     await chrome.storage.local.set({ briefCloudToken: 'bxt_test' });
     const f = await import('./filing.js');
-    try { await f.fileDraft('draft', { openTab: () => {} }); } catch (e) {}
+    try { await f.fileDraft('draft'); } catch (e) {}
+    // a draft is handed off and filed in the background now: wait for it
+    for (let i = 0; i < 80 && !seen.some(s => s.u.endsWith('/draft')); i++) await new Promise(r => setTimeout(r, 250));
     globalThis.fetch = realFetch;
     await chrome.storage.local.remove('briefCloudToken');
     const create = seen.find(s => s.u.endsWith('/api/briefs'));
