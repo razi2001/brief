@@ -1,6 +1,39 @@
 // User-editable brief metadata supplied at FILE time (popup), authoritative over
 // the capture-owned brief.json. Kept pure + unit-tested; run-processing applies it.
 
+import type { ReplaySummary } from "./replay-steps";
+import type { VideoLogs } from "./tech-details";
+
+/** One event of a capture's log, as brief.json records it (click, network, console, page). */
+export type CaptureEvent = { type?: string; tMs?: number; at?: number; url?: string; [key: string]: unknown };
+/** A still the extension took from the replay, with the page and note at that moment. */
+export type ReplayFrame = { file: string; t?: number; url?: string | null; note?: string | null };
+
+/**
+ * brief.json as processing reads it: the capture, the reporter's edits laid
+ * over it, and what processing adds (the replay's summary, the technical logs).
+ * Every field is optional - older captures lack most of them.
+ */
+export interface BriefJson {
+  description?: string;
+  transcript?: string;
+  pageUrl?: string;
+  pageTitle?: string;
+  userAgent?: string;
+  events?: CaptureEvent[];
+  screenshots?: ScreenshotMeta[];
+  extra?: Array<{ key: string; value: string }>;
+  includeVideo?: boolean;
+  includeReplay?: boolean;
+  replayNote?: string;
+  recordingMarks?: Array<{ t: number; note?: string }>;
+  keyframes?: Array<{ file?: string; timestamp?: number }>;
+  recording?: { file?: unknown };
+  replay?: ReplaySummary & { frames?: ReplayFrame[]; marks?: Array<{ t: number; note?: string }> };
+  techLogs?: VideoLogs[];
+  [key: string]: unknown;
+}
+
 export interface ScreenshotMeta {
   file: string;
   description?: string;
@@ -24,8 +57,8 @@ export interface BriefOverrides {
 
 /** Overlay the user's latest edits onto parsed brief.json without mutating it.
  *  Only non-empty / present fields win; capture data (events, keyframes...) is kept. */
-export function mergeBriefOverrides(json: unknown, overrides: BriefOverrides | null | undefined) {
-  const base: Record<string, any> = json && typeof json === "object" ? { ...(json as object) } : {};
+export function mergeBriefOverrides(json: unknown, overrides: BriefOverrides | null | undefined): BriefJson {
+  const base: BriefJson = json && typeof json === "object" ? { ...(json as BriefJson) } : {};
   if (!overrides || typeof overrides !== "object") return base;
   if (typeof overrides.transcript === "string" && overrides.transcript.trim()) base.transcript = overrides.transcript;
   if (typeof overrides.description === "string") base.description = overrides.description;
@@ -45,7 +78,7 @@ export function mergeBriefOverrides(json: unknown, overrides: BriefOverrides | n
   // page URL under each frame and the agent all line up with what plays.
   const trim = overrides.recordingTrim;
   if (trim && isFinite(trim.a) && isFinite(trim.b) && trim.b > trim.a && trim.a >= 0 && Array.isArray(base.events)) {
-    base.events = trimEvents(base.events, trim);
+    base.events = trimEvents(base.events, trim) as CaptureEvent[];
   }
   return base;
 }

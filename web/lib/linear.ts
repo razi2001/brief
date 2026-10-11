@@ -1,3 +1,4 @@
+import { errorMessage } from "./errors";
 import { clerkClient } from "@clerk/nextjs/server";
 import { clerkStrategy } from "./clerk-strategies";
 import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
@@ -65,7 +66,7 @@ export async function linearGraphQLRaw<T = unknown>(
   });
   // Expired / revoked OAuth token → tell the user to reconnect, not a raw 401/403.
   if (r.status === 401 || r.status === 403) throw new Error(AUTH_EXPIRED);
-  const j = await r.json().catch(() => ({}) as any);
+  const j = (await r.json().catch(() => ({}))) as { data?: T | null; errors?: unknown };
   const errors: GraphQLError[] = Array.isArray(j.errors) ? j.errors : [];
   if (
     errors.length &&
@@ -87,7 +88,7 @@ export async function linearGraphQLRaw<T = unknown>(
   return { data: (j.data ?? null) as T | null, errors };
 }
 
-export async function linearGraphQL<T = any>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
+export async function linearGraphQL<T = Record<string, unknown>>(tok: LinearTok, query: string, variables: Record<string, unknown>): Promise<T> {
   const { data, errors } = await linearGraphQLRaw<T>(tok, query, variables);
   if (errors.length) throw new Error("Linear GraphQL: " + JSON.stringify(errors));
   // No data and no errors: nothing to read. Every caller reads fields off the
@@ -293,11 +294,11 @@ export interface LinearApi {
 export function makeLinearApi(tok: LinearTok): LinearApi {
   return {
     async listTeams() {
-      const d = await linearGraphQL<{ teams: { nodes: any[] } }>(tok, `query { teams { nodes { id name key } } }`, {});
+      const d = await linearGraphQL<{ teams: { nodes: Array<{ id: string; name: string; key: string }> } }>(tok, `query { teams { nodes { id name key } } }`, {});
       return d.teams.nodes;
     },
     async createIssue(input) {
-      const d = await linearGraphQL<{ issueCreate: { success: boolean; issue: any } }>(
+      const d = await linearGraphQL<{ issueCreate: { success: boolean; issue: { id: string; identifier: string; url: string; title: string } } }>(
         tok,
         `mutation IssueCreate($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier url title } } }`,
         { input }
@@ -711,12 +712,20 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         );
         if (!r.issueUpdate?.success) return { ok: false, error: "Linear issueUpdate returned success=false" };
         return { ok: true };
-      } catch (e: any) {
-        return { ok: false, error: String(e?.message ?? e) };
+      } catch (e) {
+        return { ok: false, error: errorMessage(e) };
       }
     },
     async getIssue(identifier) {
-      const d = await linearGraphQL<{ issue: any }>(
+      const d = await linearGraphQL<{
+        issue: {
+          identifier: string; title: string; url: string; priority: number | null;
+          state?: { name?: string; color?: string } | null;
+          assignee?: { name?: string; displayName?: string } | null;
+          labels?: { nodes?: Array<{ name: string }> } | null;
+          project?: { name?: string } | null;
+        } | null;
+      }>(
         tok,
         `query IssueRead($id: String!) {
           issue(id: $id) {
@@ -739,7 +748,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         state: i.state?.name ?? null,
         stateColor: i.state?.color ?? null,
         assignee: i.assignee?.displayName || i.assignee?.name || null,
-        labels: (i.labels?.nodes ?? []).map((l: any) => l.name),
+        labels: (i.labels?.nodes ?? []).map((l) => l.name),
         project: i.project?.name ?? null,
         priority: priorityName,
       };

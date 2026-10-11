@@ -1,3 +1,5 @@
+import type { ChatCompletionContentPart, ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { errorMessage } from "@/lib/errors";
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
@@ -361,7 +363,7 @@ export async function processBrief(
     .join("\n");
 
   const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
-  const tail: any[] = [];
+  const tail: ChatCompletionContentPart[] = [];
 
   // Pull the high-signal context out of brief.json and put it FRONT AND CENTER,
   // so the model reliably includes the page URL and reasons over the console
@@ -404,7 +406,7 @@ export async function processBrief(
   let replayIdx = 0;
   let shotIdx = 0;
   const onPage = (u?: string) => (u ? ` on ${u}` : "");
-  const storyboard: any[] = [];
+  const storyboard: ChatCompletionContentPart[] = [];
   for (const img of brief.images) {
     let label: string;
     if (img.name.includes("keyframe")) {
@@ -442,8 +444,8 @@ export async function processBrief(
   // from the tracker, and update_issue can't change it).
   let descriptionMarkdown = "";
 
-  const runLoop = async (userContent: any[]): Promise<IssueResult> => {
-    const messages: any[] = [
+  const runLoop = async (userContent: ChatCompletionContentPart[]): Promise<IssueResult> => {
+    const messages: ChatCompletionMessageParam[] = [
       { role: "system", content: sys },
       { role: "user", content: userContent },
     ];
@@ -594,8 +596,8 @@ export async function processBrief(
             default:
               result = { error: "unknown tool" };
           }
-        } catch (e: any) {
-          result = { error: String(e?.message ?? e) };
+        } catch (e) {
+          result = { error: errorMessage(e) };
         }
         messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
       }
@@ -610,8 +612,8 @@ export async function processBrief(
   let created: IssueResult;
   try {
     created = await runLoop(brief.images.length ? withImages : textOnly);
-  } catch (e: any) {
-    const msg = String(e?.message ?? e);
+  } catch (e) {
+    const msg = errorMessage(e);
     if (brief.images.length && /image|vision|media/i.test(msg)) {
       console.warn("[agent] model rejected a provided image - retrying text-only:", msg);
       created = await runLoop(textOnly);

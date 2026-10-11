@@ -13,8 +13,8 @@ describe("mergeBriefOverrides", () => {
     expect(merged.transcript).toBe("corrected words");
     expect(merged.description).toBe("new");
     expect(merged.extra).toEqual([{ key: "env", value: "prod" }]);
-    expect(merged.screenshots[0].description).toBe("note");
-    expect((merged as any).events).toEqual([{ a: 1 }]); // untouched capture data
+    expect(merged.screenshots?.[0].description).toBe("note");
+    expect(merged.events).toEqual([{ a: 1 }]); // untouched capture data
   });
 
   it("ignores absent/blank overrides and does not mutate the input", () => {
@@ -26,8 +26,8 @@ describe("mergeBriefOverrides", () => {
   });
 
   it("treats null/garbage overrides as no-op", () => {
-    expect(mergeBriefOverrides({ a: 1 }, undefined as any)).toEqual({ a: 1 });
-    expect(mergeBriefOverrides({ a: 1 }, null as any)).toEqual({ a: 1 });
+    expect(mergeBriefOverrides({ a: 1 }, undefined)).toEqual({ a: 1 });
+    expect(mergeBriefOverrides({ a: 1 }, null)).toEqual({ a: 1 });
   });
 });
 

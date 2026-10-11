@@ -1,4 +1,5 @@
 import { videoLogsForAgent } from "./tech-details";
+import type { BriefJson, CaptureEvent } from "./overrides";
 // Pure helper: distil the high-signal context out of brief.json into a compact,
 // prominent text block for the filing agent. No SDK/IO deps, so it's unit-tested
 // directly (context-block.test.ts).
@@ -12,7 +13,7 @@ import { videoLogsForAgent } from "./tech-details";
  */
 export function buildContextBlock(json: unknown): string {
   if (!json || typeof json !== "object") return "";
-  const j = json as Record<string, any>;
+  const j = (json ?? {}) as BriefJson;
 
   // Sections are assembled in priority order: the reporter's typed description
   // leads (it defines what the ticket is about), then page context, the spoken
@@ -85,7 +86,7 @@ export function buildContextBlock(json: unknown): string {
   // Console errors come through as events of type "console-error" (args[]),
   // plus window "error"/"unhandledrejection", and failed requests as
   // "network-error" (method/url/status/reason). Surface them verbatim.
-  const events: any[] = Array.isArray(j.events) ? j.events : [];
+  const events: CaptureEvent[] = Array.isArray(j.events) ? j.events : [];
   const errs: string[] = [];
   for (const e of events) {
     const type = String(e?.type ?? e?.__brief ?? "");
@@ -105,7 +106,7 @@ export function buildContextBlock(json: unknown): string {
     } else {
       msg = Array.isArray(e?.args)
         ? e.args.join(" ")
-        : e?.message || e?.reason || (typeof e?.payload === "string" ? e.payload : JSON.stringify(e));
+        : String(e?.message || e?.reason || (typeof e?.payload === "string" ? e.payload : JSON.stringify(e)));
     }
     if (msg && msg.trim()) errs.push(msg.trim().slice(0, 500));
   }
@@ -121,7 +122,7 @@ export function buildContextBlock(json: unknown): string {
 
   // Per-screenshot notes the reporter typed in the popup - their intent for each
   // shot. Surface them so the agent reads them as ground truth alongside the image.
-  const shots: any[] = Array.isArray(j.screenshots) ? j.screenshots : [];
+  const shots: Array<{ description?: unknown }> = Array.isArray(j.screenshots) ? j.screenshots : [];
   const shotNotes = shots
     .map((s) => (typeof s?.description === "string" ? s.description.trim() : ""))
     .filter(Boolean);
@@ -135,7 +136,7 @@ export function buildContextBlock(json: unknown): string {
   // Custom key/value fields the reporter typed in the popup - explicit structured
   // details (environment, severity, repro steps, etc.). Surface them so the agent
   // folds them into the ticket rather than leaving them buried in the JSON.
-  const extra: any[] = Array.isArray(j.extra) ? j.extra : [];
+  const extra: Array<{ key?: unknown; value?: unknown }> = Array.isArray(j.extra) ? j.extra : [];
   const extraPairs = extra
     .map((p) => {
       const k = typeof p?.key === "string" ? p.key.trim() : "";

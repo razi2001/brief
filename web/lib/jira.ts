@@ -1,3 +1,4 @@
+import { errorMessage } from "./errors";
 import { clerkClient } from "@clerk/nextjs/server";
 import { clerkStrategy } from "./clerk-strategies";
 import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
@@ -808,8 +809,8 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           if (!t.ok) return t;
         }
         return { ok: true };
-      } catch (e: any) {
-        return { ok: false, error: String(e?.message ?? e) };
+      } catch (e) {
+        return { ok: false, error: errorMessage(e) };
       }
     },
     async getIssue(identifier) {

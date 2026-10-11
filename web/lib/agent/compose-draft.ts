@@ -1,3 +1,5 @@
+import type { ChatCompletionContentPart } from "openai/resources/chat/completions";
+import { errorMessage } from "@/lib/errors";
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest } from "./evidence";
@@ -16,7 +18,7 @@ export interface DraftResult {
  * then the body) instead of a tool call - so the tokens can be streamed live to
  * the brief page as it writes. Routing/fields are applied later at export.
  */
-export function buildStreamMessages(brief: BriefInput, instructions?: string): { system: string; user: any[] } {
+export function buildStreamMessages(brief: BriefInput, instructions?: string): { system: string; user: ChatCompletionContentPart[] } {
   const prefs = (instructions ?? "").trim();
   const system =
     SYSTEM_PROMPT +
@@ -26,7 +28,7 @@ export function buildStreamMessages(brief: BriefInput, instructions?: string): {
       : "");
 
   const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
-  const tail: any[] = [];
+  const tail: ChatCompletionContentPart[] = [];
   const ctxBlock = buildContextBlock(brief.json);
   if (ctxBlock) tail.push({ type: "text", text: ctxBlock });
   const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
@@ -42,7 +44,7 @@ export function buildStreamMessages(brief: BriefInput, instructions?: string): {
   tail.push({ type: "text", text: "Write the ticket now as Markdown, starting with the # title line." });
 
   const user = brief.images.length
-    ? [briefText, ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })), ...tail]
+    ? [briefText, ...brief.images.map((img) => ({ type: "image_url" as const, image_url: { url: img.dataUrl } })), ...tail]
     : [briefText, ...tail];
   return { system, user };
 }
@@ -105,7 +107,7 @@ export async function composeDraftTicket(
   ];
 
   const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
-  const tail: any[] = [];
+  const tail: ChatCompletionContentPart[] = [];
 
   const ctxBlock = buildContextBlock(brief.json);
   if (ctxBlock) tail.push({ type: "text", text: ctxBlock });
@@ -127,12 +129,12 @@ export async function composeDraftTicket(
 
   const withImages = [
     briefText,
-    ...brief.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl } })),
+    ...brief.images.map((img) => ({ type: "image_url" as const, image_url: { url: img.dataUrl } })),
     ...tail,
   ];
   const textOnly = [briefText, ...tail];
 
-  const run = async (userContent: any[]): Promise<DraftResult> => {
+  const run = async (userContent: ChatCompletionContentPart[]): Promise<DraftResult> => {
     const resp = await openai.chat.completions.create({
       model,
       messages: [
@@ -156,8 +158,8 @@ export async function composeDraftTicket(
   // Degrade to text-only if the model rejects a provided image (mirrors processBrief).
   try {
     return await run(brief.images.length ? withImages : textOnly);
-  } catch (e: any) {
-    const m = String(e?.message ?? e);
+  } catch (e) {
+    const m = errorMessage(e);
     if (brief.images.length && /image|vision|media/i.test(m)) return await run(textOnly);
     throw e;
   }

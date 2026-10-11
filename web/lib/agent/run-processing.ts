@@ -1,3 +1,4 @@
+import { errorMessage } from "@/lib/errors";
 import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminSupabase } from "@/lib/supabase/server";
@@ -11,7 +12,7 @@ import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides } from "
 import { techFromReplay, techFromRecording, isEmpty as isTechEmpty, type VideoLogs } from "@/lib/agent/tech-details";
 import { summarizeReplay, type ReplaySummary } from "@/lib/agent/replay-steps";
 
-type ReplayFrame = { file: string; t?: number; url?: string | null; note?: string | null };
+import type { ReplayFrame } from "@/lib/agent/overrides";
 
 /** The frame closest in time to `tMs` (frames without a time never match). */
 export function nearestFrame<F extends { timestampMs?: number }>(frames: F[], tMs: number): F | undefined {
@@ -260,7 +261,7 @@ export async function loadBriefInput(
 
   // Screenshots: attachable evidence (always); shown to the model as vision only
   // when writing (skipped in lean export).
-  const shotMeta = Array.isArray((json as any).screenshots) ? (json as any).screenshots : [];
+  const shotMeta = Array.isArray(json.screenshots) ? json.screenshots : [];
   const shotPaths: string[] = [];
   const { data: shotList } = await admin.storage.from("briefs").list(`${prefix}/screenshots`, { limit: 200 });
   for (const o of shotList ?? []) shotPaths.push(`screenshots/${o.name}`);
@@ -541,12 +542,12 @@ export async function processBriefById(
     }
 
     return { ok: true, result };
-  } catch (e: any) {
+  } catch (e) {
     // Nothing was filed (the throw is from before create_issue, or from a run
     // that never created one) - fail the brief AND hand the claim back so the
     // owner can retry straight away.
-    await releaseFiling(admin, userId, briefId, { status: "failed", error: String(e?.message ?? e) });
-    return { ok: false, status: 500, error: String(e?.message ?? e) };
+    await releaseFiling(admin, userId, briefId, { status: "failed", error: errorMessage(e) });
+    return { ok: false, status: 500, error: errorMessage(e) };
   }
 }
 
@@ -617,8 +618,8 @@ export async function draftBriefById(
       ok: true,
       result: { ticketUrl: "", ticketIdentifier: "", summary: draft.title || "drafted" },
     };
-  } catch (e: any) {
-    await draftWrite({ status: "failed", error: String(e?.message ?? e) });
-    return { ok: false, status: 500, error: String(e?.message ?? e) };
+  } catch (e) {
+    await draftWrite({ status: "failed", error: errorMessage(e) });
+    return { ok: false, status: 500, error: errorMessage(e) };
   }
 }
