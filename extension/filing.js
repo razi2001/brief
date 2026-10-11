@@ -82,6 +82,8 @@ function buildOverrides(d) {
     screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
     ...(d.replay ? { includeReplay: d.replay.attach !== false, replayNote: d.replay.note || '' } : {}),
     ...(d.recording?.marks?.length ? { recordingMarks: d.recording.marks.map((m) => ({ t: Math.round(m.t), note: m.note || '' })) } : {}),
+    // a trimmed recording: the part of the capture it keeps (its event log is shifted to match)
+    ...(d.recording?.trim ? { recordingTrim: { a: Math.round(d.recording.trim.a), b: Math.round(d.recording.trim.b) } } : {}),
   };
 }
 

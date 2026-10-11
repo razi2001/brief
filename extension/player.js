@@ -90,8 +90,14 @@ const page = buildPage({ title: 'Recording' });
       await putFile(recKey(briefId), out);
       await updateDraft(briefId, (x) => {
         const source = x.recording?.source || 'capture';
+        // where the kept part sits in the ORIGINAL capture (edits add up: a
+        // second trim is relative to the first) - the capture's event log
+        // (clicks, network, console) is on that clock and is shifted by it
+        const before = x.recording?.trim;
+        const off = before?.a || 0;
         landRecording(x, { uploading: true, durationMs: range.b - range.a, poster, source });
         x.recording.edited = true;
+        x.recording.trim = { a: Math.round(off + range.a), b: Math.round(off + range.b) };
         // marks follow the trim: times in the new file
         x.recording.marks = marks.list.filter((m) => m.t >= range.a && m.t <= range.b).map((m) => ({ t: m.t - range.a, note: m.note }));
       });

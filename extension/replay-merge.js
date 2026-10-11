@@ -77,7 +77,7 @@ export function buildTimeline({ focus, tabs, start, end }) {
       if (e.type === FULL && skipFull) { skipFull = false; continue; }
       // the page's own log (network, console) from before this stretch isn't
       // part of it: pulled up to its start it would all read "0:00"
-      if (e.type === CUSTOM && e.timestamp < a) continue;
+      if (e.type === CUSTOM && e.data?.tag === 'brief' && e.timestamp < a) continue;
       const { __page, ...clean } = e;
       events.push(clean.timestamp < a ? { ...clean, timestamp: a } : clean);
     }
@@ -137,7 +137,7 @@ export function sliceTimeline(events, segments, a, b) {
   if (m < 0) m = events.findIndex((e, i) => e.type === META && events[i + 1]?.type === FULL);
   const out = [];
   for (let i = Math.max(m, 0); i < events.length && events[i].timestamp <= b; i++) {
-    if (events[i].type === CUSTOM && events[i].timestamp < a) continue; // see buildTimeline
+    if (events[i].type === CUSTOM && events[i].data?.tag === 'brief' && events[i].timestamp < a) continue; // see buildTimeline
     out.push(events[i].timestamp < a ? { ...events[i], timestamp: a } : events[i]);
   }
   return {
@@ -161,4 +161,25 @@ export function cutTimeline(events, segments, pieces) {
     cursor += r.b - r.a;
   }
   return out;
+}
+
+// Put the pixels the recorder kept for blob: images (custom events 'brief-blob'
+// {url, data}, see replay.js) back where the page used the blob: URL, and drop
+// those events. Anything else is left as it is.
+export function inlineBlobImages(events) {
+  const isBlob = (e) => e.type === CUSTOM && e.data?.tag === 'brief-blob';
+  const map = new Map();
+  for (const e of events) {
+    const p = isBlob(e) ? e.data.payload : null;
+    if (p?.url && p?.data) map.set(p.url, p.data);
+  }
+  const rest = events.filter((e) => !isBlob(e));
+  if (!map.size) return rest;
+  return rest.map((e) => {
+    if (e.type !== FULL && e.type !== 3) return e;
+    let s = JSON.stringify(e);
+    if (!s.includes('blob:')) return e;
+    for (const [u, d] of map) if (s.includes(u)) s = s.split(u).join(d);
+    return JSON.parse(s);
+  });
 }

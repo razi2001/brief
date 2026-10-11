@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeBriefOverrides, captionForScreenshot } from "./overrides";
+import { trimEvents, mergeBriefOverrides, captionForScreenshot } from "./overrides";
 
 describe("mergeBriefOverrides", () => {
   it("overlays a non-empty transcript, description, extra, and screenshots", () => {
@@ -53,5 +53,25 @@ describe("mergeBriefOverrides: replay", () => {
     expect(m.includeReplay).toBe(false);
     expect(m.replayNote).toBe("watch the second tab");
     expect(mergeBriefOverrides({}, {}).includeReplay).toBeUndefined();
+  });
+});
+
+describe("a trimmed recording's event log", () => {
+  const events = [
+    { type: "click", tMs: 500, url: "https://a.test/" },
+    { type: "network", tMs: 4000, url: "https://api.a.test/x", status: 500 },
+    { type: "nav", tMs: 9000, url: "https://a.test/b" },
+    { type: "meta" },
+  ];
+
+  it("keeps what happened in the kept part, on the trimmed video's clock", () => {
+    const j = mergeBriefOverrides({ events }, { recordingTrim: { a: 3000, b: 8000 } });
+    expect(j.events).toEqual([{ type: "network", tMs: 1000, url: "https://api.a.test/x", status: 500 }, { type: "meta" }]);
+  });
+
+  it("an untrimmed recording, or a nonsense trim, leaves the log alone", () => {
+    expect(mergeBriefOverrides({ events }, {}).events).toEqual(events);
+    expect(mergeBriefOverrides({ events }, { recordingTrim: { a: 5000, b: 1000 } }).events).toEqual(events);
+    expect(trimEvents(events, { a: 0, b: 1e9 })).toEqual(events);
   });
 });

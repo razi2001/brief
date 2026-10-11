@@ -57,12 +57,66 @@
     }
   }
 
+  // ---- images the page shows from blob: URLs ----
+  // A blob: URL lives only as long as the page (often less: apps revoke it
+  // once the image loads), so a replay of `<img src="blob:...">` - an icon, an
+  // avatar - plays blank. Its pixels are kept instead, as a custom event
+  // ('brief-blob' {url, data}), and the editor puts them back in place
+  // (replay-merge inlineBlobImages). Re-sent with every full snapshot, so the
+  // rolling buffer never loses one that loaded before its window.
+  const BLOB_MAX = 300_000;
+  const BLOB_TOTAL = 4_000_000;
+  const blobs = new Map(); // url -> data: URL, or null once tried
+  let blobBytes = 0;
+  const emitBlob = (url, data) => { if (stopFn) { try { record.addCustomEvent('brief-blob', { url, data }); } catch {} } };
+  const readBlob = (url) => fetch(url).then((r) => r.blob()).then((b) => (b.size > BLOB_MAX ? null : new Promise((res) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => res(null);
+    fr.readAsDataURL(b);
+  }))).catch(() => null);
+  async function keepBlob(img, url) {
+    if (blobs.has(url) || blobBytes > BLOB_TOTAL) return;
+    blobs.set(url, null);
+    let data = null;
+    try {
+      // drawn from the element: works even after the app revoked the URL
+      if (img.complete && img.naturalWidth) {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        data = c.toDataURL('image/png');
+      }
+    } catch {}
+    if (!data || data.length > BLOB_MAX * 1.4) data = await readBlob(url);
+    if (!data || data.length > BLOB_MAX * 1.4) return;
+    blobs.set(url, data);
+    blobBytes += data.length;
+    emitBlob(url, data);
+  }
+  const watchImg = (img) => {
+    const url = img.getAttribute('src') || '';
+    if (!url.startsWith('blob:') || blobs.has(url)) return;
+    if (img.complete) keepBlob(img, url);
+    else img.addEventListener('load', () => keepBlob(img, url), { once: true });
+  };
+  const scanBlobs = (root) => {
+    if (root.nodeType !== 1) return;
+    if (root.tagName === 'IMG') watchImg(root);
+    for (const img of root.querySelectorAll('img[src^="blob:"]')) watchImg(img);
+  };
+  let blobObserver = null;
+
   function start() {
     if (stopFn) return;
     stopFn = record({
       emit(event) {
         batch.push(event);
-        if (event.type === 2) hasFull = true;
+        if (event.type === 2) {
+          hasFull = true;
+          // a fresh snapshot: its blob images travel with it
+          queueMicrotask(() => { for (const [u, d] of blobs) if (d) emitBlob(u, d); });
+        }
         if (!timer) timer = setTimeout(flush, FLUSH_MS);
       },
       checkoutEveryNms: CHECKOUT_MS,
@@ -72,9 +126,19 @@
       collectFonts: false,
       sampling: { mousemove: 50, scroll: 150, input: 'last' },
     });
+    scanBlobs(document.documentElement);
+    blobObserver = new MutationObserver((list) => {
+      for (const m of list) {
+        if (m.type === 'attributes') scanBlobs(m.target);
+        else for (const n of m.addedNodes) scanBlobs(n);
+      }
+    });
+    blobObserver.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src'] });
   }
 
   function stop() {
+    try { blobObserver?.disconnect(); } catch {}
+    blobObserver = null;
     try { stopFn?.(); } catch {}
     stopFn = null;
     clearTimeout(timer);

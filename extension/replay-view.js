@@ -10,7 +10,7 @@
 // stretches are always squeezed out; unwatched tabs are never recorded.
 
 import { readAll } from './replay-store.js';
-import { buildTimeline, skipIdle, cutTimeline } from './replay-merge.js';
+import { buildTimeline, skipIdle, cutTimeline, inlineBlobImages } from './replay-merge.js';
 import { putFile, getFile, deleteFile, replayKey, replayVoiceKey, replayFramesKey } from './filestore.js';
 import { updateDraft } from './draft.js';
 import { buildPage, emptyStage, mountPlayback, marksTool, voiceButtons, fitBox, busy, toast, closeEditor, ICON } from './editor/shell.js';
@@ -215,6 +215,8 @@ function captureShade(box) {
     const built = buildTimeline({ focus: completeFocus(replayFocus, tabs, start), tabs, start, end: at });
     if (built.events.length < 2) { emptyStage(page.stage, 'Nothing recorded in the last minute.'); page.save.hidden = true; return; }
     view = skipIdle(built.events, built.segments, { end: at }); // idle squeezed out
+    // images the page drew from blob: URLs, back in place (they died with the page)
+    view.events = inlineBlobImages(view.events);
   }
 
   const t0 = view.events[0].timestamp;
