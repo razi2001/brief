@@ -27,7 +27,11 @@ export async function buildAutoReport({ draftId, at, focus = [] }) {
   view.events = inlineBlobImages(view.events);
 
   const t0 = view.events[0].timestamp;
-  const end = view.events[view.events.length - 1].timestamp - t0;
+  // up to the key press, not the last event: what the screen showed when the
+  // reporter pressed it is the moment that matters most (a long wait before
+  // it is squeezed to 1.5 s like any pause)
+  const lastSegment = view.segments[view.segments.length - 1];
+  const end = Math.max(view.events[view.events.length - 1].timestamp, lastSegment ? lastSegment.b : 0) - t0;
   // what looks wrong, each a moment with a still
   const suspects = detectSuspects(view.events, t0).map((s) => ({ t: s.t, note: s.note, auto: true }));
   const clicks = view.events.filter(isClick).map((e) => e.timestamp - t0);
@@ -35,6 +39,10 @@ export async function buildAutoReport({ draftId, at, focus = [] }) {
 
   const cut = cutTimeline(view.events, view.segments, [{ a: t0, b: t0 + end }]);
   const ct0 = cut.events[0].timestamp;
+  // A no-op just past the key press: the player then runs to it, and the last
+  // real event (often the page reacting, the one that matters) comes before
+  // the end - a seek to exactly the end doesn't apply an event sitting on it.
+  cut.events.push({ type: 5, timestamp: ct0 + end + 1, data: { tag: 'brief-end', payload: {} } });
   const chips = stretches(cut.segments).map((c) => ({
     label: c.label, url: c.url || null, title: c.title || null, recorded: c.recorded, a: c.a - ct0, b: c.b - ct0,
   }));

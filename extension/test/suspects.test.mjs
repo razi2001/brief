@@ -45,6 +45,18 @@ test('a click that changes nothing is a dead click', () => {
   assert.equal(fine.length, 0);
 });
 
+test('ticking a checkbox or clicking into a field is not a dead click', () => {
+  // a checkbox ticks in the same instant as the click: an input event, no DOM change, no request
+  const tick = { type: 3, timestamp: T0 + 2000, data: { source: 5, id: 1, isChecked: true } };
+  assert.equal(detectSuspects([start, click(2000), tick], T0).length, 0);
+  // a click on a text field (known from the snapshot) focuses it and changes nothing else
+  const snapshot = { type: 2, timestamp: T0 + 10, data: { node: { type: 0, id: 0, childNodes: [{ type: 2, tagName: 'input', id: 1, childNodes: [] }] } } };
+  assert.equal(detectSuspects([start, snapshot, click(2000)], T0).length, 0);
+  // a button that does nothing still is one
+  const button = { type: 2, timestamp: T0 + 10, data: { node: { type: 0, id: 0, childNodes: [{ type: 2, tagName: 'button', id: 1, childNodes: [] }] } } };
+  assert.equal(detectSuspects([start, button, click(2000)], T0)[0].kind, 'dead-click');
+});
+
 test('error text appearing on the page is found', () => {
   const s = detectSuspects([start, click(500), mutation(700, 'Oops - something went wrong. Please try again later.')], T0);
   assert.equal(s[0].kind, 'error-text');

@@ -10,11 +10,15 @@
 
 // rrweb: incremental snapshot (3) with a mouse click (source 2, type 2), a DOM
 // mutation (source 0); custom events (5) tagged 'brief' carry the page logs.
+const FULL_SNAPSHOT = 2;
 const INCREMENTAL = 3;
 const CUSTOM = 5;
 const SRC_MUTATION = 0;
 const SRC_MOUSE = 2;
+const SRC_INPUT = 5;
 const MOUSE_CLICK = 2;
+// A click on a form field is never a dead click: it focuses, ticks or opens it.
+const FIELD = /^(?:input|textarea|select|option|label)$/i;
 
 // Third parties failing is noise, not the bug.
 const NOISE = /google-analytics|googletagmanager|doubleclick|segment\.(io|com)|sentry\.io|hotjar|intercom|mixpanel|amplitude|posthog|datadoghq|newrelic|fullstory|clarity\.ms|facebook\.net|stripe\.network|\/beacon|\/collect\b|\/telemetry|\/analytics/i;
@@ -32,6 +36,13 @@ const firstText = (args) => {
   }
   return '';
 };
+
+/** Each node id -> its tag name, from a snapshot or a mutation's added nodes. */
+function indexTags(node, tags) {
+  if (!node) return;
+  if (node.tagName) tags.set(node.id, node.tagName);
+  for (const c of node.childNodes || []) indexTags(c, tags);
+}
 
 /** Text a mutation added to the page (text nodes and their element wrappers). */
 function addedText(data) {
@@ -53,13 +64,20 @@ export function detectSuspects(events, t0 = events?.[0]?.timestamp ?? 0) {
   const clicks = [];
   const mutations = [];
   const requests = [];
+  const inputs = []; // a field changing (a checkbox ticked, text typed)
+  const tags = new Map();
   let loads = 0;
 
   for (const e of events || []) {
-    if (e.type === INCREMENTAL && e.data?.source === SRC_MOUSE && e.data?.type === MOUSE_CLICK) {
-      clicks.push({ ts: e.timestamp, x: e.data.x ?? 0, y: e.data.y ?? 0 });
+    if (e.type === FULL_SNAPSHOT) {
+      indexTags(e.data?.node, tags);
+    } else if (e.type === INCREMENTAL && e.data?.source === SRC_MOUSE && e.data?.type === MOUSE_CLICK) {
+      clicks.push({ ts: e.timestamp, x: e.data.x ?? 0, y: e.data.y ?? 0, id: e.data.id });
+    } else if (e.type === INCREMENTAL && e.data?.source === SRC_INPUT) {
+      inputs.push(e.timestamp);
     } else if (e.type === INCREMENTAL && e.data?.source === SRC_MUTATION) {
       mutations.push(e.timestamp);
+      for (const a of e.data?.adds || []) indexTags(a?.node, tags);
       const text = addedText(e.data);
       const m = text && ERROR_TEXT.exec(text);
       if (m) {
@@ -108,9 +126,12 @@ export function detectSuspects(events, t0 = events?.[0]?.timestamp ?? 0) {
   }
 
   // Dead clicks: nothing changed on the page and no request went out within 1s.
+  // A click on a form field, or one a field changed with (a checkbox ticks in
+  // the same instant as the click), was answered too.
   for (const c of clicks) {
-    const after = (list) => list.some((ts) => ts > c.ts && ts - c.ts <= 1000);
-    if (!after(mutations) && !after(requests)) add(c.ts, 'dead-click', 4, 'Clicked, and nothing happened');
+    if (FIELD.test(tags.get(c.id) || '')) continue;
+    const after = (list, from = c.ts + 1) => list.some((ts) => ts >= from && ts - c.ts <= 1000);
+    if (!after(mutations) && !after(requests) && !after(inputs, c.ts - 100)) add(c.ts, 'dead-click', 4, 'Clicked, and nothing happened');
   }
 
   // One suspect per moment (the strongest), then the strongest few, in order.

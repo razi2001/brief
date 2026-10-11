@@ -29,3 +29,15 @@ for Testing.
 
 The `test/` folder is not part of the extension: leave it out of the Web
 Store zip.
+
+## Ticket eval cases
+
+`record-cases.mjs` records the cases the ticket eval scores (`web/scripts/ticket-eval/`):
+each page in `cases.mjs` has one planted bug; the script does what a user would on it,
+takes the last minute as a one-click report (a fresh browser per case), and writes what
+the extension uploaded to `web/scripts/ticket-eval/cases/<case>/`. `DEBUG_STORE=1` also
+prints the replay buffer as stored right before the report.
+
+    CHROME_PATH=<chrome for testing> node extension/test/e2e/record-cases.mjs [case ...]
+
+Unit tests for the replay and suspect logic run with `node --test extension/test/*.test.mjs`.

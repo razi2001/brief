@@ -1,12 +1,12 @@
-import type { ChatCompletionContentPart, ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { errorMessage } from "@/lib/errors";
 import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
 import { buildContextBlock } from "./context-block";
 import { videoLogSections, type VideoLogs } from "./tech-details";
-import { agentModel, chatParams } from "./model";
-import type { Tracker, IssueResult } from "../tracker";
+import { agentModel } from "./model";
+import { runToolLoop, text, image, type FunctionDef, type Part } from "./responses";
+import type { Tracker, IssueResult, TrackerPriority } from "../tracker";
 
 export interface BriefInput {
   json: unknown;                          // parsed brief.json
@@ -35,7 +35,7 @@ export interface BriefInput {
 // sentence in the ticket). Normalized to **Label**, which every adapter turns
 // into its heading (GitHub ###, Jira h3, Notion heading_3).
 const SECTION_LABEL =
-  /^\s{0,3}(?:\*\*)?(steps to reproduce|steps|expected(?: behaviou?r| result)?|actual(?: behaviou?r| result)?|context|environment|impact|workaround|notes?|errors?|console errors|network errors)(?:\*\*)?\s*:?\s*(?:\*\*)?\s*$/i;
+  /^\s{0,3}(?:\*\*)?(steps to reproduce|steps|expected(?: behaviou?r| result)?|actual(?: behaviou?r| result)?|context|environment|impact|workaround|notes?|errors?|console errors|network errors|summary|technical notes)(?:\*\*)?\s*:?\s*(?:\*\*)?\s*$/i;
 export function normalizeSectionLabels(markdown: string): string {
   return (markdown ?? "")
     .split("\n")
@@ -74,7 +74,7 @@ export async function processBrief(
   // not rewrite the content.
   fixed?: { title: string; description: string },
 ): Promise<FileResult> {
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = agentModel();
   const noun = tracker.targetNoun;
   const caps = tracker.capabilities;
@@ -168,173 +168,155 @@ export async function processBrief(
       "The project board (title or number from the target's details) to add this issue to - needed when setting a state or a board field.",
   };
 
-  const tools = [
+  const tools: FunctionDef[] = [
     {
-      type: "function" as const,
-      function: {
-        name: "list_targets",
-        description: `List the ${noun}s (team or project) so you can choose where to file.`,
-        parameters: { type: "object", properties: {}, additionalProperties: false },
+      name: "list_targets",
+      description: `List the ${noun}s (team or project) so you can choose where to file.`,
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+    {
+      name: "search_issues",
+      description:
+        `Search EXISTING ${noun === "team" ? "Linear" : "Jira"} issues to learn how this workspace files things like THIS report - which ${noun} similar issues live in, what labels and priority they carry, who owns them. Call this BEFORE choosing where to file. Use keywords from the failure (the error text, the failing endpoint/URL, the feature or page name); run a couple of searches with different keywords if the first is thin.`,
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Keywords to search for, e.g. \"checkout coupon 500\" or \"login redirect loop\".",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
       },
     },
     {
-      type: "function" as const,
-      function: {
-        name: "search_issues",
-        description:
-          `Search EXISTING ${noun === "team" ? "Linear" : "Jira"} issues to learn how this workspace files things like THIS report - which ${noun} similar issues live in, what labels and priority they carry, who owns them. Call this BEFORE choosing where to file. Use keywords from the failure (the error text, the failing endpoint/URL, the feature or page name); run a couple of searches with different keywords if the first is thin.`,
-        parameters: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: "Keywords to search for, e.g. \"checkout coupon 500\" or \"login redirect loop\".",
-            },
-          },
-          required: ["query"],
-          additionalProperties: false,
+      name: "get_target_details",
+      description: `Full metadata for one ${noun}: its workflow states, labels, assignable members${detailsExtras.length ? `, and ${detailsExtras.join(", ")}` : ""}. Call this before create_issue whenever the user's preferences mention a status, assignee, project, label, or custom field.`,
+      parameters: {
+        type: "object",
+        properties: {
+          targetId: { type: "string", description: `The ${noun} id (from list_targets)` },
         },
+        required: ["targetId"],
+        additionalProperties: false,
       },
     },
     {
-      type: "function" as const,
-      function: {
-        name: "get_target_details",
-        description: `Full metadata for one ${noun}: its workflow states, labels, assignable members${detailsExtras.length ? `, and ${detailsExtras.join(", ")}` : ""}. Call this before create_issue whenever the user's preferences mention a status, assignee, project, label, or custom field.`,
-        parameters: {
-          type: "object",
-          properties: {
-            targetId: { type: "string", description: `The ${noun} id (from list_targets)` },
+      name: "create_issue",
+      description: `Create exactly one issue in the chosen ${noun} (team or project).`,
+      parameters: {
+        type: "object",
+        properties: {
+          targetId: { type: "string", description: `The ${noun} id to file into` },
+          title: { type: "string" },
+          description: { type: "string", description: "Markdown body" },
+          ...(caps.labels
+            ? {
+                labels: {
+                  type: "array",
+                  items: { type: "string" },
+                  description:
+                    "Label names to apply - only when the user's preferences or the report call for them. Prefer names from the target's details.",
+                },
+              }
+            : {}),
+          ...(caps.priority
+            ? {
+                priority: {
+                  type: "string",
+                  enum: ["urgent", "high", "medium", "low"],
+                  description: PRIORITY_HELP[tracker.kind] ?? "Issue priority - only when the preferences or report justify one.",
+                },
+              }
+            : {}),
+          ...(caps.states
+            ? {
+                state: {
+                  type: "string",
+                  description: STATE_HELP[tracker.kind] ?? "Workflow state/status name (e.g. \"Backlog\", \"Todo\", \"Triage\") from the target's state list - only when the preferences ask for one.",
+                },
+              }
+            : {}),
+          assignee: {
+            type: "string",
+            description:
+              "Who to assign the issue to (a member name or email, e.g. \"Devin\") - only when the preferences ask for an assignee. Prefer a name from the target's member list.",
           },
-          required: ["targetId"],
-          additionalProperties: false,
+          ...(caps.projects
+            ? {
+                project: {
+                  type: "string",
+                  description: PROJECT_HELP[tracker.kind] ?? "Project (name or id from the target's details) to file the issue under - when the preferences ask for a project, or say to pick the best matching one.",
+                },
+              }
+            : {}),
+          ...(caps.comments
+            ? {
+                comment: {
+                  type: "string",
+                  description:
+                    "A comment to post on the issue right after creating it (e.g. \"In progress\") - only when the preferences ask for an automatic comment. This is separate from the description.",
+                },
+              }
+            : {}),
+          attach: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Evidence file names to attach (from the EVIDENCE AVAILABLE list). Pick the minimal set that proves the issue - e.g. the annotated screenshot, or a before/after frame pair. Omit to let the system choose a sensible default.",
+          },
+          screenshot_notes: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "One short, direct description for EACH screenshot, in the same order they were shown to you (Screenshot 1, 2, ...). Each renders as the caption directly ABOVE its image. Write what the image SHOWS and the problem it evidences, present tense - e.g. \"The sub-issues panel renders with broken spacing; the circled row is the misaligned item.\" Do NOT describe it as an artifact (\"a screenshot that...\", \"the reporter circled/noted...\") - just state what is on screen.",
+          },
+          ...(caps.customFields ? { custom_fields: customFieldsParam } : {}),
         },
+        required: ["targetId", "title", "description"],
+        additionalProperties: false,
       },
     },
     {
-      type: "function" as const,
-      function: {
-        name: "create_issue",
-        description: `Create exactly one issue in the chosen ${noun} (team or project).`,
-        parameters: {
-          type: "object",
-          properties: {
-            targetId: { type: "string", description: `The ${noun} id to file into` },
-            title: { type: "string" },
-            description: { type: "string", description: "Markdown body" },
-            ...(caps.labels
-              ? {
-                  labels: {
-                    type: "array",
-                    items: { type: "string" },
-                    description:
-                      "Label names to apply - only when the user's preferences or the report call for them. Prefer names from the target's details.",
-                  },
-                }
-              : {}),
-            ...(caps.priority
-              ? {
-                  priority: {
-                    type: "string",
-                    enum: ["urgent", "high", "medium", "low"],
-                    description: PRIORITY_HELP[tracker.kind] ?? "Issue priority - only when the preferences or report justify one.",
-                  },
-                }
-              : {}),
-            ...(caps.states
-              ? {
-                  state: {
-                    type: "string",
-                    description: STATE_HELP[tracker.kind] ?? "Workflow state/status name (e.g. \"Backlog\", \"Todo\", \"Triage\") from the target's state list - only when the preferences ask for one.",
-                  },
-                }
-              : {}),
-            assignee: {
-              type: "string",
-              description:
-                "Who to assign the issue to (a member name or email, e.g. \"Devin\") - only when the preferences ask for an assignee. Prefer a name from the target's member list.",
-            },
-            ...(caps.projects
-              ? {
-                  project: {
-                    type: "string",
-                    description: PROJECT_HELP[tracker.kind] ?? "Project (name or id from the target's details) to file the issue under - when the preferences ask for a project, or say to pick the best matching one.",
-                  },
-                }
-              : {}),
-            ...(caps.comments
-              ? {
-                  comment: {
-                    type: "string",
-                    description:
-                      "A comment to post on the issue right after creating it (e.g. \"In progress\") - only when the preferences ask for an automatic comment. This is separate from the description.",
-                  },
-                }
-              : {}),
-            attach: {
-              type: "array",
-              items: { type: "string" },
-              description:
-                "Evidence file names to attach (from the EVIDENCE AVAILABLE list). Pick the minimal set that proves the issue - e.g. the annotated screenshot, or a before/after frame pair. Omit to let the system choose a sensible default.",
-            },
-            screenshot_notes: {
-              type: "array",
-              items: { type: "string" },
-              description:
-                "One short, direct description for EACH screenshot, in the same order they were shown to you (Screenshot 1, 2, ...). Each renders as the caption directly ABOVE its image. Write what the image SHOWS and the problem it evidences, present tense - e.g. \"The sub-issues panel renders with broken spacing; the circled row is the misaligned item.\" Do NOT describe it as an artifact (\"a screenshot that...\", \"the reporter circled/noted...\") - just state what is on screen.",
-            },
-            ...(caps.customFields ? { custom_fields: customFieldsParam } : {}),
-          },
-          required: ["targetId", "title", "description"],
-          additionalProperties: false,
+      name: "get_issue",
+      description:
+        "Read back the created issue's live field values (state, assignee, labels, project, priority) to verify the preferences landed.",
+      parameters: {
+        type: "object",
+        properties: {
+          identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
         },
+        required: ["identifier"],
+        additionalProperties: false,
       },
     },
     {
-      type: "function" as const,
-      function: {
-        name: "get_issue",
-        description:
-          "Read back the created issue's live field values (state, assignee, labels, project, priority) to verify the preferences landed.",
-        parameters: {
-          type: "object",
-          properties: {
-            identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
-          },
-          required: ["identifier"],
-          additionalProperties: false,
+      name: "update_issue",
+      description:
+        "Fix the created issue when verification shows a preference didn't land. Failures return the valid options (states, members, projects) - correct the value and retry once.",
+      parameters: {
+        type: "object",
+        properties: {
+          identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
+          title: { type: "string" },
+          ...(caps.states
+            ? { state: { type: "string", description: STATE_HELP[tracker.kind] ?? "Workflow state/status name to move the issue to" } }
+            : {}),
+          assignee: { type: "string", description: "Member name or email to assign" },
+          ...(caps.labels
+            ? { labels: { type: "array", items: { type: "string" }, description: "Replacement label set" } }
+            : {}),
+          ...(caps.priority
+            ? { priority: { type: "string", enum: ["urgent", "high", "medium", "low"] } }
+            : {}),
+          ...(caps.projects
+            ? { project: { type: "string", description: PROJECT_HELP[tracker.kind] ?? "Project name or id to move the issue under" } }
+            : {}),
+          ...(caps.customFields ? { custom_fields: customFieldsParam } : {}),
         },
-      },
-    },
-    {
-      type: "function" as const,
-      function: {
-        name: "update_issue",
-        description:
-          "Fix the created issue when verification shows a preference didn't land. Failures return the valid options (states, members, projects) - correct the value and retry once.",
-        parameters: {
-          type: "object",
-          properties: {
-            identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
-            title: { type: "string" },
-            ...(caps.states
-              ? { state: { type: "string", description: STATE_HELP[tracker.kind] ?? "Workflow state/status name to move the issue to" } }
-              : {}),
-            assignee: { type: "string", description: "Member name or email to assign" },
-            ...(caps.labels
-              ? { labels: { type: "array", items: { type: "string" }, description: "Replacement label set" } }
-              : {}),
-            ...(caps.priority
-              ? { priority: { type: "string", enum: ["urgent", "high", "medium", "low"] } }
-              : {}),
-            ...(caps.projects
-              ? { project: { type: "string", description: PROJECT_HELP[tracker.kind] ?? "Project name or id to move the issue under" } }
-              : {}),
-            ...(caps.customFields ? { custom_fields: customFieldsParam } : {}),
-          },
-          required: ["identifier"],
-          additionalProperties: false,
-        },
+        required: ["identifier"],
+        additionalProperties: false,
       },
     },
   ];
@@ -362,36 +344,35 @@ export async function processBrief(
     })
     .join("\n");
 
-  const briefText = { type: "text" as const, text: "brief.json:\n" + JSON.stringify(brief.json, null, 2) };
-  const tail: ChatCompletionContentPart[] = [];
+  const tail: Part[] = [];
 
   // Pull the high-signal context out of brief.json and put it FRONT AND CENTER,
   // so the model reliably includes the page URL and reasons over the console
   // errors instead of leaving them buried in the JSON blob.
   const ctxBlock = buildContextBlock(brief.json);
-  if (ctxBlock) tail.push({ type: "text", text: ctxBlock });
+  if (ctxBlock) tail.push(text(ctxBlock));
 
   // How many sampled video frames the images contain (so the model knows the
   // stills are a time-ordered sequence to correlate, not unrelated pictures).
   const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
   const replayCount = brief.images.filter((i) => i.name.includes("replay-frame")).length;
-  tail.push({
-    type: "text",
-    text:
-      "CORRELATE EVERYTHING before writing, led by the reporter's description. " +
-      "Start from what the reporter said the problem is, then use the rest to confirm and flesh it out: " +
-      (frameCount ? `the ${frameCount} time-ordered screen frames (a storyboard), ` : "") +
-      (replayCount ? `the ${replayCount} replay stills (what the browser showed just before the report, in order, each with its page URL), ` : "") +
-      "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the URL, and finally the console/network errors as supporting detail. " +
-      "Build a single coherent account of what the user did, what they expected, and what actually happened. The description defines what the ticket is about; the screenshots/frames are ground truth for what is on screen; treat the narration as a rough draft and the console/network errors as extra context, not the headline. " +
-      "Account for EVERY screenshot the reporter attached: explain what each one shows and weave in the reporter's note for it, so the evidence is described in the ticket, not just attached. Likewise fold any reporter-provided details (the structured fields) into the body. " +
-      "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present, as a Markdown link with the page title as its text, never a bare URL.",
-  });
+  tail.push(
+    text(
+        "CORRELATE EVERYTHING before writing, led by the reporter's description. " +
+        "Start from what the reporter said the problem is, then use the rest to confirm and flesh it out: " +
+        (frameCount ? `the ${frameCount} time-ordered screen frames (a storyboard), ` : "") +
+        (replayCount ? `the ${replayCount} replay stills (what the browser showed just before the report, in order, each with its page URL), ` : "") +
+        "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the URL, and finally the console/network errors as supporting detail. " +
+        "Build a single coherent account of what the user did, what they expected, and what actually happened. The description defines what the ticket is about; the screenshots/frames are ground truth for what is on screen; treat the narration as a rough draft and the console/network errors as extra context, not the headline. " +
+        "Account for EVERY screenshot the reporter attached: explain what each one shows and weave in the reporter's note for it, so the evidence is described in the ticket, not just attached. Likewise fold any reporter-provided details (the structured fields) into the body. " +
+        "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present, as a Markdown link with the page title as its text, never a bare URL.",
+    ),
+  );
 
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
-  if (manifest) tail.push({ type: "text", text: manifest });
-  tail.push({ type: "text", text: `Available ${noun}s (use search_issues first to learn routing precedent, then pick the most appropriate one and pass its id as targetId):\n${targetList}` });
-  tail.push({ type: "text", text: `File exactly one ticket for this. Call search_issues for precedent, pick the best ${noun}, then create the issue.` });
+  if (manifest) tail.push(text(manifest));
+  tail.push(text(`Available ${noun}s (use search_issues first to learn routing precedent, then pick the most appropriate one and pass its id as targetId):\n${targetList}`));
+  tail.push(text(`File exactly one ticket for this. Call search_issues for precedent, pick the best ${noun}, then create the issue.`));
 
   // Present the images as a labelled, ordered storyboard: each keyframe gets a
   // "Frame i of N - M:SS into the capture" caption so the model reads them as a
@@ -406,7 +387,7 @@ export async function processBrief(
   let replayIdx = 0;
   let shotIdx = 0;
   const onPage = (u?: string) => (u ? ` on ${u}` : "");
-  const storyboard: ChatCompletionContentPart[] = [];
+  const storyboard: Part[] = [];
   for (const img of brief.images) {
     let label: string;
     if (img.name.includes("keyframe")) {
@@ -427,10 +408,10 @@ export async function processBrief(
     } else {
       label = `${img.name}:`;
     }
-    storyboard.push({ type: "text", text: label }, { type: "image_url", image_url: { url: img.dataUrl } });
+    storyboard.push(text(label), image(img.dataUrl));
   }
-  const withImages = [briefText, ...storyboard, ...tail];
-  const textOnly = [briefText, ...tail];
+  const withImages = [...storyboard, ...tail];
+  const textOnly = [...tail];
 
   const str = (v: unknown): string | undefined =>
     typeof v === "string" && v.trim() ? v.trim() : undefined;
@@ -438,172 +419,150 @@ export async function processBrief(
     v && typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length
       ? (v as Record<string, unknown>)
       : undefined;
+  const PRIORITIES: TrackerPriority[] = ["urgent", "high", "medium", "low"];
+  const priority = (v: unknown): TrackerPriority | undefined => PRIORITIES.find((p) => p === v);
 
   // The markdown body the agent wrote on create_issue - captured here so the
   // caller can persist it for the shareable brief page (it's never read back
   // from the tracker, and update_issue can't change it).
   let descriptionMarkdown = "";
 
-  const runLoop = async (userContent: ChatCompletionContentPart[]): Promise<IssueResult> => {
-    const messages: ChatCompletionMessageParam[] = [
-      { role: "system", content: sys },
-      { role: "user", content: userContent },
-    ];
-    let created: IssueResult | null = null;
+  const runLoop = async (content: Part[]): Promise<IssueResult> => {
+    // Held in an object: the tool calls set it from inside the loop.
+    const state: { created: IssueResult | null } = { created: null };
     // The loop runs past creation so the agent can verify (get_issue) and
     // repair (update_issue) until the preferences actually landed. It ends
     // when the model answers without tool calls, or at the turn cap.
-    for (let i = 0; i < 14; i++) {
-      let resp;
-      try {
-        resp = await openai.chat.completions.create({ model, messages, tools, tool_choice: "auto", ...chatParams(model) });
-      } catch (e) {
-        // The issue already exists - a failed VERIFICATION turn must not lose
-        // it (marking the brief failed would file a duplicate on retry).
-        if (created) {
-          console.warn("[agent] verification turn failed after creation - keeping the issue:", e);
-          return created;
-        }
-        throw e;
-      }
-      const msg = resp.choices[0].message;
-      messages.push(msg);
-      if (!msg.tool_calls?.length) break;
-      for (const tc of msg.tool_calls) {
-        if (tc.type !== "function") continue;
-        const args = tc.function.arguments ? JSON.parse(tc.function.arguments) : {};
-        let result: unknown;
-        try {
-          switch (tc.function.name) {
-            case "list_targets":
-              result = targets;
-              break;
-            case "search_issues":
-              result = await tracker.searchIssues(str(args.query) ?? "", { limit: 15 });
-              break;
-            case "get_target_details":
-              result = await tracker.getTargetDetails(String(args.targetId ?? ""));
-              break;
-            case "create_issue":
-              if (created) {
-                result = { error: `issue ${created.identifier} already exists - use update_issue to change it` };
-                break;
+    await runToolLoop({
+      client,
+      model,
+      instructions: sys,
+      content,
+      tools,
+      maxTurns: 14,
+      // The issue already exists - a failed VERIFICATION turn must not lose
+      // it (marking the brief failed would file a duplicate on retry).
+      onTurnError: (e) => {
+        if (!state.created) return false;
+        console.warn("[agent] verification turn failed after creation - keeping the issue:", e);
+        return true;
+      },
+      onCall: async (name, args) => {
+        switch (name) {
+          case "list_targets":
+            return targets;
+          case "search_issues":
+            return await tracker.searchIssues(str(args.query) ?? "", { limit: 15 });
+          case "get_target_details":
+            return await tracker.getTargetDetails(String(args.targetId ?? ""));
+          case "create_issue":
+            if (state.created) {
+              return { error: `issue ${state.created.identifier} already exists - use update_issue to change it` };
+            }
+            {
+              // Resolve the agent's evidence selection; an empty/invalid pick
+              // falls back to the lean default. The recording can only be
+              // chosen when the user allowed it (it isn't in the pool otherwise).
+              const attachable = brief.evidence.items
+                .filter((it) => it.kind !== "recording" || brief.evidence.includeVideo)
+                .map((it) => it.name);
+              const chosen = [...pickEvidence(args.attach, attachable, brief.evidence.fallback)];
+              // Replay stills are exactly the reporter's flagged moments (forced
+              // below): never an extra one the agent picked.
+              for (let i = chosen.length - 1; i >= 0; i--) {
+                const it = brief.evidence.items.find((x) => x.name === chosen[i]);
+                if ((it?.kind === "replay" || it?.kind === "replay-video") && !(brief.evidence.forced ?? []).includes(it.name)) chosen.splice(i, 1);
               }
-              {
-                // Resolve the agent's evidence selection; an empty/invalid pick
-                // falls back to the lean default. The recording can only be
-                // chosen when the user allowed it (it isn't in the pool otherwise).
-                const attachable = brief.evidence.items
-                  .filter((it) => it.kind !== "recording" || brief.evidence.includeVideo)
-                  .map((it) => it.name);
-                const chosen = [...pickEvidence(args.attach, attachable, brief.evidence.fallback)];
-                // Replay stills are exactly the reporter's flagged moments (forced
-                // below): never an extra one the agent picked.
-                for (let i = chosen.length - 1; i >= 0; i--) {
-                  const it = brief.evidence.items.find((x) => x.name === chosen[i]);
-                  if ((it?.kind === "replay" || it?.kind === "replay-video") && !(brief.evidence.forced ?? []).includes(it.name)) chosen.splice(i, 1);
+              // Every screenshot the reporter added is their explicit evidence -
+              // always attach all of them, regardless of what the model picked.
+              for (const it of brief.evidence.items) {
+                if (it.kind === "screenshot" && attachable.includes(it.name) && !chosen.includes(it.name)) {
+                  chosen.push(it.name);
                 }
-                // Every screenshot the reporter added is their explicit evidence -
-                // always attach all of them, regardless of what the model picked.
-                for (const it of brief.evidence.items) {
-                  if (it.kind === "screenshot" && attachable.includes(it.name) && !chosen.includes(it.name)) {
-                    chosen.push(it.name);
-                  }
-                }
-                // Where the reporter flagged the bug: always on the ticket.
-                for (const name of brief.evidence.forced ?? []) {
-                  if (attachable.includes(name) && !chosen.includes(name)) chosen.push(name);
-                }
-                // "Attach the recording" is an explicit user instruction, not a
-                // hint - guarantee the actual video lands on the ticket. The
-                // model kept picking the screenshot/frames instead, so when the
-                // toggle is on we force the recording into the attached set.
-                const recName = brief.evidence.items.find((it) => it.kind === "recording")?.name;
-                if (brief.evidence.includeVideo && recName && attachable.includes(recName) && !chosen.includes(recName)) {
-                  chosen.push(recName);
-                }
-                // Pair the agent's per-screenshot descriptions with the images.
-                // screenshot_notes is ordered to match the screenshots as shown
-                // (Screenshot 1, 2, ...); map each to its file so the tracker can
-                // render the caption directly above that image.
-                const notes = Array.isArray(args.screenshot_notes)
-                  ? args.screenshot_notes.filter((n: unknown): n is string => typeof n === "string")
-                  : [];
-                const captionByName = new Map<string, string>();
-                brief.evidence.items
-                  .filter((it) => it.kind === "screenshot")
-                  .forEach((it, i) => {
-                    const note = notes[i]?.trim();
-                    if (note) captionByName.set(it.name, note);
-                  });
-                // A replay still carries its own caption (the reporter's mark note).
-                for (const it of brief.evidence.items) {
-                  if (it.kind === "replay" && it.caption && !captionByName.has(it.name)) captionByName.set(it.name, it.caption);
-                }
-                const evidenceFiles = brief.evidence.files
-                  .filter((f) => chosen.includes(f.filename))
-                  .map((f) => ({ ...f, caption: captionByName.get(f.filename) }));
-                // When exporting an already-written draft, file the reporter's
-                // title/description verbatim - never the model's rewrite.
-                const issueTitle = fixed ? fixed.title : args.title;
-                const issueDescription = withReplayLink(
-                  fixed ? fixed.description : normalizeSectionLabels(String(args.description ?? "")),
-                  brief.replayUrl,
-                );
-                const logs = (brief.json as { techLogs?: VideoLogs[] })?.techLogs;
-                const sections = Array.isArray(logs) ? videoLogSections(logs) : [];
-                created = await tracker.fileIssue({
-                  details: sections.length ? sections : undefined,
-                  targetId: args.targetId,
-                  title: issueTitle,
-                  descriptionMarkdown: issueDescription,
-                  labels: Array.isArray(args.labels)
-                    ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
-                    : undefined,
-                  priority: ["urgent", "high", "medium", "low"].includes(args.priority)
-                    ? args.priority
-                    : undefined,
-                  state: str(args.state),
-                  assignee: str(args.assignee),
-                  project: str(args.project),
-                  comment: str(args.comment),
-                  extraFields: obj(args.custom_fields),
-                  evidence: evidenceFiles,
+              }
+              // Where the reporter flagged the bug: always on the ticket.
+              for (const name of brief.evidence.forced ?? []) {
+                if (attachable.includes(name) && !chosen.includes(name)) chosen.push(name);
+              }
+              // "Attach the recording" is an explicit user instruction, not a
+              // hint - guarantee the actual video lands on the ticket. The
+              // model kept picking the screenshot/frames instead, so when the
+              // toggle is on we force the recording into the attached set.
+              const recName = brief.evidence.items.find((it) => it.kind === "recording")?.name;
+              if (brief.evidence.includeVideo && recName && attachable.includes(recName) && !chosen.includes(recName)) {
+                chosen.push(recName);
+              }
+              // Pair the agent's per-screenshot descriptions with the images.
+              // screenshot_notes is ordered to match the screenshots as shown
+              // (Screenshot 1, 2, ...); map each to its file so the tracker can
+              // render the caption directly above that image.
+              const notes = Array.isArray(args.screenshot_notes)
+                ? args.screenshot_notes.filter((n: unknown): n is string => typeof n === "string")
+                : [];
+              const captionByName = new Map<string, string>();
+              brief.evidence.items
+                .filter((it) => it.kind === "screenshot")
+                .forEach((it, i) => {
+                  const note = notes[i]?.trim();
+                  if (note) captionByName.set(it.name, note);
                 });
-                descriptionMarkdown =
-                  typeof issueDescription === "string" ? issueDescription : "";
-                result = created;
+              // A replay still carries its own caption (the reporter's mark note).
+              for (const it of brief.evidence.items) {
+                if (it.kind === "replay" && it.caption && !captionByName.has(it.name)) captionByName.set(it.name, it.caption);
               }
-              break;
-            case "get_issue":
-              result = await tracker.getIssue(str(args.identifier) ?? created?.identifier ?? "");
-              break;
-            case "update_issue":
-              result = await tracker.updateIssue(str(args.identifier) ?? created?.identifier ?? "", {
-                title: str(args.title),
-                state: str(args.state),
-                assignee: str(args.assignee),
+              const evidenceFiles = brief.evidence.files
+                .filter((f) => chosen.includes(f.filename))
+                .map((f) => ({ ...f, caption: captionByName.get(f.filename) }));
+              // When exporting an already-written draft, file the reporter's
+              // title/description verbatim - never the model's rewrite.
+              const issueTitle = fixed ? fixed.title : String(args.title ?? "");
+              const issueDescription = withReplayLink(
+                fixed ? fixed.description : normalizeSectionLabels(String(args.description ?? "")),
+                brief.replayUrl,
+              );
+              const logs = (brief.json as { techLogs?: VideoLogs[] })?.techLogs;
+              const sections = Array.isArray(logs) ? videoLogSections(logs) : [];
+              state.created = await tracker.fileIssue({
+                details: sections.length ? sections : undefined,
+                targetId: String(args.targetId ?? ""),
+                title: issueTitle,
+                descriptionMarkdown: issueDescription,
                 labels: Array.isArray(args.labels)
                   ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
                   : undefined,
-                priority: ["urgent", "high", "medium", "low"].includes(args.priority)
-                  ? args.priority
-                  : undefined,
+                priority: priority(args.priority),
+                state: str(args.state),
+                assignee: str(args.assignee),
                 project: str(args.project),
+                comment: str(args.comment),
                 extraFields: obj(args.custom_fields),
+                evidence: evidenceFiles,
               });
-              break;
-            default:
-              result = { error: "unknown tool" };
-          }
-        } catch (e) {
-          result = { error: errorMessage(e) };
+              descriptionMarkdown =
+                typeof issueDescription === "string" ? issueDescription : "";
+              return state.created;
+            }
+          case "get_issue":
+            return await tracker.getIssue(str(args.identifier) ?? state.created?.identifier ?? "");
+          case "update_issue":
+            return await tracker.updateIssue(str(args.identifier) ?? state.created?.identifier ?? "", {
+              title: str(args.title),
+              state: str(args.state),
+              assignee: str(args.assignee),
+              labels: Array.isArray(args.labels)
+                ? args.labels.filter((l: unknown) => typeof l === "string" && l.trim())
+                : undefined,
+              priority: priority(args.priority),
+              project: str(args.project),
+              extraFields: obj(args.custom_fields),
+            });
+          default:
+            return { error: "unknown tool" };
         }
-        messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
-      }
-    }
-    if (!created) throw new Error("agent did not create an issue");
-    return created;
+      },
+    });
+    if (!state.created) throw new Error("agent did not create an issue");
+    return state.created;
   };
 
   // The evidence is embedded/attached by the tracker regardless of vision. So if the

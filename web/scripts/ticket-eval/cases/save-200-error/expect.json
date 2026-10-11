@@ -1,0 +1,17 @@
+{
+  "kind": "ui",
+  "bug": "Notification settings do not save: clicking Save shows nothing, and after a reload the option is off again.",
+  "facts": [
+    "The user ticked the option, clicked Save, then reloaded the page.",
+    "The save request (POST /api/settings) returns 200; its body says the save failed, which the browser log does not show."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "my notification setting keeps turning itself off"
+    }
+  ]
+}

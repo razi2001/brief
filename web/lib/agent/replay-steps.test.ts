@@ -73,3 +73,31 @@ describe("summarizeReplay", () => {
     expect(summarizeReplay(null as unknown as ReplayFile).steps).toEqual([]);
   });
 });
+
+describe("summarizeReplay - form fields", () => {
+  // a checkbox inside its <label>, and a text field named by <label for>
+  const form: Node = {
+    id: 1, type: 0, childNodes: [
+      el(2, "body", {}, [
+        el(3, "label", {}, [el(4, "input", { type: "checkbox", id: "done" }), txt(5, " Review release notes")]),
+        el(6, "label", { for: "email" }, [txt(7, "Email")]),
+        el(8, "input", { id: "email", placeholder: "name@company.com" }),
+      ]),
+    ],
+  };
+
+  it("names a field by its label, and a click that ticks a box is one step", () => {
+    const events: RrEvent[] = [
+      { type: 4, timestamp: 1000, data: { href: "https://app.test/todo" } },
+      { type: 2, timestamp: 1000, data: { node: form } },
+      { type: 3, timestamp: 2000, data: { source: 5, id: 8, text: "*****" } },
+      { type: 3, timestamp: 3000, data: { source: 2, type: 2, id: 4 } },
+      { type: 3, timestamp: 3000, data: { source: 5, id: 4, isChecked: true } },
+    ];
+    expect(summarizeReplay({ events }).steps).toEqual([
+      "0:00 Opened https://app.test/todo",
+      '0:01 Typed into "Email"',
+      '0:02 Checked "Review release notes"',
+    ]);
+  });
+});

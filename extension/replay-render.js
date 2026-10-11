@@ -16,6 +16,8 @@
 // No requestAnimationFrame or timers anywhere: both are paused or throttled in
 // a hidden document, which this is.
 
+import { assetUrls } from './replay-assets.js';
+
 const FPS = 10;
 const MAX_W = 1600;
 const BUDGET_MS = 4 * 60 * 1000; // give up rather than hold a ticket forever
@@ -69,12 +71,9 @@ function dataUrlOf(url) {
   return assets.get(url);
 }
 
-const CSS_URL = /url\((['"]?)([^'")]+)\1\)/g;
-const ATTR_URL = /\s(?:src|href|xlink:href|poster)="([^"]+)"/g;
 async function inlineUrls(html, base) {
-  const found = new Set();
-  for (const m of html.matchAll(CSS_URL)) found.add(m[2]);
-  for (const m of html.matchAll(ATTR_URL)) found.add(m[1]);
+  // only what the picture draws: never a link's target or a frame
+  const found = assetUrls(html);
   // fetched all at once (one by one, a page's fonts and icons took ~5s)
   const swaps = await Promise.all([...found].map(async (raw) => {
     if (raw.startsWith('data:') || raw.startsWith('#')) return null;
@@ -98,8 +97,11 @@ async function drawPage(doc, w, h) {
       scrolled.push([el.scrollLeft, el.scrollTop]);
     }
   }
-  for (const el of doc.querySelectorAll('input:not([type=password]),textarea')) {
+  // (a field's state lives in properties; the picture is drawn from attributes)
+  for (const el of doc.querySelectorAll('input:not([type=password]),textarea,select')) {
     if (el.tagName === 'TEXTAREA') el.textContent = el.value;
+    else if (el.tagName === 'SELECT') for (const o of el.options) o.toggleAttribute('selected', o.selected);
+    else if (el.type === 'checkbox' || el.type === 'radio') el.toggleAttribute('checked', el.checked);
     else el.setAttribute('value', el.value);
   }
   const root = doc.scrollingElement;
@@ -250,14 +252,37 @@ export async function renderReplay(payload, voiceBlob, { onProgress, stillsAt = 
       const url = await new Promise((resolve) => { const fr = new FileReader(); fr.onload = () => resolve(fr.result); fr.onerror = () => resolve(null); fr.readAsDataURL(blob); });
       if (url) onStill?.(index, url);
     };
+    // Each field's state as the input events left it (ticked, typed, picked).
+    // Seeking rebuilds the page through rrweb's virtual DOM, which doesn't
+    // always carry it over, and a picture showing a box unticked that the
+    // reporter ticked reads as a bug. Put back on the page before each draw.
+    const fields = new Map();
+    const applyFields = () => {
+      const mirror = rep.getMirror?.();
+      if (!mirror) return;
+      for (const [id, d] of fields) {
+        const el = mirror.getNode(id);
+        if (!el || !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName || '')) continue;
+        try {
+          if (el.type === 'checkbox' || el.type === 'radio') el.checked = !!d.isChecked;
+          else if (typeof d.text === 'string') el.value = d.text;
+        } catch {}
+      }
+    };
     for (let i = 0; i <= n; i++) {
       if (encError) throw encError;
       if (performance.now() - started > BUDGET_MS) throw new Error('took too long');
       const t = Math.min(total, (i * 1000) / FPS);
       let changed = i === 0;
-      while (next < events.length && events[next].timestamp - t0 <= t) changed = looks(events[next++]) || changed;
+      while (next < events.length && events[next].timestamp - t0 <= t) {
+        const e = events[next++];
+        if (e.type === 2) fields.clear(); // a new page: its own nodes
+        else if (e.type === 3 && e.data?.source === 5) fields.set(e.data.id, e.data);
+        changed = looks(e) || changed;
+      }
       rep.pause(t);
       await tick();
+      applyFields();
       // The replayer also builds parts of the page on its own schedule (a
       // full snapshot waits for its stylesheets): a page that changed size
       // since the last picture is redrawn even with no event behind it.

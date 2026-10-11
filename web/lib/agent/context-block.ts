@@ -1,8 +1,30 @@
-import { videoLogsForAgent } from "./tech-details";
+import { techFromRecording, videoLogsForAgent } from "./tech-details";
 import type { BriefJson, CaptureEvent } from "./overrides";
 // Pure helper: distil the high-signal context out of brief.json into a compact,
 // prominent text block for the filing agent. No SDK/IO deps, so it's unit-tested
 // directly (context-block.test.ts).
+
+/** ms -> "M:SS" */
+const clockOf = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+const VERB: Record<string, string> = { open: "Opened", reload: "Reloaded", "go to": "Went to", click: "Clicked", key: "Pressed" };
+
+/** A screen recording's clicks and page changes as steps, each click with the page it was on. */
+function recordingStepLines(json: unknown): string[] {
+  const td = techFromRecording(json);
+  const pageAt = (t: number) => {
+    let url = "";
+    for (const p of td.pages) if (p.t <= t) url = p.url;
+    return url;
+  };
+  return td.actions.slice(0, 40).map((a) => {
+    const page = a.kind === "click" || a.kind === "key" ? pageAt(a.t) : "";
+    return `- ${clockOf(a.t)} ${VERB[a.kind] ?? a.kind} ${a.what}${page ? ` (on ${page})` : ""}`;
+  });
+}
 
 /**
  * Extract the high-signal context (page URL/title, browser, console/runtime/
@@ -25,7 +47,8 @@ export function buildContextBlock(json: unknown): string {
   if (j.autoReport === true && !(typeof j.description === "string" && j.description.trim())) {
     sections.push(
       "ONE-CLICK REPORT (the reporter pressed one key the moment something went wrong and typed nothing): work out what went wrong from the SUSPECTS, the replay stills and the technical capture. " +
-        "Write the ticket about the most likely failure, described as the user experienced it (the title, summary, Expected and Actual stay functional; the failing call or error goes in Technical notes). If nothing clearly failed, do NOT invent a bug: title it after what the reporter was doing (e.g. \"Checkout: unexpected behaviour after applying a coupon\"), describe the steps and what is visible, and say plainly that no error was captured.",
+        "When something clearly failed (a failed or slow call, an error, an error message on the page, a click that did nothing, or something plainly broken on screen: overlapping or cut-off text, a broken layout, missing content), write the ticket about it, described as the user experienced it (the title, summary, Expected and Actual stay functional; the failing call or error goes in Technical notes). " +
+        "A field's typed text (asterisks) or a box the reporter ticked is not proof of a failure. If nothing clearly failed, do NOT invent a bug: title it after what the reporter was doing and say nothing failed (e.g. \"Checkout: applying a coupon, no failure found\"), describe the steps and what is visible, say plainly that no error showed up, and leave out Expected, Actual and Technical notes.",
     );
   }
 
@@ -34,6 +57,10 @@ export function buildContextBlock(json: unknown): string {
       "REPORTER'S DESCRIPTION (the primary signal - this is what the ticket is about; everything else corroborates it):\n" +
         j.description.trim().slice(0, 4000),
     );
+  }
+
+  if (typeof j.name === "string" && j.name.trim()) {
+    sections.push("REPORTER'S TITLE (their working title for the report):\n" + j.name.trim().slice(0, 200));
   }
 
   const lines: string[] = [];
@@ -49,11 +76,20 @@ export function buildContextBlock(json: unknown): string {
   if (replaySteps.length) {
     const note = typeof j.replayNote === "string" && j.replayNote.trim() ? `Reporter's note on it: ${j.replayNote.trim().slice(0, 1000)}\n` : "";
     sections.push(
-      "REPLAY (what the reporter did in the browser just before reporting, from a recording of the page - use it for accurate steps to reproduce; typed values were masked and are not known):\n" +
+      "REPLAY (what the reporter did in the browser just before reporting, from a recording of the page - use it for accurate steps to reproduce. Typed values are not known: in the replay stills, whatever was typed into a field shows as asterisks (*****), hidden for privacy - that is not the app's display and never a bug. A field can also still show its asterisks after the page emptied it, so never report a field as not cleared from a still alone):\n" +
         note +
         replaySteps.map((s) => `- ${s.slice(0, 300)}`).join("\n"),
     );
   }
+  // A screen recording's own steps (its event log), listed like the replay's.
+  const recSteps = recordingStepLines(j);
+  if (recSteps.length) {
+    sections.push(
+      "RECORDING STEPS (what the reporter did during the screen recording, from its event log - use it for accurate steps to reproduce; typed values are not known):\n" +
+        recSteps.join("\n"),
+    );
+  }
+
   // The exact capture: page trail, failed/slow network calls, console errors.
   // The ticket shows the full list itself (appended, folded); the agent's job
   // is to name what explains the bug in the write-up.
@@ -66,10 +102,6 @@ export function buildContextBlock(json: unknown): string {
   }
 
   // Where the reporter marked the bug: the moments to look at first.
-  const clockOf = (ms: number) => {
-    const s = Math.max(0, Math.round(ms / 1000));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  };
   const markLines: string[] = [];
   for (const m of Array.isArray(j.recordingMarks) ? j.recordingMarks : []) {
     if (typeof m?.t === "number") markLines.push(`- ${clockOf(m.t)} into the recording${m.note?.trim() ? `: ${String(m.note).trim().slice(0, 300)}` : ""}`);
@@ -174,7 +206,7 @@ export function buildContextBlock(json: unknown): string {
   if (errs.length && !tech) {
     const unique = [...new Set(errs)].slice(0, 8);
     sections.push(
-      "SUPPORTING TECHNICAL CONTEXT (console / network errors captured during the session - use these as extra detail to enrich the ticket, e.g. a context line or code block; do NOT let them define what the ticket is about or drive routing unless the reporter's description points at them):\n" +
+      "SUPPORTING TECHNICAL CONTEXT (console / network errors captured during the session - if one explains the bug, name it under Technical notes; do NOT let them define what the ticket is about or drive routing unless the reporter's description points at them):\n" +
         unique.map((m) => `- ${m}`).join("\n"),
     );
   }

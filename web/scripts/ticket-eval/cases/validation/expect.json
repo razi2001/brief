@@ -1,0 +1,17 @@
+{
+  "kind": "ui",
+  "bug": "Inviting a teammate is blocked: the form says 'Please enter a valid email address' for a valid address (it has a dot before the @).",
+  "facts": [
+    "The address typed was ana.lopez@acme.io; the page masks what was typed.",
+    "No network request is made; the check runs in the page."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "it says the email is invalid but it is correct"
+    }
+  ]
+}

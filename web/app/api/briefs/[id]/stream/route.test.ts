@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 const create = vi.hoisted(() => vi.fn());
 vi.mock("openai", () => ({
   default: class {
-    chat = { completions: { create } };
+    responses = { create };
   },
 }));
 // after() needs a live request scope; the safety-net write it schedules isn't under test.
@@ -32,18 +32,20 @@ vi.mock("@/lib/settings", () => ({ getUserSettings: async () => ({ ticketGuidanc
 
 import { POST } from "./route";
 
-async function* chunks(...parts: string[]) {
-  for (const content of parts) yield { choices: [{ delta: { content } }] };
+async function* events(...parts: string[]) {
+  yield { type: "response.created" };
+  for (const delta of parts) yield { type: "response.output_text.delta", delta };
+  yield { type: "response.completed" };
 }
 
 beforeEach(() => {
   create.mockReset();
-  create.mockImplementation(async () => chunks("# Pay button 500s\n", "It 500s."));
+  create.mockImplementation(async () => events("# Pay button 500s\n", "It 500s."));
 });
 
-test("the live draft streams from gpt-5.6-luna with reasoning off, so the first words come fast", async () => {
+test("the live draft streams from gpt-5.6-luna on the Responses API, reasoning on", async () => {
   const req = new NextRequest("http://localhost/api/briefs/b1/stream", { method: "POST" });
   const res = await POST(req, { params: Promise.resolve({ id: "b1" }) });
   expect(await res.text()).toBe("# Pay button 500s\nIt 500s.");
-  expect(create.mock.calls[0][0]).toMatchObject({ model: "gpt-5.6-luna", reasoning_effort: "none", stream: true });
+  expect(create.mock.calls[0][0]).toMatchObject({ model: "gpt-5.6-luna", stream: true, store: false, reasoning: { effort: "low" } });
 });

@@ -1,0 +1,17 @@
+{
+  "kind": "none",
+  "bug": "Nothing is wrong: adding a to-do and checking it off both work.",
+  "facts": [
+    "POST /api/todos returns 201; the new item appears, and its checkbox ticks when clicked.",
+    "No request fails and no error is logged."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "something felt off when adding a todo"
+    }
+  ]
+}

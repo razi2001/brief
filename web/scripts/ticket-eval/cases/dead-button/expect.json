@@ -1,0 +1,16 @@
+{
+  "kind": "ui",
+  "bug": "The Export CSV button on the Reports page does nothing when clicked: no download, no message.",
+  "facts": [
+    "Clicking Export CSV makes no request and logs no error; the user clicked it four times."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "export does not work"
+    }
+  ]
+}

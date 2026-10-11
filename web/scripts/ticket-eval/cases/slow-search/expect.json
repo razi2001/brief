@@ -1,0 +1,17 @@
+{
+  "kind": "failure",
+  "bug": "Searching test cases takes about 9 seconds to show results; the search request itself takes about 9 seconds.",
+  "facts": [
+    "GET /api/search?q=invoice returns 200 after about 9 s; then three results show.",
+    "The page shows Searching... while it waits."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "search is really slow"
+    }
+  ]
+}

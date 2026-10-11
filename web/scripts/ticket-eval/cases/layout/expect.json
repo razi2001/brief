@@ -1,0 +1,17 @@
+{
+  "kind": "ui",
+  "bug": "On the Test runs table, a long test name runs over the Status column, so that row's status can't be read.",
+  "facts": [
+    "The overlapping row is Checkout applies the loyalty discount after the coupon is removed; its status is Failed.",
+    "No request fails and no error is logged."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "the runs table looks broken"
+    }
+  ]
+}

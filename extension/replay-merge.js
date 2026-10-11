@@ -120,7 +120,11 @@ export function skipIdle(events, segments, { maxGapMs = 5000, keepMs = 1500, end
     return map(t);
   };
   return {
-    events: events.map((e) => ({ ...e, timestamp: map(e.timestamp) })),
+    // clamped like the segments: an event inside a squeezed pause (a network
+    // call is not activity, so it can land there - often a millisecond before
+    // the page reacts to it) keeps its place instead of jumping past what
+    // follows, which left the stream out of order and the cut dropped the rest
+    events: events.map((e) => ({ ...e, timestamp: clamp(e.timestamp) })),
     segments: segments.map((s) => ({ ...s, a: clamp(s.a), b: clamp(s.b) })),
     savedMs: shift,
   };

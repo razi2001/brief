@@ -147,3 +147,36 @@ describe("one-click reports", () => {
     expect(block).not.toContain("ONE-CLICK REPORT");
   });
 });
+
+describe("buildContextBlock - what only the raw json had", () => {
+  it("lists a screen recording's steps, each click with the page it was on", () => {
+    const block = buildContextBlock({
+      events: [
+        { type: "nav", load: true, tMs: 0, url: "https://app.x/cases/42" },
+        { type: "click", tMs: 3200, url: "https://app.x/cases/42", element: { text: "Save" } },
+        { type: "key", tMs: 4100, url: "https://app.x/cases/42", key: "Enter" },
+      ],
+    });
+    expect(block).toContain("RECORDING STEPS");
+    expect(block).toContain("- 0:00 Opened app.x/cases/42");
+    expect(block).toContain('- 0:03 Clicked "Save" (on https://app.x/cases/42)');
+    expect(block).toContain("- 0:04 Pressed Enter (on https://app.x/cases/42)");
+  });
+
+  it("shows the reporter's own title", () => {
+    expect(buildContextBlock({ name: "Checkout broken" })).toContain("REPORTER'S TITLE (their working title for the report):\nCheckout broken");
+  });
+
+  it("a one-click report puts the explaining suspect in Technical notes, and says plainly when nothing showed up", () => {
+    const block = buildContextBlock({ autoReport: true });
+    expect(block).toContain("goes in Technical notes");
+    expect(block).toContain("no error showed up");
+    expect(block).not.toMatch(/captured\b/);
+  });
+
+  it("a replay says its asterisks are typed text hidden for privacy, not the app", () => {
+    const block = buildContextBlock({ replay: { steps: ["0:01 Typed into \"Email\""], frames: [], marks: [] } });
+    expect(block).toMatch(/asterisks/);
+    expect(block).toMatch(/privacy/);
+  });
+});

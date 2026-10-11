@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "vitest";
-import { agentModel, chatParams, fastModel } from "./model";
+import { agentModel, chatParams, fastModel, reasoningEffort, responsesParams } from "./model";
 
 afterEach(() => {
   delete process.env.AGENT_MODEL;
   delete process.env.AGENT_FAST_MODEL;
+  delete process.env.AGENT_REASONING;
 });
 
 describe("agentModel / fastModel", () => {
@@ -34,5 +35,29 @@ describe("chatParams", () => {
     for (const m of ["gpt-4o", "gpt-4o-mini", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-5-2025-08-07"]) {
       expect(chatParams(m), m).toEqual({});
     }
+  });
+});
+
+describe("responsesParams", () => {
+  test("gpt-5.6 reasons at low by default, its reasoning carried back encrypted", () => {
+    expect(responsesParams("gpt-5.6-luna")).toEqual({ reasoning: { effort: "low" }, include: ["reasoning.encrypted_content"] });
+  });
+
+  test("AGENT_REASONING sets the effort; anything else falls back to low", () => {
+    process.env.AGENT_REASONING = "medium";
+    expect(reasoningEffort()).toBe("medium");
+    expect(responsesParams("gpt-5.6-luna").reasoning).toEqual({ effort: "medium" });
+    process.env.AGENT_REASONING = "turbo";
+    expect(reasoningEffort()).toBe("low");
+  });
+
+  test("gpt-4o has no reasoning: it gets nothing", () => {
+    expect(responsesParams("gpt-4o")).toEqual({});
+    expect(responsesParams("gpt-4o-mini")).toEqual({});
+  });
+
+  test("gpt-5.0 has no 'none': it gets 'minimal'", () => {
+    expect(responsesParams("gpt-5", "none").reasoning).toEqual({ effort: "minimal" });
+    expect(responsesParams("gpt-5.4", "none").reasoning).toEqual({ effort: "none" });
   });
 });

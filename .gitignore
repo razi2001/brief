@@ -9,3 +9,7 @@
 .env.local
 .env.*.local
 brief-cloud-*.zip
+
+# Ticket eval: run results, and cases made from your own drafts
+web/scripts/ticket-eval/results/
+web/scripts/ticket-eval/cases/local/

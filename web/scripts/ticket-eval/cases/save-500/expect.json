@@ -1,0 +1,17 @@
+{
+  "kind": "failure",
+  "bug": "Saving a test case fails: the save request returns a 500 server error and the page shows no message, so the user does not know the edit was not saved.",
+  "facts": [
+    "The save request (PUT /api/cases/42) returns 500 with the body {\"error\":\"database timeout\"}, about 0.6 s after each click.",
+    "The user edited the title and clicked Save twice; both saves failed the same way."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "can't save my test case"
+    }
+  ]
+}

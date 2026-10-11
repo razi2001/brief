@@ -3,10 +3,12 @@ import OpenAI from "openai";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { loadBriefInput, draftBriefById } from "@/lib/agent/run-processing";
+import { supabaseStore } from "@/lib/agent/brief-store";
 import { briefPhase } from "@/lib/brief-filing";
 import { draftJob, holdDraftJob, runDraftJob } from "@/lib/agent/draft-jobs";
 import { buildStreamMessages, parseDraftMarkdown } from "@/lib/agent/compose-draft";
-import { agentModel, chatParams } from "@/lib/agent/model";
+import { agentModel } from "@/lib/agent/model";
+import { streamText } from "@/lib/agent/responses";
 import { getUserSettings } from "@/lib/settings";
 
 export const maxDuration = 300;
@@ -52,7 +54,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   let input;
   try {
-    ({ input } = await loadBriefInput(admin, brief.storage_prefix as string, {}));
+    ({ input } = await loadBriefInput(supabaseStore(admin), brief.storage_prefix as string, {}));
   } catch {
     after(async () => {
       await runDraftJob(id, () => draftBriefById(userId, id));
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
 
   const { system, user } = buildStreamMessages(input, guidance);
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = agentModel();
   const encoder = new TextEncoder();
   const shareId = (brief.share_id as string | null) || null;
@@ -95,16 +97,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     async start(controller) {
       let full = "";
       try {
-        const completion = await openai.chat.completions.create(
-          { model, messages: [{ role: "system", content: system }, { role: "user", content: user }], stream: true, ...chatParams(model) },
-          { signal: req.signal },
-        );
-        for await (const part of completion) {
-          const delta = part.choices?.[0]?.delta?.content || "";
-          if (delta) {
-            full += delta;
-            controller.enqueue(encoder.encode(delta));
-          }
+        for await (const delta of streamText({ client, model, instructions: system, content: user, signal: req.signal })) {
+          full += delta;
+          controller.enqueue(encoder.encode(delta));
         }
         await persist(full); // completed cleanly → persist the streamed result
       } catch {

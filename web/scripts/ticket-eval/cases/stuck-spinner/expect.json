@@ -1,0 +1,17 @@
+{
+  "kind": "failure",
+  "bug": "The projects list never loads: the request for the list fails (504 Gateway Timeout) and the page keeps showing a spinner with no message.",
+  "facts": [
+    "GET /api/projects returns 504 (Gateway Timeout) with the body {\"error\":\"upstream timed out\"} after about 3 s, once on load and once after Refresh.",
+    "No message is shown; the spinner stays."
+  ],
+  "variants": [
+    {
+      "name": "one-click"
+    },
+    {
+      "name": "described",
+      "description": "projects page stuck loading"
+    }
+  ]
+}

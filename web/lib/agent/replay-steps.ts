@@ -101,11 +101,29 @@ export function replayActions(file: ReplayFile): ReplayAction[] {
     const v = n.attributes?.[k];
     return typeof v === "string" ? v.trim() : "";
   };
+  const tagOf = (n?: Node) => (n?.tagName ?? "").toLowerCase();
+  const textOf = (n: Node) => text(n).replace(/\s+/g, " ").trim();
+  // A form field's name is its <label>: the one around it, or the one pointing at its id.
+  const fieldLabel = (n: Node): string => {
+    if (!/^(input|select|textarea)$/.test(tagOf(n))) return "";
+    const id = attr(n, "id");
+    if (id) {
+      for (const m of nodes.values()) if (tagOf(m) === "label" && attr(m, "for") === id && textOf(m)) return textOf(m);
+    }
+    let p = parent.get(n.id);
+    for (let i = 0; p != null && i < 4; i++) {
+      const m = nodes.get(p);
+      if (m && tagOf(m) === "label" && textOf(m)) return textOf(m);
+      p = parent.get(p);
+    }
+    return "";
+  };
   const describe = (n: Node): string => {
-    const tag = (n.tagName ?? "").toLowerCase();
+    const tag = tagOf(n);
     const label =
       attr(n, "aria-label") ||
-      text(n).replace(/\s+/g, " ").trim() ||
+      fieldLabel(n) ||
+      textOf(n) ||
       attr(n, "placeholder") ||
       attr(n, "title") ||
       attr(n, "alt") ||
@@ -129,6 +147,7 @@ export function replayActions(file: ReplayFile): ReplayAction[] {
   const steps: ReplayAction[] = [];
   let lastHref = "";
   let lastInput = -1;
+  let lastClick: { id: number; t: number; at: number } | null = null;
   for (const e of events) {
     const t = (e?.timestamp ?? t0) - t0;
     if (e?.type === META) {
@@ -148,13 +167,18 @@ export function replayActions(file: ReplayFile): ReplayAction[] {
         for (const add of d.adds ?? []) index(add.node, add.parentId);
       } else if (d.source === SRC_MOUSE && d.type === CLICK && d.id != null) {
         const n = target(d.id);
-        if (n && n.type === ELEMENT) steps.push({ t, kind: "click", what: describe(n) });
+        if (n && n.type === ELEMENT) {
+          steps.push({ t, kind: "click", what: describe(n) });
+          lastClick = { id: n.id, t, at: steps.length - 1 };
+        }
         lastInput = -1;
       } else if (d.source === SRC_INPUT && d.id != null && d.id !== lastInput) {
         const n = nodes.get(d.id);
         if (n) {
           const kind = attr(n, "type").toLowerCase();
           if (typeof d.isChecked === "boolean" && /checkbox|radio/.test(kind)) {
+            // the click that ticked it says the same thing: one step
+            if (lastClick && lastClick.at === steps.length - 1 && t - lastClick.t <= 500 && (lastClick.id === n.id || tagOf(nodes.get(lastClick.id)) === "label")) steps.pop();
             steps.push({ t, kind: d.isChecked ? "check" : "uncheck", what: describe(n) });
           } else {
             steps.push({ t, kind: "type", what: describe(n) });
