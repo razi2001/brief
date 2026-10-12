@@ -19,6 +19,12 @@ type RrPlayer = {
   $destroy?: () => void;
 };
 
+// rrweb shows the events strictly before the time it is asked for, and a replay
+// opens with the page's catch-up on its first instant (a trim in the extension
+// pulls everything before the cut there): at 0 it shows the bare first
+// snapshot, the page long before the part kept. 1ms in, it is right.
+const at = (ms: number) => Math.max(1, ms);
+
 const clock = (ms: number) => {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
@@ -66,6 +72,7 @@ export default function ReplayPlayer({ url, voiceUrl }: { url: string; voiceUrl?
           props: { events: file.events, width: pw, height: ph, autoPlay: false, showController: false, skipInactive: false, mouseTail: false },
         });
         player.current = p;
+        p.goto(at(0), false);
         setTotal(p.getMetaData().totalTime);
         p.getReplayer().on("finish", () => { playingRef.current = false; setPlaying(false); });
         const tick = () => {
@@ -100,7 +107,7 @@ export default function ReplayPlayer({ url, voiceUrl }: { url: string; voiceUrl?
     const p = player.current;
     if (!p) return;
     if (playing) { p.pause(); playingRef.current = false; setPlaying(false); return; }
-    if (t >= total - 50) p.goto(0, true); else p.play();
+    if (t >= total - 50) p.goto(at(0), true); else p.play();
     playingRef.current = true;
     setPlaying(true);
   }
@@ -135,7 +142,7 @@ export default function ReplayPlayer({ url, voiceUrl }: { url: string; voiceUrl?
           min={0}
           max={Math.max(1, total)}
           value={Math.min(t, total)}
-          onChange={(e) => player.current?.goto(Number(e.target.value), playing)}
+          onChange={(e) => player.current?.goto(at(Number(e.target.value)), playing)}
           aria-label="Seek"
           className="h-1 min-w-0 flex-1 accent-[#dd6936]"
         />

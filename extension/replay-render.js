@@ -230,11 +230,17 @@ export async function renderReplay(payload, voiceBlob, { onProgress, stillsAt = 
   const enc = new VideoEncoder({ output: (chunk, m) => muxer.addVideoChunk(chunk, m), error: (e) => { encError = e; } });
   enc.configure({ codec: 'vp09.00.10.08', width: VW, height: VH, bitrate: 1_500_000, framerate: FPS });
 
+  // rrweb shows the events strictly BEFORE the time it is asked for, and a
+  // replay opens with the page's catch-up on its very first instant (a cut
+  // pulls everything before it there): asked for 0 it shows the bare first
+  // snapshot - the page as it was long before the part kept. A frame at t
+  // shows everything up to t, as the change check below counts it.
+  const at = (t) => rep.pause(t + 1);
   try {
     // The first frame is the video's thumbnail in a ticket: let the first
     // page finish building (stylesheets, fonts) before drawing it. A real
     // timer here, once - throttled in a hidden page, but only ~1s at worst.
-    rep.pause(0);
+    at(0);
     for (let i = 0; i < 5; i++) {
       const body = rep.iframe.contentDocument?.body;
       if (body && body.innerText.trim() && body.getBoundingClientRect().height > 0) break;
@@ -280,7 +286,7 @@ export async function renderReplay(payload, voiceBlob, { onProgress, stillsAt = 
         else if (e.type === 3 && e.data?.source === 5) fields.set(e.data.id, e.data);
         changed = looks(e) || changed;
       }
-      rep.pause(t);
+      at(t);
       await tick();
       applyFields();
       // The replayer also builds parts of the page on its own schedule (a

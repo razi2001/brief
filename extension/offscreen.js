@@ -460,7 +460,22 @@ async function collectRecording() {
 // `fileName` is where the video lands in the draft (recording.webm for captures;
 // an uploaded file keeps its container: recording.mp4 / .mov). `transcribeBlob`
 // overrides what we send for transcription (defaults to the audio-only track).
-async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fileName = 'recording.webm', transcribeBlob, keyframes: frames, durationMs, startedAtMs }) {
+//
+// The newest upload of a brief's recording is the one that counts. A capture
+// starts uploading the moment it stops (the video plus a PNG every 2s: big and
+// slow); trim it in the editor, or pick another video, and the new file starts
+// uploading while the old one may still be going. Whichever finished last used
+// to land on the draft, so a slow original took the brief back and the ticket
+// got the untrimmed video. An upload that has been superseded goes no further
+// and reports nothing.
+const latestUpload = new Map(); // briefId -> the newest upload's token
+// Make this the newest upload of the brief; true while it still is.
+function newUpload(briefId) {
+  const me = {};
+  latestUpload.set(briefId, me);
+  return () => latestUpload.get(briefId) === me;
+}
+async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fileName = 'recording.webm', transcribeBlob, keyframes: frames, durationMs, startedAtMs, current = newUpload(briefId) }) {
   // CRITICAL: an offscreen document only reliably gets chrome.runtime -
   // chrome.storage is undefined here, so reading the token / inbox directly
   // threw "Cannot read properties of undefined (reading 'local')" and EVERY
@@ -483,7 +498,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
   // reporter can rewatch it while the upload runs, and still rewatch it if the
   // upload fails. The worker prunes it once the brief is filed or reset.
   try {
-    if (blob && blob.size) await putFile(recKey(briefId), blob);
+    if (blob && blob.size && current()) await putFile(recKey(briefId), blob);
   } catch (err) {
     log('stash recording for playback failed:', err?.message || err);
   }
@@ -493,7 +508,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
   try {
     if (frames && frames[0] && frames[0].blob) {
       const poster = await makePoster(frames[0].blob);
-      if (poster) chrome.runtime.sendMessage({ type: 'RECORDING_POSTER', briefId, poster, durationMs }).catch(() => {});
+      if (poster && current()) chrome.runtime.sendMessage({ type: 'RECORDING_POSTER', briefId, poster, durationMs }).catch(() => {});
     }
   } catch {}
 
@@ -574,6 +589,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
     let lastErr = null;
     for (const delay of [0, 1500, 5000]) {
       if (delay) await new Promise((r) => setTimeout(r, delay));
+      if (!current()) break;
       try {
         cloudBriefId = await uploadDraft(files, cloudMeta, token);
         break;
@@ -582,6 +598,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
         log('upload attempt failed:', err?.message || err);
       }
     }
+    if (!current()) { log('upload superseded by a newer one, dropped'); return; }
     if (!cloudBriefId) throw lastErr || new Error('upload failed');
     log('background upload done', cloudBriefId);
     await chrome.runtime.sendMessage({ type: 'UPLOAD_RESULT', briefId, cloudBriefId }).catch(() => {});
@@ -590,18 +607,16 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
     // correct the narration immediately. Independent of the upload result; the
     // server still transcribes at file time if we send nothing.
     const tBlob = transcribeBlob !== undefined ? transcribeBlob : audioBlob;
+    let said;
     try {
-      if (tBlob && tBlob.size && token) {
-        const text = await transcribeNote(tBlob, token);
-        await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, transcript: text || '' }).catch(() => {});
-      } else {
-        await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, transcript: '' }).catch(() => {});
-      }
+      said = { transcript: tBlob && tBlob.size && token ? (await transcribeNote(tBlob, token)) || '' : '' };
     } catch (err) {
       log('transcription failed:', err?.message || err);
-      await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, error: String(err?.message || err) }).catch(() => {});
+      said = { error: String(err?.message || err) };
     }
+    if (current()) await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, ...said }).catch(() => {});
   } catch (err) {
+    if (!current()) return;
     console.warn('[brief/offscreen] cloud upload failed:', err);
     await chrome.runtime
       .sendMessage({ type: 'UPLOAD_RESULT', briefId, error: String(err?.message || err) })
@@ -673,6 +688,8 @@ async function sampleVideoFrames(blob) {
 // OpenAI's transcription cap; QuickTime isn't a container it decodes.
 const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
 async function uploadFileAndFinish({ briefId, key, blob, fileName, mimeType }) {
+  // the newest from now on, not once its frames are sampled (that takes a while)
+  const current = newUpload(briefId);
   let durationMs = 0;
   let frames = [];
   try {
@@ -696,6 +713,7 @@ async function uploadFileAndFinish({ briefId, key, blob, fileName, mimeType }) {
     keyframes: frames,
     durationMs,
     startedAtMs: Date.now() - durationMs,
+    current,
   });
 }
 

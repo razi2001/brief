@@ -47,6 +47,12 @@ function replayAdapter(stage, events) {
   });
   const rep = player.getReplayer();
   const duration = player.getMetaData().totalTime;
+  // rrweb shows the events strictly before the time it is asked for, and a
+  // replay opens with the page's catch-up on its first instant (a trim pulls
+  // everything before the cut there): at 0 it shows the bare first snapshot,
+  // the page long before the part kept. 1ms in, it is right.
+  const to = (ms) => Math.max(1, ms);
+  player.goto(to(0), false);
   let playing = false;
   rep.on('finish', () => { playing = false; });
   new ResizeObserver(() => {
@@ -72,9 +78,9 @@ function replayAdapter(stage, events) {
     duration,
     time,
     playing: () => playing,
-    play: () => { const from = time(); playing = true; player.goto(from, true); },
+    play: () => { const from = time(); playing = true; player.goto(to(from), true); },
     pause: () => { const at = time(); playing = false; player.pause(); pending = at; },
-    seek: (ms) => { pending = Math.min(duration, Math.max(0, ms)); player.goto(pending, playing); },
+    seek: (ms) => { pending = Math.min(duration, Math.max(0, ms)); player.goto(to(pending), playing); },
     setSpeed: (n) => player.setSpeed?.(n),
   };
 }
