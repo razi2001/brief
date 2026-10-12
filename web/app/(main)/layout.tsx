@@ -27,12 +27,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </Suspense>
       }
       headerRight={
+        // Just the avatar: no name or email printed in the sidebar.
         <UserButton
-          showName
           appearance={{
             elements: {
-              userButtonBox: "flex-row-reverse gap-2",
-              userButtonOuterIdentifier: "hidden pl-0 text-[13px] font-medium text-ink-2 sm:block",
               userButtonTrigger: "rounded-lg px-1 py-1 hover:bg-white/40 focus:shadow-none",
             },
           }}

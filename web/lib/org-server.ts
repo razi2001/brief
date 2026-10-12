@@ -1,4 +1,7 @@
+import { cache } from "react";
 import { clerkClient } from "@clerk/nextjs/server";
+import { getClerkUser } from "@/lib/clerk-user";
+import { connectedProviders } from "@/lib/trackers/registry";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { orgKey } from "@/lib/org";
@@ -60,42 +63,51 @@ const GITHUB_ORG_KEY = "githubOrg";
  * connected lands in the same org their briefs get filed into.
  */
 async function resolveFromTrackers(userId: string): Promise<OrgIdentity | null> {
+  // Only ask the trackers this user connected: each ask is a token round trip
+  // to Clerk, and asking all three on every page was most of Settings' wait.
+  let connected: ProviderKey[];
   try {
-    const tok = await getLinearToken(userId);
-    if (tok) {
-      const org = await getLinearOrg(tok);
-      const key = org && orgKey("linear", org.id);
-      if (key && org) return { key, name: org.name, provider: "linear" };
-    }
+    connected = connectedProviders(await getClerkUser(userId));
   } catch {
-    /* a tracker we can't reach contributes no org, it doesn't break the page */
+    connected = ["linear", "jira", "github"];
   }
 
-  try {
-    const tok = await getJiraAuth(userId);
-    if (tok) {
-      const cloud = await getJiraCloud(tok);
-      const key = cloud && orgKey("jira", cloud.cloudId);
-      if (key && cloud) {
-        return { key, name: cloud.name ?? "Jira site", provider: "jira" };
+  if (connected.includes("linear")) {
+    try {
+      const tok = await getLinearToken(userId);
+      if (tok) {
+        const org = await getLinearOrg(tok);
+        const key = org && orgKey("linear", org.id);
+        if (key && org) return { key, name: org.name, provider: "linear" };
       }
+    } catch {
+      /* a tracker we can't reach contributes no org, it doesn't break the page */
     }
-  } catch {
-    /* as above */
+  }
+
+  if (connected.includes("jira")) {
+    try {
+      const tok = await getJiraAuth(userId);
+      if (tok) {
+        const cloud = await getJiraCloud(tok);
+        const key = cloud && orgKey("jira", cloud.cloudId);
+        if (key && cloud) {
+          return { key, name: cloud.name ?? "Jira site", provider: "jira" };
+        }
+      }
+    } catch {
+      /* as above */
+    }
   }
 
   // GitHub is the odd one out: a user belongs to many orgs, so there is nothing
-  // to infer. We use the one they picked, and if they haven't picked yet they
-  // have no org - deliberately, rather than being put in a stranger's.
-  try {
-    const tok = await getGithubToken(userId);
-    if (tok) {
-      const picked = await getPickedGithubOrg(userId);
-      const key = picked && orgKey("github", picked);
-      if (key && picked) return { key, name: picked, provider: "github" };
-    }
-  } catch {
-    /* as above */
+  // to infer. We use the one they picked (read off the user, no token needed),
+  // and if they haven't picked yet they have no org - deliberately, rather than
+  // being put in a stranger's.
+  if (connected.includes("github")) {
+    const picked = await getPickedGithubOrg(userId);
+    const key = picked && orgKey("github", picked);
+    if (key && picked) return { key, name: picked, provider: "github" };
   }
 
   return null;
@@ -103,12 +115,36 @@ async function resolveFromTrackers(userId: string): Promise<OrgIdentity | null> 
 
 export async function getPickedGithubOrg(userId: string): Promise<string | null> {
   try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
+    const user = await getClerkUser(userId);
     const v = (user.privateMetadata?.[GITHUB_ORG_KEY] as string) ?? "";
     return v.trim() || null;
   } catch {
     return null;
+  }
+}
+
+type GithubOrgChoice = { login: string; name: string; avatarUrl?: string };
+const githubOrgsMemo = new Map<string, { at: number; orgs: GithubOrgChoice[] }>();
+const GITHUB_ORGS_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * The orgs Settings offers a GitHub user who hasn't picked one yet. Listing
+ * walks up to three pages of repos (seconds), and the answer rarely changes,
+ * so it's remembered per user for a few minutes. Anyone else: none, and no
+ * GitHub call at all. Best-effort: a failure means none.
+ */
+export async function githubOrgsToPick(userId: string): Promise<GithubOrgChoice[]> {
+  try {
+    if (!connectedProviders(await getClerkUser(userId)).includes("github")) return [];
+    if (await getPickedGithubOrg(userId)) return [];
+    const hit = githubOrgsMemo.get(userId);
+    if (hit && Date.now() - hit.at < GITHUB_ORGS_TTL_MS) return hit.orgs;
+    const tok = await getGithubToken(userId);
+    const orgs = tok ? await listGithubOrgs(tok) : [];
+    githubOrgsMemo.set(userId, { at: Date.now(), orgs });
+    return orgs;
+  } catch {
+    return [];
   }
 }
 
@@ -160,7 +196,8 @@ async function forgetMembership(userId: string): Promise<void> {
  * tracker outage degrades to the cached row, and a cache miss degrades to no
  * org. Neither ever throws out of a render.
  */
-export async function getOrg(
+// Once per page render: Settings and Home each ask for it from several places.
+export const getOrg = cache(async function getOrg(
   userId: string,
   db?: SupabaseClient,
 ): Promise<OrgIdentity | null> {
@@ -218,10 +255,11 @@ export async function getOrg(
     /* caching is an optimization; the resolved value is still good */
   }
   return resolved;
-}
+});
 
 /** Every Brief user known to be in this org. */
-export async function getOrgMemberIds(
+// Once per page render (ticket rules, the podium and the headline all count members).
+export const getOrgMemberIds = cache(async function getOrgMemberIds(
   orgKeyValue: string,
   db?: SupabaseClient,
 ): Promise<string[]> {
@@ -235,7 +273,7 @@ export async function getOrgMemberIds(
   } catch {
     return [];
   }
-}
+});
 
 export type OrgSettings = {
   ticketGuidance: string;

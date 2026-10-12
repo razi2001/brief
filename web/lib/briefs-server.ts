@@ -1,10 +1,11 @@
 import { after } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
+import type { currentUser } from "@clerk/nextjs/server";
+import { getSignedInUser } from "@/lib/clerk-user";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
 import { providerOf, ticketSnapshotPatch } from "@/lib/ticket-sync";
 import type { ProviderKey } from "@/lib/tracker";
-import { CLERK_PROVIDERS, resolveConnectedTrackers } from "@/lib/trackers/registry";
+import { connectedProviders, resolveConnectedTrackers } from "@/lib/trackers/registry";
 
 /**
  * Server-side helpers shared by the Dashboard (/dashboard) and Briefs (/briefs)
@@ -126,25 +127,14 @@ export type TrackerContext = {
 export async function getTrackerContext(): Promise<TrackerContext> {
   let user: Awaited<ReturnType<typeof currentUser>> = null;
   try {
-    user = await currentUser();
+    user = await getSignedInUser();
   } catch {
     /* render degraded rather than throwing out of the server render */
   }
 
-  // A connection only counts if it isn't a known-unverified (failed/abandoned)
-  // OAuth attempt. If the verification status isn't exposed, fall back to presence.
-  const isLive = (a: { verification?: { status?: string } | null }) => {
-    const s = a.verification?.status;
-    return s === undefined || s === "verified";
-  };
-  const matches = (a: { provider?: string }, p: string) =>
-    (a.provider ?? "").toLowerCase().includes(p);
-
   // Every tracker is a Clerk connected account, so this is already on the user
   // object - no extra round trip.
-  const connected: ProviderKey[] = CLERK_PROVIDERS.filter((def) =>
-    user?.externalAccounts?.some((a) => matches(a, def.clerkMatch) && isLive(a)),
-  ).map((def) => def.key);
+  const connected: ProviderKey[] = connectedProviders(user);
 
   const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";
   const role = ((user?.privateMetadata?.role as string) ?? "").trim();

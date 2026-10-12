@@ -75,6 +75,20 @@ export function providerName(key: ProviderKey): string {
 /** Every tracker, for the Connections UI. */
 export const CLERK_PROVIDERS = PROVIDERS;
 
+type ExternalAccountLike = { provider?: string; verification?: { status?: string } | null };
+
+/**
+ * The trackers a user has connected, read off the Clerk user itself: no token
+ * round trip. A connection only counts if it isn't a known-unverified
+ * (failed or abandoned) OAuth attempt; with no status exposed, presence counts.
+ */
+export function connectedProviders(user: { externalAccounts?: ExternalAccountLike[] } | null | undefined): ProviderKey[] {
+  const live = (a: ExternalAccountLike) => a.verification?.status === undefined || a.verification?.status === "verified";
+  return PROVIDERS.filter((def) =>
+    user?.externalAccounts?.some((a) => (a.provider ?? "").toLowerCase().includes(def.clerkMatch) && live(a)),
+  ).map((def) => def.key);
+}
+
 /**
  * Resolve the tracker this user files into.
  *

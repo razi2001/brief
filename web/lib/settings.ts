@@ -1,4 +1,4 @@
-import { clerkClient } from "@clerk/nextjs/server";
+import { getClerkUser } from "@/lib/clerk-user";
 import { effectiveGuidance, migratedMode, type GuidanceMode } from "@/lib/guidance";
 import { getOrg, getOrgMemberIds, getOrgSettings } from "@/lib/org-server";
 import { cleanSiteList, replayModeOf, type ReplayMode } from "@/lib/replay-sites";
@@ -20,8 +20,7 @@ export async function getUserSettings(
   userId: string,
 ): Promise<{ ticketGuidance: string; role: string }> {
   try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
+    const user = await getClerkUser(userId);
     const personal = (user.privateMetadata?.ticketGuidance as string) ?? "";
     const role = ((user.privateMetadata?.role as string) ?? "").trim();
     const mode = migratedMode({
@@ -80,15 +79,14 @@ export async function getGuidanceContext(userId: string): Promise<GuidanceContex
   };
 
   try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
+    // the user and their team at once: neither waits for the other
+    const [user, identity] = await Promise.all([getClerkUser(userId), getOrg(userId)]);
     const personal = (user.privateMetadata?.ticketGuidance as string) ?? "";
     const mode = migratedMode({
       storedMode: user.privateMetadata?.ticketGuidanceMode as string | undefined,
       personal,
     });
 
-    const identity = await getOrg(userId);
     if (!identity) {
       return { ...empty, mode, personal, effective: effectiveGuidance({ mode, personal }) };
     }
@@ -120,8 +118,7 @@ export async function getGuidanceContext(userId: string): Promise<GuidanceContex
  */
 export async function getUserReplay(userId: string): Promise<{ sites: string[]; mode: ReplayMode }> {
   try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
+    const user = await getClerkUser(userId);
     const sites = cleanSiteList(user.privateMetadata?.replaySites);
     return { sites, mode: replayModeOf(user.privateMetadata?.replaySitesMode, sites) };
   } catch {
