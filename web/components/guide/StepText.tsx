@@ -11,7 +11,7 @@ export function Kbd({ children }: { children: ReactNode }) {
   );
 }
 
-/** Lesson copy's tiny markup: **bold**, *italic*, [[Alt+Shift+B]] keys, [label](https://...) links. */
+/** Lesson copy's tiny markup: **bold**, *italic*, [[Ctrl+K]] keys, [label](https://...) links. */
 export default function StepText({ text }: { text: string }) {
   const out: ReactNode[] = [];
   const re = /\[\[(.+?)\]\]|\*\*(.+?)\*\*|\*(.+?)\*|\[([^\]]+)\]\((https?:[^)\s]+)\)/g;

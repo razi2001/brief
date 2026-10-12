@@ -74,8 +74,8 @@ export function GuideSkeleton() {
         </div>
       </div>
       {[2, 3].map((n, g) => (
-        <div key={g} className="mt-9">
-          <div className={`mb-3 h-3 w-16 ${bar}`} />
+        <div key={g} className="mt-10">
+          <div className={`mb-4 h-5 w-32 ${bar}`} />
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: n }, (_, i) => (
               <div key={i} className="card overflow-hidden">

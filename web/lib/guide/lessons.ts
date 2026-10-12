@@ -5,7 +5,7 @@ import { CHROME_STORE_URL } from "@/lib/chrome-store";
  * them. Copy rules: short, conversational, no em or en dashes
  * (lessons.test.ts checks), and only what the product really does.
  *
- * Step text has a tiny markup: **bold**, *italic*, [[Alt+Shift+B]] for keys,
+ * Step text has a tiny markup: **bold**, *italic*, [[Ctrl+K]] for keys,
  * [label](https://...) for a link. Each step is one frame group of the
  * lesson's scene (components/guide/scenes), so a scene has exactly as many
  * steps as its lesson.
@@ -152,9 +152,9 @@ export const LESSONS: readonly Lesson[] = [
     slug: "brief-it",
     group: "more",
     title: "Brief it in one click",
-    blurb: "Something just broke on a Replay site? One shortcut, and Brief drafts the bug from the last minute.",
+    blurb: "Something just broke on a Replay site? One right click, and Brief drafts the bug from the last minute.",
     steps: [
-      "Press [[Alt+Shift+B]], or right click the page and pick **Brief it**.",
+      "Right click the page and pick **Brief it**.",
       "The Brief icon turns while it looks back: failed calls, errors, clicks that did nothing.",
       "A green check: the draft is written, with a video and a still of each moment.",
       "Find it in **Drafts**, check it, file it.",

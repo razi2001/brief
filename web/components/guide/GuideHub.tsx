@@ -110,13 +110,10 @@ export default function GuideHub() {
 
       {GROUPS.map((g) => {
         const lessons = LESSONS.filter((l) => l.group === g.key);
-        const from = lessonNumber(lessons[0].slug);
-        const to = from + lessons.length - 1;
         return (
-          <section key={g.key} className="mt-9" aria-labelledby={`g-${g.key}`}>
-            <h2 id={`g-${g.key}`} className="mb-3 flex items-baseline gap-2 px-0.5 text-[13px] font-medium text-ink-2">
+          <section key={g.key} className="mt-10" aria-labelledby={`g-${g.key}`}>
+            <h2 id={`g-${g.key}`} className="mb-4 px-0.5 text-[18px] font-semibold tracking-[-0.01em] text-ink">
               {g.title}
-              <span className="text-[12px] font-normal text-muted">{from === to ? from : `${from} to ${to}`}</span>
             </h2>
             <div className={`grid gap-4 sm:grid-cols-2 ${lessons.length > 2 ? "lg:grid-cols-3" : ""}`}>
               {lessons.map((l) => (

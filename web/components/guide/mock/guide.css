@@ -263,6 +263,23 @@
 .gd-menu .item .pinned { color: #1a73e8; display: flex; }
 .gd-menu .sep { height: calc(1 * var(--u)); background: #e8eaed; margin: calc(5 * var(--u)) 0; }
 
+/* Chrome's right-click menu */
+.gd-ctx {
+  position: absolute;
+  z-index: 20;
+  width: calc(190 * var(--u));
+  padding: calc(5 * var(--u)) 0;
+  border-radius: calc(8 * var(--u));
+  background: #fff;
+  box-shadow: 0 calc(2 * var(--u)) calc(6 * var(--u)) rgba(60, 64, 67, 0.15), 0 calc(1 * var(--u)) calc(2 * var(--u)) rgba(60, 64, 67, 0.3);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: calc(10.5 * var(--u));
+  color: #202124;
+}
+.gd-ctx .it { display: flex; align-items: center; gap: calc(8 * var(--u)); padding: calc(5 * var(--u)) calc(14 * var(--u)); }
+.gd-ctx .it.on { background: #e8eaed; }
+.gd-ctx .sep { height: calc(1 * var(--u)); background: #e8eaed; margin: calc(4 * var(--u)) 0; }
+
 /* ---------- the extension popup (popup.css, 1 px = --p) ---------- */
 .gd-pp {
   position: absolute;

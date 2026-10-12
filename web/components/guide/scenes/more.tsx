@@ -3,7 +3,7 @@ import { MockAcme, type AcmePage } from "../mock/Acme";
 import { MockPopup, type Sheet, type Tile } from "../mock/Popup";
 import { MockEditor } from "../mock/Editor";
 import { MockApp, MockFeed, MockSettings, type SettingsState } from "../mock/App";
-import { u } from "../mock/Stage";
+import { Mark, u } from "../mock/Stage";
 import { AT, scene } from "./types";
 
 const APP = "cloud.get-brief.app";
@@ -96,14 +96,42 @@ export const replay = scene<ReplayS>({
 
 // ---------------------------------------------------------------- brief it
 
-type BriefItS = { edited?: boolean; busy?: boolean; done?: boolean; drafts?: boolean };
+type BriefItS = { edited?: boolean; menu?: boolean; busy?: boolean; done?: boolean; drafts?: boolean };
+
+/** Chrome's right-click menu, with the extension's one item in it. */
+function ContextMenu() {
+  return (
+    <div className="gd-ctx gd-pop" style={{ left: "36%", top: "31%" }}>
+      {["Back", "Forward", "Reload"].map((t) => (
+        <div key={t} className="it">
+          {t}
+        </div>
+      ))}
+      <div className="sep" />
+      {["Save as...", "Print..."].map((t) => (
+        <div key={t} className="it">
+          {t}
+        </div>
+      ))}
+      <div className="sep" />
+      <div className="it on" data-gd="ctx-brief-it">
+        <Mark size={13} />
+        Brief it
+      </div>
+      <div className="sep" />
+      <div className="it">Inspect</div>
+    </div>
+  );
+}
 
 export const briefit = scene<BriefItS>({
-  poster: 4,
+  poster: 5,
   frames: [
     { ms: 1100, step: 0, target: "save", click: true, s: { edited: true } },
     { ms: 800, step: 0, target: "save", click: true, s: { edited: true } },
-    { ms: 1700, step: 0, target: "save", keys: ["Alt", "Shift", "B"], s: { edited: true } },
+    { ms: 1000, step: 0, cursor: [38, 45], click: true, s: { edited: true } },
+    { ms: 900, step: 0, target: "ctx-brief-it", s: { edited: true, menu: true } },
+    { ms: 900, step: 0, target: "ctx-brief-it", click: true, s: { edited: true, menu: true } },
     { ms: 2400, step: 1, cursor: AT.rest, s: { edited: true, busy: true } },
     { ms: 2200, step: 2, cursor: AT.rest, s: { edited: true, done: true } },
     { ms: 1000, step: 3, target: "trow-0-title", click: true, s: { drafts: true } },
@@ -124,7 +152,9 @@ export const briefit = scene<BriefItS>({
         </MockApp>
       </BrowserFrame>
     ) : (
-      <OnAcme page="profile" acme={{ edited: s.edited }} brief={{ busy: s.busy, badge: s.done ? "✓" : undefined }} />
+      <OnAcme page="profile" acme={{ edited: s.edited }} brief={{ busy: s.busy, badge: s.done ? "✓" : undefined }}>
+        {s.menu && <ContextMenu />}
+      </OnAcme>
     ),
 });
 
