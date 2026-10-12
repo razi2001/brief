@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { UserButton } from "@clerk/nextjs";
 import AppShell from "@/components/AppShell";
-import { SidebarWorkspace } from "@/components/SidebarInfo";
+import { SidebarAdminLink, SidebarWorkspace } from "@/components/SidebarInfo";
 
 /**
  * Shared shell for the authed app (Dashboard / Briefs / Connections). Rendering
@@ -19,6 +19,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         // name arrives.
         <Suspense fallback={<span className="mt-1 block h-4 w-20 animate-pulse rounded bg-white/50" />}>
           <SidebarWorkspace />
+        </Suspense>
+      }
+      navExtra={
+        <Suspense fallback={null}>
+          <SidebarAdminLink />
         </Suspense>
       }
       headerRight={

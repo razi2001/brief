@@ -2,6 +2,8 @@ import { cache } from "react";
 import { getUserId } from "@/lib/auth";
 import { getOrg } from "@/lib/org-server";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { isAdmin } from "@/lib/admin-server";
+import { AdminNavLink } from "@/components/Nav";
 
 /**
  * The workspace line under the wordmark: your team ("Personal" without one).
@@ -17,4 +19,9 @@ const load = cache(async () => {
 export async function SidebarWorkspace() {
   const d = await load();
   return <span className="fade-in mt-1 block truncate text-xs font-medium text-ink-2/60">{d?.org ?? "Personal"}</span>;
+}
+
+/** The owner's All tickets link. Streamed like the workspace line; nothing for anyone else. */
+export async function SidebarAdminLink() {
+  return (await isAdmin()) ? <AdminNavLink /> : null;
 }

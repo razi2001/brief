@@ -13,6 +13,8 @@ type AppShellProps = {
   status?: ReactNode;
   /** Hide the primary Nav (e.g. on sign-in / connect screens). */
   hideNav?: boolean;
+  /** Extra nav items after the fixed ones, e.g. the owner's All tickets link. */
+  navExtra?: ReactNode;
 };
 
 /**
@@ -20,7 +22,7 @@ type AppShellProps = {
  * laid straight on the sky - the clouds drift right behind it, and only the
  * cards are white. Below sm the sidebar folds into a top bar.
  */
-export default function AppShell({ children, headerRight, workspace, status, hideNav = false }: AppShellProps) {
+export default function AppShell({ children, headerRight, workspace, status, hideNav = false, navExtra }: AppShellProps) {
   return (
     <div className="flex min-h-dvh flex-col text-ink sm:flex-row">
       <aside className="sidebar flex shrink-0 items-center gap-3 px-3 py-2.5 sm:sticky sm:top-0 sm:h-dvh sm:w-[248px] sm:flex-col sm:items-stretch sm:gap-0 sm:px-3 sm:py-4">
@@ -35,7 +37,7 @@ export default function AppShell({ children, headerRight, workspace, status, hid
         </Link>
         {!hideNav && (
           <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto sm:mt-7 sm:flex-none sm:overflow-visible">
-            <Nav />
+            <Nav extra={navExtra} />
           </div>
         )}
         {status && <div className="mt-auto hidden sm:block">{status}</div>}
