@@ -281,7 +281,10 @@ export async function azureHasNoOrgs(authorization: string): Promise<boolean> {
     // Documented as Account[], served as { count, value }: accept either.
     const list = Array.isArray(accounts) ? accounts : accounts?.value;
     return Array.isArray(list) && list.length === 0;
-  } catch {
+  } catch (err) {
+    // Status codes only (e.g. "vssps answered 401"): enough to tell a token
+    // vssps refuses from an account that has never opened Azure DevOps.
+    console.warn("[connect] azure organization check failed:", err instanceof Error ? err.message : "unknown error");
     return false;
   }
 }

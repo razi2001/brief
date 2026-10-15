@@ -81,7 +81,10 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
   // callback here. Refuse rather than attaching whatever token came with it,
   // and land on Connections rather than a bare error page. The cookie is left
   // alone, so a forged callback cannot cancel a real flow in progress.
-  if (!state || !flow) return redirectTo(errorUrl(origin, DEFAULT_RETURN, "failed", provider));
+  if (!state || !flow) {
+    console.warn(`[connect] ${provider} callback refused: ${!flow ? "no flow cookie" : "state did not verify"}`);
+    return redirectTo(errorUrl(origin, DEFAULT_RETURN, "failed", provider));
+  }
   const returnTo = safeReturnTo(state.returnTo, origin);
 
   // Trello hands the token back in the URL fragment, which never reaches the
@@ -107,12 +110,23 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
   // The provider's own error text is not passed on: anyone can put anything in
   // this query string, so the page shows its own copy for a code.
   const denied = search.get("error");
-  if (denied) return fail(denied === "access_denied" ? "cancelled" : "failed");
+  if (denied) {
+    // Logged, not shown: the provider's code and description (Entra's AADSTS
+    // numbers live there) are what tells a consent policy from a bad redirect.
+    console.warn(`[connect] ${provider} returned an error: ${logSafe(denied)} ${logSafe(search.get("error_description"))}`);
+    return fail(denied === "access_denied" ? "cancelled" : "failed");
+  }
 
   const code = search.get("code");
-  if (!code) return fail("failed");
+  if (!code) {
+    console.warn(`[connect] ${provider} callback came back without a code`);
+    return fail("failed");
+  }
   if (!isProviderConfigured(provider)) return fail("unavailable");
-  if (usesPkce(provider) && !flow.verifier) return fail("failed");
+  if (usesPkce(provider) && !flow.verifier) {
+    console.warn(`[connect] ${provider} flow cookie has no PKCE verifier`);
+    return fail("failed");
+  }
 
   let token: Token | null;
   try {
@@ -193,6 +207,14 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
  * Notion's the user and the workspace the token was minted for, which saves a
  * profile call for each.
  */
+/**
+ * A query value fit for a log line: printable ASCII only, capped. Anyone can
+ * put anything in a callback URL, so it must not be able to forge log lines.
+ */
+function logSafe(value: string | null): string {
+  return (value ?? "").replace(/[^ -~]/g, " ").slice(0, 300);
+}
+
 async function exchangeCode(
   provider: OwnedProvider,
   code: string,
@@ -409,7 +431,10 @@ async function finish(
     // GitHub only: the org picked for a Clerk connection before the move.
     provider === "github" ? legacyGithubPick(userId).catch(() => null) : Promise.resolve(null),
   ]);
-  const refuse = (code: ConnectError): Outcome => ({ url: errorUrl(origin, returnTo, code, provider), error: code });
+  const refuse = (code: ConnectError): Outcome => {
+    console.warn(`[connect] ${provider} connect refused after the exchange: ${code}`);
+    return { url: errorUrl(origin, returnTo, code, provider), error: code };
+  };
   if (listed === null) return refuse("failed");
   const workspaces = listed;
   // listAzureOrgs reads a failed listing as an empty one, and "no
