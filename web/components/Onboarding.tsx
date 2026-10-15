@@ -6,6 +6,7 @@ import BrandMark from "./BrandMark";
 import StandalonePage, { SHEET } from "./StandalonePage";
 import { TrackerLogo } from "./TrackerLogo";
 import { NOT_AVAILABLE, TRACKER_DEFS, useTrackerConnect } from "./useTrackerConnect";
+import { availableFirst } from "./TrackerPicker";
 import { ROLES, SOURCES } from "@/lib/onboarding-options";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
 
@@ -260,7 +261,7 @@ export default function Onboarding({
             {step === "tracker" && (
               <div className="mt-5 flex flex-col gap-2">
                 {notice && <p className="px-1 text-xs text-[#b54328]">{notice}</p>}
-                {TRACKER_DEFS.map((t) => {
+                {availableFirst(TRACKER_DEFS, TRACKER_DEFS.filter((d) => !isAvailable(d)).map((d) => d.key)).map((t) => {
                   const isBusy = !!busy[t.key];
                   const available = isAvailable(t);
                   // A click-time error wins; otherwise show why the LAST

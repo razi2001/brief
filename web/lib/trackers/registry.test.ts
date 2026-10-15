@@ -1,10 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The Clerk-backed adapters reach for Clerk to vend a token; with no client
-// every one of them reads as "not connected", which is what these tests want
-// unless they say otherwise.
-const clerk = vi.hoisted(() => ({ clerkClient: vi.fn(async () => null) }));
+// Linear, Jira and GitHub fall back to a Clerk token from before their move to
+// Brief's OAuth; with no client every such lookup reads as "not connected",
+// which is what these tests want unless they say otherwise.
+const clerk = vi.hoisted(() => ({ clerkClient: vi.fn<() => Promise<unknown>>(async () => null) }));
 vi.mock("@clerk/nextjs/server", () => clerk);
+
+/** A Clerk client that vends `tokens[strategy]` for the user, as getUserOauthAccessToken does. */
+function clerkVends(tokens: Record<string, string>) {
+  const getUserOauthAccessToken = vi.fn(async (_userId: string, strategy: string) => ({
+    data: tokens[strategy] ? [{ token: tokens[strategy] }] : [],
+  }));
+  clerk.clerkClient.mockResolvedValue({ users: { getUserOauthAccessToken } });
+  return getUserOauthAccessToken;
+}
 
 // The Clerk user (connected accounts) and the owned connection store are the
 // two sources of "connected"; both are stood in for here.
@@ -14,6 +23,7 @@ vi.mock("@/lib/connections", async (importOriginal) => {
   return {
     ...mod,
     getConnection: vi.fn(),
+    readConnection: vi.fn(),
     listConnectedProviders: vi.fn(),
     isProviderConfigured: vi.fn(),
   };
@@ -39,6 +49,7 @@ import { getClerkUser } from "@/lib/clerk-user";
 import {
   OWNED_PROVIDERS,
   getConnection,
+  readConnection,
   isProviderConfigured,
   listConnectedProviders,
   type Connection,
@@ -58,6 +69,8 @@ import type { Tracker } from "@/lib/tracker";
 
 /** The owned connections the store holds for the test user. */
 let store: Partial<Record<OwnedProvider, Connection>> = {};
+/** Rows the store holds but can't use: a refused refresh, a key that won't decrypt. */
+let broken = new Set<OwnedProvider>();
 
 function conn(provider: OwnedProvider, meta: Record<string, string> = {}): Connection {
   return { provider, accessToken: `${provider}-token`, meta };
@@ -65,9 +78,17 @@ function conn(provider: OwnedProvider, meta: Record<string, string> = {}): Conne
 
 beforeEach(() => {
   store = {};
-  clerk.clerkClient.mockClear();
+  clerk.clerkClient.mockReset();
+  clerk.clerkClient.mockImplementation(async () => null);
   vi.mocked(getConnection).mockReset();
   vi.mocked(getConnection).mockImplementation(async (_userId, provider) => store[provider] ?? null);
+  broken = new Set();
+  vi.mocked(readConnection).mockReset();
+  vi.mocked(readConnection).mockImplementation(async (_userId, provider) => {
+    if (broken.has(provider)) return { state: "unusable" };
+    const c = store[provider];
+    return c ? { state: "connected", connection: c } : { state: "absent" };
+  });
   vi.mocked(listConnectedProviders).mockReset();
   vi.mocked(listConnectedProviders).mockImplementation(async () => Object.keys(store) as OwnedProvider[]);
   vi.mocked(getClerkUser).mockReset();
@@ -110,9 +131,9 @@ describe("the registry covers every provider exactly once", () => {
     ]);
   });
 
-  it("gives every Clerk-backed provider a strategy and a match string, and owned ones neither", () => {
+  it("gives Linear, Jira and GitHub a Clerk strategy and match string for accounts from before the move, and no other tracker one", () => {
     for (const def of PROVIDERS) {
-      if (def.auth === "clerk") {
+      if (["linear", "jira", "github"].includes(def.key)) {
         expect(def.clerkStrategy, def.key).toBeTruthy();
         expect(def.clerkMatch, def.key).toBeTruthy();
       } else {
@@ -120,17 +141,17 @@ describe("the registry covers every provider exactly once", () => {
         expect(def.clerkMatch, def.key).toBeUndefined();
       }
     }
+    expect(CLERK_PROVIDERS.map((p) => p.key)).toEqual(["linear", "jira", "github"]);
   });
 
-  it("splits providers between Clerk and the owned store with nothing in both", () => {
-    expect(CLERK_PROVIDERS.map((p) => p.key)).toEqual(["linear", "jira", "github"]);
-    // The owned defs and the connection store must agree, or a connection
-    // could be stored for a tracker the registry never resolves.
-    const owned = PROVIDERS.filter((p) => p.auth === "owned").map((p) => p.key);
-    expect(owned.sort()).toEqual([...OWNED_PROVIDERS].sort());
+  it("keeps every tracker in Brief's connection store, in the same order", () => {
+    // The registry and the store must agree, or a connection could be stored
+    // for a tracker the registry never resolves.
+    expect(PROVIDERS.map((p) => p.key)).toEqual(OWNED_PROVIDERS);
   });
 
   it("only waits on a workspace pick where filing can't happen without one", () => {
+    // Jira waits on its site too, but only when Brief holds it: its own check decides.
     expect(PROVIDERS.filter((p) => p.requiresWorkspace).map((p) => p.key)).toEqual(["azure", "asana"]);
   });
 
@@ -251,12 +272,14 @@ describe("resolveTracker", () => {
     expect(new Set(vi.mocked(getConnection).mock.calls.map(([, p]) => p))).toEqual(new Set(["monday"]));
   });
 
-  it("tries every Clerk-backed tracker when Clerk can't say which are connected", async () => {
+  it("tries every tracker with a Clerk account when Clerk can't say which are connected", async () => {
     vi.mocked(getClerkUser).mockRejectedValue(new Error("clerk down"));
     store.monday = conn("monday");
     expect((await resolveTracker("user_1"))?.kind).toBe("monday");
-    // The Clerk-backed adapters were asked for a token before Monday won.
+    // Linear, Jira and GitHub were tried, Brief's store first and then Clerk,
+    // before Monday won.
     expect(clerk.clerkClient).toHaveBeenCalled();
+    expect(vi.mocked(readConnection).mock.calls.map(([, p]) => p)).toEqual(["linear", "jira", "github"]);
     expect(vi.mocked(getConnection).mock.calls.map(([, p]) => p)).toEqual(["monday"]);
   });
 
@@ -361,7 +384,161 @@ describe("resolveTracker", () => {
   });
 });
 
+describe("Linear, Jira and GitHub during the move off Clerk", () => {
+  /** The first request a tracker makes, with fetch failing so nothing goes further. */
+  async function firstRequest(t: Tracker): Promise<{ url: string; auth: string | null }> {
+    const fetchMock = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await t.listTargets().catch(() => {});
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    return { url: String(url), auth: new Headers(init?.headers).get("authorization") };
+  }
+
+  it.each([
+    ["linear", "api.linear.app/graphql"],
+    ["github", "api.github.com"],
+  ] as const)("files into %s from a connection Brief holds, without asking Clerk", async (key, host) => {
+    store[key] = conn(key);
+    const t = await resolveTracker("user_1", key);
+    expect(t?.kind).toBe(key);
+    expect(clerk.clerkClient).not.toHaveBeenCalled();
+    const req = await firstRequest(t!);
+    expect(req.url).toContain(host);
+    expect(req.auth).toBe(`Bearer ${key}-token`);
+  });
+
+  it.each([
+    ["linear", "oauth_linear", "api.linear.app/graphql"],
+    ["github", "oauth_github", "api.github.com"],
+  ] as const)("keeps filing into %s on the Clerk token from before the move", async (key, strategy, host) => {
+    const vend = clerkVends({ [strategy]: `clerk-${key}` });
+    vi.mocked(getClerkUser).mockResolvedValue({ externalAccounts: [{ provider: strategy }] } as never);
+
+    const t = await resolveTracker("user_1");
+    expect(t?.kind).toBe(key);
+    // Brief's store was asked first, and held nothing.
+    expect(readConnection).toHaveBeenCalledWith("user_1", key);
+    expect(vend).toHaveBeenCalledWith("user_1", strategy);
+    const req = await firstRequest(t!);
+    expect(req.url).toContain(host);
+    expect(req.auth).toBe(`Bearer clerk-${key}`);
+  });
+
+  it("prefers a connection Brief holds over a Clerk account for the same tracker", async () => {
+    const vend = clerkVends({ oauth_linear: "clerk-linear" });
+    vi.mocked(getClerkUser).mockResolvedValue({ externalAccounts: [{ provider: "oauth_linear" }] } as never);
+    store.linear = conn("linear");
+
+    const t = await resolveTracker("user_1");
+    expect((await firstRequest(t!)).auth).toBe("Bearer linear-token");
+    expect(vend).not.toHaveBeenCalled();
+  });
+
+  it("files a Brief-held Jira into the picked site, through Atlassian's gateway", async () => {
+    store.jira = conn("jira", { workspaceId: "cloud-2", workspaceName: "beta", siteUrl: "https://beta.atlassian.net" });
+    const t = await resolveTracker("user_1", "jira");
+    expect(t?.kind).toBe("jira");
+    const req = await firstRequest(t!);
+    expect(req.url).toContain("https://api.atlassian.com/ex/jira/cloud-2/rest/api/3/");
+    expect(req.auth).toBe("Bearer jira-token");
+    expect(clerk.clerkClient).not.toHaveBeenCalled();
+  });
+
+  it("asks for the Jira site of a Brief-held connection rather than a reconnect", async () => {
+    store.jira = conn("jira");
+    expect(await checkTracker("user_1", "jira")).toEqual({ tracker: null, problem: "needsWorkspace" });
+    expect((await trackerStatus("user_1")).issue).toBe("Pick your Jira site under Settings, then retry.");
+    expect(await checkTrackerHealth("user_1", ["jira"])).toEqual({
+      stale: [],
+      needsWorkspace: ["jira"],
+      unavailable: [],
+    });
+    // The Clerk account a Brief connect replaced is not looked for.
+    expect(clerk.clerkClient).not.toHaveBeenCalled();
+  });
+
+  it("keeps a Clerk-held Jira on its token's first site, as before the move", async () => {
+    clerkVends({ oauth_atlassian: "clerk-jira" });
+    vi.mocked(getClerkUser).mockResolvedValue({ externalAccounts: [{ provider: "oauth_atlassian" }] } as never);
+    const fetchMock = vi.fn(async () =>
+      Response.json([
+        { id: "cloud-1", url: "https://acme.atlassian.net", name: "acme" },
+        { id: "cloud-2", url: "https://beta.atlassian.net", name: "beta" },
+      ]),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = await resolveTracker("user_1");
+    expect(t?.kind).toBe("jira");
+    expect(String((fetchMock.mock.calls[0] as unknown as [string])[0])).toContain("accessible-resources");
+    expect((await firstRequest(t!)).url).toContain("/ex/jira/cloud-1/");
+  });
+
+  it("keeps the JIRA_API_TOKEN test account working when nothing else holds Jira", async () => {
+    vi.stubEnv("JIRA_API_TOKEN", "api-token");
+    vi.stubEnv("JIRA_EMAIL", "qa@example.com");
+    vi.stubEnv("JIRA_SITE", "https://qa.atlassian.net/");
+    const t = await resolveTracker("user_1", "jira");
+    expect(t?.kind).toBe("jira");
+    const req = await firstRequest(t!);
+    expect(req.url).toContain("https://qa.atlassian.net/rest/api/3/");
+    expect(req.auth).toBe(`Basic ${Buffer.from("qa@example.com:api-token").toString("base64")}`);
+  });
+
+  it("calls a Brief-held connection whose token is gone stale, even with Clerk down", async () => {
+    vi.mocked(getClerkUser).mockRejectedValue(new Error("clerk down"));
+    // The row lists, but its refresh was refused; there is no Clerk token either.
+    vi.mocked(listConnectedProviders).mockResolvedValue(["linear"]);
+    expect((await trackerStatus("user_1")).issue).toBe(
+      "Your Linear connection has expired - reconnect it under Settings, then retry.",
+    );
+  });
+
+  it("never calls one of the three unavailable, since a Clerk connect is still offered without Brief's app", async () => {
+    vi.mocked(isProviderConfigured).mockReturnValue(false);
+    vi.mocked(listConnectedProviders).mockResolvedValue(["github"]);
+    expect(await checkTracker("user_1", "github")).toEqual({ tracker: null, problem: "stale" });
+  });
+});
+
+describe("a Brief row decides, even when it can't be used", () => {
+  it.each([
+    ["linear", "oauth_linear"],
+    ["github", "oauth_github"],
+    ["jira", "oauth_atlassian"],
+  ] as const)("calls %s stale rather than fall back to a Clerk token when its Brief row can't be used", async (key, strategy) => {
+    const vend = clerkVends({ [strategy]: `clerk-${key}` });
+    vi.mocked(getClerkUser).mockResolvedValue({ externalAccounts: [{ provider: strategy }] } as never);
+    vi.mocked(listConnectedProviders).mockResolvedValue([key]);
+    broken.add(key);
+
+    expect(await checkTracker("user_1", key)).toEqual({ tracker: null, problem: "stale" });
+    expect(await resolveTracker("user_1")).toBeNull();
+    expect((await trackerStatus("user_1")).issue).toContain("connection has expired");
+    expect(vend).not.toHaveBeenCalled();
+  });
+
+  it("never files a Jira whose Brief row can't be used through the JIRA_API_TOKEN test account", async () => {
+    vi.stubEnv("JIRA_API_TOKEN", "api-token");
+    vi.stubEnv("JIRA_EMAIL", "qa@example.com");
+    vi.stubEnv("JIRA_SITE", "https://qa.atlassian.net/");
+    broken.add("jira");
+    expect(await checkTracker("user_1", "jira")).toEqual({ tracker: null, problem: "stale" });
+  });
+});
+
 describe("connectedTrackers", () => {
+  it("counts a tracker connected through Brief, through Clerk, or both, once", async () => {
+    vi.mocked(getClerkUser).mockResolvedValue({
+      externalAccounts: [{ provider: "oauth_linear" }, { provider: "oauth_github" }],
+    } as never);
+    store.linear = conn("linear");
+    store.jira = conn("jira");
+    expect(await connectedTrackers("user_1")).toEqual(["linear", "jira", "github"]);
+  });
+
   it("merges Clerk accounts and owned connections, in registry order", async () => {
     vi.mocked(getClerkUser).mockResolvedValue({
       externalAccounts: [

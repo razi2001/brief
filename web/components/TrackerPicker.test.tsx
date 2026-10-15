@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import TrackerPicker, { menuPlacement } from "./TrackerPicker";
+import TrackerPicker, { availableFirst, menuPlacement } from "./TrackerPicker";
 
 // The real option list lives beside the connect hook, which imports Clerk.
 vi.mock("@clerk/nextjs", () => ({ useUser: vi.fn(), useReverification: vi.fn() }));
@@ -354,5 +354,42 @@ describe("menu placement", () => {
     const list = screen.getByRole("listbox");
     expect(container.contains(list)).toBe(false);
     expect(list.parentElement).toBe(document.body);
+  });
+});
+
+// The trackers someone can actually connect come first; "Soon" ones follow,
+// each group keeping the registry order.
+describe("available trackers first", () => {
+  it("moves unavailable trackers after the others, keeping each group's order", () => {
+    const keys = availableFirst(OPTIONS, ["gitlab", "clickup", "monday"]).map((o) => o.key);
+    expect(keys).toEqual(["linear", "jira", "github", "azure", "notion", "trello", "asana", "gitlab", "clickup", "monday"]);
+  });
+
+  it("leaves the order alone when everything is available", () => {
+    expect(availableFirst(OPTIONS, []).map((o) => o.key)).toEqual(OPTIONS.map((o) => o.key));
+  });
+
+  it("lists the menu in that order", () => {
+    render(
+      <TrackerPicker
+        options={OPTIONS}
+        connected="github"
+        stale={[]}
+        unavailable={["gitlab", "clickup", "notion", "trello", "asana", "monday"]}
+        busy={{}}
+        defaultOpen
+        messageFor={() => null}
+        onConnect={() => {}}
+        onDisconnect={() => {}}
+      />,
+    );
+    const names = screen.getAllByRole("option").map((o) => o.textContent ?? "");
+    expect(names.slice(0, 4).map((n) => n.split(/connected|Soon|Not available/)[0].trim())).toEqual([
+      "Linear",
+      "Jira",
+      "GitHub",
+      "Azure DevOps",
+    ]);
+    expect(names.slice(4).every((n) => n.includes("Soon"))).toBe(true);
   });
 });

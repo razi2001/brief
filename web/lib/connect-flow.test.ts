@@ -226,9 +226,10 @@ describe("flow cookie", () => {
     expect(readFlowCookie(req({ cookie: `${FLOW_COOKIE}=${value}` }))).toBeNull();
   });
 
-  it("is only used for PKCE on Azure DevOps, Asana, GitLab and monday", () => {
-    for (const p of ["azure", "asana", "gitlab", "monday"] as const) expect(usesPkce(p)).toBe(true);
-    for (const p of ["clickup", "notion", "trello"] as const) expect(usesPkce(p)).toBe(false);
+  it("is only used for PKCE on Linear, GitHub, Azure DevOps, Asana, GitLab and monday", () => {
+    for (const p of ["linear", "github", "azure", "asana", "gitlab", "monday"] as const) expect(usesPkce(p)).toBe(true);
+    // Atlassian documents no PKCE for its 3LO flow.
+    for (const p of ["jira", "clickup", "notion", "trello"] as const) expect(usesPkce(p)).toBe(false);
   });
 
   it("derives the S256 challenge from the verifier", () => {

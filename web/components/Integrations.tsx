@@ -8,10 +8,11 @@ import type { ProviderKey } from "./provider-labels";
 
 /**
  * The Settings page's issue tracker section. Connections are managed here
- * rather than through the `<UserProfile/>` "Connected accounts" panel: Clerk
- * trackers through the Clerk client API, the rest through Brief's own OAuth
- * routes. The connect/disconnect logic lives in useTrackerConnect (shared with
- * the onboarding wizard); TrackerPicker is the card over it.
+ * rather than through the `<UserProfile/>` "Connected accounts" panel: through
+ * Brief's own OAuth routes, and for Linear, Jira and GitHub on a deployment
+ * without Brief's app for them, through the Clerk client API. The
+ * connect/disconnect logic lives in useTrackerConnect (shared with the
+ * onboarding wizard); TrackerPicker is the card over it.
  */
 
 function SkeletonCard() {
@@ -62,6 +63,7 @@ export default function Integrations() {
     setTrackerError,
     isConnected,
     isAvailable,
+    connectedAccount,
     pendingAccount,
     pendingError,
     connect,
@@ -93,9 +95,10 @@ export default function Integrations() {
     setTrackerError(key, "");
     setNeedsAccount((m) => ({ ...m, [key]: false }));
     const ok = await disconnect(t);
-    // Fall back to the account page, where Clerk's own UI can finish the job.
-    // An owned tracker has no such page; the hook already set its error.
-    if (!ok && t.auth === "clerk") setNeedsAccount((m) => ({ ...m, [key]: true }));
+    // A Clerk account left from before the move can still be removed on the
+    // account page, where Clerk's own UI can finish the job. Nothing else has
+    // such a page; the hook already set its error.
+    if (!ok && connectedAccount(t.providerMatch)) setNeedsAccount((m) => ({ ...m, [key]: true }));
   }
 
   function messageFor(key: ProviderKey): ReactNode {

@@ -1,21 +1,43 @@
 // App-owned tracker connections: the OAuth dance and encrypted token store for
-// every tracker whose token Clerk does not hold (GitLab, Azure DevOps, ClickUp,
-// Notion, Trello, Asana, Monday).
+// every tracker Brief files into.
 //
-// Everything Clerk-backed (Linear, Jira, GitHub) stays on
-// getUserOauthAccessToken and never touches this file. The two paths meet only
-// at the registry, which hands the rest of the app a Tracker either way.
+// Linear, Jira and GitHub used to be Clerk connected accounts. They moved here,
+// and someone who connected one through Clerk before the move keeps filing on
+// that Clerk token until they reconnect: lib/tracker-tokens reads this store
+// first and Clerk second for those three. Past it and the registry, nothing
+// needs to know which one a token came from.
 
 import { cache } from "react";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { decryptToken, encryptToken } from "@/lib/crypto";
 import type { ProviderKey, Workspace } from "@/lib/tracker";
 
-/** Providers whose tokens we own. The rest come from Clerk. */
-export type OwnedProvider = "gitlab" | "azure" | "clickup" | "notion" | "trello" | "asana" | "monday";
+/** Providers whose tokens we own: all ten. */
+export type OwnedProvider =
+  | "linear"
+  | "jira"
+  | "github"
+  | "gitlab"
+  | "azure"
+  | "clickup"
+  | "notion"
+  | "trello"
+  | "asana"
+  | "monday";
 
 /** In the registry's order, which the Connections page lists them in. */
-export const OWNED_PROVIDERS: OwnedProvider[] = ["gitlab", "azure", "clickup", "notion", "trello", "asana", "monday"];
+export const OWNED_PROVIDERS: OwnedProvider[] = [
+  "linear",
+  "jira",
+  "github",
+  "gitlab",
+  "azure",
+  "clickup",
+  "notion",
+  "trello",
+  "asana",
+  "monday",
+];
 
 export function isOwnedProvider(p: string): p is OwnedProvider {
   return (OWNED_PROVIDERS as string[]).includes(p);
@@ -130,10 +152,11 @@ export type OwnedSpec = {
   tokenBody?: (params: { code: string; redirectUri: string }) => Record<string, string>;
   /**
    * How the token endpoint takes the app's credentials: client_id and
-   * client_secret beside the grant's fields (the default), or HTTP Basic with
-   * a JSON body, the only form Notion accepts.
+   * client_secret beside the grant's fields in a form body (the default), the
+   * same fields in a JSON body (Atlassian), or HTTP Basic with a JSON body,
+   * the only form Notion accepts.
    */
-  tokenAuth?: "body" | "basic-json";
+  tokenAuth?: "body" | "json-body" | "basic-json";
   /** False keeps the scope off token requests; it is still sent to authorize. */
   tokenScope?: boolean;
   /** Send redirect_uri on a refresh as well as on the code exchange. */
@@ -141,6 +164,56 @@ export type OwnedSpec = {
 };
 
 export const OWNED_SPECS: Record<OwnedProvider, OwnedSpec> = {
+  linear: {
+    authorizeUrl: "https://linear.app/oauth/authorize",
+    tokenUrl: "https://api.linear.app/oauth/token",
+    clientId: () => process.env.LINEAR_CLIENT_ID,
+    clientSecret: () => process.env.LINEAR_CLIENT_SECRET,
+    // Linear separates scopes with commas. `write` covers everything filing
+    // does: creating and updating issues, comments and attachment uploads.
+    scope: "read,write",
+    // Linear otherwise skips its consent screen for an app the user already
+    // granted, so a reconnect could never move Brief to another workspace.
+    authorizeExtra: { prompt: "consent" },
+    // The grant already holds the scope; Linear's token requests do not take
+    // it. Its access tokens last a day and each refresh rotates the refresh
+    // token, which refresh() handles like GitLab's.
+    tokenScope: false,
+  },
+  jira: {
+    authorizeUrl: "https://auth.atlassian.com/authorize",
+    tokenUrl: "https://auth.atlassian.com/oauth/token",
+    clientId: () => process.env.JIRA_CLIENT_ID,
+    clientSecret: () => process.env.JIRA_CLIENT_SECRET,
+    // Classic scopes, which Atlassian recommends wherever one exists: reading
+    // projects, fields, issues and searches; filing and editing issues with
+    // their comments, attachments and transitions; finding someone to assign.
+    // offline_access is what makes Atlassian issue a refresh token at all.
+    scope: "read:jira-work write:jira-work read:jira-user offline_access",
+    // The audience names the API the token is for. Atlassian's 3LO flow
+    // requires prompt=consent on every authorize call.
+    authorizeExtra: { audience: "api.atlassian.com", prompt: "consent" },
+    // Atlassian wants a JSON body with the app's credentials inside it, and
+    // rotates the refresh token on every use.
+    tokenAuth: "json-body",
+    tokenScope: false,
+  },
+  github: {
+    // A GitHub OAuth App, not a GitHub App: an OAuth App acts as the user
+    // across every repository they can reach, which is what filing needs.
+    authorizeUrl: "https://github.com/login/oauth/authorize",
+    tokenUrl: "https://github.com/login/oauth/access_token",
+    clientId: () => process.env.GITHUB_CLIENT_ID,
+    clientSecret: () => process.env.GITHUB_CLIENT_SECRET,
+    // Filing is a write to a repository, and `repo` is the narrowest classic
+    // scope that reaches private repositories as well as public ones.
+    // read:user names the account on the card.
+    scope: "repo read:user",
+    // GitHub's token endpoint takes no scope. Apps registered since August
+    // 2026 issue eight-hour tokens with a refresh token by default; older ones
+    // issue tokens that never expire. refresh() handles both.
+    tokenScope: false,
+  },
   gitlab: {
     // gitlab.com only: self-managed GitLab would need a host per user.
     authorizeUrl: "https://gitlab.com/oauth/authorize",
@@ -279,6 +352,10 @@ export function requestToken(spec: OwnedSpec, grant: Record<string, string>): Pr
   // Asana with no ASANA_SCOPES has no scope to send, and an empty scope param
   // is not the same as none to every provider.
   if (spec.scope && spec.tokenScope !== false) fields.scope = spec.scope;
+  if (spec.tokenAuth === "json-body") {
+    headers["Content-Type"] = "application/json";
+    return fetch(url.toString(), { method: "POST", headers, body: JSON.stringify(fields) });
+  }
   headers["Content-Type"] = "application/x-www-form-urlencoded";
   return fetch(url.toString(), { method: "POST", headers, body: new URLSearchParams(fields) });
 }
@@ -443,10 +520,10 @@ function stillUsable(row: Row): string | null {
 
 /**
  * The access token another refresh stored after `row` was read, when it is
- * still live, else null. GitLab and monday rotate refresh tokens and revoke the
- * old one on use, so of two refreshes racing on one row from two server machines, the
- * second is refused although the connection is fine. Read once: this rescues
- * a lost race, it is not a retry.
+ * still live, else null. GitLab, monday, Linear, Jira and GitHub rotate
+ * refresh tokens and retire the old one on use, so of two refreshes racing on
+ * one row from two server machines, the second can be refused although the
+ * connection is fine. Read once: this rescues a lost race, it is not a retry.
  */
 async function refreshedElsewhere(userId: string, row: Row): Promise<string | null> {
   const { data, error } = await createAdminSupabase()
@@ -481,7 +558,16 @@ async function refresh(userId: string, row: Row): Promise<string | null> {
       if (origin) grant.redirect_uri = redirectUri(origin, provider);
     }
     const r = await requestToken(spec, grant);
-    if (!r.ok) {
+    const j = r.ok
+      ? ((await r.json()) as {
+          access_token?: string;
+          refresh_token?: string;
+          expires_in?: number;
+        })
+      : null;
+    // GitHub refuses a refresh with a 200 whose body names the error, so a
+    // reply without a token is a refusal whatever its status.
+    if (!j?.access_token) {
       const rotated = await refreshedElsewhere(userId, row);
       if (rotated) return rotated;
       // Usually a revoked grant. The status alone says so; the body is never
@@ -489,12 +575,6 @@ async function refresh(userId: string, row: Row): Promise<string | null> {
       console.warn(`[connections] ${provider} refused the token refresh: ${r.status}`);
       return null;
     }
-    const j = (await r.json()) as {
-      access_token?: string;
-      refresh_token?: string;
-      expires_in?: number;
-    };
-    if (!j.access_token) return null;
 
     // Only the token columns, and only on a row that still exists. The token
     // request is a network round trip; meanwhile the user may have disconnected
@@ -507,8 +587,9 @@ async function refresh(userId: string, row: Row): Promise<string | null> {
       expires_at: j.expires_in ? new Date(Date.now() + j.expires_in * 1000).toISOString() : null,
       updated_at: new Date().toISOString(),
     };
-    // Entra, GitLab and monday rotate refresh tokens and Asana never sends a new one;
-    // the column is only touched when a new one comes back.
+    // Entra, GitLab, monday, Linear, Jira and GitHub rotate refresh tokens and
+    // Asana never sends a new one; the column is only touched when a new one
+    // comes back.
     if (j.refresh_token) patch.refresh_token_enc = encryptToken(j.refresh_token, k);
     const { error } = await createAdminSupabase()
       .from("tracker_connections")
@@ -551,15 +632,23 @@ function refreshOnce(userId: string, row: Row): Promise<string | null> {
 }
 
 /**
- * The single accessor for an owned connection. Decrypts, refreshes when the
- * token is expiring, and returns null (rather than throwing) when the user
- * simply hasn't connected this provider - the same "no tracker connected"
- * shape the Clerk path degrades to.
+ * What the store holds for one provider, told apart: a live connection, no row
+ * at all, or a row that can't be used right now (its refresh was refused, it
+ * won't decrypt, or the store couldn't be read to say). Linear, Jira and
+ * GitHub fall back to a Clerk account from before their move only on
+ * `absent`: a Brief row, even a broken one, means the user moved off Clerk,
+ * and the old Clerk token could file into another workspace.
  */
-export async function getConnection(
-  userId: string,
-  provider: OwnedProvider,
-): Promise<Connection | null> {
+export type ConnectionRead =
+  | { state: "connected"; connection: Connection }
+  | { state: "absent" }
+  | { state: "unusable" };
+
+/**
+ * The single accessor for an owned connection. Decrypts, refreshes when the
+ * token is expiring, and never throws.
+ */
+export async function readConnection(userId: string, provider: OwnedProvider): Promise<ConnectionRead> {
   try {
     const admin = createAdminSupabase();
     const { data, error } = await admin
@@ -570,19 +659,29 @@ export async function getConnection(
       .maybeSingle();
     // An outage is not "not connected"; throw so the catch logs it.
     if (error) throw new Error(error.message);
-    if (!data) return null;
+    if (!data) return { state: "absent" };
     const row = data as Row;
 
     const token = isExpiring(row.expires_at)
       ? ((await refreshOnce(userId, row)) ?? stillUsable(row))
       : decryptToken(row.access_token_enc, key());
-    if (!token) return null;
+    if (!token) return { state: "unusable" };
 
-    return { provider, accessToken: token, meta: row.account_meta ?? {} };
+    return { state: "connected", connection: { provider, accessToken: token, meta: row.account_meta ?? {} } };
   } catch (err) {
-    // A database outage or an undecryptable row (wrong CONNECTIONS_KEY) reads
-    // as "not connected" to the caller, so say which it was here.
+    // A database outage or an undecryptable row (wrong CONNECTIONS_KEY) can't
+    // be used, so say which it was here.
     console.warn(`[connections] could not read the ${provider} connection:`, errorMessage(err));
-    return null;
+    return { state: "unusable" };
   }
+}
+
+/**
+ * readConnection for callers that only need a live connection: null when the
+ * user simply hasn't connected this provider and when the row can't be used,
+ * the same "no tracker connected" shape the Clerk fallback degrades to.
+ */
+export async function getConnection(userId: string, provider: OwnedProvider): Promise<Connection | null> {
+  const read = await readConnection(userId, provider);
+  return read.state === "connected" ? read.connection : null;
 }

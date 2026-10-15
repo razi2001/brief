@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { NextRequest } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import {
   OWNED_SPECS,
   deleteConnection,
@@ -32,8 +32,11 @@ import {
   usesPkce,
   type ConnectError,
 } from "@/lib/connect-flow";
-import { CLERK_PROVIDERS } from "@/lib/trackers/registry";
-import { forgetWorkspaces } from "@/lib/workspaces";
+import { removeClerkTrackers } from "@/lib/clerk-trackers";
+import { forgetLegacyGithubPick, forgetWorkspaces, legacyGithubPick } from "@/lib/workspaces";
+import { getLinearOrg } from "@/lib/linear";
+import { listJiraSites } from "@/lib/jira";
+import { listGithubOrgs } from "@/lib/github";
 import { listGitlabGroups } from "@/lib/gitlab";
 import { listAzureOrgs } from "@/lib/azure";
 import { clickupAuthHeader, listClickUpWorkspaces } from "@/lib/clickup";
@@ -243,11 +246,27 @@ async function exchangeCode(
 
 /**
  * Every workspace the new token can see, through the adapter's own lister.
- * Notion's token is minted for one workspace, and the reply already named it.
+ * Notion's token is minted for one workspace, and the reply already named it,
+ * and a Linear token belongs to one workspace, its organization. Null when the
+ * listing failed and that must not read as none (Jira, which cannot file
+ * without a site).
  */
-function listWorkspaces(provider: OwnedProvider, token: Token): Promise<Workspace[]> {
+async function listWorkspaces(provider: OwnedProvider, token: Token): Promise<Workspace[] | null> {
   const { accessToken } = token;
   switch (provider) {
+    case "linear": {
+      // Read for the org alone: Linear files without it, so a failed read
+      // costs nothing but the org until the next lookup asks the token.
+      const org = await getLinearOrg({ token: accessToken }).catch(() => null);
+      return org ? [org] : [];
+    }
+    case "jira":
+      return listJiraSites(accessToken).catch(() => null);
+    case "github": {
+      // The login is the org's identity on GitHub, so it is both id and name.
+      const orgs = await listGithubOrgs({ token: accessToken });
+      return orgs.map((o) => ({ id: o.login, name: o.login, avatarUrl: o.avatarUrl }));
+    }
     case "gitlab":
       return listGitlabGroups({ token: accessToken });
     case "notion":
@@ -277,6 +296,27 @@ async function accountDetails(provider: OwnedProvider, accessToken: string): Pro
   };
   try {
     switch (provider) {
+      case "linear": {
+        const j = await getJson<{ data?: { viewer?: { name?: string; displayName?: string } } }>(
+          "https://api.linear.app/graphql",
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ query: "query { viewer { name displayName } }" }),
+          },
+        );
+        return label(j?.data?.viewer?.name || j?.data?.viewer?.displayName);
+      }
+      case "github": {
+        const me = await getJson<{ name?: string | null; login?: string }>("https://api.github.com/user", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        });
+        return label(me?.name || me?.login);
+      }
       case "gitlab": {
         const me = await getJson<{ name?: string; username?: string }>("https://gitlab.com/api/v4/user", {
           headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
@@ -320,6 +360,10 @@ async function accountDetails(provider: OwnedProvider, accessToken: string): Pro
       case "notion":
         // Already in the token reply.
         return {};
+      case "jira":
+        // The site names the card. Atlassian asks apps to keep no profile
+        // data they don't need, and this card doesn't need the user's.
+        return {};
     }
   } catch (err) {
     console.warn(`[connect] could not read the ${provider} account:`, errorName(err));
@@ -338,16 +382,17 @@ function label(value: string | undefined): Record<string, string> {
 /**
  * Store a new connection and make it the user's only tracker.
  *
- * One workspace is pinned straight away; several are left for the user to
- * pick on Connections. None is fine where filing needs no workspace (GitLab
- * files to personal projects too; the user just has no org). Some tokens are
- * refused before anything is stored, so the user keeps their current tracker:
- * Azure DevOps without an organization (there is no API host without one),
- * Asana without a workspace (every call is scoped to one), a Trello token
- * that cannot read its own member (it does not work, whatever the relay was
- * handed), and a Notion reply that names no workspace id (the id is the org
- * key, and a name alone is neither unique nor stable). A switch whose cleanup
- * fails is rolled back, so the user keeps their current tracker then too.
+ * One workspace is pinned straight away; of several, a reconnect keeps the one
+ * it had and the rest are left for the user to pick on Connections. None is fine where filing needs no workspace (GitLab
+ * files to personal projects too, GitHub to personal repositories; the user
+ * just has no org). Some tokens are refused before anything is stored, so the
+ * user keeps their current tracker: Azure DevOps without an organization
+ * (there is no API host without one), Jira and Asana without a site or
+ * workspace (every call is scoped to one), a Trello token that cannot read its
+ * own member (it does not work, whatever the relay was handed), and a Notion
+ * reply that names no workspace id (the id is the org key, and a name alone is
+ * neither unique nor stable). A switch whose cleanup fails is rolled back, so
+ * the user keeps their current tracker then too.
  */
 async function finish(
   origin: string,
@@ -356,31 +401,37 @@ async function finish(
   returnTo: string,
   token: Token,
 ): Promise<Outcome> {
-  const [workspaces, details] = await Promise.all([
+  const [listed, details, existing, legacy] = await Promise.all([
     listWorkspaces(provider, token),
     accountDetails(provider, token.accessToken),
+    // The row a reconnect replaces, if any. A read failure counts as none.
+    readConnectionMeta(userId, provider).catch(() => null),
+    // GitHub only: the org picked for a Clerk connection before the move.
+    provider === "github" ? legacyGithubPick(userId).catch(() => null) : Promise.resolve(null),
   ]);
   const refuse = (code: ConnectError): Outcome => ({ url: errorUrl(origin, returnTo, code, provider), error: code });
+  if (listed === null) return refuse("failed");
+  const workspaces = listed;
   // listAzureOrgs reads a failed listing as an empty one, and "no
   // organization" would send the user off to create one they already have.
   if (provider === "azure" && workspaces.length === 0) {
     return refuse((await azureHasNoOrgs(`Bearer ${token.accessToken}`)) ? "no_org" : "failed");
   }
-  if (provider === "asana" && workspaces.length === 0) return refuse("no_workspace");
+  if ((provider === "jira" || provider === "asana") && workspaces.length === 0) return refuse("no_workspace");
   if (provider === "trello" && !details.memberId) return refuse("failed");
   if (provider === "notion" && workspaces.length === 0) return refuse("failed");
 
   const meta: Record<string, string> = { ...details, ...label(token.label) };
-  if (workspaces.length === 1) {
-    meta.workspaceId = workspaces[0].id;
-    meta.workspaceName = workspaces[0].name;
+  const pinned = workspaces.length === 1 ? workspaces[0] : keptPick(provider, workspaces, existing, legacy);
+  if (pinned) {
+    meta.workspaceId = pinned.id;
+    meta.workspaceName = pinned.name;
+    // A Jira site's address: every Jira link is built from it.
+    if (pinned.url) meta.siteUrl = pinned.url;
   }
   // A reconnect of the same tracker overwrites its row in place, so there is
   // no earlier row to fall back to and a rollback must not delete it.
-  const reconnect = await readConnectionMeta(userId, provider).then(
-    (m) => m !== null,
-    () => false,
-  );
+  const reconnect = existing !== null;
   await saveConnection(userId, provider, {
     accessToken: token.accessToken,
     refreshToken: token.refreshToken,
@@ -400,23 +451,58 @@ async function finish(
     if (!reconnect) await rollBack(userId, provider);
     return refuse("failed");
   }
+  // The Clerk-era GitHub pick now lives on the connection. One the new token
+  // could not see (or could not list) stays in Clerk, for Settings to check
+  // again (lib/workspaces).
+  if (legacy && pinned && sameWorkspace(provider, pinned.id, legacy.id)) await forgetLegacyGithubPick(userId);
 
-  if (workspaces.length > 1) return { url: pickUrl(origin, provider) };
+  if (!pinned && workspaces.length > 1) return { url: pickUrl(origin, provider) };
   return { url: connectedUrl(origin, returnTo, provider) };
+}
+
+/** GitHub logins are case-insensitive upstream; every other id is opaque. */
+function sameWorkspace(provider: OwnedProvider, a: string, b: string): boolean {
+  return provider === "github" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/**
+ * Which of several workspaces to keep without asking: the one this connection
+ * already had, when a reconnect still sees it, else (GitHub) the org picked for
+ * its Clerk connection before the move, when the new token sees that. Only a
+ * workspace the new listing holds is ever kept, so a pick is still proven by
+ * the token it is stored with. Null leaves the choice to the user.
+ */
+function keptPick(
+  provider: OwnedProvider,
+  workspaces: Workspace[],
+  existing: Record<string, string> | null,
+  legacy: Workspace | null,
+): Workspace | null {
+  for (const want of [existing?.workspaceId, legacy?.id]) {
+    // The listing spells the id as the tracker does.
+    const found = want ? workspaces.find((w) => sameWorkspace(provider, w.id, want)) : undefined;
+    if (found) return found;
+  }
+  return null;
 }
 
 /**
  * Brief files into ONE tracker. Runs only after the save, so a failed connect
  * leaves the previous tracker in place. The browser removes nothing before an
- * owned flow starts, so this is where the previous tracker goes, Clerk-backed
- * ones included. False when anything could not be removed.
+ * owned flow starts, so this is where the previous tracker goes, Clerk ones
+ * included. That covers this provider's own Clerk account too: someone moving
+ * Linear from Clerk to Brief leaves no Clerk Linear account behind. False when
+ * anything could not be removed.
  *
  * Clerk goes first: it is the remote call more likely to fail, and a failure
  * there leaves every owned row as it was. The database just took the save, so
  * the owned delete after it rarely fails.
  */
 async function makeOnlyTracker(userId: string, provider: OwnedProvider): Promise<boolean> {
-  if (!(await dropClerkTrackers(userId))) return false;
+  // An account kept as the user's only way to sign in is logged there; the
+  // switch goes ahead without it.
+  const clerk = await removeClerkTrackers(userId);
+  if (clerk !== "done" && clerk !== "kept") return false;
   try {
     await deleteOtherConnections(userId, provider);
     return true;
@@ -432,37 +518,6 @@ async function rollBack(userId: string, provider: OwnedProvider): Promise<void> 
     await deleteConnection(userId, provider);
   } catch (err) {
     console.warn(`[connect] could not roll back the ${provider} connection:`, errorName(err));
-  }
-}
-
-/**
- * Remove the user's Clerk-connected tracker accounts (Linear, Jira, GitHub),
- * matched on each Clerk tracker's provider string. False when the user could
- * not be read or an account could not be removed.
- *
- * This relies on every Clerk tracker connection being connect-only
- * (`authenticatable: false`) on both Clerk instances, with Google the only
- * social sign-in: deleting one of these accounts can then never remove a way
- * to sign in. A tracker connection ever enabled for sign-in would break that.
- */
-async function dropClerkTrackers(userId: string): Promise<boolean> {
-  // An empty match would match every account, sign-in ones included.
-  const matches = CLERK_PROVIDERS.map((d) => (d.clerkMatch ?? "").toLowerCase()).filter(Boolean);
-  if (!matches.length) return true;
-  try {
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
-    const trackers = (user.externalAccounts ?? []).filter((a) => {
-      const p = (a.provider ?? "").toLowerCase();
-      return matches.some((m) => p.includes(m));
-    });
-    for (const account of trackers) {
-      await client.users.deleteUserExternalAccount({ userId, externalAccountId: account.id });
-    }
-    return true;
-  } catch (err) {
-    console.warn("[connect] could not remove the Clerk tracker accounts:", errorName(err));
-    return false;
   }
 }
 

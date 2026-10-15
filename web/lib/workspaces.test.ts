@@ -27,12 +27,15 @@ vi.mock("@/lib/connections", async (importOriginal) => {
   return {
     ...mod,
     getConnection: vi.fn(),
+    readConnection: vi.fn(),
     readConnectionMeta: vi.fn(),
     setConnectionMeta: vi.fn(async () => undefined),
   };
 });
 
 vi.mock("@/lib/github", () => ({ getGithubToken: vi.fn(), listGithubOrgs: vi.fn() }));
+vi.mock("@/lib/jira", () => ({ listJiraSites: vi.fn(), getJiraAuth: vi.fn(), getJiraCloud: vi.fn() }));
+vi.mock("@/lib/linear", () => ({ getLinearToken: vi.fn() }));
 vi.mock("@/lib/gitlab", () => ({ listGitlabGroups: vi.fn() }));
 vi.mock("@/lib/notion", () => ({ listNotionWorkspaces: vi.fn() }));
 vi.mock("@/lib/azure", () => ({ listAzureOrgs: vi.fn() }));
@@ -43,9 +46,11 @@ vi.mock("@/lib/monday", () => ({ listMondayAccount: vi.fn() }));
 
 import {
   WORKSPACE_NOUN,
+  forgetLegacyGithubPick,
   forgetWorkspaces,
   getPickedWorkspace,
   hasWorkspacePick,
+  legacyGithubPick,
   listWorkspaces,
   setPickedWorkspace,
   workspacesToPick,
@@ -53,12 +58,14 @@ import {
 import { getClerkUser } from "@/lib/clerk-user";
 import {
   getConnection,
+  readConnection,
   readConnectionMeta,
   setConnectionMeta,
   type Connection,
   type OwnedProvider,
 } from "@/lib/connections";
 import { getGithubToken, listGithubOrgs } from "@/lib/github";
+import { listJiraSites } from "@/lib/jira";
 import { listGitlabGroups } from "@/lib/gitlab";
 import { listNotionWorkspaces } from "@/lib/notion";
 import { listAzureOrgs } from "@/lib/azure";
@@ -87,6 +94,10 @@ beforeEach(() => {
     async () => ({ privateMetadata: meta }) as unknown as Awaited<ReturnType<typeof getClerkUser>>,
   );
   vi.mocked(getConnection).mockImplementation(async (_u, p) => store[p] ?? null);
+  vi.mocked(readConnection).mockImplementation(async (_u, p) => {
+    const c = store[p];
+    return c ? { state: "connected", connection: c } : { state: "absent" };
+  });
   vi.mocked(readConnectionMeta).mockImplementation(async (_u, p) => store[p]?.meta ?? null);
   vi.mocked(getGithubToken).mockResolvedValue({ token: "gh-token" });
 });
@@ -288,14 +299,57 @@ describe("setPickedWorkspace", () => {
     expect(db.eq).toHaveBeenCalledWith("user_id", user);
   });
 
-  it("refuses Linear and Jira, whose org comes from the token", async () => {
+  it("refuses Linear, whose org comes from the token", async () => {
+    connect("linear", { workspaceId: "lin-org", workspaceName: "Acme" });
     expect(hasWorkspacePick("linear")).toBe(false);
-    expect(hasWorkspacePick("jira")).toBe(false);
     expect(hasWorkspacePick("nonsense")).toBe(false);
     expect(hasWorkspacePick("gitlab")).toBe(true);
     expect((await setPickedWorkspace(user, "linear", "abc")).ok).toBe(false);
-    expect(await listWorkspaces(user, "jira")).toEqual([]);
+    expect(await listWorkspaces(user, "linear")).toEqual([]);
     expect(await getPickedWorkspace(user, "linear")).toBeNull();
+  });
+});
+
+describe("Jira sites", () => {
+  const ACME = { id: "cloud-1", name: "acme", url: "https://acme.atlassian.net" };
+  const BETA = { id: "cloud-2", name: "beta", url: "https://beta.atlassian.net" };
+
+  it("lists a Brief-held connection's sites with its own token, and stores the pick with the site's address", async () => {
+    connect("jira");
+    vi.mocked(listJiraSites).mockResolvedValue([ACME, BETA]);
+    expect(hasWorkspacePick("jira")).toBe(true);
+
+    expect(await getPickedWorkspace(user, "jira")).toBeNull();
+    expect(await workspacesToPick(user, "jira")).toEqual([ACME, BETA]);
+    expect(listJiraSites).toHaveBeenCalledWith("jira-token");
+
+    expect(await setPickedWorkspace(user, "jira", BETA.id)).toEqual({ ok: true });
+    expect(setConnectionMeta).toHaveBeenCalledWith(user, "jira", {
+      workspaceId: BETA.id,
+      workspaceName: BETA.name,
+      siteUrl: BETA.url,
+    });
+    expect(clerk.updateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("reads the picked site off the connection", async () => {
+    connect("jira", { workspaceId: ACME.id, workspaceName: ACME.name, siteUrl: ACME.url });
+    expect(await getPickedWorkspace(user, "jira")).toEqual({ id: ACME.id, name: ACME.name });
+    expect(await workspacesToPick(user, "jira")).toEqual([]);
+    expect(listJiraSites).not.toHaveBeenCalled();
+  });
+
+  it("has nothing to pick for a Jira still on its Clerk connection, which keeps its first site", async () => {
+    expect(await getPickedWorkspace(user, "jira")).toBeNull();
+    expect(await workspacesToPick(user, "jira")).toEqual([]);
+    expect(await setPickedWorkspace(user, "jira", ACME.id)).toEqual({ ok: false, error: "Jira isn't connected." });
+    expect(listJiraSites).not.toHaveBeenCalled();
+  });
+
+  it("offers nothing when Atlassian doesn't answer, rather than failing the page", async () => {
+    connect("jira");
+    vi.mocked(listJiraSites).mockRejectedValue(new Error("Atlassian accessible-resources answered 503"));
+    expect(await workspacesToPick(user, "jira")).toEqual([]);
   });
 });
 
@@ -326,6 +380,95 @@ describe("GitHub", () => {
     meta = { githubOrg: "Acme" };
     expect(await setPickedWorkspace(user, "github", "  ")).toEqual({ ok: true });
     expect(clerk.updateUserMetadata).toHaveBeenCalledWith(user, { privateMetadata: { githubOrg: "" } });
+  });
+
+  it("reads the org picked for a Clerk connection from before the move", async () => {
+    meta = { githubOrg: " Acme " };
+    expect(await legacyGithubPick(user)).toEqual({ id: "Acme", name: "Acme" });
+    meta = {};
+    expect(await legacyGithubPick(user)).toBeNull();
+  });
+});
+
+describe("GitHub on a connection Brief holds", () => {
+  it("reads the pick off the connection, never the Clerk one from before the move", async () => {
+    meta = { githubOrg: "OldOrg" };
+    connect("github", { workspaceId: "Acme", workspaceName: "Acme" });
+    expect(await getPickedWorkspace(user, "github")).toEqual({ id: "Acme", name: "Acme" });
+    expect(getClerkUser).not.toHaveBeenCalled();
+  });
+
+  it("has no pick until one is made, whatever Clerk still holds", async () => {
+    meta = { githubOrg: "OldOrg" };
+    connect("github", { label: "ada" });
+    expect(await getPickedWorkspace(user, "github")).toBeNull();
+  });
+
+  it("lists with Brief's token, not Clerk's, and stores the pick on the connection", async () => {
+    connect("github", { label: "ada" });
+    vi.mocked(listGithubOrgs).mockResolvedValue([
+      { login: "Acme", name: "Acme" },
+      { login: "beta", name: "beta" },
+    ]);
+
+    expect(await workspacesToPick(user, "github")).toHaveLength(2);
+    expect(listGithubOrgs).toHaveBeenCalledWith({ token: "github-token" });
+    expect(getGithubToken).not.toHaveBeenCalled();
+
+    expect(await setPickedWorkspace(user, "github", "BETA")).toEqual({ ok: true });
+    expect(setConnectionMeta).toHaveBeenCalledWith(user, "github", { workspaceId: "beta", workspaceName: "beta" });
+    expect(clerk.updateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("clears the pick on the connection", async () => {
+    connect("github", { workspaceId: "Acme", workspaceName: "Acme" });
+    expect(await setPickedWorkspace(user, "github", "")).toEqual({ ok: true });
+    expect(setConnectionMeta).toHaveBeenCalledWith(user, "github", { workspaceId: "", workspaceName: "" });
+    expect(clerk.updateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("carries a Clerk-era pick over on Settings when the connect couldn't, then clears it in Clerk", async () => {
+    // The connect's org listing failed, so it stored no pick and left Clerk's.
+    meta = { githubOrg: "acme" };
+    connect("github", { label: "ada" });
+    vi.mocked(listGithubOrgs).mockResolvedValue([
+      { login: "Acme", name: "Acme" },
+      { login: "beta", name: "beta" },
+    ]);
+
+    expect(await workspacesToPick(user, "github")).toEqual([]);
+    expect(setConnectionMeta).toHaveBeenCalledWith(user, "github", { workspaceId: "Acme", workspaceName: "Acme" });
+    expect(clerk.updateUserMetadata).toHaveBeenCalledWith(user, { privateMetadata: { githubOrg: null } });
+    // The org it now resolves to is the carried pick, so the cached one goes.
+    expect(db.from).toHaveBeenCalledWith("org_members");
+  });
+
+  it("offers the list, and keeps the Clerk-era pick, when the new token can't see it", async () => {
+    meta = { githubOrg: "elsewhere" };
+    connect("github", { label: "ada" });
+    vi.mocked(listGithubOrgs).mockResolvedValue([
+      { login: "Acme", name: "Acme" },
+      { login: "beta", name: "beta" },
+    ]);
+
+    expect(await workspacesToPick(user, "github")).toHaveLength(2);
+    expect(setConnectionMeta).not.toHaveBeenCalled();
+    expect(clerk.updateUserMetadata).not.toHaveBeenCalled();
+  });
+
+  it("files nothing on Clerk's behalf for a GitHub row that can't be used", async () => {
+    vi.mocked(readConnection).mockResolvedValue({ state: "unusable" });
+    vi.mocked(listGithubOrgs).mockResolvedValue([{ login: "Acme", name: "Acme" }]);
+    expect(await listWorkspaces(user, "github")).toEqual([]);
+    expect(getGithubToken).not.toHaveBeenCalled();
+  });
+
+  it("forgets the Clerk-era pick in Clerk, logging rather than failing when Clerk refuses", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    clerk.updateUserMetadata.mockRejectedValueOnce(new Error("clerk down"));
+    await expect(forgetLegacyGithubPick(user)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("could not clear"), "Error");
+    warn.mockRestore();
   });
 });
 

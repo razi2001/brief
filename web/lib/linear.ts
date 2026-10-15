@@ -13,11 +13,16 @@ export function withLinearDetails(description: string, details?: Array<{ title: 
 
 export type LinearTok = { token: string };
 
+/**
+ * The Linear token from before Linear moved to Brief's own OAuth: the account
+ * the user connected through Clerk. lib/tracker-tokens asks Brief's store
+ * first and only comes here when it holds no Linear connection.
+ */
 export async function getLinearToken(userId: string): Promise<LinearTok | null> {
-  // Clerk-vended OAuth token for the user's connected Linear account - the only
-  // path. No global API-key fallback: a user who hasn't connected Linear has no
-  // token, so the app honestly reports "no tracker connected" instead of
-  // silently filing through a shared key.
+  // Clerk-vended OAuth token for the user's connected Linear account. No
+  // global API-key fallback: a user who hasn't connected Linear has no token,
+  // so the app honestly reports "no tracker connected" instead of silently
+  // filing through a shared key.
   const client = await clerkClient().catch(() => null);
   if (!client) return null;
   try {

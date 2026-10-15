@@ -115,6 +115,16 @@ const EDGE = 12;
  * and ten trackers no longer fit inside the row. It opens below the trigger,
  * or above it when there is more room there, and never runs off the window.
  */
+/**
+ * Trackers this deployment can connect first, the ones still "Soon" after,
+ * each group in its own (registry) order. A list that opens on a run of
+ * greyed-out names reads as broken; the real choices belong on top.
+ */
+export function availableFirst<T extends { key: ProviderKey }>(items: readonly T[], unavailable: readonly ProviderKey[]): T[] {
+  const soon = new Set(unavailable);
+  return [...items.filter((i) => !soon.has(i.key)), ...items.filter((i) => soon.has(i.key))];
+}
+
 export function menuPlacement(trigger: DOMRect, viewportHeight: number): CSSProperties {
   const below = viewportHeight - trigger.bottom - MENU_GAP - EDGE;
   const above = trigger.top - MENU_GAP - EDGE;
@@ -137,7 +147,7 @@ function pickNeeded(key: ProviderKey): string {
 }
 
 export default function TrackerPicker({
-  options,
+  options: given,
   connected,
   stale,
   needsWorkspace = [],
@@ -150,6 +160,9 @@ export default function TrackerPicker({
   onConnect,
   onDisconnect,
 }: Props) {
+  // Every index below (active option, keyboard moves, type-ahead) is into this
+  // ordered list, so the menu and the keys always agree.
+  const options = availableFirst(given, unavailable);
   const [selected, setSelected] = useState<ProviderKey | null>(
     initialSelected ?? connected ?? null,
   );

@@ -161,11 +161,15 @@ const FLOW_TTL_SECONDS = 15 * 60;
 const B64URL = /^[A-Za-z0-9_-]+$/;
 
 /**
- * PKCE where the provider supports it for a web app: Entra, Asana, GitLab, and
- * monday, whose OAuth 2.1 flow refuses a code exchange without it.
+ * PKCE where the provider supports it for a web app: Entra, Asana, GitLab,
+ * Linear, GitHub, and monday, whose OAuth 2.1 flow refuses a code exchange
+ * without it. Atlassian documents no PKCE for its 3LO flow, so Jira goes
+ * without.
  */
+const PKCE: ReadonlySet<OwnedProvider> = new Set<OwnedProvider>(["linear", "github", "gitlab", "azure", "asana", "monday"]);
+
 export function usesPkce(provider: OwnedProvider): boolean {
-  return provider === "azure" || provider === "asana" || provider === "gitlab" || provider === "monday";
+  return PKCE.has(provider);
 }
 
 export function newFlow(provider: OwnedProvider): Flow {

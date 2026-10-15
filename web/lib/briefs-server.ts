@@ -4,7 +4,7 @@ import { getSignedInUser } from "@/lib/clerk-user";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
 import { providerOf, ticketSnapshotPatch } from "@/lib/ticket-sync";
-import type { ProviderKey } from "@/lib/tracker";
+import type { ProviderKey, Tracker } from "@/lib/tracker";
 import { connectedTrackers, resolveConnectedTrackers } from "@/lib/trackers/registry";
 
 /**
@@ -196,7 +196,7 @@ export async function attachTicketInfo(
   // asked once for all of its identifiers. A ticket already known to be deleted
   // keeps its snapshot and is only re-checked now and then; its row still
   // renders as deleted below.
-  const byProvider = new Map<ProviderKey, string[]>();
+  const byProvider = new Map<ProviderKey, BriefRow[]>();
   for (const b of filed) {
     const provider = providerOf(b.ticket_url, b.ticket_provider);
     if (!connected.includes(provider)) continue;
@@ -206,22 +206,24 @@ export async function attachTicketInfo(
     ) {
       continue;
     }
-    const ids = byProvider.get(provider) ?? [];
-    ids.push(b.ticket_identifier as string);
-    byProvider.set(provider, ids);
+    const rows = byProvider.get(provider) ?? [];
+    rows.push(b);
+    byProvider.set(provider, rows);
   }
 
   // One live read per provider, all of them in parallel. A tracker that throws
   // contributes nothing and never takes the render down with it.
-  const live = new Map<ProviderKey, { issues: Record<string, TicketInfo>; gone: Set<string> }>();
+  const live = new Map<ProviderKey, { tracker: Tracker; issues: Record<string, TicketInfo>; gone: Set<string> }>();
   const trackers = await resolveConnectedTrackers(userId, [...byProvider.keys()]);
   await Promise.all(
-    [...byProvider.entries()].map(async ([provider, ids]) => {
+    [...byProvider.entries()].map(async ([provider, rows]) => {
       const tracker = trackers.get(provider);
       if (!tracker) return;
+      const ids = rows.filter((b) => onTrackerSite(tracker, b.ticket_url)).map((b) => b.ticket_identifier as string);
+      if (!ids.length) return;
       try {
         const { issues, gone } = await tracker.getLiveIssues(ids);
-        live.set(provider, { issues, gone: new Set(gone) });
+        live.set(provider, { tracker, issues, gone: new Set(gone) });
       } catch (err) {
         console.warn(
           `[tickets] ${provider} live sync skipped:`,
@@ -255,7 +257,9 @@ export async function attachTicketInfo(
     const key = b.ticket_identifier ?? undefined;
     let ticket: TicketInfo | null = null;
     if (key) {
-      const found = live.get(provider);
+      const read = live.get(provider);
+      // Another site's ticket with the same key is not this one.
+      const found = read && onTrackerSite(read.tracker, b.ticket_url) ? read : undefined;
       if (found?.issues[key]) {
         ticket = found.issues[key];
       } else if (found?.gone.has(key)) {
@@ -316,6 +320,25 @@ export async function attachTicketInfo(
 
   if (writeBacks.length) await Promise.allSettled(writeBacks);
   return out;
+}
+
+/**
+ * Whether a filed ticket lives on the site this tracker reads. A tracker with
+ * no site (every provider but Jira) reads all of its tickets. A Jira key is only
+ * unique within one site, so a ticket filed on another site, or with no url to
+ * tell, is never looked up there: it keeps its snapshot.
+ */
+function onTrackerSite(tracker: Tracker, ticketUrl: string | null | undefined): boolean {
+  if (!tracker.site) return true;
+  const host = (u: string | null | undefined) => {
+    try {
+      return u ? new URL(u).host.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  };
+  const ticketHost = host(ticketUrl);
+  return !!ticketHost && ticketHost === host(tracker.site);
 }
 
 /**

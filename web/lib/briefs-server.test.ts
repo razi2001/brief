@@ -181,4 +181,48 @@ describe("attachTicketInfo", () => {
     expect(out.ticket_identifier).toBe("APP-5342");
     expect(patches).toEqual([]);
   });
+
+  it("only asks a Jira tracker about tickets filed on its own site", async () => {
+    // The user now files into beta; a ticket filed on acme has a key beta may
+    // also use, for a different issue.
+    vi.mocked(resolveConnectedTrackers).mockImplementationOnce(async () => {
+      const map = new Map<ProviderKey, Tracker>();
+      map.set("jira", { getLiveIssues: lookup, site: "https://beta.atlassian.net" } as unknown as Tracker);
+      return map;
+    });
+    const live = (title: string) => ({
+      title,
+      url: "https://beta.atlassian.net/browse/ABC-1",
+      stateName: "Done",
+      stateColor: "#00875a",
+      createdAt: "",
+    });
+    lookup.mockResolvedValue({ issues: { "ABC-1": live("Beta's own issue"), "ABC-2": live("Filed on beta") }, gone: [] });
+    const jiraRow = (id: string, host: string, key: string) =>
+      filedRow({
+        id,
+        ticket_provider: "jira",
+        ticket_identifier: key,
+        ticket_url: `https://${host}/browse/${key}`,
+        ticket_title: "Snapshot title",
+        ticket_state_name: "To Do",
+      });
+    const { admin, patches } = fakeAdmin();
+
+    const [onAcme, onBeta, noUrl] = await attachTicketInfo(
+      "user_1",
+      [jiraRow("a", "acme.atlassian.net", "ABC-1"), jiraRow("b", "beta.atlassian.net", "ABC-2"), { ...jiraRow("c", "", "ABC-3"), ticket_url: null }],
+      ["jira"],
+      60,
+      admin,
+    );
+
+    expect(lookup).toHaveBeenCalledWith(["ABC-2"]);
+    // The acme ticket keeps its snapshot, and beta's ABC-1 is never written over it.
+    expect(onAcme.ticket?.title).toBe("Snapshot title");
+    expect(onAcme.ticket?.stateName).toBe("To Do");
+    expect(onBeta.ticket?.title).toBe("Filed on beta");
+    expect(noUrl.ticket?.stateName).toBe("To Do");
+    expect(patches.map((x) => x.id)).toEqual(["b"]);
+  });
 });

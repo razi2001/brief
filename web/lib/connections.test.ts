@@ -89,6 +89,7 @@ import {
   getConnection,
   isProviderConfigured,
   listConnectedProviders,
+  readConnection,
   readConnectionMeta,
   saveConnection,
   setConnectionMeta,
@@ -354,6 +355,35 @@ describe("when a token is refreshed", () => {
   });
 });
 
+describe("readConnection tells no row from a row that can't be used", () => {
+  it("is absent when the user has no such row, and connected when the token reads", async () => {
+    expect(await readConnection(USER, "linear")).toEqual({ state: "absent" });
+    await saveConnection(USER, "linear", { accessToken: "lin_tok", meta: { workspaceId: "org-1" } });
+    expect(await readConnection(USER, "linear")).toEqual({
+      state: "connected",
+      connection: { provider: "linear", accessToken: "lin_tok", meta: { workspaceId: "org-1" } },
+    });
+  });
+
+  it("is unusable, not absent, when the refresh is refused", async () => {
+    vi.stubEnv("GITHUB_CLIENT_ID", "gh-client");
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "gh-secret");
+    seedExpired("github", "ghr_revoked");
+    stubTokenEndpoint({ ok: false, status: 400 });
+    expect(await readConnection(USER, "github")).toEqual({ state: "unusable" });
+    expect(await getConnection(USER, "github")).toBeNull();
+  });
+
+  it("is unusable, not absent, when the row won't decrypt or the store is down", async () => {
+    await saveConnection(USER, "jira", { accessToken: "ji_tok" });
+    vi.stubEnv("CONNECTIONS_KEY", Buffer.alloc(32, 9).toString("base64"));
+    expect(await readConnection(USER, "jira")).toEqual({ state: "unusable" });
+    vi.stubEnv("CONNECTIONS_KEY", KEY);
+    db.failWith = { message: "connection refused" };
+    expect(await readConnection(USER, "jira")).toEqual({ state: "unusable" });
+  });
+});
+
 describe("readConnectionMeta", () => {
   it("reads the meta of an expiring connection without refreshing or decrypting it", async () => {
     seedExpired("azure", "refresh-1");
@@ -498,6 +528,115 @@ describe("GitLab and Notion refreshes", () => {
   });
 });
 
+describe("Linear, Jira and GitHub refreshes", () => {
+  beforeEach(() => {
+    vi.stubEnv("LINEAR_CLIENT_ID", "li-client");
+    vi.stubEnv("LINEAR_CLIENT_SECRET", "li-secret");
+    vi.stubEnv("JIRA_CLIENT_ID", "ji-client");
+    vi.stubEnv("JIRA_CLIENT_SECRET", "ji-secret");
+    vi.stubEnv("GITHUB_CLIENT_ID", "gh-client");
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "gh-secret");
+  });
+
+  it("refreshes Linear with a form body and no scope, and keeps the rotated refresh token", async () => {
+    seedExpired("linear", "li-refresh-1");
+    const fetchMock = stubTokenEndpoint({
+      ok: true,
+      status: 200,
+      json: { access_token: "li-new", refresh_token: "li-refresh-2", expires_in: 86399, scope: "read write" },
+    });
+
+    expect((await getConnection(USER, "linear"))?.accessToken).toBe("li-new");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://api.linear.app/oauth/token");
+    expect(new Headers(init.headers).get("content-type")).toBe("application/x-www-form-urlencoded");
+    expect(Object.fromEntries(sentBody(fetchMock))).toEqual({
+      client_id: "li-client",
+      client_secret: "li-secret",
+      grant_type: "refresh_token",
+      refresh_token: "li-refresh-1",
+    });
+    // Linear rotates the refresh token, so the new one must stick.
+    const stored = db.rows.get(`${USER}|linear`)!;
+    expect(decryptToken(stored.refresh_token_enc as string, KEY)).toBe("li-refresh-2");
+  });
+
+  it("refreshes Jira with the app's credentials inside a JSON body, and keeps the rotated refresh token", async () => {
+    seedExpired("jira", "ji-refresh-1");
+    const fetchMock = stubTokenEndpoint({
+      ok: true,
+      status: 200,
+      json: { access_token: "ji-new", refresh_token: "ji-refresh-2", expires_in: 3600 },
+    });
+
+    expect((await getConnection(USER, "jira"))?.accessToken).toBe("ji-new");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://auth.atlassian.com/oauth/token");
+    const headers = new Headers(init.headers);
+    expect(headers.get("content-type")).toBe("application/json");
+    // The credentials ride in the body, not in a Basic header.
+    expect(headers.has("authorization")).toBe(false);
+    expect(JSON.parse(String(init.body))).toEqual({
+      client_id: "ji-client",
+      client_secret: "ji-secret",
+      grant_type: "refresh_token",
+      refresh_token: "ji-refresh-1",
+    });
+    const stored = db.rows.get(`${USER}|jira`)!;
+    expect(decryptToken(stored.refresh_token_enc as string, KEY)).toBe("ji-refresh-2");
+    // The site picked at connect time is left alone.
+    expect(stored.account_meta).toEqual({ workspaceId: "org-1", label: "Razi" });
+  });
+
+  it("refreshes GitHub with a form body, asking for JSON back, and keeps the rotated refresh token", async () => {
+    seedExpired("github", "ghr_1");
+    const fetchMock = stubTokenEndpoint({
+      ok: true,
+      status: 200,
+      json: {
+        access_token: "ghu_new",
+        refresh_token: "ghr_2",
+        expires_in: 28800,
+        refresh_token_expires_in: 15811200,
+        token_type: "bearer",
+      },
+    });
+
+    expect((await getConnection(USER, "github"))?.accessToken).toBe("ghu_new");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://github.com/login/oauth/access_token");
+    // GitHub answers form-encoded unless asked for JSON.
+    expect(new Headers(init.headers).get("accept")).toBe("application/json");
+    expect(Object.fromEntries(sentBody(fetchMock))).toEqual({
+      client_id: "gh-client",
+      client_secret: "gh-secret",
+      grant_type: "refresh_token",
+      refresh_token: "ghr_1",
+    });
+    const stored = db.rows.get(`${USER}|github`)!;
+    expect(decryptToken(stored.refresh_token_enc as string, KEY)).toBe("ghr_2");
+  });
+
+  it("reads GitHub's 200 that carries an error as a refused refresh", async () => {
+    seedExpired("github", "ghr_revoked");
+    const before = { ...db.rows.get(`${USER}|github`) };
+    stubTokenEndpoint({ ok: true, status: 200, json: { error: "bad_refresh_token" } });
+
+    expect(await getConnection(USER, "github")).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("github refused the token refresh: 200"));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("bad_refresh_token");
+    expect(db.rows.get(`${USER}|github`)).toEqual(before);
+  });
+
+  it("never refreshes a GitHub token that does not expire", async () => {
+    await saveConnection(USER, "github", { accessToken: "gho_forever" });
+    const fetchMock = stubTokenEndpoint(NEW_TOKEN);
+
+    expect((await getConnection(USER, "github"))?.accessToken).toBe("gho_forever");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("two refreshes racing on one rotating token", () => {
   beforeEach(() => {
     vi.stubEnv("GITLAB_CLIENT_ID", "gl-client");
@@ -601,6 +740,9 @@ describe("isProviderConfigured", () => {
   });
 
   it.each([
+    ["linear", "LINEAR_CLIENT_ID", "LINEAR_CLIENT_SECRET"],
+    ["jira", "JIRA_CLIENT_ID", "JIRA_CLIENT_SECRET"],
+    ["github", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
     ["gitlab", "GITLAB_CLIENT_ID", "GITLAB_CLIENT_SECRET"],
     ["notion", "NOTION_CLIENT_ID", "NOTION_CLIENT_SECRET"],
   ] as const)("needs both of %s's client credentials", (provider, id, secret) => {
@@ -692,6 +834,7 @@ describe("deleteOtherConnections", () => {
     await saveConnection(USER, "clickup", { accessToken: "a" });
     await saveConnection(USER, "trello", { accessToken: "b" });
     await saveConnection(USER, "azure", { accessToken: "c" });
+    await saveConnection(USER, "linear", { accessToken: "e" });
     await saveConnection("user_2", "trello", { accessToken: "d" });
 
     await deleteOtherConnections(USER, "clickup");

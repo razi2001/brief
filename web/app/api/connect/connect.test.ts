@@ -17,6 +17,11 @@ const clerk = vi.hoisted(() => ({
   deleted: [] as string[],
   failGetUser: false,
   failDelete: false,
+  reads: 0,
+  // How the user signs in besides their external accounts: by default an
+  // email address they verified with a code, like every Brief user.
+  passwordEnabled: false,
+  emails: [] as Array<{ verification: { status: string; strategy: string } }>,
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -24,8 +29,13 @@ vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: async () => ({
     users: {
       getUser: async () => {
+        clerk.reads++;
         if (clerk.failGetUser) throw new Error("clerk down");
-        return { externalAccounts: clerk.accounts };
+        return {
+          externalAccounts: clerk.accounts,
+          passwordEnabled: clerk.passwordEnabled,
+          emailAddresses: clerk.emails,
+        };
       },
       deleteUserExternalAccount: async ({ externalAccountId }: { externalAccountId: string }) => {
         if (clerk.failDelete) throw new Error("clerk refused");
@@ -96,15 +106,29 @@ vi.mock("@/lib/connections", async (importOriginal) => ({
 }));
 
 /** Mutated in place by a test, so the route sees the same array. */
-const registry = vi.hoisted(() => ({ clerk: [] as Array<{ clerkMatch?: string }> }));
-const CLERK_MATCHES = ["linear", "atlassian", "github"];
+const registry = vi.hoisted(() => ({ clerk: [] as Array<{ key?: string; clerkMatch?: string }> }));
+const CLERK_MATCHES = [
+  { key: "linear", clerkMatch: "linear" },
+  { key: "jira", clerkMatch: "atlassian" },
+  { key: "github", clerkMatch: "github" },
+];
 
 vi.mock("@/lib/trackers/registry", () => ({ CLERK_PROVIDERS: registry.clerk }));
 
-const workspaces = vi.hoisted(() => ({ forgetWorkspaces: vi.fn() }));
+const workspaces = vi.hoisted(() => ({
+  forgetWorkspaces: vi.fn(),
+  // The GitHub org picked for a Clerk connection before the move, or null.
+  legacyGithubPick: vi.fn(async (): Promise<Workspace | null> => null),
+  forgetLegacyGithubPick: vi.fn(async () => {}),
+}));
 vi.mock("@/lib/workspaces", () => workspaces);
 
 const lists = vi.hoisted(() => ({
+  // Linear's one organization, or null when reading it fails.
+  linear: null as Workspace | null,
+  // Jira's sites, or null when Atlassian doesn't answer.
+  jira: [] as Workspace[] | null,
+  github: [] as Array<{ login: string; name: string; avatarUrl?: string }>,
   gitlab: [] as Workspace[],
   azure: [] as Workspace[],
   clickup: [] as Workspace[],
@@ -114,6 +138,26 @@ const lists = vi.hoisted(() => ({
   calls: [] as Array<[string, unknown]>,
 }));
 
+vi.mock("@/lib/linear", () => ({
+  getLinearOrg: async (tok: unknown) => {
+    lists.calls.push(["linear", tok]);
+    if (!lists.linear) throw new Error("Linear GraphQL: unreachable");
+    return lists.linear;
+  },
+}));
+vi.mock("@/lib/jira", () => ({
+  listJiraSites: async (token: string) => {
+    lists.calls.push(["jira", token]);
+    if (!lists.jira) throw new Error("Atlassian accessible-resources answered 503");
+    return lists.jira;
+  },
+}));
+vi.mock("@/lib/github", () => ({
+  listGithubOrgs: async (tok: unknown) => {
+    lists.calls.push(["github", tok]);
+    return lists.github;
+  },
+}));
 vi.mock("@/lib/gitlab", () => ({
   listGitlabGroups: async (tok: unknown) => {
     lists.calls.push(["gitlab", tok]);
@@ -173,6 +217,9 @@ let trelloMeOk = true;
 let azureAccounts: { status: number; names: string[] } = { status: 200, names: [] };
 
 const TOKEN_HOSTS = [
+  "api.linear.app/oauth/token",
+  "auth.atlassian.com/oauth/token",
+  "github.com/login/oauth/access_token",
   "gitlab.com/oauth/token",
   "login.microsoftonline.com",
   "api.clickup.com/api/v2/oauth/token",
@@ -189,6 +236,8 @@ function fakeFetch(url: string | URL, init?: RequestInit): Promise<Response> {
   if (TOKEN_HOSTS.some((h) => u.includes(h))) {
     return typeof tokenReply === "number" ? json({ error: "invalid_grant" }, tokenReply) : json(tokenReply);
   }
+  if (u === "https://api.linear.app/graphql") return json({ data: { viewer: { name: "Ada Linear", displayName: "ada" } } });
+  if (u === "https://api.github.com/user") return json({ name: null, login: "ada-gh" });
   if (u === "https://gitlab.com/api/v4/user") return json({ name: "Ada GitLab", username: "adagl" });
   if (u.includes("vssps.visualstudio.com/_apis/profile")) return json({ id: "member-1", displayName: "Ada Lovelace" });
   if (u.includes("vssps.visualstudio.com/_apis/accounts")) {
@@ -303,6 +352,12 @@ const savedMeta = () => (store.saveConnection.mock.calls[0] as unknown as Saved)
 
 const ENV = {
   CONNECTIONS_KEY: randomBytes(32).toString("base64"),
+  LINEAR_CLIENT_ID: "li-client",
+  LINEAR_CLIENT_SECRET: "li-secret-value",
+  JIRA_CLIENT_ID: "ji-client",
+  JIRA_CLIENT_SECRET: "ji-secret-value",
+  GITHUB_CLIENT_ID: "gh-client",
+  GITHUB_CLIENT_SECRET: "gh-secret-value",
   GITLAB_CLIENT_ID: "gl-client",
   GITLAB_CLIENT_SECRET: "gl-secret-value",
   NOTION_CLIENT_ID: "nt-client",
@@ -329,11 +384,17 @@ beforeEach(() => {
   clerk.deleted = [];
   clerk.failGetUser = false;
   clerk.failDelete = false;
-  registry.clerk.splice(0, registry.clerk.length, ...CLERK_MATCHES.map((clerkMatch) => ({ clerkMatch })));
+  clerk.reads = 0;
+  clerk.passwordEnabled = false;
+  clerk.emails = [{ verification: { status: "verified", strategy: "email_code" } }];
+  registry.clerk.splice(0, registry.clerk.length, ...CLERK_MATCHES.map((d) => ({ ...d })));
   db.rows = [];
   db.orgDeletes = [];
   db.selects = [];
   for (const k of ["gitlab", "azure", "clickup", "trello", "asana", "monday"] as const) lists[k] = [];
+  lists.linear = { id: "lin-org-1", name: "Acme Linear" };
+  lists.jira = [];
+  lists.github = [];
   lists.calls = [];
   fetchCalls = [];
   trelloMeOk = true;
@@ -346,6 +407,9 @@ beforeEach(() => {
   store.readConnectionMeta.mockReset();
   store.readConnectionMeta.mockImplementation(async () => null);
   workspaces.forgetWorkspaces.mockReset();
+  workspaces.legacyGithubPick.mockReset();
+  workspaces.legacyGithubPick.mockImplementation(async () => null);
+  workspaces.forgetLegacyGithubPick.mockClear();
 });
 
 afterEach(() => {
@@ -426,7 +490,47 @@ describe("start", () => {
     expect(readState(state)).toMatchObject({ userId: "user_1", provider: "notion" });
   });
 
+  it("sends Linear its comma-separated scopes, a consent prompt and a PKCE challenge", async () => {
+    const { url, state, cookie } = await startFlow("linear");
+    expect(url.origin + url.pathname).toBe("https://linear.app/oauth/authorize");
+    expect(url.searchParams.get("client_id")).toBe("li-client");
+    expect(url.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/api/connect/linear/callback`);
+    expect(url.searchParams.get("response_type")).toBe("code");
+    expect(url.searchParams.get("scope")).toBe("read,write");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(readState(state)).toMatchObject({ userId: "user_1", provider: "linear" });
+    const verifier = cookie.split(".")[1];
+    expect(url.searchParams.get("code_challenge")).toBe(pkceChallenge(verifier));
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+  });
+
+  it("sends Atlassian the API audience, its consent prompt and the Jira scopes, with no PKCE", async () => {
+    const { url, state } = await startFlow("jira");
+    expect(url.origin + url.pathname).toBe("https://auth.atlassian.com/authorize");
+    expect(url.searchParams.get("client_id")).toBe("ji-client");
+    expect(url.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/api/connect/jira/callback`);
+    expect(url.searchParams.get("response_type")).toBe("code");
+    expect(url.searchParams.get("audience")).toBe("api.atlassian.com");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("scope")).toBe("read:jira-work write:jira-work read:jira-user offline_access");
+    expect(url.searchParams.has("code_challenge")).toBe(false);
+    expect(readState(state)).toMatchObject({ userId: "user_1", provider: "jira" });
+  });
+
+  it("sends GitHub the repo and read:user scopes with a PKCE challenge", async () => {
+    const { url, state } = await startFlow("github");
+    expect(url.origin + url.pathname).toBe("https://github.com/login/oauth/authorize");
+    expect(url.searchParams.get("client_id")).toBe("gh-client");
+    expect(url.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/api/connect/github/callback`);
+    expect(url.searchParams.get("scope")).toBe("repo read:user");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(readState(state)).toMatchObject({ userId: "user_1", provider: "github" });
+  });
+
   it.each([
+    ["linear", true],
+    ["jira", false],
+    ["github", true],
     ["gitlab", true],
     ["azure", true],
     ["asana", true],
@@ -466,9 +570,19 @@ describe("start", () => {
   });
 
   it("refuses an unknown provider", async () => {
-    const res = await start(get("/api/connect/jira/start"), ctx("jira"));
+    const res = await start(get("/api/connect/bitbucket/start"), ctx("bitbucket"));
     expect(res.status).toBe(404);
   });
+
+  it.each(["linear", "jira", "github"] as const)(
+    "sends %s back with `unavailable` before its OAuth app exists here",
+    async (provider) => {
+      vi.stubEnv(`${provider.toUpperCase()}_CLIENT_SECRET`, "");
+      const url = location(await start(get(`/api/connect/${provider}/start`), ctx(provider)));
+      expect(url.origin + url.pathname).toBe(`${ORIGIN}/connections`);
+      expect(url.searchParams.get("error")).toBe("unavailable");
+    },
+  );
 
   it("sends the browser back with `unavailable` when the provider is not configured", async () => {
     vi.stubEnv("CLICKUP_CLIENT_ID", "");
@@ -727,6 +841,256 @@ describe("callback", () => {
     expect(savedMeta()).toEqual({ label: "Ada GitLab" });
   });
 
+  it("exchanges a Linear code with a form body and its PKCE verifier, and stores its one workspace", async () => {
+    tokenReply = { access_token: "lin_tok", token_type: "Bearer", expires_in: 86399, refresh_token: "lin_rt", scope: "read write" };
+    const { state, cookie } = await startFlow("linear", "/onboarding");
+    const verifier = cookie.split(".")[1];
+    fetchCalls = [];
+    const res = await callback(callbackReq("linear", { code: "code-123", state }, cookie), ctx("linear"));
+
+    const url = location(res);
+    expect(url.origin + url.pathname).toBe(`${ORIGIN}/onboarding`);
+    expect(url.searchParams.get("connected")).toBe("linear");
+
+    const { url: tokenUrl, body } = tokenCall();
+    expect(tokenUrl.toString()).toBe("https://api.linear.app/oauth/token");
+    expect(tokenHeaders().get("content-type")).toBe("application/x-www-form-urlencoded");
+    // Linear's documented fields; the scope stays with the grant.
+    expect(Object.fromEntries(body)).toEqual({
+      client_id: "li-client",
+      client_secret: "li-secret-value",
+      grant_type: "authorization_code",
+      code: "code-123",
+      redirect_uri: `${ORIGIN}/api/connect/linear/callback`,
+      code_verifier: verifier,
+    });
+
+    // The org and the viewer are read with the new token.
+    expect(lists.calls).toContainEqual(["linear", { token: "lin_tok" }]);
+    const viewer = fetchCalls.find((c) => c.url === "https://api.linear.app/graphql");
+    expect(new Headers(viewer?.init?.headers).get("authorization")).toBe("Bearer lin_tok");
+
+    expect(store.saveConnection).toHaveBeenCalledWith("user_1", "linear", {
+      accessToken: "lin_tok",
+      refreshToken: "lin_rt",
+      expiresInSeconds: 86399,
+      meta: { label: "Ada Linear", workspaceId: "lin-org-1", workspaceName: "Acme Linear" },
+    });
+    expect(store.deleteOtherConnections).toHaveBeenCalledWith("user_1", "linear");
+  });
+
+  it("still connects Linear when its organization can't be read, since filing doesn't need it", async () => {
+    lists.linear = null;
+    const url = location(await runCallback("linear"));
+    expect(url.searchParams.get("connected")).toBe("linear");
+    expect(savedMeta()).toEqual({ label: "Ada Linear" });
+  });
+
+  it("moves a user's Linear from Clerk to Brief: the Clerk Linear account goes, sign-in ones stay", async () => {
+    clerk.accounts = [
+      { id: "ea_google", provider: "oauth_google" },
+      { id: "ea_linear", provider: "oauth_linear" },
+    ];
+    const url = location(await runCallback("linear"));
+    expect(url.searchParams.get("connected")).toBe("linear");
+    expect(clerk.deleted).toEqual(["ea_linear"]);
+  });
+
+  it("exchanges a Jira code with the app's credentials in a JSON body, and stores its one site with the site's address", async () => {
+    tokenReply = { access_token: "ji_tok", refresh_token: "ji_rt", expires_in: 3600, scope: "read:jira-work" };
+    lists.jira = [{ id: "cloud-1", name: "acme", url: "https://acme.atlassian.net" }];
+    const res = await runCallback("jira");
+
+    expect(location(res).searchParams.get("connected")).toBe("jira");
+    const { url: tokenUrl, init } = tokenCall();
+    expect(tokenUrl.toString()).toBe("https://auth.atlassian.com/oauth/token");
+    expect(tokenHeaders().get("content-type")).toBe("application/json");
+    expect(tokenHeaders().has("authorization")).toBe(false);
+    // No PKCE and no scope: Atlassian's documented fields only.
+    expect(JSON.parse(String(init?.body))).toEqual({
+      client_id: "ji-client",
+      client_secret: "ji-secret-value",
+      grant_type: "authorization_code",
+      code: "code-123",
+      redirect_uri: `${ORIGIN}/api/connect/jira/callback`,
+    });
+    expect(lists.calls).toContainEqual(["jira", "ji_tok"]);
+    // The site names the card: no Atlassian profile data is kept.
+    expect(store.saveConnection).toHaveBeenCalledWith("user_1", "jira", {
+      accessToken: "ji_tok",
+      refreshToken: "ji_rt",
+      expiresInSeconds: 3600,
+      meta: { workspaceId: "cloud-1", workspaceName: "acme", siteUrl: "https://acme.atlassian.net" },
+    });
+  });
+
+  it("sends a Jira user granted several sites to pick one", async () => {
+    lists.jira = [
+      { id: "cloud-1", name: "acme", url: "https://acme.atlassian.net" },
+      { id: "cloud-2", name: "beta", url: "https://beta.atlassian.net" },
+    ];
+    const url = location(await runCallback("jira", "/onboarding"));
+    expect(url.toString()).toBe(`${ORIGIN}/connections?pick=jira`);
+    expect(savedMeta()).toEqual({});
+  });
+
+  it("does not store Jira without a site, and keeps the current tracker", async () => {
+    lists.jira = [];
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    const url = location(await runCallback("jira"));
+    expect(url.searchParams.get("error")).toBe("no_workspace");
+    expect(url.searchParams.get("provider")).toBe("jira");
+    expect(store.saveConnection).not.toHaveBeenCalled();
+    expect(clerk.deleted).toEqual([]);
+  });
+
+  it("reports a failed Jira site listing as `failed`, not as no site", async () => {
+    lists.jira = null;
+    const url = location(await runCallback("jira"));
+    expect(url.searchParams.get("error")).toBe("failed");
+    expect(store.saveConnection).not.toHaveBeenCalled();
+  });
+
+  it("exchanges a GitHub code with its PKCE verifier, asking for JSON, and stores its one org", async () => {
+    tokenReply = { access_token: "ghu_tok", token_type: "bearer", scope: "repo,read:user", expires_in: 28800, refresh_token: "ghr_tok" };
+    lists.github = [{ login: "Acme", name: "Acme", avatarUrl: "https://avatars.test/acme" }];
+    const { state, cookie } = await startFlow("github");
+    const verifier = cookie.split(".")[1];
+    fetchCalls = [];
+    const res = await callback(callbackReq("github", { code: "code-123", state }, cookie), ctx("github"));
+
+    expect(location(res).searchParams.get("connected")).toBe("github");
+    const { url: tokenUrl, body } = tokenCall();
+    expect(tokenUrl.toString()).toBe("https://github.com/login/oauth/access_token");
+    // GitHub answers form-encoded unless asked for JSON.
+    expect(tokenHeaders().get("accept")).toBe("application/json");
+    expect(Object.fromEntries(body)).toEqual({
+      client_id: "gh-client",
+      client_secret: "gh-secret-value",
+      grant_type: "authorization_code",
+      code: "code-123",
+      redirect_uri: `${ORIGIN}/api/connect/github/callback`,
+      code_verifier: verifier,
+    });
+    expect(lists.calls).toContainEqual(["github", { token: "ghu_tok" }]);
+    const me = fetchCalls.find((c) => c.url === "https://api.github.com/user");
+    expect(new Headers(me?.init?.headers).get("authorization")).toBe("Bearer ghu_tok");
+    expect(store.saveConnection).toHaveBeenCalledWith("user_1", "github", {
+      accessToken: "ghu_tok",
+      refreshToken: "ghr_tok",
+      expiresInSeconds: 28800,
+      meta: { label: "ada-gh", workspaceId: "Acme", workspaceName: "Acme" },
+    });
+  });
+
+  it("stores GitHub without an org when it is in none, since personal repositories still file", async () => {
+    tokenReply = { access_token: "gho_tok", token_type: "bearer", scope: "repo,read:user" };
+    const url = location(await runCallback("github"));
+    expect(url.searchParams.get("connected")).toBe("github");
+    expect(store.saveConnection).toHaveBeenCalledWith("user_1", "github", {
+      accessToken: "gho_tok",
+      refreshToken: undefined,
+      expiresInSeconds: undefined,
+      meta: { label: "ada-gh" },
+    });
+  });
+
+  it("sends a GitHub user in several orgs to pick one", async () => {
+    lists.github = [
+      { login: "Acme", name: "Acme" },
+      { login: "beta", name: "beta" },
+    ];
+    const url = location(await runCallback("github"));
+    expect(url.toString()).toBe(`${ORIGIN}/connections?pick=github`);
+    expect(savedMeta()).not.toHaveProperty("workspaceId");
+  });
+
+  it("keeps the org picked for a Clerk GitHub connection when the new token can see it", async () => {
+    lists.github = [
+      { login: "Acme", name: "Acme" },
+      { login: "beta", name: "beta" },
+    ];
+    workspaces.legacyGithubPick.mockResolvedValue({ id: "acme", name: "acme" });
+    clerk.accounts = [{ id: "ea_github", provider: "oauth_github" }];
+
+    const url = location(await runCallback("github"));
+    expect(url.searchParams.get("connected")).toBe("github");
+    // Stored as GitHub spells it, and the Clerk GitHub account it replaces is gone.
+    expect(savedMeta()).toMatchObject({ workspaceId: "Acme", workspaceName: "Acme" });
+    expect(clerk.deleted).toEqual(["ea_github"]);
+    // The pick lives on the connection now, so Clerk's copy goes.
+    expect(workspaces.forgetLegacyGithubPick).toHaveBeenCalledWith("user_1");
+  });
+
+  it("keeps the Clerk-era GitHub pick in Clerk when the org listing comes back empty or fails", async () => {
+    // listGithubOrgs reads a failure as an empty list.
+    lists.github = [];
+    workspaces.legacyGithubPick.mockResolvedValue({ id: "acme", name: "acme" });
+    const url = location(await runCallback("github"));
+    expect(url.searchParams.get("connected")).toBe("github");
+    // No unproven pick is stored, and Clerk's stays for Settings to check again.
+    expect(savedMeta()).not.toHaveProperty("workspaceId");
+    expect(workspaces.forgetLegacyGithubPick).not.toHaveBeenCalled();
+  });
+
+  it("keeps a reconnected Jira on its site when the grant still covers it", async () => {
+    lists.jira = [
+      { id: "cloud-1", name: "acme", url: "https://acme.atlassian.net" },
+      { id: "cloud-2", name: "beta", url: "https://beta.atlassian.net" },
+    ];
+    store.readConnectionMeta.mockResolvedValue({
+      workspaceId: "cloud-2",
+      workspaceName: "beta",
+      siteUrl: "https://beta.atlassian.net",
+    });
+    const url = location(await runCallback("jira"));
+    expect(url.searchParams.get("connected")).toBe("jira");
+    expect(savedMeta()).toEqual({ workspaceId: "cloud-2", workspaceName: "beta", siteUrl: "https://beta.atlassian.net" });
+  });
+
+  it("asks a reconnected Jira for a site again when the grant no longer covers its old one", async () => {
+    lists.jira = [
+      { id: "cloud-1", name: "acme", url: "https://acme.atlassian.net" },
+      { id: "cloud-3", name: "gamma", url: "https://gamma.atlassian.net" },
+    ];
+    store.readConnectionMeta.mockResolvedValue({ workspaceId: "cloud-2", workspaceName: "beta", siteUrl: "https://beta.atlassian.net" });
+    const url = location(await runCallback("jira"));
+    expect(url.toString()).toBe(`${ORIGIN}/connections?pick=jira`);
+    expect(savedMeta()).toEqual({});
+  });
+
+  it("keeps a reconnected GitHub on its org, ahead of the Clerk-era pick", async () => {
+    lists.github = [
+      { login: "Acme", name: "Acme" },
+      { login: "beta", name: "beta" },
+    ];
+    store.readConnectionMeta.mockResolvedValue({ label: "ada", workspaceId: "beta", workspaceName: "beta" });
+    workspaces.legacyGithubPick.mockResolvedValue({ id: "acme", name: "acme" });
+    const url = location(await runCallback("github"));
+    expect(url.searchParams.get("connected")).toBe("github");
+    expect(savedMeta()).toMatchObject({ workspaceId: "beta", workspaceName: "beta" });
+    expect(workspaces.forgetLegacyGithubPick).not.toHaveBeenCalled();
+  });
+
+  it("asks for a pick when the org picked through Clerk isn't on the new GitHub account", async () => {
+    lists.github = [
+      { login: "Acme", name: "Acme" },
+      { login: "beta", name: "beta" },
+    ];
+    workspaces.legacyGithubPick.mockResolvedValue({ id: "elsewhere", name: "elsewhere" });
+    const url = location(await runCallback("github"));
+    expect(url.toString()).toBe(`${ORIGIN}/connections?pick=github`);
+    expect(savedMeta()).not.toHaveProperty("workspaceId");
+  });
+
+  it("reads GitHub's 200 that carries an error as a refused exchange", async () => {
+    tokenReply = { error: "bad_verification_code", error_description: "The code passed is incorrect or expired." };
+    const url = location(await runCallback("github"));
+    expect(url.searchParams.get("error")).toBe("failed");
+    expect(store.saveConnection).not.toHaveBeenCalled();
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/incorrect|bad_verification/);
+  });
+
   it("exchanges a Notion code with Basic auth and a JSON body, and stores the workspace from the reply", async () => {
     tokenReply = {
       access_token: "nt_tok",
@@ -884,6 +1248,30 @@ describe("callback", () => {
       { id: "ea_google", provider: "oauth_google" },
       { id: "ea_linear", provider: "oauth_linear" },
     ];
+    await runCallback("clickup");
+    expect(clerk.deleted).toEqual(["ea_linear"]);
+  });
+
+  it("keeps a Clerk tracker account that is the user's only way to sign in, and still switches", async () => {
+    lists.clickup = [{ id: "1", name: "Acme" }];
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    // No password, no other account, and the only email came from Linear.
+    clerk.emails = [{ verification: { status: "verified", strategy: "from_oauth_linear" } }];
+    const url = location(await runCallback("clickup"));
+    expect(url.searchParams.get("connected")).toBe("clickup");
+    expect(clerk.deleted).toEqual([]);
+    expect(vi.mocked(console.warn)).toHaveBeenCalledWith(expect.stringContaining("only way to sign in"));
+  });
+
+  it.each([
+    ["a password", () => (clerk.passwordEnabled = true)],
+    ["another external account", () => clerk.accounts.push({ id: "ea_google", provider: "oauth_google" })],
+    ["an email verified another way", () => (clerk.emails = [{ verification: { status: "verified", strategy: "email_link" } }])],
+  ])("removes a Clerk tracker account when the user can still sign in with %s", async (_label, other) => {
+    lists.clickup = [{ id: "1", name: "Acme" }];
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    clerk.emails = [{ verification: { status: "verified", strategy: "from_oauth_linear" } }];
+    other();
     await runCallback("clickup");
     expect(clerk.deleted).toEqual(["ea_linear"]);
   });
@@ -1244,8 +1632,76 @@ describe("disconnect", () => {
   });
 
   it("refuses an unknown provider", async () => {
-    expect((await post("linear")).status).toBe(404);
+    expect((await post("bitbucket")).status).toBe(404);
     expect(store.deleteConnection).not.toHaveBeenCalled();
+  });
+
+  it("asks Clerk nothing for a tracker that never had a Clerk account", async () => {
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    expect(await (await post("clickup")).json()).toEqual({ ok: true });
+    expect(clerk.reads).toBe(0);
+    expect(clerk.deleted).toEqual([]);
+  });
+
+  it.each([
+    ["linear", "ea_linear"],
+    ["jira", "ea_jira"],
+    ["github", "ea_github"],
+  ])("removes %s's Brief row and its Clerk account from before the move, and nothing else", async (provider, id) => {
+    clerk.accounts = [
+      { id: "ea_google", provider: "oauth_google" },
+      { id: "ea_linear", provider: "oauth_linear" },
+      { id: "ea_jira", provider: "oauth_atlassian" },
+      { id: "ea_github", provider: "oauth_github" },
+    ];
+    const res = await post(provider);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(store.deleteConnection).toHaveBeenCalledWith("user_1", provider);
+    expect(clerk.deleted).toEqual([id]);
+    expect(db.orgDeletes).toEqual(["user_1"]);
+  });
+
+  it("drops only the Brief row when asked to keep the Clerk account", async () => {
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    const res = await disconnect(
+      new NextRequest(`${ORIGIN}/api/connect/linear/disconnect?clerk=keep`, { method: "POST", headers: { origin: ORIGIN } }),
+      ctx("linear"),
+    );
+    expect(await res.json()).toEqual({ ok: true });
+    expect(store.deleteConnection).toHaveBeenCalledWith("user_1", "linear");
+    expect(clerk.reads).toBe(0);
+    expect(clerk.deleted).toEqual([]);
+  });
+
+  it("stands by a removed Brief row when Clerk can't be read to look for a leftover account", async () => {
+    clerk.failGetUser = true;
+    const res = await post("github");
+    expect(await res.json()).toEqual({ ok: true });
+    expect(store.deleteConnection).toHaveBeenCalledWith("user_1", "github");
+    expect(vi.mocked(console.warn)).toHaveBeenCalledWith(
+      expect.stringContaining("could not read the Clerk user"),
+      "Error",
+    );
+  });
+
+  it("leaves a Clerk account that is the user's only way to sign in, and says the disconnect failed", async () => {
+    clerk.accounts = [{ id: "ea_github", provider: "oauth_github" }];
+    clerk.emails = [{ verification: { status: "verified", strategy: "from_oauth_github" } }];
+    const res = await post("github");
+    expect(res.status).toBe(409);
+    expect(clerk.deleted).toEqual([]);
+  });
+
+  it("reports a Clerk account it couldn't remove, after removing the Brief row", async () => {
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    clerk.failDelete = true;
+    const res = await post("linear");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "failed" });
+    expect(store.deleteConnection).toHaveBeenCalledWith("user_1", "linear");
+    // The row went, so the org and lists built on it go too.
+    expect(db.orgDeletes).toEqual(["user_1"]);
+    expect(workspaces.forgetWorkspaces).toHaveBeenCalledWith("user_1");
   });
 
   it("requires a signed-in user", async () => {
@@ -1288,6 +1744,9 @@ describe("/api/me/connections", () => {
         { provider: "trello", label: "Ada L", workspace: null },
       ],
       configured: {
+        linear: true,
+        jira: true,
+        github: true,
         gitlab: true,
         azure: true,
         clickup: true,
@@ -1297,6 +1756,21 @@ describe("/api/me/connections", () => {
         monday: false,
       },
     });
+  });
+
+  it("lists Linear, Jira and GitHub with the rest, and says when their OAuth apps aren't set up here", async () => {
+    vi.stubEnv("JIRA_CLIENT_ID", "");
+    db.rows = [
+      {
+        user_id: "user_1",
+        provider: "jira",
+        access_token_enc: "ENC_ACCESS",
+        account_meta: { workspaceId: "cloud-1", workspaceName: "acme", siteUrl: "https://acme.atlassian.net" },
+      },
+    ];
+    const body = await (await myConnections()).json();
+    expect(body.owned).toEqual([{ provider: "jira", label: null, workspace: { id: "cloud-1", name: "acme" } }]);
+    expect(body.configured).toMatchObject({ linear: true, jira: false, github: true });
   });
 
   it("requires a signed-in user", async () => {

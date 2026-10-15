@@ -4,7 +4,9 @@ Brief files into ten trackers. Each needs an OAuth app on the provider's side.
 
 | Tracker | Token held by | Prod redirect URI | Env |
 |---|---|---|---|
-| Linear, Jira, GitHub | Clerk | `https://clerk.get-brief.app/v1/oauth_callback` | none (live already) |
+| Linear | Brief | `https://cloud.get-brief.app/api/connect/linear/callback` | `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET` |
+| Jira | Brief | `https://cloud.get-brief.app/api/connect/jira/callback` | `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET` |
+| GitHub | Brief | `https://cloud.get-brief.app/api/connect/github/callback` | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` |
 | GitLab | Brief | `https://cloud.get-brief.app/api/connect/gitlab/callback` | `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` |
 | Azure DevOps | Brief | `https://cloud.get-brief.app/api/connect/azure/callback` | `AZURE_DEVOPS_CLIENT_ID`, `AZURE_DEVOPS_CLIENT_SECRET` |
 | ClickUp | Brief | `https://cloud.get-brief.app/api/connect/clickup/callback` | `CLICKUP_CLIENT_ID`, `CLICKUP_CLIENT_SECRET` |
@@ -13,15 +15,64 @@ Brief files into ten trackers. Each needs an OAuth app on the provider's side.
 | Asana | Brief | `https://cloud.get-brief.app/api/connect/asana/callback` | `ASANA_CLIENT_ID`, `ASANA_CLIENT_SECRET`, optional `ASANA_SCOPES` |
 | Monday | Brief | `https://cloud.get-brief.app/api/connect/monday/callback` | `MONDAY_CLIENT_ID`, `MONDAY_CLIENT_SECRET` |
 
-- **Clerk-held**: Clerk runs the OAuth flow and stores the token (`lib/clerk-strategies.ts`).
 - **Brief-held**: routes `/api/connect/<provider>/{start,callback,disconnect}`, tokens AES-256-GCM encrypted in `tracker_connections` under `CONNECTIONS_KEY` (`lib/connections.ts`). Redirect URIs are built from `APP_URL`, so prod needs `APP_URL=https://cloud.get-brief.app`.
-- **Why GitLab and Notion are Brief-held**: Clerk has both, but prod Clerk refuses a fourth social connection on its plan (`402 unsupported_subscription_plan_features: app:unlimited_social`), and Brief-held OAuth works on any plan.
-- **Dev** redirect URI for a Brief-held tracker: `http://localhost:3000/api/connect/<provider>/callback`. One app can carry both URIs.
+- **Clerk** only signs people in to Brief. Linear, Jira and GitHub used to be Clerk connected accounts; [Moving off Clerk](#moving-off-clerk) covers the switch, and [Cleanup after migration](#cleanup-after-migration) what goes once it is done.
+- **Why everything is Brief-held**: prod Clerk refuses a fourth social connection on its plan (`402 unsupported_subscription_plan_features: app:unlimited_social`), and Brief-held OAuth works on any plan and for any tracker.
+- **Dev** redirect URI: `http://localhost:3000/api/connect/<provider>/callback`. One app can carry both URIs, except Jira: Atlassian allows one callback URL per app, so dev needs an app of its own.
 - A Brief-held tracker without its env shows as not available in Settings; nothing breaks.
 - Live tests: `lib/<provider>.e2e.test.ts`, skipped unless their `LIVE_*` vars are set. Run from `web/`:
   `node --env-file=.env.local node_modules/vitest/vitest.mjs run lib/<provider>.e2e.test.ts`
 
 ---
+
+## Linear
+
+1. In Linear, as a workspace admin: **Settings**, **API**, **OAuth applications**, **+** (https://linear.app/settings/api/applications/new).
+2. **Name**: Brief (Linear refuses a name containing "Linear"), plus the developer name and URL. **Callback URLs**, one per line (up to 32):
+   `https://cloud.get-brief.app/api/connect/linear/callback`
+   `http://localhost:3000/api/connect/linear/callback`
+3. Turn on **Public**. A private app, the default, can only be authorized in the workspace that owns it. Webhooks stay off.
+4. **Create**, then copy the **Client ID** and **Client secret**.
+
+- **Env**: `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`.
+- **Scopes** are asked for at connect time, not set on the app: `read,write` (Linear separates them with commas), with PKCE and `prompt=consent`, so a reconnect can move Brief to another workspace.
+- No review: any Linear workspace can connect once the app is public. Access tokens last 24 hours (every Linear OAuth app moved to refresh tokens on April 1, 2026); Brief refreshes them, and Linear rotates the refresh token on each refresh.
+- The workspace is the token's own organization: connect stores it, and it is the org key (`linear:<organization id>`), the same key a Clerk connection produced.
+
+## Jira
+
+Atlassian OAuth 2.0 (3LO). An app holds one callback URL, so prod and dev are two apps.
+
+1. https://developer.atlassian.com/console/myapps/: **Create**, **OAuth 2.0 integration**. **Name**: Brief. **Grant type**: *Resource-level*, so a user grants the sites they tick on the consent screen. Agree to the terms, **Create**.
+2. **Permissions**: next to **Jira API**, **Add**, then **Configure**, **Edit Scopes**, and tick the classic scopes `read:jira-work`, `write:jira-work` and `read:jira-user`. **Save**.
+3. **Authorization**: next to **OAuth 2.0 (3LO)**, **Configure**. **Callback URL**: `https://cloud.get-brief.app/api/connect/jira/callback`. **Save changes**.
+4. **Settings**: copy the **Client ID** and **Secret**.
+5. **Distribution**: **Edit**, turn on sharing, and fill in what it asks for (the vendor name, the privacy policy URL `https://cloud.get-brief.app/privacy`, the personal data declaration). Without sharing, only the app's owner can authorize it.
+6. **Dev**: a second app, *Brief (dev)*, steps 1 to 4 with `http://localhost:3000/api/connect/jira/callback`. It needs no sharing while only you use it.
+
+- **Env**: `JIRA_CLIENT_ID`, `JIRA_CLIENT_SECRET` (the dev app's pair in `.env.local`).
+- Brief asks for `read:jira-work write:jira-work read:jira-user offline_access` with `audience=api.atlassian.com` and `prompt=consent`. `offline_access` is not configured in the console; asking for it is what gets a refresh token. Atlassian documents no PKCE for 3LO, so Jira goes without.
+- Access tokens are short-lived. Refresh tokens rotate on every use and lapse after 90 days unused; Brief refreshes and stores each new one.
+- **Sites**: connect lists the sites the grant covers (`accessible-resources`). One is stored with its address; several send the user to Settings to pick one (a reconnect keeps the site it had while the grant still covers it), and Jira files nowhere until they do; none refuses the connect. The org key is `jira:<cloud id>`, the same key a Clerk connection produced for the same site.
+- **Review**: until Atlassian approves the app, users see a warning that it is not reviewed. Approval follows the Marketplace listing process, and no informative listing is needed. The app works meanwhile.
+- **Personal data**: Atlassian asks apps that store personal data to report it through its personal data reporting API. Brief's Jira connection keeps no Atlassian profile data (the card shows the site name) and filed tickets keep only their title and status, so answer the declaration on that basis, and revisit it if that changes.
+- `JIRA_API_TOKEN`, `JIRA_EMAIL` and `JIRA_SITE` still give a test deployment a basic-auth Jira account when neither Brief nor Clerk holds one.
+
+## GitHub
+
+A GitHub **OAuth App**, not a GitHub App: an OAuth App acts as the user across every repository they can reach.
+
+1. https://github.com/settings/applications/new, or, so the app outlives one account, an organization's **Settings**, **Developer settings**, **OAuth Apps**, **New OAuth App**.
+2. **Application name**: Brief. **Homepage URL**: `https://cloud.get-brief.app`. **Authorization callback URL**: `https://cloud.get-brief.app/api/connect/github/callback`. **Register application**.
+3. **Add redirect URI**: `http://localhost:3000/api/connect/github/callback`. OAuth Apps take up to 10 callback URLs since August 14, 2026. Leave wildcard matching off: Brief sends the exact URL.
+4. **Generate a new client secret** and copy it with the **Client ID**; the secret is shown once.
+5. Leave short-lived user tokens on (the app's optional features), the default for new apps: tokens last eight hours and Brief refreshes them (the refresh token lasts six months and is replaced on each use). An app with them off issues tokens that never expire, which works too.
+
+- **Env**: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`.
+- **Scopes** are asked for at connect time: `repo` (filing into private repositories as well as public ones) and `read:user` (the account's name on the card), with PKCE.
+- **Organizations**: an organization with OAuth App access restrictions on hides its private repositories from Brief until an owner approves the app. Members can request approval from the consent screen.
+- **Org pick**: one organization is stored at connect, several are offered on Settings, none is fine (personal repositories still file). A reconnect keeps the org it had, and an org picked for a Clerk connection is carried over, when the new token can see it; when the listing fails, the Clerk-era pick stays in Clerk and Settings checks it again. The org key is `github:<login, lowercased>`, as before.
+- **Token cap**: GitHub keeps at most ten tokens per user, app and scope set, revoking the oldest past that, and creates at most ten an hour. A dev app of your own keeps localhost testing from revoking your production token.
 
 ## GitLab
 
@@ -134,6 +185,27 @@ monday moved to OAuth 2.1 (PKCE, rotating refresh tokens); tokens from the old f
 
 ---
 
+## Moving off Clerk
+
+Linear, Jira and GitHub moved from Clerk connected accounts to Brief-held OAuth. Nobody has to reconnect:
+
+- **Before their apps exist**: with no `LINEAR_*`, `JIRA_*` or `GITHUB_*` secrets, `/api/me/connections` reports them not configured and Connect still goes through Clerk, exactly as before. Deploying the code first changes nothing. If that read fails, Connect asks again and shows an error rather than guess.
+- **Once a secret pair is set**: Connect runs Brief's flow. A Brief connect removes the user's Clerk tracker accounts, that tracker's own included, once the new token is stored. A Clerk connect, where one still happens, removes that tracker's Brief row.
+- **Users still on Clerk** keep filing: `lib/tracker-tokens.ts` falls back to the Clerk token only when Brief holds no row at all. A Brief row that can't be used (a refused refresh, a store outage) makes the tracker stale instead, since an old Clerk token could file into another account's workspace. Clerk users count as connected everywhere (Settings, health, filing, org), and Disconnect removes the Clerk account server side.
+- **Sign-in guard**: a Clerk tracker account that is a user's only way to sign in (no password, no other external account, no email verified other than through it) is never removed; it is logged and left for the account page.
+- **Orgs stay put**: the org key is the Linear organization id, the Jira cloud id and the GitHub login on either path. A Clerk Jira keeps filing into its token's first site; a Brief one files into the site picked for it.
+
+## Cleanup after migration
+
+Once no user on either Clerk instance has an `oauth_linear`, `oauth_atlassian` or `oauth_github` external account left (Clerk's backend `getUserList`, filtered on `externalAccounts`), remove:
+
+- `lib/tracker-tokens.ts`'s Clerk fallbacks, then `getLinearToken`, `getGithubToken` and the Clerk half of `getJiraAuth` (keep the `JIRA_API_TOKEN` branch if test deployments still use it) and the first-site `getJiraCloud`.
+- `lib/clerk-strategies.ts` and the `NEXT_PUBLIC_*_CLERK_STRATEGY` env; `clerkStrategy`, `clerkMatch`, `CLERK_PROVIDERS`, `connectedProviders` and the `clerkKnown` handling in `lib/trackers/registry.ts`; `lib/clerk-trackers.ts` and its calls in the connect callback and the disconnect route.
+- The Clerk connect path in `components/useTrackerConnect.ts` (`createExternalAccount`, reverification, the email linking and pending-account copy), the account-settings fallback in `components/Integrations.tsx`, and `app/api/account/link-email` once nothing calls it.
+- The `githubOrg` privateMetadata reads and writes in `lib/workspaces.ts` (`legacyGithubPick`, `forgetLegacyGithubPick`, `adoptLegacyGithubPick`, `writeGithubPick`'s Clerk branch) and the legacy pick in the callback's `keptPick`.
+- In `lib/org-server.ts`: the Clerk branch of `jiraOrg`, and the Clerk-down fallback in `resolveFromTrackers` that tries Linear, Jira and GitHub whenever Clerk can't be read.
+- The Linear, Atlassian and GitHub social connections on both Clerk instances, the Clerk sentences in the privacy page, and Clerk as a holder of tracker tokens in the Chrome Web Store data disclosure.
+
 ## Go live
 
 1. **Apps**: register each app above and collect its credentials.
@@ -144,6 +216,9 @@ monday moved to OAuth 2.1 (PKCE, rotating refresh tokens); tokens from the old f
    fly secrets set --stage \
      APP_URL=https://cloud.get-brief.app \
      CONNECTIONS_KEY=<key> \
+     LINEAR_CLIENT_ID=<id> LINEAR_CLIENT_SECRET=<secret> \
+     JIRA_CLIENT_ID=<id> JIRA_CLIENT_SECRET=<secret> \
+     GITHUB_CLIENT_ID=<id> GITHUB_CLIENT_SECRET=<secret> \
      GITLAB_CLIENT_ID=<id> GITLAB_CLIENT_SECRET=<secret> \
      AZURE_DEVOPS_CLIENT_ID=<id> AZURE_DEVOPS_CLIENT_SECRET=<secret> \
      CLICKUP_CLIENT_ID=<id> CLICKUP_CLIENT_SECRET=<secret> \
@@ -152,6 +227,7 @@ monday moved to OAuth 2.1 (PKCE, rotating refresh tokens); tokens from the old f
      ASANA_CLIENT_ID=<id> ASANA_CLIENT_SECRET=<secret> \
      MONDAY_CLIENT_ID=<id> MONDAY_CLIENT_SECRET=<secret>
    ```
-   To keep them out of shell history: put the `NAME=value` lines in a file, `fly secrets import --stage < file`, delete the file. Partial is fine: a tracker whose secrets are missing stays "Soon" in Settings.
-4. **Deploy**: `fly deploy` from `web/`.
-5. **Check**: Settings, Tracker lists all ten with no "Soon" tag on the ones you configured; connect each once and file a test ticket.
+   To keep them out of shell history: put the `NAME=value` lines in a file, `fly secrets import --stage < file`, delete the file. Partial is fine: a tracker whose secrets are missing stays "Soon" in Settings, except Linear, Jira and GitHub, which keep connecting through Clerk.
+4. **Chrome Web Store**: once the Linear, Jira or GitHub secrets are live, Brief Cloud stores those trackers' tokens itself. Update the listing's "Privacy practices" data disclosure to match the privacy page (`app/privacy/page.tsx`), which already covers both places a token can be held.
+5. **Deploy**: `fly deploy` from `web/`.
+6. **Check**: Settings, Tracker lists all ten with no "Soon" tag on the ones you configured; connect each once and file a test ticket. For Linear, Jira and GitHub, check that the connect left no Clerk account behind (Clerk dashboard, the user's connected accounts).

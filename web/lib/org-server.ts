@@ -4,8 +4,10 @@ import { connectedTrackers } from "@/lib/trackers/registry";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { orgKey } from "@/lib/org";
-import { getLinearOrg, getLinearToken } from "@/lib/linear";
+import { getLinearOrg } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud } from "@/lib/jira";
+import { metaWorkspace, readConnectionMeta } from "@/lib/connections";
+import { linearToken } from "@/lib/tracker-tokens";
 import { getPickedWorkspace } from "@/lib/workspaces";
 import { rankReporters, type LeaderRow, type Reporter } from "@/lib/podium";
 import { inferMemberships, type ResolvedOrg } from "@/lib/org-infer";
@@ -54,6 +56,36 @@ export const ORG_TTL_MS = 24 * 60 * 60 * 1000;
 export const ORG_MISS_TTL_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * The Linear workspace a token points at. A Brief-held connection stored it at
+ * connect time, read off the token then; a Clerk one from before the move to
+ * Brief's OAuth, or a Brief one whose read failed, is asked now. Either way the
+ * key is the organization's id, so moving from Clerk to Brief keeps the org.
+ */
+async function linearOrg(userId: string): Promise<{ id: string; name: string } | null> {
+  const meta = await readConnectionMeta(userId, "linear");
+  const stored = meta && metaWorkspace(meta);
+  if (stored) return stored;
+  const tok = await linearToken(userId);
+  return tok ? getLinearOrg(tok) : null;
+}
+
+/**
+ * The Jira site that is this user's org. A Brief-held connection's is the site
+ * picked for it, and there is none until then: a guess could put the user in
+ * a stranger's org. A Clerk connection from before the move keeps its token's
+ * first site, as it always has. The key is the site's cloud id either way, so
+ * picking the same site after moving keeps the org.
+ */
+async function jiraOrg(userId: string): Promise<{ id: string; name: string } | null> {
+  const meta = await readConnectionMeta(userId, "jira");
+  if (meta) return metaWorkspace(meta);
+  const tok = await getJiraAuth(userId);
+  if (!tok) return null;
+  const cloud = await getJiraCloud(tok);
+  return cloud ? { id: cloud.cloudId, name: cloud.name ?? "Jira site" } : null;
+}
+
+/**
  * Ask each connected tracker which workspace it points at.
  *
  * Order matches PROVIDERS in the registry, so a user with two trackers
@@ -76,12 +108,9 @@ async function resolveFromTrackers(userId: string): Promise<OrgIdentity | null> 
 
   if (connected.includes("linear")) {
     try {
-      const tok = await getLinearToken(userId);
-      if (tok) {
-        const org = await getLinearOrg(tok);
-        const key = org && orgKey("linear", org.id);
-        if (key && org) return { key, name: org.name, provider: "linear" };
-      }
+      const org = await linearOrg(userId);
+      const key = org && orgKey("linear", org.id);
+      if (key && org) return { key, name: org.name, provider: "linear" };
     } catch {
       /* a tracker we can't reach contributes no org, it doesn't break the page */
     }
@@ -89,14 +118,9 @@ async function resolveFromTrackers(userId: string): Promise<OrgIdentity | null> 
 
   if (connected.includes("jira")) {
     try {
-      const tok = await getJiraAuth(userId);
-      if (tok) {
-        const cloud = await getJiraCloud(tok);
-        const key = cloud && orgKey("jira", cloud.cloudId);
-        if (key && cloud) {
-          return { key, name: cloud.name ?? "Jira site", provider: "jira" };
-        }
-      }
+      const site = await jiraOrg(userId);
+      const key = site && orgKey("jira", site.id);
+      if (key && site) return { key, name: site.name, provider: "jira" };
     } catch {
       /* as above */
     }

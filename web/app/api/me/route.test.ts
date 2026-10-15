@@ -34,6 +34,13 @@ vi.mock("@/lib/connections", async (importOriginal) => {
       const row = store.current[provider];
       return row ? { provider, accessToken: `${provider}-token`, meta: row.meta } : null;
     },
+    // Linear, Jira and GitHub ask whether there is a row at all before Clerk.
+    readConnection: async (_userId: string, provider: string) => {
+      const row = store.current[provider];
+      return row
+        ? { state: "connected", connection: { provider, accessToken: `${provider}-token`, meta: row.meta } }
+        : { state: "absent" };
+    },
   };
 });
 

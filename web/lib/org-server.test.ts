@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Which trackers are connected, and the workspace each one picked: the two
@@ -7,6 +7,23 @@ const registry = vi.hoisted(() => ({ connectedTrackers: vi.fn() }));
 vi.mock("@/lib/trackers/registry", () => registry);
 const workspaces = vi.hoisted(() => ({ getPickedWorkspace: vi.fn() }));
 vi.mock("@/lib/workspaces", () => workspaces);
+
+// Linear and Jira: what Brief's store holds for them (account_meta, or null for
+// no connection), and the Clerk tokens from before their move to Brief's OAuth.
+const trackers = vi.hoisted(() => ({
+  readConnectionMeta: vi.fn(),
+  linearToken: vi.fn(),
+  getLinearOrg: vi.fn(),
+  getJiraAuth: vi.fn(),
+  getJiraCloud: vi.fn(),
+}));
+vi.mock("@/lib/connections", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/connections")>()),
+  readConnectionMeta: trackers.readConnectionMeta,
+}));
+vi.mock("@/lib/tracker-tokens", () => ({ linearToken: trackers.linearToken }));
+vi.mock("@/lib/linear", () => ({ getLinearOrg: trackers.getLinearOrg }));
+vi.mock("@/lib/jira", () => ({ getJiraAuth: trackers.getJiraAuth, getJiraCloud: trackers.getJiraCloud }));
 
 import { setOrgSettings, getOrgSettings, getOrgMemberIds, getOrg } from "./org-server";
 
@@ -122,6 +139,16 @@ describe("getOrg from a workspace pick", () => {
     expect(upsert).not.toHaveBeenCalled();
   });
 
+  it("keeps a GitHub user in the same org whether the pick came through Clerk or Brief", async () => {
+    registry.connectedTrackers.mockResolvedValue(["github"]);
+    // Clerk's privateMetadata spelled it one way, the Brief connection another.
+    workspaces.getPickedWorkspace.mockResolvedValueOnce({ id: "Acme", name: "Acme" });
+    const before = await getOrg(nextUser(), stubDb({ data: null }).db);
+    workspaces.getPickedWorkspace.mockResolvedValueOnce({ id: "acme", name: "acme" });
+    const after = await getOrg(nextUser(), stubDb({ data: null }).db);
+    expect(after?.key).toBe(before?.key);
+  });
+
   it("takes the first connected tracker with a pick, in registry order", async () => {
     registry.connectedTrackers.mockResolvedValue(["gitlab", "asana"]);
     workspaces.getPickedWorkspace.mockImplementation(async (_u: string, p: string) =>
@@ -130,5 +157,70 @@ describe("getOrg from a workspace pick", () => {
     const { db } = stubDb({ data: null });
 
     expect(await getOrg(nextUser(), db)).toMatchObject({ key: "asana:120", provider: "asana" });
+  });
+});
+
+describe("getOrg for Linear and Jira while they move off Clerk", () => {
+  let n = 0;
+  const nextUser = () => `user_move_${++n}`;
+
+  beforeEach(() => {
+    for (const fn of Object.values(trackers)) fn.mockReset();
+    trackers.readConnectionMeta.mockResolvedValue(null);
+  });
+
+  it("keys a Linear user by the organization id, from a Clerk token or a Brief connection alike", async () => {
+    registry.connectedTrackers.mockResolvedValue(["linear"]);
+    trackers.linearToken.mockResolvedValue({ token: "clerk-linear" });
+    trackers.getLinearOrg.mockResolvedValue({ id: "org-1", name: "Acme" });
+    const onClerk = await getOrg(nextUser(), stubDb({ data: null }).db);
+    expect(onClerk).toEqual({ key: "linear:org-1", name: "Acme", provider: "linear" });
+
+    // Moved to Brief: the connect callback stored the same organization.
+    trackers.getLinearOrg.mockClear();
+    trackers.readConnectionMeta.mockResolvedValue({ workspaceId: "org-1", workspaceName: "Acme", label: "Ada" });
+    const onBrief = await getOrg(nextUser(), stubDb({ data: null }).db);
+    expect(onBrief?.key).toBe(onClerk?.key);
+    // Read off the row: no Linear round trip.
+    expect(trackers.getLinearOrg).not.toHaveBeenCalled();
+  });
+
+  it("asks a Brief-held Linear token when connect couldn't store the organization", async () => {
+    registry.connectedTrackers.mockResolvedValue(["linear"]);
+    trackers.readConnectionMeta.mockResolvedValue({ label: "Ada" });
+    trackers.linearToken.mockResolvedValue({ token: "brief-linear" });
+    trackers.getLinearOrg.mockResolvedValue({ id: "org-1", name: "Acme" });
+    expect(await getOrg(nextUser(), stubDb({ data: null }).db)).toMatchObject({ key: "linear:org-1" });
+    expect(trackers.getLinearOrg).toHaveBeenCalledWith({ token: "brief-linear" });
+  });
+
+  it("keys a Jira user by the site's cloud id: Clerk's first site, then the same site picked on Brief", async () => {
+    registry.connectedTrackers.mockResolvedValue(["jira"]);
+    trackers.getJiraAuth.mockResolvedValue({ token: "clerk-jira", kind: "oauth" });
+    trackers.getJiraCloud.mockResolvedValue({ cloudId: "cloud-1", siteUrl: "https://acme.atlassian.net", name: "acme" });
+    const onClerk = await getOrg(nextUser(), stubDb({ data: null }).db);
+    expect(onClerk).toEqual({ key: "jira:cloud-1", name: "acme", provider: "jira" });
+
+    trackers.getJiraAuth.mockClear();
+    trackers.readConnectionMeta.mockResolvedValue({
+      workspaceId: "cloud-1",
+      workspaceName: "acme",
+      siteUrl: "https://acme.atlassian.net",
+    });
+    const onBrief = await getOrg(nextUser(), stubDb({ data: null }).db);
+    expect(onBrief?.key).toBe(onClerk?.key);
+    expect(trackers.getJiraAuth).not.toHaveBeenCalled();
+  });
+
+  it("puts a Brief-held Jira with no site picked in no org, rather than guess its first site", async () => {
+    registry.connectedTrackers.mockResolvedValue(["jira"]);
+    trackers.readConnectionMeta.mockResolvedValue({});
+    trackers.getJiraAuth.mockResolvedValue({ token: "clerk-jira", kind: "oauth" });
+    trackers.getJiraCloud.mockResolvedValue({ cloudId: "cloud-1", siteUrl: "https://acme.atlassian.net" });
+    const { db, upsert } = stubDb({ data: null });
+
+    expect(await getOrg(nextUser(), db)).toBeNull();
+    expect(upsert).not.toHaveBeenCalled();
+    expect(trackers.getJiraAuth).not.toHaveBeenCalled();
   });
 });

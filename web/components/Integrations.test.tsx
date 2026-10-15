@@ -80,7 +80,7 @@ async function server(url: string, init?: RequestInit) {
   calls.push(`${init?.method ?? "GET"} ${url}`);
   if (url === "/api/me/connections") return json({ owned, configured });
   if (url === "/api/trackers/health") return json(health);
-  const m = url.match(/^\/api\/connect\/(\w+)\/disconnect$/);
+  const m = url.match(/^\/api\/connect\/(\w+)\/disconnect(\?clerk=keep)?$/);
   if (m && init?.method === "POST") {
     owned = owned.filter((o) => o.provider !== m[1]);
     return json({ ok: true });
@@ -90,7 +90,20 @@ async function server(url: string, init?: RequestInit) {
 
 beforeEach(() => {
   owned = [];
-  configured = { gitlab: true, azure: true, clickup: true, notion: true, trello: true, asana: true, monday: true };
+  // Linear, Jira and GitHub default to a deployment without Brief's apps for
+  // them, where they connect through Clerk.
+  configured = {
+    linear: false,
+    jira: false,
+    github: false,
+    gitlab: true,
+    azure: true,
+    clickup: true,
+    notion: true,
+    trello: true,
+    asana: true,
+    monday: true,
+  };
   health = { stale: [], needsWorkspace: [] };
   calls = [];
   clerk.user = {
@@ -371,10 +384,137 @@ describe("Integrations", () => {
     expect(screen.getByText("Couldn't connect")).toBeTruthy();
   });
 
+  it("names the missing Jira site", async () => {
+    window.history.replaceState(null, "", "/connections?error=no_workspace&provider=jira");
+    render(<Integrations />);
+    expect(await screen.findByText("No Jira site on this account")).toBeTruthy();
+  });
+
   it("strips a successful connect's marker and keeps the workspace pick", async () => {
     window.history.replaceState(null, "", "/connections?connected=asana&pick=asana");
     render(<Integrations />);
     await trigger();
     expect(window.location.search).toBe("?pick=asana");
+  });
+});
+
+describe("Linear, Jira and GitHub while they move off Clerk", () => {
+  it("connects Linear through Brief's start route once this deployment has Brief's app for it", async () => {
+    configured = { ...configured, linear: true };
+    const github = account("oauth_github");
+    clerk.user!.externalAccounts = [github];
+    render(<Integrations />);
+    await pick("Linear");
+    fireEvent.click(screen.getByRole("button", { name: "Switch to Linear →" }));
+
+    expect(assign).toHaveBeenCalledWith("/api/connect/linear/start?returnTo=%2Fconnections");
+    expect(calls).not.toContain("createExternalAccount");
+    // The callback removes the Clerk account once the new one is stored.
+    expect(github.destroy).not.toHaveBeenCalled();
+    expect(disconnectCalls()).toEqual([]);
+  });
+
+  it("still connects Jira through Clerk when Brief's app for it is not set up here", async () => {
+    render(<Integrations />);
+    await pick("Jira");
+    const connect = screen.getByRole("button", { name: "Connect Jira →" });
+    // Available: Clerk can still connect it.
+    expect(connect).toHaveProperty("disabled", false);
+    expect(screen.queryByText("Not available yet")).toBeNull();
+    fireEvent.click(connect);
+
+    await waitFor(() => expect(sentTo).toEqual(["https://github.com/login/oauth"]));
+    expect(clerk.user!.createExternalAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ strategy: "oauth_atlassian" }),
+    );
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("asks the server again when it couldn't tell which flow Jira uses, and follows the answer", async () => {
+    let reads = 0;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      // The read on page load fails; the one made at click time answers.
+      if (url === "/api/me/connections" && reads++ === 0) return json({ error: "down" }, false);
+      return server(url, init);
+    });
+    configured = { ...configured, jira: true };
+    render(<Integrations />);
+    await pick("Jira");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Jira →" }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/api/connect/jira/start?returnTo=%2Fconnections"));
+    expect(calls).not.toContain("createExternalAccount");
+  });
+
+  it("shows an error, rather than guess Clerk, when it still can't tell which flow Jira uses", async () => {
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/me/connections") return json({ error: "down" }, false);
+      return server(url, init);
+    });
+    render(<Integrations />);
+    await pick("Jira");
+    fireEvent.click(screen.getByRole("button", { name: "Connect Jira →" }));
+
+    expect(await screen.findByText("Couldn't connect")).toBeTruthy();
+    expect(calls).not.toContain("createExternalAccount");
+    expect(assign).not.toHaveBeenCalled();
+    expect(sentTo).toEqual([]);
+  });
+
+  it("drops the tracker's own Brief row, not its new Clerk account, when reconnecting it through Clerk", async () => {
+    // A Brief GitHub row whose token is dead, on a deployment that connects
+    // GitHub through Clerk: the row would keep the new Clerk account from filing.
+    owned = [ownedRow("github")];
+    health = { stale: ["github"], needsWorkspace: [] };
+    render(<Integrations />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reconnect →" }));
+
+    await waitFor(() => expect(sentTo).toEqual(["https://github.com/login/oauth"]));
+    expect(disconnectCalls()).toEqual(["POST /api/connect/github/disconnect?clerk=keep"]);
+    expect(calls.indexOf("POST /api/connect/github/disconnect?clerk=keep")).toBeGreaterThan(
+      calls.indexOf("createExternalAccount"),
+    );
+  });
+
+  it("shows Linear as connected from Brief's own store", async () => {
+    configured = { ...configured, linear: true };
+    owned = [ownedRow("linear")];
+    render(<Integrations />);
+    expect((await trigger()).textContent).toContain("Linear");
+    expect(screen.getByText("Connected ✓")).toBeTruthy();
+  });
+
+  it("still shows a GitHub connected through Clerk before the move as connected", async () => {
+    configured = { ...configured, github: true };
+    clerk.user!.externalAccounts = [account("oauth_github")];
+    render(<Integrations />);
+    expect((await trigger()).textContent).toContain("GitHub");
+    expect(screen.getByText("Connected ✓")).toBeTruthy();
+  });
+
+  it("disconnects a Clerk-connected GitHub through the server, which removes the Clerk account", async () => {
+    const github = account("oauth_github");
+    clerk.user!.externalAccounts = [github];
+    render(<Integrations />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(disconnectCalls()).toEqual(["POST /api/connect/github/disconnect"]));
+    await waitFor(() => expect(clerk.user!.reload).toHaveBeenCalled());
+    expect(github.destroy).not.toHaveBeenCalled();
+  });
+
+  it("points to account settings when a Clerk account the server couldn't remove is left", async () => {
+    clerk.user!.externalAccounts = [account("oauth_linear")];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/connect/linear/disconnect") {
+        calls.push(`POST ${url}`);
+        return json({ error: "failed" }, false);
+      }
+      return server(url, init);
+    });
+    render(<Integrations />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect" }));
+
+    expect(await screen.findByRole("link", { name: "manage connections in account settings" })).toBeTruthy();
   });
 });

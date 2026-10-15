@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 // Reachable at https://cloud.get-brief.app/privacy (allowlisted in proxy.ts).
 // Keep this in sync with the Chrome Web Store "Privacy practices" disclosures.
 
-const LAST_UPDATED = "October 13, 2026";
+const LAST_UPDATED = "October 14, 2026";
 
 function Section({
   title,
@@ -123,15 +123,16 @@ export default function PrivacyPage() {
           </p>
           <p>
             Connecting a tracker gives Brief Cloud an access token for it, which is
-            kept in one of two places. For Linear, Jira and GitHub, Clerk runs the
+            kept in one of two places. For a connection made through Brief Cloud,
+            the authorization comes back to us, and we store the token (and the
+            refresh token, when the tracker issues one) encrypted with AES-256 in
+            our database. A Linear, Jira or GitHub connection may instead be made
+            through Clerk, our authentication provider, which then runs the
             authorization and holds the token, and our backend asks Clerk for it
-            when it needs it. For GitLab, Azure DevOps, ClickUp, Notion, Trello,
-            Asana and Monday, the authorization comes back to Brief Cloud, and we
-            store the token (and the refresh token, when the tracker issues one)
-            encrypted with AES-256 in our database. Either way, the token is used
-            only to file and update your tickets and to read what writing them
-            needs, such as projects, labels, statuses and people. Disconnecting a
-            tracker deletes its token.
+            when it needs it. Either way, the token is used only to file and
+            update your tickets and to read what writing them needs, such as
+            projects, labels, statuses and people. Disconnecting a tracker deletes
+            its token.
           </p>
         </Section>
 
@@ -171,8 +172,8 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong className="font-medium text-ink">Clerk</strong>, our authentication provider, which handles
-              sign in, your account profile, and the connections to Linear, Jira
-              and GitHub.
+              sign in and your account profile, and holds any Linear, Jira or
+              GitHub connection made through it.
             </li>
             <li>
               <strong className="font-medium text-ink">Your connected tracker</strong> (Linear, Jira, GitHub,

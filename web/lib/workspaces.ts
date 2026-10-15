@@ -1,10 +1,12 @@
 // Which workspace of a tracker is "your team".
 //
-// An org in Brief is a tracker workspace (see lib/org.ts). Linear and Jira
-// tokens point at exactly one, so org-server reads it straight off the token.
-// Every other tracker can see several at once (a GitHub user's orgs, a GitLab
-// user's groups, a ClickUp user's workspaces), so the user picks one here, and
-// for Azure DevOps and Asana that pick is also where tickets are filed.
+// An org in Brief is a tracker workspace (see lib/org.ts). A Linear token
+// points at exactly one, so org-server reads it straight off the token. Every
+// other tracker can see several at once (a GitHub user's orgs, a GitLab user's
+// groups, the Jira sites an Atlassian grant covers), so the user picks one
+// here, and for Jira, Azure DevOps and Asana that pick is also where tickets
+// are filed. A Jira account still on its Clerk connection from before the move
+// to Brief's OAuth has no pick: it keeps its token's first site (org-server).
 //
 // The org lookup runs on Home, on every filing and on the extension's replay
 // check, so reading a pick never waits on a tracker: a pick is only ever what
@@ -28,7 +30,9 @@ import {
   type OwnedProvider,
 } from "@/lib/connections";
 import { forgetOrg } from "@/lib/connect-flow";
-import { getGithubToken, listGithubOrgs } from "@/lib/github";
+import { listGithubOrgs } from "@/lib/github";
+import { listJiraSites } from "@/lib/jira";
+import { githubToken } from "@/lib/tracker-tokens";
 import { listGitlabGroups } from "@/lib/gitlab";
 import { listNotionWorkspaces } from "@/lib/notion";
 import { listAzureOrgs } from "@/lib/azure";
@@ -43,11 +47,15 @@ import type { ProviderKey, Workspace } from "@/lib/tracker";
 // client components, so "Pick your Azure DevOps organization" can't drift.
 export { WORKSPACE_NOUN };
 
-/** Clerk privateMetadata key holding the GitHub org login the user picked. Predates this file. */
+/**
+ * Clerk privateMetadata key holding the GitHub org login picked for a Clerk
+ * GitHub connection, from before GitHub moved to Brief's OAuth. A Brief-held
+ * connection keeps its pick on the connection instead.
+ */
 const GITHUB_ORG_KEY = "githubOrg";
 
 /** The org comes straight from the token: nothing to list or pick. */
-const FROM_TOKEN: ReadonlySet<ProviderKey> = new Set<ProviderKey>(["linear", "jira"]);
+const FROM_TOKEN: ReadonlySet<ProviderKey> = new Set<ProviderKey>(["linear"]);
 
 /** Whether `p` is a tracker whose workspace is chosen here (the API route's guard). */
 export function hasWorkspacePick(p: string): p is ProviderKey {
@@ -66,16 +74,14 @@ const NOT_CONNECTED: Listing = { connected: false, list: [] };
 async function fetchWorkspaces(userId: string, provider: ProviderKey): Promise<Listing> {
   switch (provider) {
     case "github": {
-      const tok = await getGithubToken(userId);
-      if (!tok) return NOT_CONNECTED;
-      // The login is the org's identity on GitHub and what githubOrg has always
-      // stored, so it serves as both id and name.
-      const orgs = await listGithubOrgs(tok);
-      return {
-        connected: true,
-        list: orgs.map((o) => ({ id: o.login, name: o.login, avatarUrl: o.avatarUrl })),
-      };
+      // A Clerk connection from before the move lists with its own token, so
+      // its user can still pick an org.
+      const tok = await githubToken(userId);
+      return tok ? { connected: true, list: await listOwned("github", tok.token) } : NOT_CONNECTED;
     }
+    // Only a Brief-held Jira connection has a site to pick; a Clerk one files
+    // into its token's first site, as it did before the move.
+    case "jira":
     case "gitlab":
     case "azure":
     case "clickup":
@@ -91,8 +97,18 @@ async function fetchWorkspaces(userId: string, provider: ProviderKey): Promise<L
   }
 }
 
-function listOwned(provider: OwnedProvider, token: string): Promise<Workspace[]> {
+/** Linear has nothing to list: its one workspace is read off the token (FROM_TOKEN). */
+async function listOwned(provider: Exclude<OwnedProvider, "linear">, token: string): Promise<Workspace[]> {
   switch (provider) {
+    case "jira":
+      // Read as empty on a failure, like every other lister here.
+      return listJiraSites(token).catch(() => []);
+    case "github": {
+      // The login is the org's identity on GitHub and what githubOrg has always
+      // stored, so it serves as both id and name.
+      const orgs = await listGithubOrgs({ token });
+      return orgs.map((o) => ({ id: o.login, name: o.login, avatarUrl: o.avatarUrl }));
+    }
     case "gitlab":
       return listGitlabGroups({ token });
     case "notion":
@@ -105,7 +121,7 @@ function listOwned(provider: OwnedProvider, token: string): Promise<Workspace[]>
       // Every Trello request carries the app's API key beside the user's token,
       // so a deployment without the key can't see any workspace.
       const key = process.env.TRELLO_API_KEY;
-      return key ? listTrelloWorkspaces({ key, token }) : Promise.resolve([]);
+      return key ? listTrelloWorkspaces({ key, token }) : [];
     }
     case "asana":
       return listAsanaWorkspaces(token);
@@ -164,7 +180,7 @@ function listing(userId: string, provider: ProviderKey, fresh = false): Promise<
 
 /**
  * Every workspace this user's token for `provider` can see. [] when not
- * connected (and for linear/jira, whose org comes straight from the token).
+ * connected (and for Linear, whose org comes straight from the token).
  */
 export async function listWorkspaces(userId: string, provider: ProviderKey): Promise<Workspace[]> {
   if (FROM_TOKEN.has(provider)) return [];
@@ -180,19 +196,63 @@ export async function listWorkspaces(userId: string, provider: ProviderKey): Pro
  * lookup, and a stored pick was already proven when it was made.
  */
 async function storedPick(userId: string, provider: ProviderKey): Promise<Workspace | null> {
-  if (provider === "github") {
-    const user = await getClerkUser(userId);
-    const login = String(user.privateMetadata?.[GITHUB_ORG_KEY] ?? "").trim();
-    return login ? { id: login, name: login } : null;
-  }
   if (isOwnedProvider(provider)) {
     // The meta column only: the connect callback already stored a lone
     // workspace, so the row is the answer, and no token is decrypted or
     // refreshed to read it.
     const meta = await readConnectionMeta(userId, provider);
-    return meta ? metaWorkspace(meta) : null;
+    if (meta) return metaWorkspace(meta);
   }
+  // No Brief-held GitHub connection: a Clerk one from before the move keeps
+  // the org picked for it.
+  if (provider === "github") return legacyGithubPick(userId);
   return null;
+}
+
+/**
+ * The GitHub org picked for a Clerk GitHub connection, from before GitHub
+ * moved to Brief's OAuth, or null. The connect callback carries it over to a
+ * Brief connection whose token can still see it, and Settings tries again
+ * when the connect could not (adoptLegacyGithubPick).
+ */
+export async function legacyGithubPick(userId: string): Promise<Workspace | null> {
+  const user = await getClerkUser(userId);
+  const login = String(user.privateMetadata?.[GITHUB_ORG_KEY] ?? "").trim();
+  return login ? { id: login, name: login } : null;
+}
+
+/**
+ * Drop the Clerk-era GitHub pick once a Brief connection holds it. Best
+ * effort: a pick left behind is ignored while a Brief connection exists.
+ */
+export async function forgetLegacyGithubPick(userId: string): Promise<void> {
+  try {
+    const client = await clerkClient();
+    // null removes the key in Clerk's metadata merge.
+    await client.users.updateUserMetadata(userId, { privateMetadata: { [GITHUB_ORG_KEY]: null } });
+  } catch (err) {
+    console.warn(
+      "[workspaces] could not clear the Clerk-era GitHub org pick:",
+      err instanceof Error ? err.name : "unknown error",
+    );
+  }
+}
+
+/**
+ * Move a Clerk-era GitHub org pick onto a Brief-held connection that has none,
+ * when `list`, just read with that connection's token, holds it. This is the
+ * connect callback's carry-over, tried again: its listing can fail, and a
+ * failed listing must not cost the user their org. Returns the adopted org.
+ */
+async function adoptLegacyGithubPick(userId: string, list: Workspace[]): Promise<Workspace | null> {
+  if (!list.length || !(await readConnectionMeta(userId, "github"))) return null;
+  const legacy = await legacyGithubPick(userId);
+  const match = legacy ? list.find((w) => sameId("github", w.id, legacy.id)) : undefined;
+  if (!match) return null;
+  await setConnectionMeta(userId, "github", { workspaceId: match.id, workspaceName: match.name });
+  await forgetLegacyGithubPick(userId);
+  await forgetOrg(userId);
+  return match;
 }
 
 /**
@@ -213,8 +273,16 @@ function sameId(provider: ProviderKey, a: string, b: string): boolean {
   return provider === "github" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
-/** The GitHub org login, or "" to clear it. */
+/**
+ * The GitHub org login, or "" to clear it: on a Brief-held connection when
+ * there is one, else in Clerk's privateMetadata, where storedPick reads a
+ * Clerk connection's pick.
+ */
 async function writeGithubPick(userId: string, login: string): Promise<void> {
+  if (await readConnectionMeta(userId, "github")) {
+    await setConnectionMeta(userId, "github", { workspaceId: login, workspaceName: login });
+    return;
+  }
   const client = await clerkClient();
   await client.users.updateUserMetadata(userId, { privateMetadata: { [GITHUB_ORG_KEY]: login } });
 }
@@ -235,9 +303,9 @@ export async function setPickedWorkspace(
 
   if (!want) {
     // Clearing only drops the user out of their org, which is always safe, so
-    // it needs no proof. Only GitHub's pick clears: an owned connection's pick
-    // lives on the connection, and for some trackers it is also where tickets
-    // file, so it is changed, never cleared.
+    // it needs no proof. Only GitHub's pick clears: GitHub files without one,
+    // while for some trackers the pick is also where tickets file, so it is
+    // changed, never cleared.
     if (provider !== "github") return { ok: false, error: `Pick a ${noun}.` };
     try {
       await writeGithubPick(userId, "");
@@ -260,8 +328,13 @@ export async function setPickedWorkspace(
       await writeGithubPick(userId, match.id);
     } else if (isOwnedProvider(provider)) {
       // The org lookup reads only this row, so a pick made here (a Monday
-      // account connect couldn't list included) is stored on it.
-      await setConnectionMeta(userId, provider, { workspaceId: match.id, workspaceName: match.name });
+      // account connect couldn't list included) is stored on it. A Jira site's
+      // address goes with it: every Jira link is built from it.
+      await setConnectionMeta(userId, provider, {
+        workspaceId: match.id,
+        workspaceName: match.name,
+        ...(match.url ? { siteUrl: match.url } : {}),
+      });
     }
   } catch {
     return { ok: false, error: `Couldn't save your ${name} ${noun}.` };
@@ -282,7 +355,10 @@ export async function workspacesToPick(userId: string, provider: ProviderKey): P
   if (!hasWorkspacePick(provider)) return [];
   try {
     if (await getPickedWorkspace(userId, provider)) return [];
-    return await listWorkspaces(userId, provider);
+    const list = await listWorkspaces(userId, provider);
+    // A carry-over that fails just leaves the list to pick from.
+    if (provider === "github" && (await adoptLegacyGithubPick(userId, list).catch(() => null))) return [];
+    return list;
   } catch {
     return [];
   }

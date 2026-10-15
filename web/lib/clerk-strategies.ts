@@ -1,5 +1,13 @@
 // Which Clerk strategy backs each Clerk-connected tracker.
 //
+// Linear, Jira and GitHub have moved to Brief's own OAuth (lib/connections),
+// and Clerk is only for signing in to Brief. This module stays for the move:
+// a user who connected one of them through Clerk still files on that account
+// until they reconnect, and a deployment without Brief's OAuth app for one
+// still connects it through Clerk. It goes once no Clerk tracker account is
+// left (TRACKERS.md, "Cleanup after migration"). What follows explains the
+// Clerk connections as they were set up.
+//
 // Clerk's BUILT-IN social connections (oauth_github, oauth_linear, …) have no
 // configurable scopes - the field doesn't exist in the instance config schema -
 // and on a development instance they use Clerk's shared OAuth apps, which

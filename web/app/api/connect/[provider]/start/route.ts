@@ -16,9 +16,9 @@ import {
 } from "@/lib/connect-flow";
 
 /**
- * Begin the OAuth flow for a tracker whose token Brief stores itself (GitLab,
- * Azure DevOps, ClickUp, Notion, Trello, Asana, Monday). Clerk-backed trackers
- * never reach here: the browser talks to Clerk directly for those.
+ * Begin the OAuth flow for a tracker, whose token Brief stores itself. Linear,
+ * Jira and GitHub come here once this deployment has Brief's own OAuth app for
+ * them; until then the browser connects them through Clerk, as before.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: string }> }) {
   const { provider } = await ctx.params;

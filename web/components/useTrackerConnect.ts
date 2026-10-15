@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useUser, useReverification } from "@clerk/nextjs";
-import { NOT_AVAILABLE, PROVIDER_LABELS, type ProviderKey } from "./provider-labels";
+import { NOT_AVAILABLE, PROVIDER_LABELS, WORKSPACE_NOUN, type ProviderKey } from "./provider-labels";
 import { clerkMatch, clerkStrategy, extraScopes } from "@/lib/clerk-strategies";
 
 /**
@@ -10,17 +10,22 @@ import { clerkMatch, clerkStrategy, extraScopes } from "@/lib/clerk-strategies";
  * page (Integrations) and the first-run onboarding wizard so they can't drift
  * apart.
  *
- * Two kinds of connection sit behind one Connect button:
+ * Brief runs every tracker's OAuth flow itself through /api/connect/<provider>
+ * and keeps the token. The browser only navigates to the start route; the
+ * callback stores the token, removes every other tracker (Clerk accounts
+ * included), and sends the browser back with ?connected= or ?error=.
  *
- *  - "clerk" trackers (Linear, Jira, GitHub) are Clerk connected accounts.
- *    Only the Clerk CLIENT can create or remove one, so those flows stay in
- *    the browser.
- *  - "owned" trackers (GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana,
- *    Monday) have no Clerk connection, so Brief runs the OAuth flow itself
- *    through /api/connect/<provider> and keeps the token. The browser only
- *    navigates to the start route; the callback stores the token, removes
- *    every other tracker, and sends the browser back with ?connected= or
- *    ?error=.
+ * Linear, Jira and GitHub used to be Clerk connected accounts, and two things
+ * remain of that while users move over:
+ *
+ *  - an account connected through Clerk still counts as connected, and its
+ *    Disconnect removes it (the server does, beside Brief's own row);
+ *  - a deployment that has no Brief OAuth app for one of them yet
+ *    (/api/me/connections says `configured: false`) still connects it through
+ *    Clerk, so shipping this before the apps exist changes nothing. When that
+ *    could not be read, Connect asks again and stops with an error rather
+ *    than guess. Only the Clerk CLIENT can create a Clerk account, so that
+ *    flow stays in the browser.
  *
  * Clerk client API used (verified against @clerk/types in node_modules,
  * matching @clerk/nextjs v7.4.3):
@@ -35,33 +40,33 @@ export type TrackerDef = {
   key: ProviderKey;
   name: string;
   caption: string;
-  auth: "clerk" | "owned";
-  // Clerk trackers only: substring matched against externalAccount.provider
-  // (e.g. "oauth_linear"), and the strategy passed to createExternalAccount.
+  // Linear, Jira and GitHub only, from before they moved off Clerk: the
+  // substring matched against externalAccount.provider (e.g. "oauth_linear"),
+  // and the strategy passed to createExternalAccount.
   providerMatch?: string;
   strategy?: string;
 };
 
-function clerkDef(key: ProviderKey, caption: string): TrackerDef {
+/** A tracker that may still be on a Clerk connected account. */
+function movedDef(key: ProviderKey, caption: string): TrackerDef {
   return {
     key,
     name: PROVIDER_LABELS[key],
     caption,
-    auth: "clerk",
     providerMatch: clerkMatch(key),
     strategy: clerkStrategy(key),
   };
 }
 
 function ownedDef(key: ProviderKey, caption: string): TrackerDef {
-  return { key, name: PROVIDER_LABELS[key], caption, auth: "owned" };
+  return { key, name: PROVIDER_LABELS[key], caption };
 }
 
 /** Every tracker, in the registry's order. */
 export const TRACKER_DEFS: TrackerDef[] = [
-  clerkDef("linear", "Files tickets with embedded evidence."),
-  clerkDef("jira", "Atlassian Cloud - file to a project."),
-  clerkDef("github", "File issues to a repository."),
+  movedDef("linear", "Files tickets with embedded evidence."),
+  movedDef("jira", "Atlassian Cloud - file to a project."),
+  movedDef("github", "File issues to a repository."),
   ownedDef("gitlab", "File issues to a project."),
   ownedDef("azure", "File work items to a project."),
   ownedDef("clickup", "File tasks to a list."),
@@ -95,7 +100,8 @@ const COULDNT_CONNECT = "Couldn't connect";
  * anything in a query string, so the raw value is never shown: an unknown
  * code reads as a plain failure.
  */
-function returnErrorCopy(code: string, name: string): string {
+function returnErrorCopy(code: string, def: TrackerDef): string {
+  const { name } = def;
   switch (code) {
     case "cancelled":
       return "Connection cancelled";
@@ -104,7 +110,7 @@ function returnErrorCopy(code: string, name: string): string {
     case "no_org":
       return `No ${name} organization on this account`;
     case "no_workspace":
-      return `No ${name} workspace on this account`;
+      return `No ${name} ${WORKSPACE_NOUN[def.key]} on this account`;
     default:
       return COULDNT_CONNECT;
   }
@@ -125,7 +131,7 @@ function readReturnError(): ReturnError | null {
   if (!code) return null;
   const def = TRACKER_DEFS.find((d) => d.key === params.get("provider"));
   if (!def) return { key: null, message: COULDNT_CONNECT };
-  return { key: def.key, message: returnErrorCopy(code, def.name) };
+  return { key: def.key, message: returnErrorCopy(code, def) };
 }
 
 /**
@@ -174,10 +180,13 @@ async function fetchOwned(): Promise<OwnedState | null> {
   }
 }
 
-/** POST an owned tracker's disconnect. True when the server removed it. */
-async function postDisconnect(key: ProviderKey): Promise<boolean> {
+/**
+ * POST a tracker's disconnect. True when the server removed it. `rowOnly`
+ * leaves its Clerk account alone, for a Clerk connect replacing Brief's row.
+ */
+async function postDisconnect(key: ProviderKey, rowOnly = false): Promise<boolean> {
   try {
-    const r = await fetch(`/api/connect/${key}/disconnect`, {
+    const r = await fetch(`/api/connect/${key}/disconnect${rowOnly ? "?clerk=keep" : ""}`, {
       method: "POST",
       credentials: "same-origin",
     });
@@ -202,9 +211,10 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   // The owned trackers need a round trip (Clerk accounts are already on the
   // user object): fetched once the user is known, again after a disconnect.
   const [owned, setOwned] = useState<OwnedConnection[]>([]);
-  // false = this deployment has no OAuth app for it, so Connect can only fail.
-  // Missing (not loaded, or the read failed) counts as available: the start
-  // route still refuses with a message of its own.
+  // false = this deployment has no OAuth app for it, so Connect can only fail
+  // (Linear, Jira and GitHub connect through Clerk instead). Missing (not
+  // loaded, or the read failed) counts as available: the start route still
+  // refuses with a message of its own.
   const [configured, setConfigured] = useState<Partial<Record<ProviderKey, boolean>>>({});
   const [ownedLoaded, setOwnedLoaded] = useState(false);
 
@@ -292,19 +302,24 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
         )
       : undefined;
 
-  /** Is this tracker connected? Covers both kinds. */
+  /** Is this tracker connected? Through Brief, or through Clerk before the move. */
   const isConnected = (t: TrackerDef): boolean =>
-    t.auth === "owned"
-      ? owned.some((o) => o.provider === t.key)
-      : !!accountFor(t.providerMatch, true);
+    owned.some((o) => o.provider === t.key) || !!accountFor(t.providerMatch, true);
+
+  /**
+   * Does Connect run Brief's own flow? Always, except for Linear, Jira and
+   * GitHub on a deployment without Brief's OAuth app for them, which still
+   * connect through Clerk. Unknown (the read failed) counts as Brief's here;
+   * connect asks again before choosing.
+   */
+  const viaBrief = (t: TrackerDef): boolean => !t.providerMatch || configured[t.key] !== false;
 
   /**
    * Can this tracker be connected here at all? Clerk tells us about its own at
-   * click time; an owned one needs an OAuth app on this deployment, which only
+   * click time; Brief's flow needs an OAuth app on this deployment, which only
    * the server knows.
    */
-  const isAvailable = (t: TrackerDef): boolean =>
-    !(t.auth === "owned" && configured[t.key] === false);
+  const isAvailable = (t: TrackerDef): boolean => !!t.providerMatch || configured[t.key] !== false;
 
   const connectedAccount = (providerMatch: string | undefined) => accountFor(providerMatch, true);
   const pendingAccount = (providerMatch: string | undefined) => accountFor(providerMatch, false);
@@ -336,7 +351,10 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
    * Brief files into ONE tracker, so a Clerk connect drops every other one
    * once Clerk has handed back the OAuth URL: Clerk can't tell our server when
    * its OAuth lands, so nothing would clear them afterwards, and an owned row
-   * left behind would keep winning the filing.
+   * left behind would keep winning the filing. That includes a Brief row for
+   * the tracker being connected: a Brief row always wins over a Clerk account
+   * for the same tracker, so it goes too, though not the Clerk account just
+   * started for it.
    *
    * The owned rows are read fresh first, so one connected in another tab is
    * not missed; if that read fails nothing is removed. Clerk accounts go next,
@@ -374,10 +392,10 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
       return "Couldn't switch trackers - disconnect the current one first.";
     }
 
-    const rows = fresh.owned.filter((o) => o.provider !== keep);
+    const rows = fresh.owned;
     const failed: ProviderKey[] = [];
     for (const o of rows) {
-      if (!(await postDisconnect(o.provider))) failed.push(o.provider);
+      if (!(await postDisconnect(o.provider, o.provider === keep))) failed.push(o.provider);
     }
     if (rows.length) {
       await refreshOwnedOrDrop(rows.map((o) => o.provider).filter((k) => !failed.includes(k)));
@@ -392,9 +410,26 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     setNotice("");
     setTrackerBusy(t.key, true);
 
-    // Owned: hand off to our own OAuth start route. Nothing is disconnected
-    // here, so backing out at the provider keeps the current tracker.
-    if (t.auth === "owned") {
+    // Linear, Jira and GitHub connect through Brief or Clerk depending on this
+    // deployment, and the page could not tell which: ask again rather than
+    // guess. Guessing Clerk would put a new account back on Clerk on a
+    // deployment that has moved off it.
+    let briefFlow = viaBrief(t);
+    if (t.providerMatch && configured[t.key] === undefined) {
+      const fresh = await fetchOwned();
+      if (fresh) applyOwned(fresh);
+      const known = fresh?.configured[t.key];
+      if (known === undefined) {
+        setTrackerError(t.key, COULDNT_CONNECT);
+        setTrackerBusy(t.key, false);
+        return;
+      }
+      briefFlow = known;
+    }
+
+    // Hand off to our own OAuth start route. Nothing is disconnected here, so
+    // backing out at the provider keeps the current tracker.
+    if (briefFlow) {
       window.location.assign(
         `/api/connect/${t.key}/start?returnTo=${encodeURIComponent(redirectPath)}`,
       );
@@ -487,25 +522,23 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     }
   }
 
-  /** Disconnect either kind. Returns false when it couldn't be removed here. */
+  /**
+   * Disconnect a tracker through the server, which removes Brief's row and,
+   * for Linear, Jira and GitHub, the Clerk account left from before the move.
+   * Returns false when it couldn't be removed here.
+   */
   async function disconnect(t: TrackerDef): Promise<boolean> {
     setTrackerError(t.key, "");
     setNotice("");
     setTrackerBusy(t.key, true);
     try {
-      if (t.auth === "owned") {
-        const ok = await postDisconnect(t.key);
-        await refreshOwnedOrDrop(ok ? [t.key] : []);
-        if (!ok) setTrackerError(t.key, `Couldn't disconnect ${t.name}.`);
-        return ok;
-      }
-      const providerMatch = t.providerMatch;
-      const account = connectedAccount(providerMatch) ?? pendingAccount(providerMatch);
-      if (!account) return true;
-      // Pops Clerk's reverification modal if needed, then removes the account.
-      await destroyAccount(account);
-      await user?.reload();
-      return true;
+      const ok = await postDisconnect(t.key);
+      // The server may have removed a Clerk account, which the user object
+      // only shows once reloaded.
+      if (t.providerMatch) await user?.reload();
+      await refreshOwnedOrDrop(ok ? [t.key] : []);
+      if (!ok) setTrackerError(t.key, `Couldn't disconnect ${t.name}.`);
+      return ok;
     } catch {
       return false;
     } finally {

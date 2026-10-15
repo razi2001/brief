@@ -238,8 +238,14 @@ export function mapJiraSearchIssue(issue: JiraSearchRaw, siteUrl: string): Issue
 // Auth + cloudId discovery
 // ---------------------------------------------------------------------------
 
+/**
+ * The Jira token from before Jira moved to Brief's own OAuth: the Atlassian
+ * account the user connected through Clerk, else the JIRA_API_TOKEN test
+ * account. lib/tracker-tokens asks Brief's store first and only comes here
+ * when it holds no Jira connection.
+ */
 export async function getJiraAuth(userId: string): Promise<JiraTok | null> {
-  // Productized path: Clerk-vended OAuth token for the Atlassian connected account.
+  // Clerk-vended OAuth token for the Atlassian connected account.
   const client = await clerkClient().catch(() => null);
   if (client) {
     try {
@@ -265,17 +271,50 @@ interface AccessibleResource {
   url: string;
   name?: string;
   scopes?: string[];
+  avatarUrl?: string;
+}
+
+const ACCESSIBLE_RESOURCES = "https://api.atlassian.com/oauth/token/accessible-resources";
+
+/** A Jira site an OAuth token was granted: its cloud id, its name and its address. */
+export type JiraSite = { id: string; name: string; url: string; avatarUrl?: string };
+
+/**
+ * Every Jira site this OAuth token was granted, for the connect callback and
+ * the site pick. Throws when Atlassian does not answer, so a failed listing is
+ * never read as an account with no site.
+ *
+ * A resource's id is only unique per product, so one that lists its scopes
+ * must hold a Jira one to count. Brief's app only asks for Jira scopes, so in
+ * practice every resource is a Jira site.
+ */
+export async function listJiraSites(token: string): Promise<JiraSite[]> {
+  const r = await fetch(ACCESSIBLE_RESOURCES, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`Atlassian accessible-resources answered ${r.status}`);
+  const resources = (await r.json()) as AccessibleResource[] | null;
+  return (Array.isArray(resources) ? resources : [])
+    .filter((s) => s?.id && s.url && (!Array.isArray(s.scopes) || s.scopes.some((x) => x.includes("jira"))))
+    .map((s) => ({
+      id: s.id,
+      name: s.name || s.url,
+      url: s.url.replace(/\/+$/, ""),
+      avatarUrl: s.avatarUrl || undefined,
+    }));
 }
 
 /**
- * Resolve the Atlassian cloudId (+ the site url for building browse links).
- * OAuth: GET accessible-resources. Basic fallback: derive from JIRA_SITE env.
+ * Resolve the Atlassian cloudId (+ the site url for building browse links)
+ * for a token from before the move to Brief's OAuth, which never had a site
+ * picked. OAuth: the first accessible site. Basic fallback: derive from
+ * JIRA_SITE env.
  */
 export async function getJiraCloud(
   tok: JiraTok
 ): Promise<{ cloudId: string; siteUrl: string; name?: string } | null> {
   if (tok.kind === "oauth") {
-    const r = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
+    const r = await fetch(ACCESSIBLE_RESOURCES, {
       headers: { Authorization: `Bearer ${tok.token}`, Accept: "application/json" },
     });
     if (!r.ok) return null;
@@ -527,6 +566,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
   return {
     kind: "jira",
     targetNoun: "project",
+    site: cloud.siteUrl,
     capabilities: {
       ...NO_CAPABILITIES,
       states: true,

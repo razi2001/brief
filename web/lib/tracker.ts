@@ -36,7 +36,13 @@ export type ProviderKey =
  * organization, a ClickUp workspace, a GitLab group...). The workspace a user
  * picks is their org identity, and for some trackers also where they file.
  */
-export type Workspace = { id: string; name: string; avatarUrl?: string };
+export type Workspace = {
+  id: string;
+  name: string;
+  avatarUrl?: string;
+  /** The workspace's own address, where it has one that calls are made against (a Jira site). */
+  url?: string;
+};
 
 /**
  * What a provider can actually do. Drives the agent's tool schema (see
@@ -231,6 +237,12 @@ export interface Tracker {
    * Steps field; Notion turns it into page blocks. Empty for plain markdown.
    */
   bodyGuidance?: string;
+  /**
+   * The address of the one site this tracker reads and files into, where a
+   * provider has several (a Jira site). Ticket keys are only unique per site,
+   * so the live sync asks it about tickets filed there and nowhere else.
+   */
+  site?: string;
   listTargets(): Promise<TrackerTarget[]>;
   /**
    * Search EXISTING issues for routing/labeling precedent. Best-effort:

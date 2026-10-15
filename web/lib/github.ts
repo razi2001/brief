@@ -33,6 +33,11 @@ const GRAPHQL = "https://api.github.com/graphql";
 const AUTH_EXPIRED =
   "Your GitHub connection has expired - reconnect GitHub under Settings, then retry.";
 
+/**
+ * The GitHub token from before GitHub moved to Brief's own OAuth: the account
+ * the user connected through Clerk. lib/tracker-tokens asks Brief's store
+ * first and only comes here when it holds no GitHub connection.
+ */
 export async function getGithubToken(userId: string): Promise<GithubTok | null> {
   const client = await clerkClient().catch(() => null);
   if (!client) return null;

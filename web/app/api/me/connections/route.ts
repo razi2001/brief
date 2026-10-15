@@ -11,12 +11,15 @@ type OwnedConnection = {
 
 /**
  * What the Connections page needs about the trackers Brief connects itself.
- * Clerk-backed connections are already on the user object in the browser.
+ * A Clerk connection from before Linear, Jira and GitHub moved to Brief's
+ * OAuth is already on the user object in the browser.
  *
  *  - `owned`      what this user has connected, with its account and workspace
  *  - `configured` whether this DEPLOYMENT has credentials for each provider, so
  *                 the page can tell "not connected yet" apart from "not set up
- *                 here" and not offer a Connect button that can only fail
+ *                 here" and not offer a Connect button that can only fail. For
+ *                 Linear, Jira and GitHub it also picks the flow: Brief's when
+ *                 true, Clerk's otherwise
  *
  * Reads only the provider and account_meta columns: the token columns are
  * never selected, so they cannot end up in the response.
