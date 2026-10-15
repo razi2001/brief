@@ -26,12 +26,14 @@ import Onboarding from "./Onboarding";
 type Connections = {
   owned: Array<{ provider: ProviderKey; label: string | null; workspace: null }>;
   configured: Record<string, boolean>;
+  lastError?: { provider: ProviderKey; message: string; detail?: string } | null;
 };
 
 let connections: Promise<Connections>;
 let assign: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/welcome");
   connections = Promise.resolve({
     owned: [],
     configured: { gitlab: true, azure: true, clickup: true, notion: true, trello: true, asana: true, monday: false },
@@ -98,6 +100,27 @@ describe("Onboarding's tracker step", () => {
     expect(monday).toHaveProperty("disabled", true);
     expect(monday.textContent).toContain("Not available yet");
     expect(row("Asana")).toHaveProperty("disabled", false);
+  });
+
+  it("shows the server's explanation of a failed connect, and the provider's words, under that tracker", async () => {
+    window.history.replaceState(null, "", "/welcome?error=failed&provider=azure");
+    const detail = "Azure DevOps: AADSTS650052: The app is trying to access a service (Azure DevOps).";
+    connections = Promise.resolve({
+      owned: [],
+      configured: { azure: true },
+      lastError: { provider: "azure", message: "Use a work or school Microsoft account.", detail },
+    });
+    renderWizard();
+    await screen.findByText("Connect your tracker");
+
+    const message = await screen.findByText("Use a work or school Microsoft account.");
+    const shown = screen.getByText(detail);
+    expect(shown.getAttribute("title")).toBe(detail);
+    // Both sit under the Azure DevOps row.
+    const azureRow = row("Azure DevOps").parentElement!;
+    expect(azureRow.contains(message)).toBe(true);
+    expect(azureRow.contains(shown)).toBe(true);
+    expect(screen.queryByText("Couldn't connect")).toBeNull();
   });
 
   it("waits for the owned trackers before choosing the step", async () => {

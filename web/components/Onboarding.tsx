@@ -148,7 +148,7 @@ export default function Onboarding({
   greetingName: string;
 }) {
   const router = useRouter();
-  const { isLoaded, busy, errors, notice, isConnected, isAvailable, pendingError, connect } =
+  const { isLoaded, busy, errors, notice, lastError, isConnected, isAvailable, pendingError, connect } =
     useTrackerConnect("/welcome");
   const trackerConnected = TRACKER_DEFS.some(isConnected);
 
@@ -269,6 +269,8 @@ export default function Onboarding({
                   // The row already says when it isn't available yet.
                   const clicked = !available && errors[t.key] === NOT_AVAILABLE ? "" : errors[t.key];
                   const error = clicked || (t.providerMatch ? pendingError(t.providerMatch) : "");
+                  // The provider's own words, when the server had them.
+                  const detail = clicked && lastError?.provider === t.key ? lastError.detail : undefined;
                   return (
                     <div key={t.key}>
                       <button
@@ -296,6 +298,11 @@ export default function Onboarding({
                       </button>
                       {error && (
                         <p className="mt-1.5 px-1 text-xs text-[#b54328]">{error}</p>
+                      )}
+                      {detail && (
+                        <p className="mt-0.5 line-clamp-3 break-words px-1 text-[11px] text-muted" title={detail}>
+                          {detail}
+                        </p>
                       )}
                     </div>
                   );

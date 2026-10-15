@@ -1,5 +1,8 @@
+import { NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { OWNED_PROVIDERS, isOwnedProvider, isProviderConfigured, type OwnedProvider } from "@/lib/connections";
+import { appOrigin, clearErrorCookie, ERROR_COOKIE, readErrorCookie, secureCookies } from "@/lib/connect-flow";
+import { explainFailure } from "@/lib/connect-errors";
 import { createAdminSupabase } from "@/lib/supabase/server";
 
 type OwnedConnection = {
@@ -20,11 +23,14 @@ type OwnedConnection = {
  *                 here" and not offer a Connect button that can only fail. For
  *                 Linear, Jira and GitHub it also picks the flow: Brief's when
  *                 true, Clerk's otherwise
+ *  - `lastError`  why the last connect failed, from the cookie the callback
+ *                 set, explained (lib/connect-errors). Shown once: the cookie
+ *                 is cleared in this same response
  *
  * Reads only the provider and account_meta columns: the token columns are
  * never selected, so they cannot end up in the response.
  */
-export async function GET() {
+export async function GET(req: NextRequest) {
   const { userId } = await auth();
   if (!userId) return Response.json({ error: "unauthorized" }, { status: 401 });
 
@@ -33,6 +39,7 @@ export async function GET() {
     .select("provider, account_meta")
     .eq("user_id", userId);
   if (error) {
+    // The error cookie is left for the next read, which may succeed.
     console.warn("[connections] could not list connections:", error.message);
     return Response.json({ error: "Could not load connections" }, { status: 500 });
   }
@@ -55,5 +62,12 @@ export async function GET() {
     OWNED_PROVIDERS.map((p) => [p, isProviderConfigured(p)]),
   ) as Record<OwnedProvider, boolean>;
 
-  return Response.json({ owned, configured });
+  // A cookie that is forged, expired or another user's explains nothing, and
+  // goes all the same.
+  const failure = readErrorCookie(req, userId);
+  const lastError = failure ? { provider: failure.provider, ...explainFailure(failure) } : null;
+  const headers = new Headers({ "Cache-Control": "no-store" });
+  if (req.cookies.has(ERROR_COOKIE)) headers.append("Set-Cookie", clearErrorCookie(secureCookies(appOrigin(req))));
+
+  return Response.json({ owned, configured, lastError }, { headers });
 }

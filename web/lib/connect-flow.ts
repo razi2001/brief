@@ -5,8 +5,11 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { configuredOrigin, isOwnedProvider, type OwnedProvider } from "@/lib/connections";
-import { readState, signState, type OAuthState } from "@/lib/oauth-state";
+import { asFailure, type ConnectError, type ConnectFailure } from "@/lib/connect-errors";
+import { macFor, readState, signState, type OAuthState } from "@/lib/oauth-state";
 import { createAdminSupabase } from "@/lib/supabase/server";
+
+export type { ConnectError };
 
 /** The parts of a NextRequest these helpers read, so tests can pass a plain object. */
 type RequestLike = {
@@ -61,11 +64,9 @@ export function safeReturnTo(raw: string | null | undefined, origin: string): st
 // Result URLs
 // ---------------------------------------------------------------------------
 
-/**
- * Why a connect flow ended without a connection. The page maps each code to
- * its own copy, so nothing from a provider or a query string is ever shown.
- */
-export type ConnectError = "cancelled" | "failed" | "unavailable" | "no_org" | "no_workspace";
+// The URL carries a ConnectError code alone. The page maps each code to its
+// own copy, so nothing from a provider or a query string is shown from there;
+// a provider's own words travel in the error cookie below.
 
 const RESULT_PARAMS = ["error", "provider", "connected", "pick"];
 
@@ -98,10 +99,10 @@ export function pickUrl(origin: string, provider: OwnedProvider): URL {
   return url;
 }
 
-/** A 302 that is never cached, optionally setting cookies. */
-export function redirectTo(url: URL, ...setCookies: string[]): Response {
+/** A 302 that is never cached, optionally setting cookies (a null is skipped). */
+export function redirectTo(url: URL, ...setCookies: Array<string | null>): Response {
   const headers = new Headers({ Location: url.toString(), "Cache-Control": "no-store" });
-  for (const c of setCookies) headers.append("Set-Cookie", c);
+  for (const c of setCookies) if (c) headers.append("Set-Cookie", c);
   return new Response(null, { status: 302, headers });
 }
 
@@ -188,10 +189,10 @@ export function secureCookies(origin: string): boolean {
   return origin.startsWith("https:");
 }
 
-function cookie(value: string, maxAge: number, secure: boolean): string {
+function cookie(name: string, path: string, value: string, maxAge: number, secure: boolean): string {
   return [
-    `${FLOW_COOKIE}=${value}`,
-    `Path=${FLOW_COOKIE_PATH}`,
+    `${name}=${value}`,
+    `Path=${path}`,
     `Max-Age=${maxAge}`,
     "HttpOnly",
     // Lax, not Strict: the callback is a top-level navigation from the
@@ -202,11 +203,12 @@ function cookie(value: string, maxAge: number, secure: boolean): string {
 }
 
 export function flowCookie(flow: Flow, secure: boolean): string {
-  return cookie(flow.verifier ? `${flow.nonce}.${flow.verifier}` : flow.nonce, FLOW_TTL_SECONDS, secure);
+  const value = flow.verifier ? `${flow.nonce}.${flow.verifier}` : flow.nonce;
+  return cookie(FLOW_COOKIE, FLOW_COOKIE_PATH, value, FLOW_TTL_SECONDS, secure);
 }
 
 export function clearFlowCookie(secure: boolean): string {
-  return cookie("", 0, secure);
+  return cookie(FLOW_COOKIE, FLOW_COOKIE_PATH, "", 0, secure);
 }
 
 export function readFlowCookie(req: CookieRequest): Flow | null {
@@ -216,6 +218,67 @@ export function readFlowCookie(req: CookieRequest): Flow | null {
   if (extra !== undefined || !nonce || !B64URL.test(nonce)) return null;
   if (verifier === undefined) return { nonce };
   return B64URL.test(verifier) ? { nonce, verifier } : null;
+}
+
+// ---------------------------------------------------------------------------
+// The error cookie: why the last connect failed, shown once
+// ---------------------------------------------------------------------------
+
+/**
+ * Why the last connect failed, for /api/me/connections to explain and clear.
+ * The redirect's `?error=` can only carry a code, since anyone can write a URL;
+ * the provider's own words come through here. Only the server sets it
+ * (httpOnly), and it is signed and tied to the user it was set for, so a
+ * cookie planted from a sibling subdomain, or one left for another account
+ * in this browser, is never shown.
+ */
+export const ERROR_COOKIE = "brief_connect_error";
+const ERROR_TTL_SECONDS = 10 * 60;
+const ERROR_MAC_PURPOSE = "brief-connect-error";
+
+function errorMac(payload: string, userId: string): string {
+  return macFor(ERROR_MAC_PURPOSE, `${userId}.${payload}`);
+}
+
+/**
+ * The Set-Cookie for a failure: base64url JSON of it and when it happened,
+ * then its signature. Null when there is no secret to sign with: the page
+ * then has the URL's code alone, as before.
+ */
+export function errorCookie(failure: ConnectFailure, userId: string, secure: boolean, now = Date.now()): string | null {
+  try {
+    const payload = Buffer.from(JSON.stringify({ ...failure, at: now }), "utf8").toString("base64url");
+    return cookie(ERROR_COOKIE, "/", `${payload}.${errorMac(payload, userId)}`, ERROR_TTL_SECONDS, secure);
+  } catch {
+    return null;
+  }
+}
+
+export function clearErrorCookie(secure: boolean): string {
+  return cookie(ERROR_COOKIE, "/", "", 0, secure);
+}
+
+/**
+ * The failure the error cookie holds, when it is this user's, signed, well
+ * formed and no older than ten minutes. Null for anything else.
+ */
+export function readErrorCookie(req: CookieRequest, userId: string, now = Date.now()): ConnectFailure | null {
+  const raw = req.cookies.get(ERROR_COOKIE)?.value;
+  if (!raw) return null;
+  const [payload, mac, extra] = raw.split(".");
+  if (extra !== undefined || !payload || !mac || !B64URL.test(payload)) return null;
+  try {
+    const a = Buffer.from(mac);
+    const b = Buffer.from(errorMac(payload, userId));
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+    const value = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { at?: unknown };
+    const at = value?.at;
+    // A minute of slack for a clock that runs ahead on another machine.
+    if (typeof at !== "number" || now - at > ERROR_TTL_SECONDS * 1000 || at - now > 60_000) return null;
+    return asFailure(value);
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -258,34 +321,50 @@ export function readFlowState(
 const VSSPS = "https://app.vssps.visualstudio.com";
 
 /**
+ * What the organization check found: `none` only when Azure DevOps answered
+ * both questions and the list was empty. A `failure` names what went wrong
+ * (`vssps 401`), for the error the user sees.
+ */
+export type AzureOrgCheck = { none: boolean; failure?: string };
+
+class VsspsRefused extends Error {
+  constructor(readonly status: number) {
+    super(`vssps answered ${status}`);
+  }
+}
+
+/**
  * Did Azure DevOps really say this account has no organization? The adapter's
  * listAzureOrgs reads any failure as an empty list, which at connect time
  * would tell someone whose listing merely failed that they have none. This
- * asks the same two vssps questions and is true only when both were answered
- * and the list came back empty.
+ * asks the same two vssps questions and says `none` only when both were
+ * answered and the list came back empty.
  */
-export async function azureHasNoOrgs(authorization: string): Promise<boolean> {
+export async function checkAzureOrgs(authorization: string): Promise<AzureOrgCheck> {
   const get = async (path: string): Promise<unknown> => {
     const r = await fetch(`${VSSPS}${path}`, { headers: { Authorization: authorization, Accept: "application/json" } });
     // 203 is the sign-in page a rejected token gets instead of a 401.
-    if (!r.ok || r.status === 203) throw new Error(`vssps answered ${r.status}`);
+    if (!r.ok || r.status === 203) throw new VsspsRefused(r.status);
     return r.json();
   };
   try {
     const me = (await get("/_apis/profile/profiles/me?api-version=7.1")) as { id?: string } | null;
-    if (!me?.id) return false;
+    if (!me?.id) return { none: false, failure: "vssps no profile" };
     const accounts = (await get(`/_apis/accounts?memberId=${encodeURIComponent(me.id)}&api-version=7.1`)) as
       | { value?: unknown }
       | unknown[]
       | null;
     // Documented as Account[], served as { count, value }: accept either.
     const list = Array.isArray(accounts) ? accounts : accounts?.value;
-    return Array.isArray(list) && list.length === 0;
+    if (!Array.isArray(list)) return { none: false, failure: "vssps no list" };
+    return { none: list.length === 0 };
   } catch (err) {
-    // Status codes only (e.g. "vssps answered 401"): enough to tell a token
-    // vssps refuses from an account that has never opened Azure DevOps.
-    console.warn("[connect] azure organization check failed:", err instanceof Error ? err.message : "unknown error");
-    return false;
+    // Status codes only (e.g. "vssps 401"): enough to tell a token vssps
+    // refuses from an account that has never opened Azure DevOps. Anything
+    // else (the network, a reply that isn't JSON) is named, not quoted.
+    const failure = err instanceof VsspsRefused ? `vssps ${err.status}` : "vssps unreachable";
+    console.warn("[connect] azure organization check failed:", failure);
+    return { none: false, failure };
   }
 }
 

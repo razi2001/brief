@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useUser, useReverification } from "@clerk/nextjs";
-import { NOT_AVAILABLE, PROVIDER_LABELS, WORKSPACE_NOUN, type ProviderKey } from "./provider-labels";
+import { NOT_AVAILABLE, PROVIDER_LABELS, type ProviderKey } from "./provider-labels";
 import { clerkMatch, clerkStrategy, extraScopes } from "@/lib/clerk-strategies";
+import { codeCopy, COULDNT_CONNECT } from "@/lib/connect-errors";
 
 /**
  * Shared client-side tracker-connection logic, used by both the Connections
@@ -93,36 +94,23 @@ const EMAIL_MISMATCH_RE = /email address does not match|does not match your exis
 
 export { NOT_AVAILABLE };
 
-const COULDNT_CONNECT = "Couldn't connect";
-
 /**
- * Copy for each failure code the connect callback sends back. Anyone can put
- * anything in a query string, so the raw value is never shown: an unknown
- * code reads as a plain failure.
+ * Why the last owned connect failed, as /api/me/connections explains it from
+ * the cookie the callback set: a short message and, when the provider said
+ * something, its own words beneath. Never read from the URL, which anyone can
+ * write.
  */
-function returnErrorCopy(code: string, def: TrackerDef): string {
-  const { name } = def;
-  switch (code) {
-    case "cancelled":
-      return "Connection cancelled";
-    case "unavailable":
-      return NOT_AVAILABLE;
-    case "no_org":
-      return `No ${name} organization on this account`;
-    case "no_workspace":
-      return `No ${name} ${WORKSPACE_NOUN[def.key]} on this account`;
-    default:
-      return COULDNT_CONNECT;
-  }
-}
+export type LastError = { provider: ProviderKey; message: string; detail?: string };
 
 type ReturnError = { key: ProviderKey | null; message: string };
 
 /**
  * The failure an owned connect came back with: `?error=<code>&provider=<key>`.
  * Read once, at first render, so the card can open on that tracker with the
- * message already on it. A provider we don't know leaves the message
- * unattributed.
+ * message already on it. Anyone can put anything in a query string, so only
+ * the copy for a code is shown (an unknown code reads as a plain failure),
+ * until /api/me/connections says more. A provider we don't know leaves the
+ * message unattributed.
  */
 function readReturnError(): ReturnError | null {
   if (typeof window === "undefined") return null;
@@ -131,7 +119,16 @@ function readReturnError(): ReturnError | null {
   if (!code) return null;
   const def = TRACKER_DEFS.find((d) => d.key === params.get("provider"));
   if (!def) return { key: null, message: COULDNT_CONNECT };
-  return { key: def.key, message: returnErrorCopy(code, def) };
+  return { key: def.key, message: codeCopy(code, def.key) };
+}
+
+/** The server's lastError, when it is one: anything else is ignored. */
+function asLastError(v: unknown): LastError | null {
+  const e = v as Partial<LastError> | null;
+  if (!e || typeof e !== "object" || typeof e.message !== "string" || !e.message) return null;
+  const def = TRACKER_DEFS.find((d) => d.key === e.provider);
+  if (!def) return null;
+  return { provider: def.key, message: e.message, ...(typeof e.detail === "string" && e.detail ? { detail: e.detail } : {}) };
 }
 
 /**
@@ -163,17 +160,23 @@ function isReverificationCancelled(err: unknown): boolean {
   return codes.some((c) => typeof c === "string" && /reverification/i.test(c));
 }
 
-type OwnedState = { owned: OwnedConnection[]; configured: Partial<Record<ProviderKey, boolean>> };
+type OwnedState = {
+  owned: OwnedConnection[];
+  configured: Partial<Record<ProviderKey, boolean>>;
+  lastError: LastError | null;
+};
 
 /** Ask the server about the trackers Brief connects itself. Null on failure. */
 async function fetchOwned(): Promise<OwnedState | null> {
   try {
     const r = await fetch("/api/me/connections", { credentials: "same-origin" });
     if (!r.ok) return null;
-    const j = (await r.json()) as Partial<OwnedState>;
+    const j = (await r.json()) as Partial<Record<keyof OwnedState, unknown>>;
     return {
-      owned: Array.isArray(j.owned) ? j.owned : [],
-      configured: j.configured && typeof j.configured === "object" ? j.configured : {},
+      owned: Array.isArray(j.owned) ? (j.owned as OwnedConnection[]) : [],
+      configured:
+        j.configured && typeof j.configured === "object" ? (j.configured as OwnedState["configured"]) : {},
+      lastError: asLastError(j.lastError),
     };
   } catch {
     return null;
@@ -217,14 +220,28 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   // refuses with a message of its own.
   const [configured, setConfigured] = useState<Partial<Record<ProviderKey, boolean>>>({});
   const [ownedLoaded, setOwnedLoaded] = useState(false);
+  // The server's account of the last failed connect. Its message takes the
+  // card's error over from the URL's copy; its detail shows beneath. The
+  // server hands it out once, so a later read without one changes nothing.
+  const [lastError, setLastError] = useState<LastError | null>(null);
 
-  const applyOwned = useCallback((state: OwnedState | null) => {
-    if (state) {
-      setOwned(state.owned);
-      setConfigured(state.configured);
-    }
-    setOwnedLoaded(true);
+  const applyLastError = useCallback((failed: LastError | null) => {
+    if (!failed) return;
+    setLastError(failed);
+    setErrors((e) => ({ ...e, [failed.provider]: failed.message }));
   }, []);
+
+  const applyOwned = useCallback(
+    (state: OwnedState | null) => {
+      if (state) {
+        setOwned(state.owned);
+        setConfigured(state.configured);
+        applyLastError(state.lastError);
+      }
+      setOwnedLoaded(true);
+    },
+    [applyLastError],
+  );
 
   const userId = user?.id;
   useEffect(() => {
@@ -232,11 +249,14 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     let cancelled = false;
     fetchOwned().then((state) => {
       if (!cancelled) applyOwned(state);
+      // A read cancelled by a remount (React runs effects twice in
+      // development) may be the one the server handed the error to, once.
+      else applyLastError(state?.lastError ?? null);
     });
     return () => {
       cancelled = true;
     };
-  }, [userId, applyOwned]);
+  }, [userId, applyOwned, applyLastError]);
 
   const refreshOwned = useCallback(async () => applyOwned(await fetchOwned()), [applyOwned]);
 
@@ -285,8 +305,12 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   );
 
   const setTrackerBusy = (key: string, value: boolean) => setBusy((b) => ({ ...b, [key]: value }));
-  const setTrackerError = (key: string, value: string) =>
+  // Any new error, or none, replaces the last failure's message, and its
+  // detail with it.
+  const setTrackerError = (key: string, value: string) => {
     setErrors((e) => ({ ...e, [key]: value }));
+    setLastError((l) => (l?.provider === key ? null : l));
+  };
 
   // Only a VERIFIED external account counts as connected. Clerk creates an
   // (unverified) record even when the OAuth flow fails or is abandoned, so
@@ -554,6 +578,7 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     busy,
     errors,
     notice,
+    lastError,
     owned,
     configured,
     setTrackerBusy,

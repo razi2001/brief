@@ -15,10 +15,11 @@ import {
 } from "@/lib/connections";
 import {
   appOrigin,
-  azureHasNoOrgs,
+  checkAzureOrgs,
   clearFlowCookie,
   connectedUrl,
   DEFAULT_RETURN,
+  errorCookie,
   errorUrl,
   forgetOrg,
   isJsonRequest,
@@ -32,6 +33,7 @@ import {
   usesPkce,
   type ConnectError,
 } from "@/lib/connect-flow";
+import { BRIEF_REASON, providerFailure, readTokenRefusal, type ConnectFailure } from "@/lib/connect-errors";
 import { removeClerkTrackers } from "@/lib/clerk-trackers";
 import { forgetLegacyGithubPick, forgetWorkspaces, legacyGithubPick } from "@/lib/workspaces";
 import { getLinearOrg } from "@/lib/linear";
@@ -58,7 +60,13 @@ type Token = {
 };
 
 /** Where the browser goes next, and why when nothing was stored. */
-type Outcome = { url: URL; error?: ConnectError };
+type Outcome = { url: URL; failure?: ConnectFailure };
+
+/** What a failure records beyond its provider and code. */
+type Why = Pick<ConnectFailure, "reason" | "detail">;
+
+/** The code exchange's answer: a token, or why there is none. */
+type Exchange = { token: Token } | { failure: ConnectFailure };
 
 // ---------------------------------------------------------------------------
 // GET - the provider's redirect lands here
@@ -74,16 +82,23 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
 
   const { userId } = await auth();
   if (!userId) return Response.json({ error: "unauthorized" }, { status: 401 });
+  const secure = secureCookies(origin);
+  // Why it failed, for the page to explain once (lib/connect-flow).
+  const record = (code: ConnectError, why: Why = {}) => errorCookie({ provider, code, ...why }, userId, secure);
   const flow = readFlowCookie(req);
   const state = readFlowState(search.get("state"), provider, userId, flow);
   // A state that does not verify (expired included), belongs to another flow,
   // another user or another browser means this person did not start this
   // callback here. Refuse rather than attaching whatever token came with it,
-  // and land on Connections rather than a bare error page. The cookie is left
-  // alone, so a forged callback cannot cancel a real flow in progress.
+  // and land on Connections rather than a bare error page. The flow cookie is
+  // left alone, so a forged callback cannot cancel a real flow in progress.
+  // The reason recorded is Brief's own: nothing from this query string.
   if (!state || !flow) {
     console.warn(`[connect] ${provider} callback refused: ${!flow ? "no flow cookie" : "state did not verify"}`);
-    return redirectTo(errorUrl(origin, DEFAULT_RETURN, "failed", provider));
+    return redirectTo(
+      errorUrl(origin, DEFAULT_RETURN, "failed", provider),
+      record("failed", { reason: BRIEF_REASON.state }),
+    );
   }
   const returnTo = safeReturnTo(state.returnTo, origin);
 
@@ -104,17 +119,26 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
   }
 
   // From here the flow is spent, whatever happens: a state works once.
-  const clear = clearFlowCookie(secureCookies(origin));
-  const fail = (code: ConnectError) => redirectTo(errorUrl(origin, returnTo, code, provider), clear);
+  const clear = clearFlowCookie(secure);
+  const fail = (code: ConnectError, why: Why = {}) =>
+    redirectTo(errorUrl(origin, returnTo, code, provider), clear, record(code, why));
 
-  // The provider's own error text is not passed on: anyone can put anything in
-  // this query string, so the page shows its own copy for a code.
+  // The provider's own error text never goes in the URL: anyone can put
+  // anything in a query string. It reaches the page through the error cookie,
+  // and only from here on, once the state and the flow cookie have proved
+  // this browser started this flow.
   const denied = search.get("error");
   if (denied) {
-    // Logged, not shown: the provider's code and description (Entra's AADSTS
-    // numbers live there) are what tells a consent policy from a bad redirect.
+    // The provider's code and description (Entra's AADSTS numbers live there)
+    // are what tells a consent policy from a bad redirect.
     console.warn(`[connect] ${provider} returned an error: ${logSafe(denied)} ${logSafe(search.get("error_description"))}`);
-    return fail(denied === "access_denied" ? "cancelled" : "failed");
+    const code = denied === "access_denied" ? "cancelled" : "failed";
+    const failure = providerFailure(provider, code, denied, search.get("error_description"), [
+      search.get("code"),
+      flow.verifier,
+      OWNED_SPECS[provider].clientSecret(),
+    ]);
+    return fail(code, failure);
   }
 
   const code = search.get("code");
@@ -124,27 +148,28 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
   }
   if (!isProviderConfigured(provider)) return fail("unavailable");
   if (usesPkce(provider) && !flow.verifier) {
+    // A flow cookie from before PKCE, or a damaged one: start over.
     console.warn(`[connect] ${provider} flow cookie has no PKCE verifier`);
-    return fail("failed");
+    return fail("failed", { reason: BRIEF_REASON.state });
   }
 
-  let token: Token | null;
+  let exchange: Exchange;
   try {
-    token = await exchangeCode(provider, code, redirectUri(origin, provider), flow.verifier);
+    exchange = await exchangeCode(provider, code, redirectUri(origin, provider), flow.verifier);
   } catch (err) {
     // The name only: a JSON parse error's message quotes the response body,
     // which may hold a token.
     console.warn(`[connect] ${provider} token exchange failed:`, errorName(err));
-    token = null;
+    return fail("failed", { reason: BRIEF_REASON.unreachable });
   }
-  if (!token) return fail("failed");
+  if ("failure" in exchange) return fail(exchange.failure.code, exchange.failure);
 
   try {
-    const outcome = await finish(origin, userId, provider, returnTo, token);
-    return redirectTo(outcome.url, clear);
+    const outcome = await finish(origin, userId, provider, returnTo, exchange.token);
+    return redirectTo(outcome.url, clear, outcome.failure ? record(outcome.failure.code, outcome.failure) : null);
   } catch (err) {
     console.warn(`[connect] could not store the ${provider} connection:`, errorName(err));
-    return fail("failed");
+    return fail("failed", { reason: BRIEF_REASON.save });
   }
 }
 
@@ -166,19 +191,28 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
   if (!userId) return Response.json({ error: "unauthorized" }, { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as { token?: unknown; state?: unknown };
+  const secure = secureCookies(origin);
+  const record = (code: ConnectError, why: Why = {}) =>
+    errorCookie({ provider: "trello", code, ...why }, userId, secure);
   const flow = readFlowCookie(req);
   const state = readFlowState(typeof body.state === "string" ? body.state : null, "trello", userId, flow);
   if (!state) {
-    return Response.json(
+    return jsonWithCookies(
       { error: "failed", redirect: relative(errorUrl(origin, DEFAULT_RETURN, "failed", "trello")) },
-      { status: 400 },
+      400,
+      record("failed", { reason: BRIEF_REASON.state }),
     );
   }
   const returnTo = safeReturnTo(state.returnTo, origin);
   // The flow is spent from here, whatever happens.
-  const headers = { "Set-Cookie": clearFlowCookie(secureCookies(origin)) };
-  const refuse = (code: ConnectError, status: number) =>
-    Response.json({ error: code, redirect: relative(errorUrl(origin, returnTo, code, "trello")) }, { status, headers });
+  const clear = clearFlowCookie(secure);
+  const refuse = (code: ConnectError, status: number, why: Why = {}) =>
+    jsonWithCookies(
+      { error: code, redirect: relative(errorUrl(origin, returnTo, code, "trello")) },
+      status,
+      clear,
+      record(code, why),
+    );
 
   // Trello sends no token when the user declines. A token is a short opaque
   // string; anything else is not worth storing.
@@ -189,24 +223,25 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
   try {
     // A token created with expiration=never has no refresh token and no expiry.
     const outcome = await finish(origin, userId, "trello", returnTo, { accessToken: token });
-    if (outcome.error) return refuse(outcome.error, 400);
-    return Response.json({ ok: true, redirect: relative(outcome.url) }, { headers });
+    if (outcome.failure) return refuse(outcome.failure.code, 400, outcome.failure);
+    return jsonWithCookies({ ok: true, redirect: relative(outcome.url) }, 200, clear);
   } catch (err) {
     console.warn("[connect] could not store the trello connection:", errorName(err));
-    return refuse("failed", 500);
+    return refuse("failed", 500, { reason: BRIEF_REASON.save });
   }
+}
+
+/** A JSON reply setting cookies (a null is skipped). */
+function jsonWithCookies(body: unknown, status: number, ...setCookies: Array<string | null>): Response {
+  const headers = new Headers();
+  for (const c of setCookies) if (c) headers.append("Set-Cookie", c);
+  return Response.json(body, { status, headers });
 }
 
 // ---------------------------------------------------------------------------
 // Token exchange
 // ---------------------------------------------------------------------------
 
-/**
- * Trade the authorization code for a token. Null when the provider refuses or
- * returns no token. Asana's reply also carries the account (`data`), and
- * Notion's the user and the workspace the token was minted for, which saves a
- * profile call for each.
- */
 /**
  * A query value fit for a log line: printable ASCII only, capped. Anyone can
  * put anything in a callback URL, so it must not be able to forge log lines.
@@ -215,12 +250,17 @@ function logSafe(value: string | null): string {
   return (value ?? "").replace(/[^ -~]/g, " ").slice(0, 300);
 }
 
+/**
+ * Trade the authorization code for a token, or say why the provider refused.
+ * Asana's reply also carries the account (`data`), and Notion's the user and
+ * the workspace the token was minted for, which saves a profile call for each.
+ */
 async function exchangeCode(
   provider: OwnedProvider,
   code: string,
   callback: string,
   verifier: string | undefined,
-): Promise<Token | null> {
+): Promise<Exchange> {
   const spec = OWNED_SPECS[provider];
   const grant: Record<string, string> = spec.tokenBody
     ? spec.tokenBody({ code, redirectUri: callback })
@@ -235,9 +275,8 @@ async function exchangeCode(
 
   const r = await requestToken(spec, grant);
   if (!r.ok) {
-    // The status alone: a token endpoint's reply is not ours to print.
-    console.warn(`[connect] ${provider} refused the code exchange: ${r.status}`);
-    return null;
+    const body = await r.text().then(parseJson, () => null);
+    return { failure: tokenRefusal(provider, r.status, body, [code, verifier, spec.clientSecret()]) };
   }
   const j = (await r.json()) as {
     access_token?: string;
@@ -248,18 +287,51 @@ async function exchangeCode(
     workspace_name?: string | null;
     owner?: { user?: { name?: string | null } };
   };
-  if (!j.access_token) return null;
+  // GitHub refuses with a 200 whose body names the error.
+  if (!j?.access_token) {
+    return { failure: tokenRefusal(provider, r.status, j, [code, verifier, spec.clientSecret()]) };
+  }
   const expires = Number(j.expires_in);
   return {
-    accessToken: j.access_token,
-    refreshToken: j.refresh_token || undefined,
-    // Monday and ClickUp tokens do not expire and say nothing.
-    expiresInSeconds: Number.isFinite(expires) && expires > 0 ? expires : undefined,
-    // Notion's owner is the user who installed it; an integration a workspace
-    // owns has no user, and the workspace names the card instead.
-    label: j.data?.name || j.data?.email || j.owner?.user?.name || j.workspace_name || undefined,
-    workspace: j.workspace_id ? { id: j.workspace_id, name: j.workspace_name || "Notion workspace" } : undefined,
+    token: {
+      accessToken: j.access_token,
+      refreshToken: j.refresh_token || undefined,
+      // Monday and ClickUp tokens do not expire and say nothing.
+      expiresInSeconds: Number.isFinite(expires) && expires > 0 ? expires : undefined,
+      // Notion's owner is the user who installed it; an integration a workspace
+      // owns has no user, and the workspace names the card instead.
+      label: j.data?.name || j.data?.email || j.owner?.user?.name || j.workspace_name || undefined,
+      workspace: j.workspace_id ? { id: j.workspace_id, name: j.workspace_name || "Notion workspace" } : undefined,
+    },
   };
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Why the token endpoint said no, from the named error fields of its reply
+ * alone (readTokenRefusal), never the reply itself, with this flow's code,
+ * verifier and secret taken out should a provider echo one. Without an error
+ * code an error status stands in. The log gets the status and the code, never
+ * the description.
+ */
+function tokenRefusal(
+  provider: OwnedProvider,
+  status: number,
+  body: unknown,
+  secrets: Array<string | null | undefined>,
+): ConnectFailure {
+  const { error, description } = readTokenRefusal(body);
+  const failure = providerFailure(provider, "failed", error, description, secrets);
+  if (!failure.reason && status >= 300) failure.reason = `HTTP ${status}`;
+  console.warn(`[connect] ${provider} refused the code exchange: ${status} ${failure.reason ?? "no token"}`);
+  return failure;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,23 +496,28 @@ async function finish(
   token: Token,
 ): Promise<Outcome> {
   const [listed, details, existing, legacy] = await Promise.all([
-    listWorkspaces(provider, token),
+    // A lister that throws is a listing that failed: nothing is stored.
+    listWorkspaces(provider, token).catch((err) => {
+      console.warn(`[connect] could not list the ${provider} workspaces:`, errorName(err));
+      return null;
+    }),
     accountDetails(provider, token.accessToken),
     // The row a reconnect replaces, if any. A read failure counts as none.
     readConnectionMeta(userId, provider).catch(() => null),
     // GitHub only: the org picked for a Clerk connection before the move.
     provider === "github" ? legacyGithubPick(userId).catch(() => null) : Promise.resolve(null),
   ]);
-  const refuse = (code: ConnectError): Outcome => {
-    console.warn(`[connect] ${provider} connect refused after the exchange: ${code}`);
-    return { url: errorUrl(origin, returnTo, code, provider), error: code };
+  const refuse = (code: ConnectError, reason?: string): Outcome => {
+    console.warn(`[connect] ${provider} connect refused after the exchange: ${code}${reason ? ` (${reason})` : ""}`);
+    return { url: errorUrl(origin, returnTo, code, provider), failure: { provider, code, ...(reason ? { reason } : {}) } };
   };
-  if (listed === null) return refuse("failed");
+  if (listed === null) return refuse("failed", BRIEF_REASON.list);
   const workspaces = listed;
   // listAzureOrgs reads a failed listing as an empty one, and "no
   // organization" would send the user off to create one they already have.
   if (provider === "azure" && workspaces.length === 0) {
-    return refuse((await azureHasNoOrgs(`Bearer ${token.accessToken}`)) ? "no_org" : "failed");
+    const check = await checkAzureOrgs(`Bearer ${token.accessToken}`);
+    return check.none ? refuse("no_org") : refuse("failed", check.failure ?? BRIEF_REASON.list);
   }
   if ((provider === "jira" || provider === "asana") && workspaces.length === 0) return refuse("no_workspace");
   if (provider === "trello" && !details.memberId) return refuse("failed");
@@ -474,7 +551,7 @@ async function finish(
     // that survived the cleanup would keep winning while the card said the new
     // one was connected. Take the new one back out and say it failed.
     if (!reconnect) await rollBack(userId, provider);
-    return refuse("failed");
+    return refuse("failed", BRIEF_REASON.switch);
   }
   // The Clerk-era GitHub pick now lives on the connection. One the new token
   // could not see (or could not list) stays in Clerk, for Settings to check

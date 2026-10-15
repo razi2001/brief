@@ -60,6 +60,7 @@ export default function Integrations() {
     busy,
     errors,
     notice,
+    lastError,
     setTrackerError,
     isConnected,
     isAvailable,
@@ -116,7 +117,17 @@ export default function Integrations() {
     }
     // The card's own status already says a tracker isn't available yet.
     if (errors[key] && !(errors[key] === NOT_AVAILABLE && unavailable.includes(key))) {
-      return errors[key];
+      // The provider's own words, when the server had them, under the message.
+      const detail = lastError?.provider === key ? lastError.detail : undefined;
+      if (!detail) return errors[key];
+      return (
+        <>
+          {errors[key]}
+          <span className="mt-1 line-clamp-3 break-words text-[11px] opacity-80" title={detail}>
+            {detail}
+          </span>
+        </>
+      );
     }
     // Only Clerk connections leave a half-finished record behind.
     if (isConnected(t) || !pendingAccount(t.providerMatch)) return null;

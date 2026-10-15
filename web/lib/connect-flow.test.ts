@@ -24,11 +24,14 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 import {
+  ERROR_COOKIE,
   FLOW_COOKIE,
   appOrigin,
-  azureHasNoOrgs,
+  checkAzureOrgs,
+  clearErrorCookie,
   clearFlowCookie,
   connectedUrl,
+  errorCookie,
   errorUrl,
   flowCookie,
   forgetOrg,
@@ -38,6 +41,7 @@ import {
   newFlow,
   pickUrl,
   pkceChallenge,
+  readErrorCookie,
   readFlowCookie,
   readFlowState,
   redirectTo,
@@ -271,7 +275,92 @@ describe("flow state", () => {
   });
 });
 
-describe("azureHasNoOrgs", () => {
+describe("error cookie", () => {
+  const AT = Date.UTC(2026, 9, 15, 12);
+  const failure = {
+    provider: "azure" as const,
+    code: "failed" as const,
+    reason: "AADSTS650052",
+    detail: "AADSTS650052: The app is trying to access a service (Azure DevOps) that your organization lacks.",
+  };
+  const header = (setCookie: string) => setCookie.split(";")[0];
+  const read = (setCookie: string, userId = "user_1", now = AT + 1000) =>
+    readErrorCookie(req({ cookie: header(setCookie) }, "/api/me/connections"), userId, now);
+
+  it("is httpOnly, Lax, site-wide, lives ten minutes and is Secure only over https", () => {
+    const c = errorCookie(failure, "user_1", false, AT)!;
+    expect(c).toMatch(new RegExp(`^${ERROR_COOKIE}=[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+;`));
+    expect(c).toContain("Path=/;");
+    expect(c).toContain("Max-Age=600");
+    expect(c).toContain("HttpOnly");
+    expect(c).toContain("SameSite=Lax");
+    expect(c).not.toContain("Secure");
+    expect(errorCookie(failure, "user_1", true, AT)).toContain("Secure");
+  });
+
+  it("round-trips the failure for the user it was set for", () => {
+    expect(read(errorCookie(failure, "user_1", false, AT)!)).toEqual(failure);
+    const bare = { provider: "trello" as const, code: "cancelled" as const };
+    expect(read(errorCookie(bare, "user_1", false, AT)!)).toEqual(bare);
+  });
+
+  it("holds base64url JSON of the failure and when it happened, then a signature", () => {
+    const value = header(errorCookie(failure, "user_1", false, AT)!).slice(ERROR_COOKIE.length + 1);
+    const [payload] = value.split(".");
+    expect(JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))).toEqual({ ...failure, at: AT });
+  });
+
+  it("is not read for another user", () => {
+    expect(read(errorCookie(failure, "user_1", false, AT)!, "user_2")).toBeNull();
+  });
+
+  it("is not read once ten minutes have passed", () => {
+    const c = errorCookie(failure, "user_1", false, AT)!;
+    expect(read(c, "user_1", AT + 10 * 60_000)).toEqual(failure);
+    expect(read(c, "user_1", AT + 10 * 60_000 + 1)).toBeNull();
+  });
+
+  it("refuses a forged one: an unsigned payload, a payload swapped under a real signature, or another key", () => {
+    const real = header(errorCookie(failure, "user_1", false, AT)!).slice(ERROR_COOKIE.length + 1);
+    const [, mac] = real.split(".");
+    const forged = Buffer.from(
+      JSON.stringify({ provider: "azure", code: "failed", detail: "Call +1 555 0100 to fix this", at: AT }),
+      "utf8",
+    ).toString("base64url");
+    for (const value of [forged, `${forged}.${mac}`, `${forged}.${"A".repeat(mac.length)}`]) {
+      expect(readErrorCookie(req({ cookie: `${ERROR_COOKIE}=${value}` }), "user_1", AT + 1000)).toBeNull();
+    }
+    const c = errorCookie(failure, "user_1", false, AT)!;
+    vi.stubEnv("CONNECTIONS_KEY", "another-secret");
+    expect(read(c)).toBeNull();
+  });
+
+  it("refuses a signed value that is not a failure", () => {
+    const bad = [
+      { provider: "nope", code: "failed" },
+      { provider: "azure", code: "exploded" },
+      { provider: "azure", code: "failed", reason: "has:colon" },
+      { provider: "azure", code: "failed", detail: "line\nbreak" },
+    ];
+    for (const value of bad) {
+      expect(read(errorCookie(value as never, "user_1", false, AT)!)).toBeNull();
+    }
+  });
+
+  it.each(["", "a.b.c", "only-payload", "not base64!.mac"])("reads %j as nothing", (value) => {
+    expect(readErrorCookie(req({ cookie: `${ERROR_COOKIE}=${value}` }), "user_1", AT)).toBeNull();
+  });
+
+  it("clears with an empty value and no lifetime, on the same path", () => {
+    const c = clearErrorCookie(true);
+    expect(c).toMatch(new RegExp(`^${ERROR_COOKIE}=;`));
+    expect(c).toContain("Max-Age=0");
+    expect(c).toContain("Path=/;");
+    expect(c).toContain("Secure");
+  });
+});
+
+describe("checkAzureOrgs", () => {
   const PROFILE = "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1";
   const ACCOUNTS = "https://app.vssps.visualstudio.com/_apis/accounts?memberId=m-1&api-version=7.1";
 
@@ -295,7 +384,7 @@ describe("azureHasNoOrgs", () => {
     ["a { count, value } page", { count: 0, value: [] }],
   ])("is true when both calls answer and the list is %s", async (_label, empty) => {
     const calls = vssps([200, { id: "m-1" }], [200, empty]);
-    expect(await azureHasNoOrgs("Bearer tok")).toBe(true);
+    expect(await checkAzureOrgs("Bearer tok")).toEqual({ none: true });
     expect(calls).toEqual([
       { url: PROFILE, auth: "Bearer tok" },
       { url: ACCOUNTS, auth: "Bearer tok" },
@@ -303,19 +392,25 @@ describe("azureHasNoOrgs", () => {
   });
 
   it.each([
-    ["the profile call fails", [500, {}], [200, []]],
-    ["the profile has no id", [200, {}], [200, []]],
-    ["the accounts call fails", [200, { id: "m-1" }], [503, {}]],
-    ["the token gets the sign-in page", [203, {}], [200, []]],
-    ["the account has an organization", [200, { id: "m-1" }], [200, { value: [{ accountName: "contoso" }] }]],
-  ] as const)("is false when %s", async (_label, profile, accounts) => {
+    ["the profile call fails", [500, {}], [200, []], "vssps 500"],
+    ["the profile has no id", [200, {}], [200, []], "vssps no profile"],
+    ["the accounts call fails", [200, { id: "m-1" }], [503, {}], "vssps 503"],
+    ["the token gets the sign-in page", [203, {}], [200, []], "vssps 203"],
+    ["the token is refused", [401, {}], [200, []], "vssps 401"],
+    ["the accounts reply holds no list", [200, { id: "m-1" }], [200, { count: 0 }], "vssps no list"],
+  ] as const)("is not `none` when %s, and names the failure", async (_label, profile, accounts, failure) => {
     vssps(profile as [number, unknown], accounts as [number, unknown]);
-    expect(await azureHasNoOrgs("Bearer tok")).toBe(false);
+    expect(await checkAzureOrgs("Bearer tok")).toEqual({ none: false, failure });
   });
 
-  it("is false when the network is down", async () => {
+  it("is not `none`, and names no failure, when the account has an organization", async () => {
+    vssps([200, { id: "m-1" }], [200, { value: [{ accountName: "contoso" }] }]);
+    expect(await checkAzureOrgs("Bearer tok")).toEqual({ none: false });
+  });
+
+  it("names a network failure without quoting it", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("fetch failed"))));
-    expect(await azureHasNoOrgs("Bearer tok")).toBe(false);
+    expect(await checkAzureOrgs("Bearer tok")).toEqual({ none: false, failure: "vssps unreachable" });
   });
 });
 

@@ -33,14 +33,23 @@ export const STATE_TTL_MS = 15 * 60 * 1000;
  * also the token encryption key, and one raw key should not serve two
  * algorithms.
  */
-function signingKey(): Buffer {
+function signingKey(purpose: string): Buffer {
   const s = process.env.CONNECTIONS_KEY || process.env.CLERK_SECRET_KEY;
   if (!s) throw new Error("No secret available to sign OAuth state.");
-  return createHash("sha256").update(`brief-oauth-state:${s}`).digest();
+  return createHash("sha256").update(`${purpose}:${s}`).digest();
+}
+
+/**
+ * An HMAC for another value Brief signs, keyed by its own purpose label, so a
+ * value signed for one purpose never verifies as another. Throws when there
+ * is no secret to sign with.
+ */
+export function macFor(purpose: string, payload: string): string {
+  return createHmac("sha256", signingKey(purpose)).update(payload).digest("base64url");
 }
 
 function sign(payload: string): string {
-  return createHmac("sha256", signingKey()).update(payload).digest("base64url");
+  return macFor("brief-oauth-state", payload);
 }
 
 export function signState(state: Omit<OAuthState, "ts"> & { ts?: number }): string {

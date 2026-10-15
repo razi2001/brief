@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ProviderKey } from "./provider-labels";
 
@@ -29,6 +30,8 @@ type Owned = { provider: ProviderKey; label: string | null; workspace: { id: str
 
 let owned: Owned[];
 let configured: Record<string, boolean>;
+/** What /api/me/connections says about the last failed connect. */
+let lastError: { provider: ProviderKey; message: string; detail?: string } | null;
 let health: { stale: ProviderKey[]; needsWorkspace: ProviderKey[] };
 let fetchMock: ReturnType<typeof vi.fn>;
 let assign: ReturnType<typeof vi.fn>;
@@ -78,7 +81,7 @@ const json = (body: unknown, ok = true) => ({ ok, json: async () => body });
 /** The routes the hook and the card call, over this test's state. */
 async function server(url: string, init?: RequestInit) {
   calls.push(`${init?.method ?? "GET"} ${url}`);
-  if (url === "/api/me/connections") return json({ owned, configured });
+  if (url === "/api/me/connections") return json({ owned, configured, lastError });
   if (url === "/api/trackers/health") return json(health);
   const m = url.match(/^\/api\/connect\/(\w+)\/disconnect(\?clerk=keep)?$/);
   if (m && init?.method === "POST") {
@@ -90,6 +93,7 @@ async function server(url: string, init?: RequestInit) {
 
 beforeEach(() => {
   owned = [];
+  lastError = null;
   // Linear, Jira and GitHub default to a deployment without Brief's apps for
   // them, where they connect through Clerk.
   configured = {
@@ -382,6 +386,73 @@ describe("Integrations", () => {
     render(<Integrations />);
     expect((await trigger()).textContent).toContain("Choose a tracker");
     expect(screen.getByText("Couldn't connect")).toBeTruthy();
+  });
+
+  const NO_ADO =
+    "Azure DevOps isn't set up on this Microsoft organization yet. Create an organization at dev.azure.com, then connect again.";
+  const ADO_DETAIL =
+    "Azure DevOps: AADSTS650052: The app is trying to access a service '499b84ac-1321-427f-aa17-267ca6975798'(Azure DevOps) that your organization lacks a service principal for.";
+
+  it("shows the server's explanation, and the provider's words beneath it, on the card the connect failed on", async () => {
+    clerk.user!.externalAccounts = [account("oauth_linear")];
+    window.history.replaceState(null, "", "/connections?error=failed&provider=azure");
+    lastError = { provider: "azure", message: NO_ADO, detail: ADO_DETAIL };
+    render(<Integrations />);
+
+    expect((await trigger()).textContent).toContain("Azure DevOps");
+    expect(screen.getByText(NO_ADO)).toBeTruthy();
+    // It takes the place of the code's copy.
+    expect(screen.queryByText("Couldn't connect")).toBeNull();
+    const detail = screen.getByText(ADO_DETAIL);
+    expect(detail.getAttribute("title")).toBe(ADO_DETAIL);
+    expect(detail.className).toContain("line-clamp-3");
+    expect(detail.className).toContain("break-words");
+  });
+
+  it("shows the server's explanation on its own tracker's card, whatever the URL names", async () => {
+    window.history.replaceState(null, "", "/connections?error=Visit%20evil.example&provider=trello");
+    lastError = { provider: "trello", message: "Connection cancelled" };
+    render(<Integrations />);
+    expect((await trigger()).textContent).toContain("Trello");
+    expect(screen.getByText("Connection cancelled")).toBeTruthy();
+    expect(screen.queryByText(/evil/)).toBeNull();
+  });
+
+  it("keeps the explanation when React reads the connections twice, as it does in development", async () => {
+    window.history.replaceState(null, "", "/connections?error=failed&provider=azure");
+    // The server hands the explanation out once.
+    let reads = 0;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url !== "/api/me/connections") return server(url, init);
+      const once = reads++ === 0 ? { provider: "azure", message: NO_ADO, detail: ADO_DETAIL } : null;
+      return json({ owned, configured, lastError: once });
+    });
+    render(
+      <StrictMode>
+        <Integrations />
+      </StrictMode>,
+    );
+    expect(await screen.findByText(ADO_DETAIL)).toBeTruthy();
+    expect(screen.getByText(NO_ADO)).toBeTruthy();
+    expect(reads).toBe(2);
+  });
+
+  it("keeps the code's copy when the server has no explanation", async () => {
+    window.history.replaceState(null, "", "/connections?error=failed&provider=azure");
+    render(<Integrations />);
+    expect((await trigger()).textContent).toContain("Azure DevOps");
+    expect(screen.getByText("Couldn't connect")).toBeTruthy();
+  });
+
+  it("drops the message and its detail once Connect is clicked again", async () => {
+    window.history.replaceState(null, "", "/connections?error=failed&provider=azure");
+    lastError = { provider: "azure", message: NO_ADO, detail: ADO_DETAIL };
+    render(<Integrations />);
+    await screen.findByText(ADO_DETAIL);
+    fireEvent.click(screen.getByRole("button", { name: "Connect Azure DevOps →" }));
+    expect(assign).toHaveBeenCalledWith("/api/connect/azure/start?returnTo=%2Fconnections");
+    expect(screen.queryByText(NO_ADO)).toBeNull();
+    expect(screen.queryByText(ADO_DETAIL)).toBeNull();
   });
 
   it("names the missing Jira site", async () => {

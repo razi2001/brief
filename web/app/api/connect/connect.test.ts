@@ -201,7 +201,17 @@ import { GET as callback, POST as relayPost } from "./[provider]/callback/route"
 import { POST as disconnect } from "./[provider]/disconnect/route";
 import { GET as myConnections } from "../me/connections/route";
 import { readState } from "@/lib/oauth-state";
-import { FLOW_COOKIE, flowCookie, newFlow, pkceChallenge, signFlowState } from "@/lib/connect-flow";
+import {
+  ERROR_COOKIE,
+  FLOW_COOKIE,
+  errorCookie,
+  flowCookie,
+  newFlow,
+  pkceChallenge,
+  readErrorCookie,
+  signFlowState,
+} from "@/lib/connect-flow";
+import { BRIEF_REASON, type ConnectFailure } from "@/lib/connect-errors";
 
 // ---------------------------------------------------------------------------
 // Fake provider APIs
@@ -211,6 +221,8 @@ type Call = { url: string; init?: RequestInit };
 let fetchCalls: Call[] = [];
 /** What each token endpoint answers; a number is an error status. */
 let tokenReply: Record<string, unknown> | number = {};
+/** The body of a token endpoint's error status. */
+let tokenErrorBody: unknown = { error: "invalid_grant" };
 /** Whether Trello's members/me answers. */
 let trelloMeOk = true;
 /** What Azure DevOps' account listing answers: its status, and its organizations. */
@@ -234,7 +246,7 @@ function fakeFetch(url: string | URL, init?: RequestInit): Promise<Response> {
   const json = (body: unknown, status = 200) =>
     Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
   if (TOKEN_HOSTS.some((h) => u.includes(h))) {
-    return typeof tokenReply === "number" ? json({ error: "invalid_grant" }, tokenReply) : json(tokenReply);
+    return typeof tokenReply === "number" ? json(tokenErrorBody, tokenReply) : json(tokenReply);
   }
   if (u === "https://api.linear.app/graphql") return json({ data: { viewer: { name: "Ada Linear", displayName: "ada" } } });
   if (u === "https://api.github.com/user") return json({ name: null, login: "ada-gh" });
@@ -288,6 +300,23 @@ function flowCookieFrom(res: Response): string | null {
 
 function clearsFlowCookie(res: Response): boolean {
   return res.headers.getSetCookie().some((s) => s.startsWith(`${FLOW_COOKIE}=;`) && s.includes("Max-Age=0"));
+}
+
+/** The error cookie a response sets, as its Set-Cookie line, or null. */
+function errorCookieSet(res: Response): string | null {
+  return res.headers.getSetCookie().find((s) => s.startsWith(`${ERROR_COOKIE}=`) && !s.includes("Max-Age=0")) ?? null;
+}
+
+/** The failure in the error cookie a response sets, read back as /api/me/connections would. */
+function recorded(res: Response, userId = "user_1"): ConnectFailure | null {
+  const set = errorCookieSet(res);
+  if (!set) return null;
+  return readErrorCookie(get("/api/me/connections", { cookie: set.split(";")[0] }), userId);
+}
+
+/** A GET of /api/me/connections, carrying an error cookie when given one. */
+function meReq(cookie?: string) {
+  return get("/api/me/connections", cookie ? { cookie } : {});
 }
 
 /** Run the real start route and return what the browser would carry to the callback. */
@@ -347,6 +376,14 @@ function relayReq(
   });
 }
 
+/** What Entra sent back to a user whose tenant had never used Azure DevOps. */
+const AADSTS650052 =
+  "AADSTS650052: The app is trying to access a service '499b84ac-1321-427f-aa17-267ca6975798'(Azure DevOps) " +
+  "that your organization 'a1b2c3d4-0000-4000-8000-000000000000' lacks a service principal for. Contact your IT " +
+  "Admin to review the configuration of your service subscriptions or consent to the application in order to " +
+  "create the required service principal.\r\nTrace ID: 0f0e0d0c-1111-2222-3333-444455556666\r\nCorrelation ID: " +
+  "9a8b7c6d-1111-2222-3333-444455556666\r\nTimestamp: 2026-10-14 09:12:44Z";
+
 type Saved = [string, string, { meta: Record<string, string> }];
 const savedMeta = () => (store.saveConnection.mock.calls[0] as unknown as Saved)[2].meta;
 
@@ -400,6 +437,7 @@ beforeEach(() => {
   trelloMeOk = true;
   azureAccounts = { status: 200, names: [] };
   tokenReply = { access_token: "at_new", refresh_token: "rt_new", expires_in: 3600 };
+  tokenErrorBody = { error: "invalid_grant" };
   for (const fn of [store.saveConnection, store.deleteOtherConnections, store.deleteConnection]) {
     fn.mockReset();
     fn.mockImplementation(async () => {});
@@ -1088,7 +1126,16 @@ describe("callback", () => {
     const url = location(await runCallback("github"));
     expect(url.searchParams.get("error")).toBe("failed");
     expect(store.saveConnection).not.toHaveBeenCalled();
-    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toMatch(/incorrect|bad_verification/);
+    // The status and the provider's code are logged; its description never is.
+    const logged = JSON.stringify(vi.mocked(console.warn).mock.calls);
+    expect(logged).toContain("200 bad_verification_code");
+    expect(logged).not.toMatch(/incorrect/);
+    expect(recorded(await runCallback("github"))).toEqual({
+      provider: "github",
+      code: "failed",
+      reason: "bad_verification_code",
+      detail: "The code passed is incorrect or expired.",
+    });
   });
 
   it("exchanges a Notion code with Basic auth and a JSON body, and stores the workspace from the reply", async () => {
@@ -1398,6 +1445,175 @@ describe("callback", () => {
     expect(url.searchParams.get("error")).toBe("failed");
     expect(store.deleteOtherConnections).not.toHaveBeenCalled();
     expect(clerk.deleted).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// callback: why it failed
+// ---------------------------------------------------------------------------
+
+describe("callback: the error cookie", () => {
+  it("records the provider's error and description, never putting them in the URL", async () => {
+    const res = await runCallback("azure", "/onboarding", { error: "invalid_client", error_description: AADSTS650052 });
+    expect(location(res).toString()).toBe(`${ORIGIN}/onboarding?error=failed&provider=azure`);
+    expect(clearsFlowCookie(res)).toBe(true);
+    expect(fetchCalls).toHaveLength(0);
+
+    const f = recorded(res);
+    expect(f).toMatchObject({ provider: "azure", code: "failed", reason: "AADSTS650052" });
+    expect(f?.detail).toMatch(/^AADSTS650052: The app is trying to access a service/);
+    expect(f?.detail).not.toMatch(/Trace ID|Correlation ID/);
+
+    const set = errorCookieSet(res)!;
+    for (const attr of ["HttpOnly", "SameSite=Lax", "Path=/;", "Max-Age=600"]) expect(set).toContain(attr);
+    expect(set).not.toContain("Secure");
+  });
+
+  it.each([
+    ["access_denied", "cancelled"],
+    ["server_error", "failed"],
+  ])("records %s as `%s`, its text in the cookie and not the URL", async (error, code) => {
+    const res = await runCallback("asana", "/connections", { error, error_description: "Visit evil.example to fix this" });
+    expect(location(res).toString()).not.toContain("evil");
+    expect(recorded(res)).toEqual({ provider: "asana", code, reason: error, detail: "Visit evil.example to fix this" });
+  });
+
+  it("sets a Secure cookie when the app is served over https", async () => {
+    vi.stubEnv("APP_URL", "https://cloud.example.com");
+    const res = await runCallback("gitlab", "/connections", { error: "invalid_scope" });
+    expect(errorCookieSet(res)).toContain("Secure");
+  });
+
+  it("records a refused exchange from the named fields of the JSON reply, logging the status and code only", async () => {
+    tokenReply = 401;
+    tokenErrorBody = {
+      error: "invalid_client",
+      error_description:
+        "AADSTS7000215: Invalid client secret provided. Ensure the secret being sent in the request is the client secret value.\r\nTrace ID: 1",
+      error_codes: [7000215],
+    };
+    const res = await runCallback("azure", "/connections", { code: "secret-code" });
+    expect(location(res).toString()).toBe(`${ORIGIN}/connections?error=failed&provider=azure`);
+    expect(recorded(res)).toEqual({
+      provider: "azure",
+      code: "failed",
+      reason: "AADSTS7000215",
+      detail:
+        "AADSTS7000215: Invalid client secret provided. Ensure the secret being sent in the request is the client secret value.",
+    });
+    const logged = JSON.stringify(vi.mocked(console.warn).mock.calls);
+    expect(logged).toContain("azure refused the code exchange: 401 AADSTS7000215");
+    expect(logged).not.toContain("Invalid client secret");
+  });
+
+  it.each([
+    ["clickup", 400, { err: "Client not found", ECODE: "OAUTH_010" }, { reason: "OAUTH_010", detail: "Client not found" }],
+    [
+      "asana",
+      400,
+      { errors: [{ message: "The redirect_uri parameter does not match a valid url for the application." }] },
+      { reason: "HTTP 400", detail: "The redirect_uri parameter does not match a valid url for the application." },
+    ],
+    ["notion", 401, "<html>Unauthorized</html>", { reason: "HTTP 401" }],
+    ["monday", 503, { error: "temporarily_unavailable" }, { reason: "temporarily_unavailable" }],
+  ] as const)("records %s's refusal (%i)", async (provider, status, body, want) => {
+    tokenReply = status;
+    tokenErrorBody = body;
+    expect(recorded(await runCallback(provider))).toEqual({ provider, code: "failed", ...want });
+  });
+
+  it("never records the code, the client secret or a token, even when the provider echoes them", async () => {
+    tokenReply = 400;
+    tokenErrorBody = {
+      error: "invalid_grant",
+      error_description: "Code secret-code-123 is not valid for client gl-secret-value",
+      access_token: "at_leaked_token",
+      refresh_token: "rt_leaked_token",
+    };
+    const res = await runCallback("gitlab", "/connections", { code: "secret-code-123" });
+    expect(recorded(res)?.detail).toBe("Code [redacted] is not valid for client [redacted]");
+    const raw = errorCookieSet(res)!.split(";")[0].slice(ERROR_COOKIE.length + 1).split(".")[0];
+    const stored = Buffer.from(raw, "base64url").toString("utf8");
+    for (const secret of ["secret-code-123", "gl-secret-value", "at_leaked", "rt_leaked"]) {
+      expect(stored).not.toContain(secret);
+    }
+  });
+
+  it("records an unreachable token endpoint as Brief's own reason", async () => {
+    const { state, cookie } = await startFlow("linear");
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("fetch failed"));
+    const res = await callback(callbackReq("linear", { code: "c1", state }, cookie), ctx("linear"));
+    expect(recorded(res)).toEqual({ provider: "linear", code: "failed", reason: BRIEF_REASON.unreachable });
+  });
+
+  it("records the status of a failed Azure DevOps organization check", async () => {
+    lists.azure = [];
+    azureAccounts = { status: 401, names: [] };
+    const res = await runCallback("azure");
+    expect(location(res).searchParams.get("error")).toBe("failed");
+    expect(recorded(res)).toEqual({ provider: "azure", code: "failed", reason: "vssps 401" });
+  });
+
+  it("records an account with no Azure DevOps organization as `no_org` alone", async () => {
+    lists.azure = [];
+    expect(recorded(await runCallback("azure"))).toEqual({ provider: "azure", code: "no_org" });
+  });
+
+  it.each([
+    ["another user's", () => flowFor("azure", { userId: "user_2" })],
+    ["another browser's", () => flowFor("azure", { nonce: "someone-elses-nonce" })],
+  ])("records %s state as Brief's own reason, with nothing from the query string", async (_label, make) => {
+    const { state, cookie } = make();
+    const res = await callback(
+      callbackReq("azure", { error: "x", error_description: "Visit evil.example", state }, cookie),
+      ctx("azure"),
+    );
+    expect(location(res).toString()).toBe(`${ORIGIN}/connections?error=failed&provider=azure`);
+    expect(recorded(res)).toEqual({ provider: "azure", code: "failed", reason: BRIEF_REASON.state });
+    expect(clearsFlowCookie(res)).toBe(false);
+  });
+
+  it("records `unavailable` when the provider was unconfigured mid-flow", async () => {
+    const { state, cookie } = await startFlow("monday");
+    vi.stubEnv("MONDAY_CLIENT_SECRET", "");
+    const res = await callback(callbackReq("monday", { code: "c1", state }, cookie), ctx("monday"));
+    expect(recorded(res)).toEqual({ provider: "monday", code: "unavailable" });
+  });
+
+  it("records a site listing that failed, a switch that failed and a save that failed", async () => {
+    lists.jira = null;
+    expect(recorded(await runCallback("jira"))).toEqual({ provider: "jira", code: "failed", reason: BRIEF_REASON.list });
+
+    lists.monday = [{ id: "1", name: "Acme" }];
+    store.saveConnection.mockRejectedValueOnce(new Error("db down"));
+    expect(recorded(await runCallback("monday"))).toEqual({ provider: "monday", code: "failed", reason: BRIEF_REASON.save });
+
+    store.deleteOtherConnections.mockRejectedValueOnce(new Error("db down"));
+    expect(recorded(await runCallback("monday"))).toEqual({
+      provider: "monday",
+      code: "failed",
+      reason: BRIEF_REASON.switch,
+    });
+  });
+
+  it("records nothing when the connect succeeds", async () => {
+    lists.gitlab = [{ id: "1", name: "Acme" }];
+    const res = await runCallback("gitlab");
+    expect(location(res).searchParams.get("connected")).toBe("gitlab");
+    expect(errorCookieSet(res)).toBeNull();
+  });
+
+  it("records the Trello relay's failures too", async () => {
+    // A state this browser didn't start.
+    const forged = flowFor("trello", { userId: "user_2" });
+    const refused = await relayPost(relayReq({ token: "t", state: forged.state }, { cookie: forged.cookie }), ctx("trello"));
+    expect(recorded(refused)).toEqual({ provider: "trello", code: "failed", reason: BRIEF_REASON.state });
+
+    // Declined at Trello.
+    const declined = await startFlow("trello");
+    const cancelled = await relayPost(relayReq({ token: "", state: declined.state }, { cookie: declined.cookie }), ctx("trello"));
+    expect(recorded(cancelled)).toEqual({ provider: "trello", code: "cancelled" });
+    expect(clearsFlowCookie(cancelled)).toBe(true);
   });
 });
 
@@ -1734,7 +1950,7 @@ describe("/api/me/connections", () => {
       },
       { user_id: "user_2", provider: "asana", access_token_enc: "OTHER", account_meta: {} },
     ];
-    const res = await myConnections();
+    const res = await myConnections(meReq());
     const text = await res.text();
     expect(text).not.toMatch(/ENC_|OTHER|token/i);
     expect(db.selects.join(" ")).not.toMatch(/token|\*/);
@@ -1755,6 +1971,7 @@ describe("/api/me/connections", () => {
         asana: true,
         monday: false,
       },
+      lastError: null,
     });
   });
 
@@ -1768,13 +1985,80 @@ describe("/api/me/connections", () => {
         account_meta: { workspaceId: "cloud-1", workspaceName: "acme", siteUrl: "https://acme.atlassian.net" },
       },
     ];
-    const body = await (await myConnections()).json();
+    const body = await (await myConnections(meReq())).json();
     expect(body.owned).toEqual([{ provider: "jira", label: null, workspace: { id: "cloud-1", name: "acme" } }]);
     expect(body.configured).toMatchObject({ linear: true, jira: false, github: true });
   });
 
   it("requires a signed-in user", async () => {
     session.userId = null;
-    expect((await myConnections()).status).toBe(401);
+    expect((await myConnections(meReq())).status).toBe(401);
+  });
+
+  /** The `name=value` pair of the error cookie a callback set, as the browser sends it back. */
+  async function failedConnect(provider: OwnedProvider, params: Record<string, string>) {
+    const set = errorCookieSet(await runCallback(provider, "/connections", params));
+    if (!set) throw new Error("the callback set no error cookie");
+    return set.split(";")[0];
+  }
+
+  const clearsErrorCookie = (res: Response) =>
+    res.headers.getSetCookie().some((s) => s.startsWith(`${ERROR_COOKIE}=;`) && s.includes("Max-Age=0") && s.includes("Path=/;"));
+
+  it("explains the last failed connect once, and clears the cookie in the same response", async () => {
+    const cookie = await failedConnect("azure", { error: "invalid_client", error_description: AADSTS650052 });
+    const res = await myConnections(meReq(cookie));
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(clearsErrorCookie(res)).toBe(true);
+    const { lastError } = (await res.json()) as { lastError: { provider: string; message: string; detail?: string } };
+    expect(lastError).toEqual({
+      provider: "azure",
+      message:
+        "Azure DevOps isn't set up on this Microsoft organization yet. Create an organization at dev.azure.com, then connect again.",
+      detail: expect.stringMatching(/^Azure DevOps: AADSTS650052: The app is trying to access a service/),
+    });
+    expect(lastError.detail).not.toMatch(/Trace ID/);
+  });
+
+  it("explains a refused token exchange from the provider's own reply", async () => {
+    tokenReply = 400;
+    tokenErrorBody = { error: "invalid_scope", error_description: "The requested scope is invalid, unknown, or malformed." };
+    const cookie = await failedConnect("gitlab", {});
+    const { lastError } = await (await myConnections(meReq(cookie))).json();
+    expect(lastError).toEqual({
+      provider: "gitlab",
+      message: "Brief's GitLab app is missing a permission.",
+      detail: "GitLab: invalid_scope The requested scope is invalid, unknown, or malformed.",
+    });
+  });
+
+  it("says nothing, and sets no cookie, when there was no failure", async () => {
+    const res = await myConnections(meReq());
+    expect((await res.json()).lastError).toBeNull();
+    expect(res.headers.getSetCookie()).toEqual([]);
+  });
+
+  it("ignores a forged cookie, and clears it", async () => {
+    const payload = Buffer.from(
+      JSON.stringify({ provider: "azure", code: "failed", detail: "Call +1 555 0100 to fix your account", at: Date.now() }),
+      "utf8",
+    ).toString("base64url");
+    const real = (await failedConnect("asana", { error: "server_error" })).split(".")[1];
+    for (const value of [payload, `${payload}.${real}`, "garbage"]) {
+      const res = await myConnections(meReq(`${ERROR_COOKIE}=${value}`));
+      expect((await res.json()).lastError).toBeNull();
+      expect(clearsErrorCookie(res)).toBe(true);
+    }
+  });
+
+  it("ignores an expired cookie, and another user's, and clears them", async () => {
+    const f: ConnectFailure = { provider: "azure", code: "failed", reason: "AADSTS650052" };
+    const old = errorCookie(f, "user_1", false, Date.now() - 11 * 60_000)!.split(";")[0];
+    const theirs = errorCookie(f, "user_2", false)!.split(";")[0];
+    for (const cookie of [old, theirs]) {
+      const res = await myConnections(meReq(cookie));
+      expect((await res.json()).lastError).toBeNull();
+      expect(clearsErrorCookie(res)).toBe(true);
+    }
   });
 });
