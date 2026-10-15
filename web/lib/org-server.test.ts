@@ -1,6 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { setOrgSettings, getOrgSettings, getOrgMemberIds } from "./org-server";
+
+// Which trackers are connected, and the workspace each one picked: the two
+// inputs org resolution takes for every tracker but Linear and Jira.
+const registry = vi.hoisted(() => ({ connectedTrackers: vi.fn() }));
+vi.mock("@/lib/trackers/registry", () => registry);
+const workspaces = vi.hoisted(() => ({ getPickedWorkspace: vi.fn() }));
+vi.mock("@/lib/workspaces", () => workspaces);
+
+import { setOrgSettings, getOrgSettings, getOrgMemberIds, getOrg } from "./org-server";
 
 /**
  * A stub Supabase client. The real one RESOLVES with `{ error }` rather than
@@ -78,5 +86,49 @@ describe("getOrgMemberIds", () => {
   it("returns nothing for an org with no cached members", async () => {
     const { db } = stubDb({ data: null });
     expect(await getOrgMemberIds("linear:abc", db)).toEqual([]);
+  });
+});
+
+describe("getOrg from a workspace pick", () => {
+  let n = 0;
+  // getOrg is cached per render; a fresh user per test keeps them apart.
+  const nextUser = () => `user_pick_${++n}`;
+
+  it("puts a ClickUp user in the workspace they picked, and caches it", async () => {
+    registry.connectedTrackers.mockResolvedValue(["clickup"]);
+    workspaces.getPickedWorkspace.mockResolvedValue({ id: "9001", name: "Acme" });
+    const { db, upsert } = stubDb({ data: null });
+    const user = nextUser();
+
+    expect(await getOrg(user, db)).toEqual({ key: "clickup:9001", name: "Acme", provider: "clickup" });
+    expect(workspaces.getPickedWorkspace).toHaveBeenCalledWith(user, "clickup");
+    expect(upsert.mock.calls[0][0]).toMatchObject({ user_id: user, org_key: "clickup:9001", provider: "clickup" });
+  });
+
+  it("keys a GitHub org case-insensitively", async () => {
+    registry.connectedTrackers.mockResolvedValue(["github"]);
+    workspaces.getPickedWorkspace.mockResolvedValue({ id: "Acme", name: "Acme" });
+    const { db } = stubDb({ data: null });
+
+    expect(await getOrg(nextUser(), db)).toMatchObject({ key: "github:acme", provider: "github" });
+  });
+
+  it("leaves someone with no pick out of every org", async () => {
+    registry.connectedTrackers.mockResolvedValue(["gitlab"]);
+    workspaces.getPickedWorkspace.mockResolvedValue(null);
+    const { db, upsert } = stubDb({ data: null });
+
+    expect(await getOrg(nextUser(), db)).toBeNull();
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it("takes the first connected tracker with a pick, in registry order", async () => {
+    registry.connectedTrackers.mockResolvedValue(["gitlab", "asana"]);
+    workspaces.getPickedWorkspace.mockImplementation(async (_u: string, p: string) =>
+      p === "asana" ? { id: "120", name: "Acme" } : null,
+    );
+    const { db } = stubDb({ data: null });
+
+    expect(await getOrg(nextUser(), db)).toMatchObject({ key: "asana:120", provider: "asana" });
   });
 });

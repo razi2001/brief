@@ -1,13 +1,12 @@
 import { cache } from "react";
 import { clerkClient } from "@clerk/nextjs/server";
-import { getClerkUser } from "@/lib/clerk-user";
-import { connectedProviders } from "@/lib/trackers/registry";
+import { connectedTrackers } from "@/lib/trackers/registry";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { orgKey } from "@/lib/org";
 import { getLinearOrg, getLinearToken } from "@/lib/linear";
 import { getJiraAuth, getJiraCloud } from "@/lib/jira";
-import { getGithubToken, listGithubOrgs } from "@/lib/github";
+import { getPickedWorkspace } from "@/lib/workspaces";
 import { rankReporters, type LeaderRow, type Reporter } from "@/lib/podium";
 import { inferMemberships, type ResolvedOrg } from "@/lib/org-infer";
 import { summarizeRoi, type RoiSummary } from "@/lib/roi";
@@ -22,7 +21,8 @@ import type { ProviderKey } from "@/lib/tracker";
  * request body, a query param, or any client state. A caller that could name
  * its own org could read any org's leaderboard and rewrite any org's filing
  * rules. Every exported function below takes a userId and resolves the org
- * itself for exactly that reason.
+ * itself for exactly that reason. A stored workspace pick obeys the same rule:
+ * lib/workspaces stores one only after the user's token has shown it can see it.
  */
 
 export type OrgIdentity = { key: string; name: string; provider: ProviderKey };
@@ -53,9 +53,6 @@ export const ORG_TTL_MS = 24 * 60 * 60 * 1000;
  */
 export const ORG_MISS_TTL_MS = 6 * 60 * 60 * 1000;
 
-/** Clerk privateMetadata key holding the GitHub org the user picked. */
-const GITHUB_ORG_KEY = "githubOrg";
-
 /**
  * Ask each connected tracker which workspace it points at.
  *
@@ -63,13 +60,18 @@ const GITHUB_ORG_KEY = "githubOrg";
  * connected lands in the same org their briefs get filed into.
  */
 async function resolveFromTrackers(userId: string): Promise<OrgIdentity | null> {
-  // Only ask the trackers this user connected: each ask is a token round trip
-  // to Clerk, and asking all three on every page was most of Settings' wait.
+  // Only ask the trackers this user connected: each ask is a token round trip,
+  // and asking every tracker on every page was most of Settings' wait.
   let connected: ProviderKey[];
   try {
-    connected = connectedProviders(await getClerkUser(userId));
+    connected = await connectedTrackers(userId);
   } catch {
-    connected = ["linear", "jira", "github"];
+    // Clerk is down, so its accounts are unknown: try the original three as
+    // before. A Brief-held connection doesn't need Clerk to read, so it still
+    // counts (null stands for "no Clerk accounts" and skips the Clerk call).
+    connected = await connectedTrackers(userId, null)
+      .then((owned) => [...new Set<ProviderKey>(["linear", "jira", "github", ...owned])])
+      .catch((): ProviderKey[] => ["linear", "jira", "github"]);
   }
 
   if (connected.includes("linear")) {
@@ -100,93 +102,22 @@ async function resolveFromTrackers(userId: string): Promise<OrgIdentity | null> 
     }
   }
 
-  // GitHub is the odd one out: a user belongs to many orgs, so there is nothing
-  // to infer. We use the one they picked (read off the user, no token needed),
-  // and if they haven't picked yet they have no org - deliberately, rather than
-  // being put in a stranger's.
-  if (connected.includes("github")) {
-    const picked = await getPickedGithubOrg(userId);
-    const key = picked && orgKey("github", picked);
-    if (key && picked) return { key, name: picked, provider: "github" };
+  // Every other tracker can see several workspaces, so there is nothing to
+  // infer from the token alone. We use the one they picked (lib/workspaces;
+  // connect already stored a lone one), and without one they have no org -
+  // deliberately, rather than being put in a stranger's.
+  for (const p of connected) {
+    if (p === "linear" || p === "jira") continue;
+    try {
+      const ws = await getPickedWorkspace(userId, p);
+      const key = ws && orgKey(p, ws.id);
+      if (key && ws) return { key, name: ws.name, provider: p };
+    } catch {
+      /* as above */
+    }
   }
 
   return null;
-}
-
-export async function getPickedGithubOrg(userId: string): Promise<string | null> {
-  try {
-    const user = await getClerkUser(userId);
-    const v = (user.privateMetadata?.[GITHUB_ORG_KEY] as string) ?? "";
-    return v.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-type GithubOrgChoice = { login: string; name: string; avatarUrl?: string };
-const githubOrgsMemo = new Map<string, { at: number; orgs: GithubOrgChoice[] }>();
-const GITHUB_ORGS_TTL_MS = 5 * 60 * 1000;
-
-/**
- * The orgs Settings offers a GitHub user who hasn't picked one yet. Listing
- * walks up to three pages of repos (seconds), and the answer rarely changes,
- * so it's remembered per user for a few minutes. Anyone else: none, and no
- * GitHub call at all. Best-effort: a failure means none.
- */
-export async function githubOrgsToPick(userId: string): Promise<GithubOrgChoice[]> {
-  try {
-    if (!connectedProviders(await getClerkUser(userId)).includes("github")) return [];
-    if (await getPickedGithubOrg(userId)) return [];
-    const hit = githubOrgsMemo.get(userId);
-    if (hit && Date.now() - hit.at < GITHUB_ORGS_TTL_MS) return hit.orgs;
-    const tok = await getGithubToken(userId);
-    const orgs = tok ? await listGithubOrgs(tok) : [];
-    githubOrgsMemo.set(userId, { at: Date.now(), orgs });
-    return orgs;
-  } catch {
-    return [];
-  }
-}
-
-/** Record the user's GitHub org choice. Validated against what their token can see. */
-export async function setPickedGithubOrg(
-  userId: string,
-  login: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const want = (login ?? "").trim();
-  const client = await clerkClient();
-
-  // Clearing the choice is always allowed - it just drops them out of the org.
-  if (!want) {
-    await client.users.updateUserMetadata(userId, {
-      privateMetadata: { [GITHUB_ORG_KEY]: "" },
-    });
-    await forgetMembership(userId);
-    return { ok: true };
-  }
-
-  // Never store an org the user can't prove membership of: the org key is what
-  // grants read access to a leaderboard and write access to shared preferences.
-  const tok = await getGithubToken(userId);
-  if (!tok) return { ok: false, error: "GitHub isn't connected." };
-  const orgs = await listGithubOrgs(tok);
-  const match = orgs.find((o) => o.login.toLowerCase() === want.toLowerCase());
-  if (!match) return { ok: false, error: "You're not a member of that GitHub org." };
-
-  await client.users.updateUserMetadata(userId, {
-    privateMetadata: { [GITHUB_ORG_KEY]: match.login },
-  });
-  // Drop the cached membership so the next read picks the new org up at once.
-  await forgetMembership(userId);
-  return { ok: true };
-}
-
-async function forgetMembership(userId: string): Promise<void> {
-  try {
-    await createAdminSupabase().from("org_members").delete().eq("user_id", userId);
-  } catch {
-    /* the row will be refreshed by TTL anyway */
-  }
 }
 
 /**

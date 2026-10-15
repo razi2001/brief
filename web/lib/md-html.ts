@@ -6,11 +6,16 @@
 // agent emits (headings, bold/italic/inline-code, links, lists, code blocks,
 // blockquotes, GFM tables).
 
+// Quotes are escaped too: a link's URL is written into an href="..." attribute,
+// and an unescaped quote in agent-written markdown would close it and let the
+// rest of the URL become new attributes (event handlers) on the public page.
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 // Inline: `code`, **bold**, *italic*, [text](url). Input is already HTML-escaped.

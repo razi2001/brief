@@ -38,6 +38,8 @@ const MAX_SHOTS = 3;
 let draft = emptyDraft();
 let bcConnected = false;
 let bcTracker;
+let bcTrackerName = null; // the server's display name for bcTracker, when it sent one
+let bcTrackerIssue = null; // with no tracker, why a connected one can't file yet, when the server said
 let currentSheet = null; // 'shot:<id>' | 'rec' | 'chooser' | 'reset' | null
 let lastSig = '';
 
@@ -677,10 +679,14 @@ function probeVideoFile(file) {
 // loses focus, so an upload + file flow run here was dropped whenever the user
 // clicked away after Create. We ask, mirror progress from the draft's `filing`
 // flag; the result lands behind the cloud button.
-// Display names for every tracker /api/me can report. Anything unrecognised
-// still files fine - it just reads as "your tracker" while it does.
-const TRACKER_NAMES = { linear: 'Linear', jira: 'Jira', github: 'GitHub' };
-function trackerName() { return TRACKER_NAMES[bcTracker] || 'your tracker'; }
+// Display names for the trackers this build knows. /api/me sends the name too,
+// and that wins, so a tracker added after this build still reads right; with
+// neither, it files fine and reads as "your tracker".
+const TRACKER_NAMES = {
+  linear: 'Linear', jira: 'Jira', github: 'GitHub', gitlab: 'GitLab', azure: 'Azure DevOps',
+  clickup: 'ClickUp', notion: 'Notion', trello: 'Trello', asana: 'Asana', monday: 'Monday',
+};
+function trackerName() { return bcTrackerName || TRACKER_NAMES[bcTracker] || 'your tracker'; }
 // `mode`: 'ticket' files straight to the connected tracker; 'draft' writes the
 // brief up with no ticket. Both are handed to the worker and land behind the
 // cloud button.
@@ -719,12 +725,15 @@ async function primaryCreate() {
   if (bcTracker === undefined) {
     try {
       const st = await fetchAccountStatus();
-      if (st) { bcConnected = st.connected; bcTracker = st.tracker; }
+      if (st) {
+        bcConnected = st.connected; bcTracker = st.tracker; bcTrackerName = st.trackerName ?? null;
+        bcTrackerIssue = st.tracker ? null : st.trackerIssue ?? null;
+      }
     } catch { /* unknown: try to file, the server says if there's no tracker */ }
     updateCreate();
   }
   if (bcTracker === null && bcConnected) {
-    showInlineError('Connect a tracker to create tickets.', { linkText: 'Connect', url: `${APP_URL}/connections#tracker` });
+    showInlineError(bcTrackerIssue || 'Connect a tracker to create tickets.', { linkText: 'Connect', url: `${APP_URL}/connections#tracker` });
     return;
   }
   startFiling('ticket');
@@ -897,15 +906,28 @@ function attachVoiceDictation(textarea, container, onCommit) {
 // painted, then grew a caret ~700ms later while the primary button shrank to
 // make room. So: remember the last answer, open in that shape, and only touch
 // the DOM if the truth turns out to be different.
+// Stored as { tracker, trackerName, trackerIssue }. A cache written before
+// trackerName or trackerIssue existed has only `tracker`, which still reads
+// fine: the name falls back to TRACKER_NAMES and the issue to the plain
+// "connect a tracker" line until the next /api/me answer rewrites it.
 const TRACKER_CACHE_KEY = 'bcTrackerCache';
 async function readTrackerCache() {
   try {
     const { [TRACKER_CACHE_KEY]: c } = await chrome.storage.local.get(TRACKER_CACHE_KEY);
-    return c && typeof c === 'object' ? (c.tracker ?? null) : undefined; // undefined = never asked
-  } catch { return undefined; }
+    if (!c || typeof c !== 'object') return { tracker: undefined, trackerName: null, trackerIssue: null }; // undefined = never asked
+    return {
+      tracker: c.tracker ?? null,
+      trackerName: typeof c.trackerName === 'string' ? c.trackerName : null,
+      trackerIssue: typeof c.trackerIssue === 'string' ? c.trackerIssue : null,
+    };
+  } catch { return { tracker: undefined, trackerName: null, trackerIssue: null }; }
 }
-function writeTrackerCache(tracker) {
-  try { return chrome.storage.local.set({ [TRACKER_CACHE_KEY]: { tracker: tracker ?? null } }); } catch { return Promise.resolve(); }
+function writeTrackerCache(tracker, trackerName, trackerIssue) {
+  try {
+    return chrome.storage.local.set({
+      [TRACKER_CACHE_KEY]: { tracker: tracker ?? null, trackerName: trackerName ?? null, trackerIssue: trackerIssue ?? null },
+    });
+  } catch { return Promise.resolve(); }
 }
 
 async function bcRefresh() {
@@ -913,13 +935,17 @@ async function bcRefresh() {
   bcConnected = !!token;
   // Not paired: there is no tracker to have, so don't leave a remembered caret
   // waiting for the next open.
-  if (!token) { await writeTrackerCache(null); return; }
+  if (!token) { await writeTrackerCache(null, null, null); return; }
   try {
     const status = await fetchAccountStatus();
     if (!status) return;
     bcConnected = status.connected;
     const tracker = status.tracker ?? null;
-    await writeTrackerCache(tracker);
+    const name = tracker ? status.trackerName ?? null : null;
+    const issue = tracker ? null : status.trackerIssue ?? null;
+    await writeTrackerCache(tracker, name, issue);
+    bcTrackerName = name;
+    bcTrackerIssue = issue;
     if (tracker !== bcTracker) { bcTracker = tracker; updateCreate(); }
   } catch {}
 }
@@ -967,7 +993,7 @@ resetBtn?.addEventListener('click', openReset);
   else { draft = emptyDraft(); await setDraft(draft); }
   // The tracker we saw last time, read before the first paint, so the Create
   // button opens at its final width instead of settling once /api/me answers.
-  bcTracker = await readTrackerCache();
+  ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue } = await readTrackerCache());
   // Filing runs in the worker, so it can finish - or fail - while the popup is
   // closed. Unstick a flag left by a worker recycled mid-flow, and surface a
   // failure once (the badge showed "!" until now).

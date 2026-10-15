@@ -1,13 +1,15 @@
 // Provider-agnostic issue-tracker abstraction.
 //
-// Concrete implementations live one per file - linear.ts, jira.ts, github.ts -
+// Concrete implementations live one per file - linear.ts, jira.ts, github.ts,
+// gitlab.ts, azure.ts, clickup.ts, notion.ts, trello.ts, asana.ts, monday.ts -
 // and are wired together by trackers/registry.ts, which is the ONLY place that
 // enumerates providers.
 //
 // The shape mirrors what a real tracker MCP server would expose (inspect
 // metadata, create, update, read back) so the agent can verify and repair the
 // issue until it matches the user's preferences - including provider-specific
-// extras like Jira custom fields - without any preference-specific code here.
+// extras like Jira custom fields or Notion database properties - without any
+// preference-specific code here.
 //
 // Providers differ enormously in what a "ticket" even is (a GitHub issue has no
 // priority; a Trello card's LIST is its status; a Notion page's fields are
@@ -17,7 +19,24 @@
 // a lowest-common-denominator subset.
 
 /** Every tracker Brief can file into. The registry maps these to adapters. */
-export type ProviderKey = "linear" | "jira" | "github";
+export type ProviderKey =
+  | "linear"
+  | "jira"
+  | "github"
+  | "gitlab"
+  | "azure"
+  | "clickup"
+  | "notion"
+  | "trello"
+  | "asana"
+  | "monday";
+
+/**
+ * One workspace, org or group a tracker token can see (an Azure DevOps
+ * organization, a ClickUp workspace, a GitLab group...). The workspace a user
+ * picks is their org identity, and for some trackers also where they file.
+ */
+export type Workspace = { id: string; name: string; avatarUrl?: string };
 
 /**
  * What a provider can actually do. Drives the agent's tool schema (see
@@ -25,16 +44,16 @@ export type ProviderKey = "linear" | "jira" | "github";
  * model can't waste a turn setting something the tracker has no concept of.
  */
 export interface TrackerCapabilities {
-  /** A second grouping INSIDE a target (Linear projects, GitHub project boards). */
+  /** A second grouping INSIDE a target (Linear projects, ADO area paths, Monday groups). */
   projects: boolean;
-  /** A named workflow state can be set at creation. */
+  /** A named workflow state can be set at creation (Trello: which list). */
   states: boolean;
   /** A normalized priority maps onto something native. */
   priority: boolean;
   labels: boolean;
-  /** Arbitrary settable fields with ids/allowed values (Jira custom fields). */
+  /** Arbitrary settable fields with ids/allowed values (Jira, ADO, ClickUp, Notion, GitLab, Asana, Monday). */
   customFields: boolean;
-  /** The target offers a choice of work-item type (Jira issue types). */
+  /** The target offers a choice of work-item type (Jira, ADO). */
   issueTypes: boolean;
   /** A comment can be posted on the issue after creation. */
   comments: boolean;
@@ -202,7 +221,7 @@ export const STATUS_COLOR = {
 
 export interface Tracker {
   kind: ProviderKey;
-  /** The noun the model should use for a filing destination: "team" (Linear), "project" (Jira), "repository" (GitHub). */
+  /** The noun the model should use for a filing destination: "team" (Linear), "project" (Jira, Azure DevOps, GitLab, Asana), "repository" (GitHub), "list" (ClickUp), "board" (Trello, Monday), "database" (Notion). */
   targetNoun: string;
   /** What this provider supports. The agent's tool schema is built from it. */
   capabilities: TrackerCapabilities;

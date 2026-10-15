@@ -20,13 +20,16 @@ const BTN_SECONDARY = "btn disabled:opacity-60";
 export default function ExportButtons({
   briefId,
   connected,
+  initialError = "",
 }: {
   briefId: string;
   /** Trackers this owner has connected; one button each. */
   connected: ProviderKey[];
+  /** Why the last export failed in the background, until the next try. */
+  initialError?: string;
 }) {
   const [busy, setBusy] = useState<ProviderKey | null>(null);
-  const [err, setErr] = useState("");
+  const [err, setErr] = useState(initialError);
   const router = useRouter();
 
   async function exportTo(provider: ProviderKey) {
@@ -45,8 +48,11 @@ export default function ExportButtons({
         router.refresh();
         return;
       }
-      const j = (await res.json().catch(() => ({}))) as { error?: string };
-      setErr(j?.error || "Export failed - try again.");
+      // A refusal carries its line in `message` (`error` is then a code); a
+      // tracker that can't file yet (a pick to make, an expired connection)
+      // puts the line in `error`.
+      const j = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      setErr(j?.message || j?.error || "Export failed - try again.");
       setBusy(null);
     } catch {
       setErr("Export failed - try again.");

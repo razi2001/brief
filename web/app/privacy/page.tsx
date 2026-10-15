@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 // Reachable at https://cloud.get-brief.app/privacy (allowlisted in proxy.ts).
 // Keep this in sync with the Chrome Web Store "Privacy practices" disclosures.
 
-const LAST_UPDATED = "June 14, 2026";
+const LAST_UPDATED = "October 13, 2026";
 
 function Section({
   title,
@@ -47,8 +47,9 @@ export default function PrivacyPage() {
           <p>
             Brief Cloud is a Chrome extension and companion web app that lets you
             record a bug or feature request, then writes a clear ticket from that
-            recording and files it to your connected issue tracker (Linear or
-            Jira). This policy explains exactly what we collect, why, where it
+            recording and files it to your connected issue tracker (Linear,
+            Jira, GitHub, GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana or
+            Monday). This policy explains exactly what we collect, why, where it
             goes, and how long we keep it. We wrote it to be readable, not to hide
             behind it.
           </p>
@@ -120,6 +121,18 @@ export default function PrivacyPage() {
             your device and is cleared when you sign out or disconnect. It is never
             shared with any third party.
           </p>
+          <p>
+            Connecting a tracker gives Brief Cloud an access token for it, which is
+            kept in one of two places. For Linear, Jira and GitHub, Clerk runs the
+            authorization and holds the token, and our backend asks Clerk for it
+            when it needs it. For GitLab, Azure DevOps, ClickUp, Notion, Trello,
+            Asana and Monday, the authorization comes back to Brief Cloud, and we
+            store the token (and the refresh token, when the tracker issues one)
+            encrypted with AES-256 in our database. Either way, the token is used
+            only to file and update your tickets and to read what writing them
+            needs, such as projects, labels, statuses and people. Disconnecting a
+            tracker deletes its token.
+          </p>
         </Section>
 
         <Section title="How we use it">
@@ -148,7 +161,8 @@ export default function PrivacyPage() {
             <li>
               <strong className="font-medium text-ink">Supabase Storage</strong>, where the recording, audio,
               screenshots, and keyframes are uploaded (via short lived signed upload
-              URLs) until the ticket is filed.
+              URLs) until the ticket is filed. Our database is hosted by Supabase
+              too, and holds the encrypted tracker tokens described above.
             </li>
             <li>
               <strong className="font-medium text-ink">OpenAI</strong>, used by our backend to transcribe your
@@ -157,11 +171,13 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong className="font-medium text-ink">Clerk</strong>, our authentication provider, which handles
-              sign in and your account profile.
+              sign in, your account profile, and the connections to Linear, Jira
+              and GitHub.
             </li>
             <li>
-              <strong className="font-medium text-ink">Your connected tracker</strong> (Linear or Jira), where the
-              finished ticket is created on your behalf using the connection you
+              <strong className="font-medium text-ink">Your connected tracker</strong> (Linear, Jira, GitHub,
+              GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana or Monday), where
+              the finished ticket is created on your behalf using the connection you
               authorized.
             </li>
           </ul>

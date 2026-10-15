@@ -1,6 +1,6 @@
 // Which Clerk strategy backs each Clerk-connected tracker.
 //
-// Clerk's BUILT-IN social connections (oauth_github, oauth_notion, …) have no
+// Clerk's BUILT-IN social connections (oauth_github, oauth_linear, …) have no
 // configurable scopes - the field doesn't exist in the instance config schema -
 // and on a development instance they use Clerk's shared OAuth apps, which
 // request read-only profile data:

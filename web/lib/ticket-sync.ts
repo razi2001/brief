@@ -4,7 +4,18 @@
 import type { ProviderKey } from "./tracker";
 
 /** Every ProviderKey, as a runtime list, for validating a stored value. */
-export const PROVIDER_KEYS: ProviderKey[] = ["linear", "jira", "github"];
+export const PROVIDER_KEYS: ProviderKey[] = [
+  "linear",
+  "jira",
+  "github",
+  "gitlab",
+  "azure",
+  "clickup",
+  "notion",
+  "trello",
+  "asana",
+  "monday",
+];
 
 /**
  * Which tracker a filed brief went to.
@@ -23,6 +34,14 @@ const HOST_PATTERNS: Array<[ProviderKey, RegExp]> = [
   ["jira", /(^|\.)atlassian\.(net|com)$|(^|\.)jira\./],
   ["linear", /(^|\.)linear\.app$/],
   ["github", /(^|\.)github\.com$/],
+  ["gitlab", /(^|\.)gitlab\.com$/],
+  // Current organization URLs, and the visualstudio.com ones that predate them.
+  ["azure", /(^|\.)dev\.azure\.com$|\.visualstudio\.com$/],
+  ["clickup", /(^|\.)clickup\.com$/],
+  ["notion", /(^|\.)notion\.(so|site)$/],
+  ["trello", /(^|\.)trello\.com$/],
+  ["asana", /(^|\.)asana\.com$/],
+  ["monday", /(^|\.)monday\.com$/],
 ];
 
 export function providerOf(url?: string | null, stored?: string | null): ProviderKey {
@@ -88,13 +107,35 @@ export function ticketSnapshotPatch(
 }
 
 /**
- * The identifier as it should READ in a narrow column.
+ * The identifier as a reader should see it where there is room (the brief
+ * page's meta row), or "" when it has no form a reader would recognise.
+ * Callers render nothing for "": no empty chip, no stray separator.
+ *
+ * Notion and Asana have no human key at all: the identifier is a page id or a
+ * task gid, which means nothing to a reader. Monday's is a bare item number,
+ * which reads as one with a "#". Every other tracker's identifier is already
+ * what its own UI shows.
+ */
+export function displayIdentifier(identifier?: string | null, provider?: ProviderKey): string {
+  const id = (identifier ?? "").trim();
+  if (!id) return "";
+  if (provider === "notion" || provider === "asana") return "";
+  if (provider === "monday" && /^\d+$/.test(id)) return `#${id}`;
+  return id;
+}
+
+/**
+ * The identifier as it should READ in a narrow column: displayIdentifier,
+ * shortened where the tracker qualifies its numbers.
  *
  * Linear and Jira identifiers are already short ("ENG-42", "PROJ-7"). GitHub's
  * has to be fully qualified - issue numbers are only unique per repository - so
  * it arrives as "owner/repo#123", which truncates to the owner and tells the
  * reader nothing: every ticket in a workspace looks identical. The owner is the
- * least informative part, so it is what gets dropped.
+ * least informative part, so it is what gets dropped. GitLab's is the same
+ * shape with any depth of groups ("group/sub/project#12"), and keeps only the
+ * project. Azure DevOps names the project in full ("Project Name#42"), which
+ * has nothing to drop but is clipped the same way when it is too long.
  *
  * The full identifier stays available for the link title.
  */
@@ -103,19 +144,30 @@ export function shortIdentifier(
   provider?: ProviderKey,
   maxLength = 18,
 ): string {
-  const id = (identifier ?? "").trim();
+  const id = displayIdentifier(identifier, provider);
   if (!id) return "";
-  if (provider !== "github") return id;
 
-  const m = /^[^/\s]+\/([^#\s]+)(#\d+)$/.exec(id);
-  if (!m) return id;
-  const [, repo, number] = m;
-  const short = `${repo}${number}`;
+  if (provider === "azure") {
+    const m = /^([^#]+)(#\d+)$/.exec(id);
+    return m ? keepNumber(m[1], m[2], maxLength) : id;
+  }
+  if (provider !== "github" && provider !== "gitlab") return id;
+
+  // Everything up to the last "/" is the owner or group path; the last
+  // segment is the repository or project.
+  const m = /^(?:[^/\s]+\/)+([^/#\s]+)(#\d+)$/.exec(id);
+  return m ? keepNumber(m[1], m[2], maxLength) : id;
+}
+
+/** `name` + `number`, with the NAME clipped when the pair is too long. */
+function keepNumber(name: string, number: string, maxLength: number): string {
+  const short = `${name}${number}`;
   if (short.length <= maxLength) return short;
 
-  // Still too long for the column. Trim the REPO and keep the number: the
+  // Still too long for the column. Trim the NAME and keep the number: the
   // number is what distinguishes two tickets in the same repository, so
   // clipping it (which plain CSS truncation does) makes every row identical.
+  // A project name with spaces must not leave one dangling before the "…".
   const room = Math.max(1, maxLength - number.length - 1);
-  return `${repo.slice(0, room)}…${number}`;
+  return `${name.slice(0, room).trimEnd()}…${number}`;
 }

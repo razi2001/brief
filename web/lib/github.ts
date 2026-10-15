@@ -17,6 +17,13 @@ import {
   matchPriorityLabel,
 } from "./tracker";
 import { chunk } from "./ticket-sync";
+import {
+  describeRepo,
+  isPubliclyFetchable,
+  placeEvidence,
+  promoteSectionHeadings,
+  withDetailsFolds,
+} from "./ticket-body";
 
 export type GithubTok = { token: string };
 
@@ -243,32 +250,6 @@ async function setProjectField(
 // ---------------------------------------------------------------------------
 
 /**
- * GitHub fetches every embedded image server-side (through its camo proxy), so
- * a URL only it can't reach renders as a broken image forever. A localhost
- * APP_URL - i.e. local development - is exactly that case, and a broken image
- * in a real ticket is worse than no image.
- */
-export function isPubliclyFetchable(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    if (host === "localhost" || host.endsWith(".localhost")) return false;
-    if (host === "127.0.0.1" || host === "0.0.0.0" || host === "::1") return false;
-    // RFC1918 / link-local: reachable on your network, not from GitHub's.
-    if (/^10\./.test(host) || /^192\.168\./.test(host)) return false;
-    if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
-    if (/^169\.254\./.test(host)) return false;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Does this markdown already carry an Evidence section of its own? */
-export function hasEvidenceHeading(markdown: string): boolean {
-  return /^\s{0,3}#{1,6}\s*evidence\s*$/im.test(markdown ?? "");
-}
-
-/**
  * Build the ticket body, with evidence embedded by URL.
  *
  * GitHub has no public image-upload API - the drag-and-drop uploader in the web
@@ -278,45 +259,11 @@ export function hasEvidenceHeading(markdown: string): boolean {
  *  - The agent sometimes writes its own "## Evidence" section despite being
  *    told not to. Appending a second one produced tickets with the heading
  *    twice, the caption once as a bullet and again under the image. So the
- *    images go UNDER an existing heading when there is one.
+ *    images go at the end of an existing Evidence section when there is one,
+ *    not after whatever section the agent happened to write last.
  *  - A file with no `url` (a keyframe, deleted right after filing) is skipped
  *    rather than linked to something that will 404.
  */
-/**
- * Promote a line that is ENTIRELY bold into a real heading.
- *
- * The agent writes section labels as "**Steps to reproduce**", a convention the
- * other adapters already turn into a heading (Jira -> h3, Notion -> heading_3).
- * GitHub renders markdown verbatim, so those arrived as bold paragraphs and the
- * issue had no navigable structure - no anchors, no outline, nothing for the
- * eye to catch when scanning.
- *
- * Only a WHOLE line is promoted. "**Expected** the full name is visible" is a
- * bold lead-in to a sentence, not a section, and turning that into a heading
- * would push its own text onto the next line.
- */
-export function promoteSectionHeadings(markdown: string): string {
-  return (markdown ?? "")
-    .split("\n")
-    .map((line) => {
-      const m = /^\s{0,3}\*\*(.+?)\*\*\s*$/.exec(line);
-      if (!m) return line;
-      const text = m[1].trim();
-      // A label, not a sentence someone happened to bold entirely.
-      if (!text || text.length > 60 || /[.!?]$/.test(text)) return line;
-      return `### ${text}`;
-    })
-    .join("\n");
-}
-
-/** The technical details, folded: GitHub renders <details> as a disclosure. */
-export function withGithubDetails(body: string, details?: Array<{ title: string; markdown: string }>): string {
-  // each video's logs folded on their own, under their own title
-  const folds = (details ?? []).filter((d) => d.markdown.trim())
-    .map((d) => `<details>\n<summary>${d.title}</summary>\n\n${d.markdown.trim()}\n\n</details>`);
-  return folds.length ? `${body.replace(/\s+$/, "")}\n\n${folds.join("\n\n")}` : body;
-}
-
 export function buildGithubBody(
   descriptionMarkdown: string,
   evidence: Array<{ filename: string; contentType: string; caption?: string; url?: string }>,
@@ -353,9 +300,7 @@ export function buildGithubBody(
   if (!parts.length) return body;
 
   // Reuse the agent's own heading rather than adding a competing one.
-  return hasEvidenceHeading(body)
-    ? `${body}\n\n${parts.join("\n\n")}`
-    : `${body}\n\n## Evidence\n\n${parts.join("\n\n")}`;
+  return placeEvidence(body, parts.join("\n\n"));
 }
 
 // ---------------------------------------------------------------------------
@@ -375,29 +320,6 @@ type RepoRaw = {
   archived: boolean;
   permissions?: { push?: boolean; triage?: boolean };
 };
-
-/**
- * What the agent is told about a repository.
- *
- * A bare name is not enough to route by: "brief-marketing-website" and
- * "brief-cloud" look equally plausible for a bug in the app until you know
- * which one serves the URL the reporter was on. GitHub's own homepage, topics
- * and primary language are exactly that missing context, so they are folded
- * into the description the agent reads.
- */
-export function describeRepo(r: {
-  description?: string | null;
-  homepage?: string | null;
-  language?: string | null;
-  topics?: string[];
-}): string | undefined {
-  const bits: string[] = [];
-  if (r.description?.trim()) bits.push(r.description.trim());
-  if (r.homepage?.trim()) bits.push(`Serves: ${r.homepage.trim()}`);
-  if (r.topics?.length) bits.push(`Topics: ${r.topics.slice(0, 8).join(", ")}`);
-  if (r.language?.trim()) bits.push(`Language: ${r.language.trim()}`);
-  return bits.length ? bits.join(". ") : undefined;
-}
 
 /** The subset of an issue the aliased live-read query selects. */
 type GraphQLIssue = {
@@ -654,7 +576,7 @@ export function makeGithubTracker(tok: GithubTok): Tracker {
       if (!ref) throw new Error(`GitHub: "${targetId}" is not a repository id (expected owner/repo).`);
       const { owner, repo } = ref;
 
-      const body = withBriefAttribution(withGithubDetails(buildGithubBody(descriptionMarkdown, evidence), details));
+      const body = withBriefAttribution(withDetailsFolds(buildGithubBody(descriptionMarkdown, evidence), details));
 
       const existing = await repoLabels(owner, repo);
       const norm = (s: string) => s.trim().toLowerCase();
@@ -940,7 +862,7 @@ export function makeGithubTracker(tok: GithubTok): Tracker {
 }
 
 /**
- * The orgs this token can see, for the org picker on Connections.
+ * The orgs this token can see, for the org picker under Settings.
  *
  * Unlike Linear and Jira, a GitHub user belongs to MANY orgs at once, so
  * there is no "their" org to infer - listTargets already spans

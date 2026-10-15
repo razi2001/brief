@@ -7,7 +7,7 @@ import { getTrackerContext, attachTicketInfoFast, type BriefRow } from "@/lib/br
 import { providerName as providerLabelFor } from "@/lib/trackers/registry";
 import type { ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import { providerOf, shortIdentifier } from "@/lib/ticket-sync";
+import { displayIdentifier, providerOf, shortIdentifier } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
@@ -40,10 +40,12 @@ export type ShareRow = {
   filing_started_at: string | null;
   storage_prefix: string;
   ticket_provider: string | null;
+  /** Why the last run failed; on a draft, why its export went back to draft. */
+  error: string | null;
 };
 
 const SHARE_COLUMNS =
-  "id, user_id, status, title, source_kind, created_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, ticket_body, filing_started_at, storage_prefix, ticket_provider";
+  "id, user_id, status, title, source_kind, created_at, ticket_url, ticket_identifier, ticket_title, ticket_state_name, ticket_state_color, ticket_body, filing_started_at, storage_prefix, ticket_provider, error";
 
 /** One read per request, shared by the page and its metadata. */
 export const loadBrief = cache(async (shareId: string): Promise<ShareRow | null> => {
@@ -311,6 +313,12 @@ export default async function BriefView({ shareId, section }: { shareId: string;
   }
 
   const ticketIdentifier = live?.identifier || brief.ticket_identifier;
+  // Null on a draft, and for trackers whose id means nothing to a reader
+  // (a Notion page id, an Asana task gid): the breadcrumb and the meta row then
+  // leave the id and its separator out instead of printing a blank or a raw id.
+  // The meta row has room for the whole id; the breadcrumb gets the short one.
+  const shownId = (!isDraft && displayIdentifier(ticketIdentifier, provider)) || null;
+  const shortId = shownId && shortIdentifier(ticketIdentifier, provider);
   // Deleted in the tracker → no tracker link anywhere on the page.
   const ticketUrl = live?.deleted ? null : live?.url || brief.ticket_url;
   const ticketTitle = (live?.title || brief.ticket_title || brief.title || "Bug report").trim() || "Bug report";
@@ -333,7 +341,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
         is a floating panel (below), so it reserves no column and leaves no empty
         space beside the doc. Extra bottom padding on owner drafts clears the
         floating panel. */}
-    <Frame home={inApp ? home : undefined} signedIn={!!viewerId} identifier={!isDraft && ticketIdentifier ? shortIdentifier(ticketIdentifier, provider) : null} title={ticketTitle}>
+    <Frame home={inApp ? home : undefined} signedIn={!!viewerId} identifier={shortId} title={ticketTitle}>
       <ReadingColumn className={withRail ? "pb-44 sm:pb-48" : ""}>
       {/* The writing state doesn't fade in - only the resolved ticket does, so
           the writing→ready hand-off is ONE gentle settle, not two page fades
@@ -384,7 +392,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
           <TicketMeta
             stateName={stateName}
             stateColor={stateColor}
-            identifier={!isDraft ? ticketIdentifier : null}
+            identifier={shownId}
             reported={reported}
           />
 
@@ -405,6 +413,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
             initialBody={brief.ticket_body || ""}
             assets={assets.flatMap((a) => (a.kind === "replay" ? [] : [{ filename: a.filename, kind: a.kind }]))}
             connected={connected}
+            exportError={isOwner && isDraft ? brief.error : null}
           />
 
           {/* ── Attachments ── (the ticket's own text often has an "Evidence"

@@ -3,13 +3,16 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { TrackerLogo } from "./TrackerLogo";
-import type { ProviderKey } from "./provider-labels";
+import { NOT_AVAILABLE, WORKSPACE_NOUN, type ProviderKey } from "./provider-labels";
 
 /**
  * The issue tracker, as one card with a dropdown.
@@ -19,8 +22,8 @@ import type { ProviderKey } from "./provider-labels";
  * have; the dropdown is for the rare switch.
  *
  * Picking from the dropdown only PREVIEWS a tracker - the buttons on the card do
- * the work. A switch disconnects the current tracker and redirects to OAuth, so
- * it must never hang off a single mis-click in a menu.
+ * the work. A switch replaces the current tracker, so it must never hang off a
+ * single mis-click in a menu.
  *
  * Presentational: no Clerk here. Integrations.tsx owns the connection logic and
  * hands this plain state and callbacks, which is what lets tests render it.
@@ -34,6 +37,10 @@ type Props = {
   connected: ProviderKey | null;
   /** Trackers Clerk calls connected but won't vend a token for any more. */
   stale: string[];
+  /** Connected, but waiting on a workspace (or organization) pick. */
+  needsWorkspace?: ProviderKey[];
+  /** Trackers this deployment can't connect yet (no OAuth app for them). */
+  unavailable?: ProviderKey[];
   /** Trackers with a connect or disconnect in flight. */
   busy: Record<string, boolean>;
   /**
@@ -46,6 +53,8 @@ type Props = {
   defaultOpen?: boolean;
   /** An error, pending-verification or fallback line for a tracker, or null. */
   messageFor: (key: ProviderKey) => ReactNode;
+  /** An error that names no tracker, shown whatever the card is on (or not). */
+  notice?: ReactNode;
   onConnect: (key: ProviderKey) => void;
   onDisconnect: (key: ProviderKey) => void;
 };
@@ -92,14 +101,52 @@ const PRIMARY = "btn-accent h-7 cursor-pointer whitespace-nowrap disabled:cursor
 const QUIET = "btn h-7 cursor-pointer whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50";
 const STATUS = "inline-flex items-center gap-1.5 text-xs";
 
+// The menu's tallest size (22rem) and its gap from the trigger, in px.
+const MENU_MAX = 352;
+const MENU_GAP = 6;
+// Room kept between the menu and the window's edge.
+const EDGE = 12;
+
+/**
+ * Where the open menu goes, in viewport coordinates.
+ *
+ * The menu is portalled to <body> with position: fixed because the Settings
+ * list it sits in clips its rows (overflow: hidden, for the rounded corners),
+ * and ten trackers no longer fit inside the row. It opens below the trigger,
+ * or above it when there is more room there, and never runs off the window.
+ */
+export function menuPlacement(trigger: DOMRect, viewportHeight: number): CSSProperties {
+  const below = viewportHeight - trigger.bottom - MENU_GAP - EDGE;
+  const above = trigger.top - MENU_GAP - EDGE;
+  const left = Math.max(EDGE, trigger.left - 4);
+  if (below >= Math.min(MENU_MAX, 240) || below >= above) {
+    return { left, top: trigger.bottom + MENU_GAP, maxHeight: Math.min(MENU_MAX, below) };
+  }
+  return { left, bottom: viewportHeight - trigger.top + MENU_GAP, maxHeight: Math.min(MENU_MAX, above) };
+}
+
+// PageUp / PageDown move this many options.
+const PAGE = 5;
+// Letters typed within this long of each other search as one word.
+const TYPE_AHEAD_MS = 500;
+
+/** "Organization needed": what a tracker waiting on its pick is missing. */
+function pickNeeded(key: ProviderKey): string {
+  const noun = WORKSPACE_NOUN[key] ?? "workspace";
+  return `${noun.charAt(0).toUpperCase()}${noun.slice(1)} needed`;
+}
+
 export default function TrackerPicker({
   options,
   connected,
   stale,
+  needsWorkspace = [],
+  unavailable = [],
   busy,
   initialSelected,
   defaultOpen = false,
   messageFor,
+  notice,
   onConnect,
   onDisconnect,
 }: Props) {
@@ -111,7 +158,26 @@ export default function TrackerPicker({
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const typed = useRef({ text: "", at: 0 });
   const listId = useId();
+  const [place, setPlace] = useState<CSSProperties | null>(null);
+
+  // Keep the portalled menu pinned to its trigger while the page scrolls or
+  // the window resizes. Measured before paint, so it never flashes at 0,0.
+  useLayoutEffect(() => {
+    if (!open) return;
+    function measure() {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (rect) setPlace(menuPlacement(rect, window.innerHeight));
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [open]);
 
   // Follow a connection that changes under us: once a tracker is connected it is
   // what the card shows. A disconnect leaves the selection alone, so the card
@@ -141,15 +207,55 @@ export default function TrackerPicker({
     close();
   }
 
-  // Focus moves into the list while it is open, so the arrow keys drive it.
+  // Ten trackers can outgrow a short window, so the list scrolls.
+  function scrollToOption(i: number) {
+    const key = options[i]?.key;
+    if (key) document.getElementById(`${listId}-${key}`)?.scrollIntoView?.({ block: "nearest" });
+  }
+
+  // Focus moves into the list while it is open, so the arrow keys drive it,
+  // and the chosen tracker is scrolled into view. Only on opening: hovering
+  // moves the active option too, and must not scroll the list.
   useEffect(() => {
-    if (open) listRef.current?.focus();
+    if (!open) return;
+    const list = listRef.current;
+    list?.focus();
+    list?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ block: "nearest" });
   }, [open]);
+
+  /** A keyboard move: the option comes into view. Hover only highlights. */
+  function moveTo(i: number) {
+    setActive(i);
+    scrollToOption(i);
+  }
+
+  /**
+   * Type-ahead: jump to the next tracker whose name starts with what was just
+   * typed. Repeating one letter cycles through the trackers that start with it.
+   */
+  function typeAhead(ch: string, now: number) {
+    const prev = now - typed.current.at < TYPE_AHEAD_MS ? typed.current.text : "";
+    const text = `${prev}${ch}`.toLowerCase();
+    typed.current = { text, at: now };
+    const cycling = [...text].every((c) => c === text[0]);
+    const query = cycling ? text[0] : text;
+    const from = cycling ? active + 1 : active;
+    for (let n = 0; n < options.length; n++) {
+      const i = (from + n) % options.length;
+      if (options[i].name.toLowerCase().startsWith(query)) {
+        moveTo(i);
+        return;
+      }
+    }
+  }
 
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      // The menu lives in <body>, outside the card, so both count as inside.
+      if (rootRef.current?.contains(target) || listRef.current?.contains(target)) return;
+      setOpen(false);
     }
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -164,18 +270,29 @@ export default function TrackerPicker({
 
   function onListKey(e: KeyboardEvent<HTMLUListElement>) {
     const last = options.length - 1;
+    // A space inside a typed word ("Azure DevOps") searches; on its own it picks.
+    const typing = e.timeStamp - typed.current.at < TYPE_AHEAD_MS && typed.current.text !== "";
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((i) => (i >= last ? 0 : i + 1));
+      moveTo(active >= last ? 0 : active + 1);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((i) => (i <= 0 ? last : i - 1));
+      moveTo(active <= 0 ? last : active - 1);
     } else if (e.key === "Home") {
       e.preventDefault();
-      setActive(0);
+      moveTo(0);
     } else if (e.key === "End") {
       e.preventDefault();
-      setActive(last);
+      moveTo(last);
+    } else if (e.key === "PageDown") {
+      e.preventDefault();
+      moveTo(Math.min(last, active + PAGE));
+    } else if (e.key === "PageUp") {
+      e.preventDefault();
+      moveTo(Math.max(0, active - PAGE));
+    } else if (e.key === " " && typing) {
+      e.preventDefault();
+      typeAhead(" ", e.timeStamp);
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       choose(options[active].key);
@@ -184,6 +301,9 @@ export default function TrackerPicker({
       close();
     } else if (e.key === "Tab") {
       close(false);
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      typeAhead(e.key, e.timeStamp);
     }
   }
 
@@ -191,6 +311,9 @@ export default function TrackerPicker({
     if (!shown) return null;
     const key = shown.key;
     const isBusy = !!busy[key];
+    const isUnavailable = unavailable.includes(key);
+
+    const notYet = isUnavailable && <span className={`${STATUS} text-muted`}>{NOT_AVAILABLE}</span>;
 
     if (key === connected) {
       if (stale.includes(key)) {
@@ -200,14 +323,37 @@ export default function TrackerPicker({
               <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
               Reconnect needed
             </span>
+            {notYet}
             <button
               type="button"
               onClick={() => onConnect(key)}
-              disabled={isBusy}
+              disabled={isBusy || isUnavailable}
               className={PRIMARY}
             >
               {isBusy ? "Reconnecting…" : "Reconnect →"}
             </button>
+          </>
+        );
+      }
+      if (needsWorkspace.includes(key)) {
+        return (
+          <>
+            <span className={`${STATUS} text-accent`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden="true" />
+              {pickNeeded(key)}
+            </span>
+            <button
+              type="button"
+              onClick={() => onDisconnect(key)}
+              disabled={isBusy}
+              className={QUIET}
+            >
+              {isBusy ? "Disconnecting…" : "Disconnect"}
+            </button>
+            {/* The Team row holds the picker; SettingsList opens a row from its #id. */}
+            <a href="#team" className={`${PRIMARY} no-underline`}>
+              Pick
+            </a>
           </>
         );
       }
@@ -233,6 +379,7 @@ export default function TrackerPicker({
       const current = options.find((o) => o.key === connected)?.name ?? "your current tracker";
       return (
         <>
+          {notYet}
           <button
             type="button"
             onClick={() => setSelected(connected)}
@@ -244,8 +391,8 @@ export default function TrackerPicker({
           <button
             type="button"
             onClick={() => onConnect(key)}
-            disabled={isBusy}
-            title={`Disconnects ${current}`}
+            disabled={isBusy || isUnavailable}
+            title={`Replaces ${current}`}
             className={PRIMARY}
           >
             {isBusy ? "Switching…" : `Switch to ${shown.name} →`}
@@ -255,18 +402,21 @@ export default function TrackerPicker({
     }
 
     return (
-      <button
-        type="button"
-        onClick={() => onConnect(key)}
-        disabled={isBusy}
-        className={PRIMARY}
-      >
-        {isBusy ? "Connecting…" : `Connect ${shown.name} →`}
-      </button>
+      <>
+        {notYet}
+        <button
+          type="button"
+          onClick={() => onConnect(key)}
+          disabled={isBusy || isUnavailable}
+          className={PRIMARY}
+        >
+          {isBusy ? "Connecting…" : `Connect ${shown.name} →`}
+        </button>
+      </>
     );
   }
 
-  const message = shown ? messageFor(shown.key) : null;
+  const message = (shown && messageFor(shown.key)) || notice || null;
 
   return (
     // relative z-10: .card's backdrop-filter makes every card its own stacking
@@ -303,7 +453,7 @@ export default function TrackerPicker({
             </button>
             {shown && <p className="text-[13px] text-muted">{shown.caption}</p>}
 
-            {open && (
+            {open && place && createPortal(
               <ul
                 ref={listRef}
                 id={listId}
@@ -312,8 +462,8 @@ export default function TrackerPicker({
                 aria-label="Issue tracker"
                 aria-activedescendant={`${listId}-${options[active]?.key}`}
                 onKeyDown={onListKey}
-                className="absolute left-0 top-full z-20 mt-1.5 w-[220px] rounded-lg border hairline bg-surface p-1 outline-none"
-                style={{ boxShadow: "0 1px 2px rgba(26,22,18,.06), 0 12px 32px -8px rgba(26,22,18,.18)" }}
+                className="fixed z-50 max-h-[22rem] w-[240px] overflow-y-auto overscroll-contain rounded-lg border hairline bg-surface p-1 outline-none"
+                style={{ ...place, boxShadow: "0 1px 2px rgba(26,22,18,.06), 0 12px 32px -8px rgba(26,22,18,.18)" }}
               >
                 {options.map((o, i) => (
                   <li
@@ -333,9 +483,16 @@ export default function TrackerPicker({
                     {/* Name only: the card already shows the chosen tracker's
                         caption, and at this width the captions truncated to
                         mush ("Files tickets …"). */}
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
-                      {o.name}
-                    </span>
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{o.name}</span>
+                    {/* A short visible tag rather than greyed-out text: dimmed
+                        names read as broken, a tag reads as a decision. The
+                        full wording is what a screen reader hears. */}
+                    {unavailable.includes(o.key) && (
+                      <span className="shrink-0 rounded-full border hairline px-1.5 text-[11px] leading-[18px] text-muted">
+                        <span aria-hidden="true">Soon</span>
+                        <span className="sr-only">{NOT_AVAILABLE}</span>
+                      </span>
+                    )}
                     {o.key === connected && (
                       <span className="shrink-0 text-xs text-muted">connected</span>
                     )}
@@ -344,7 +501,8 @@ export default function TrackerPicker({
                     </span>
                   </li>
                 ))}
-              </ul>
+              </ul>,
+              document.body,
             )}
           </div>
         </div>

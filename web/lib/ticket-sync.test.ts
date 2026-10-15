@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { chunk, providerOf, shortIdentifier, ticketSnapshotPatch } from "./ticket-sync";
+import { chunk, displayIdentifier, providerOf, shortIdentifier, ticketSnapshotPatch } from "./ticket-sync";
 
 describe("providerOf", () => {
   it("detects Jira from the hostname", () => {
@@ -21,6 +21,43 @@ describe("providerOf", () => {
 
   it("detects GitHub from the hostname", () => {
     expect(providerOf("https://github.com/acme/web-app/issues/42")).toBe("github");
+  });
+
+  it("detects GitLab from the hostname", () => {
+    expect(providerOf("https://gitlab.com/acme/platform/web/-/issues/12")).toBe("gitlab");
+  });
+
+  it("detects Azure DevOps from both its current and its legacy hostnames", () => {
+    expect(providerOf("https://dev.azure.com/acme/Web/_workitems/edit/42")).toBe("azure");
+    expect(providerOf("https://acme.visualstudio.com/Web/_workitems/edit/42")).toBe("azure");
+  });
+
+  it("detects ClickUp from the hostname", () => {
+    expect(providerOf("https://app.clickup.com/t/86a1b2c3")).toBe("clickup");
+  });
+
+  it("detects Notion from both its app and its published-site hostnames", () => {
+    expect(providerOf("https://www.notion.so/acme/Login-fails-0123456789abcdef0123456789abcdef")).toBe("notion");
+    expect(providerOf("https://acme.notion.site/Login-fails-0123456789abcdef")).toBe("notion");
+  });
+
+  it("detects Trello from the hostname", () => {
+    expect(providerOf("https://trello.com/c/AbCdEf12/42-login-fails")).toBe("trello");
+  });
+
+  it("detects Asana from the hostname", () => {
+    expect(providerOf("https://app.asana.com/0/1200000000000001/1200000000000002")).toBe("asana");
+  });
+
+  it("detects Monday from the hostname", () => {
+    expect(providerOf("https://acme.monday.com/boards/123/pulses/456")).toBe("monday");
+  });
+
+  it("does not read a lookalike host as one of the newer trackers", () => {
+    expect(providerOf("https://gitlab.com.evil.example/x")).toBe("linear");
+    expect(providerOf("https://notmonday.com/x")).toBe("linear");
+    expect(providerOf("https://notion.so.evil.example/x")).toBe("linear");
+    expect(providerOf("https://dev.azure.com.evil.example/x")).toBe("linear");
   });
 
   it("defaults to linear for missing or unparseable urls", () => {
@@ -167,9 +204,66 @@ describe("shortIdentifier", () => {
     expect(shortIdentifier("acme/web-app#4212", "linear")).toBe("acme/web-app#4212");
   });
 
+  it("keeps only the project of a GitLab ref, however deep its groups go", () => {
+    expect(shortIdentifier("group/sub/project#12", "gitlab")).toBe("project#12");
+    expect(shortIdentifier("acme/web#7", "gitlab")).toBe("web#7");
+  });
+
+  it("truncates a long GitLab project the way it does a GitHub repo", () => {
+    const out = shortIdentifier("acme/platform/brief-marketing-website#1", "gitlab");
+    expect(out).toBe("brief-marketing…#1");
+    expect(out.length).toBeLessThanOrEqual(18);
+  });
+
+  it("shows no identifier for Notion and Asana, whose ids mean nothing to a reader", () => {
+    expect(shortIdentifier("0123456789abcdef0123456789abcdef", "notion")).toBe("");
+    expect(shortIdentifier("1200000000000002", "asana")).toBe("");
+  });
+
+  it("reads a Monday item id as a number", () => {
+    expect(shortIdentifier("1234567890", "monday")).toBe("#1234567890");
+  });
+
+  it("leaves a short Azure DevOps identifier alone", () => {
+    expect(shortIdentifier("Web#42", "azure")).toBe("Web#42");
+    expect(shortIdentifier("Project Name#42", "azure")).toBe("Project Name#42");
+  });
+
+  it("clips a long Azure DevOps project name and keeps the work item number", () => {
+    // Project names carry spaces, so the cut must not leave one before the "…".
+    const out = shortIdentifier("Customer Facing Web#4212", "azure");
+    expect(out).toBe("Customer Fac…#4212");
+    expect(out.length).toBeLessThanOrEqual(18);
+    expect(shortIdentifier("Shared Design Team#42", "azure")).toBe("Shared Design…#42");
+  });
+
+  it("leaves the other trackers' identifiers alone", () => {
+    expect(shortIdentifier("86a1b2c3", "clickup")).toBe("86a1b2c3");
+    expect(shortIdentifier("AbCdEf12", "trello")).toBe("AbCdEf12");
+  });
+
   it("handles missing values", () => {
+    expect(displayIdentifier(null, "monday")).toBe("");
     expect(shortIdentifier(null, "github")).toBe("");
     expect(shortIdentifier(undefined, "github")).toBe("");
     expect(shortIdentifier("  ", "github")).toBe("");
+  });
+});
+
+describe("displayIdentifier", () => {
+  it("keeps every qualified identifier whole, where there is room for it", () => {
+    expect(displayIdentifier("acme/web-app#4212", "github")).toBe("acme/web-app#4212");
+    expect(displayIdentifier("group/sub/project#12", "gitlab")).toBe("group/sub/project#12");
+    expect(displayIdentifier("Customer Facing Web#4212", "azure")).toBe("Customer Facing Web#4212");
+  });
+
+  it("reads a Monday item id as a number, the same as the short form", () => {
+    expect(displayIdentifier("1234567890", "monday")).toBe("#1234567890");
+    expect(displayIdentifier("1234567890", "monday")).toBe(shortIdentifier("1234567890", "monday"));
+  });
+
+  it("shows nothing for Notion and Asana", () => {
+    expect(displayIdentifier("0123456789abcdef0123456789abcdef", "notion")).toBe("");
+    expect(displayIdentifier("1200000000000002", "asana")).toBe("");
   });
 });

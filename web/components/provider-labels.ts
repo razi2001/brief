@@ -1,14 +1,4 @@
-// Provider display names for client components.
-//
-// lib/trackers/registry.ts is the source of truth, but it pulls in every
-// adapter (and through them clerkClient and the Supabase admin client), so a
-// "use client" component cannot import from it. This is the small, static slice
-// the browser actually needs: a key and the name to print.
+// The client components' import path for provider display words. The words
+// live in lib/provider-labels.ts, which the server reads too.
 
-export type ProviderKey = "linear" | "jira" | "github";
-
-export const PROVIDER_LABELS: Record<ProviderKey, string> = {
-  linear: "Linear",
-  jira: "Jira",
-  github: "GitHub",
-};
+export { NOT_AVAILABLE, PROVIDER_LABELS, WORKSPACE_NOUN, type ProviderKey } from "@/lib/provider-labels";

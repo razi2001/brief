@@ -1,4 +1,4 @@
-import { PROVIDERS } from "@/lib/trackers/registry";
+import { checkTracker } from "@/lib/trackers/registry";
 import type { ProviderKey } from "@/lib/tracker";
 
 /**
@@ -13,26 +13,32 @@ import type { ProviderKey } from "@/lib/tracker";
  *
  * Resolving the tracker is the honest test, because it is exactly what filing
  * does: a provider that resolves can file, and one that doesn't, can't.
+ *
+ * Not every miss is stale, though, and each kind is reported apart because the
+ * fix differs. A connection that only lacks its workspace pick (Azure DevOps
+ * with several organizations, Asana with several workspaces) is `needsWorkspace`:
+ * reconnecting would land the user right back where they are. A tracker this
+ * deployment has no credentials for is `unavailable`: nothing the user does
+ * will help.
  */
-export type TrackerHealth = { stale: ProviderKey[] };
+export type TrackerHealth = {
+  stale: ProviderKey[];
+  needsWorkspace: ProviderKey[];
+  unavailable: ProviderKey[];
+};
 
 export async function checkTrackerHealth(
   userId: string,
   connected: ProviderKey[],
 ): Promise<TrackerHealth> {
+  // One check per tracker: it resolves and explains a miss in the same pass,
+  // so a revoked grant is never refreshed twice.
   const checks = await Promise.all(
-    connected.map(async (key) => {
-      const def = PROVIDERS.find((p) => p.key === key);
-      if (!def) return null;
-      try {
-        // Non-null means filing would work; null means the token is gone.
-        return (await def.resolve(userId)) ? null : key;
-      } catch {
-        // A provider that throws can't file either, so it needs reconnecting
-        // just the same.
-        return key;
-      }
-    }),
+    connected.map(async (key) => ({ key, check: await checkTracker(userId, key) })),
   );
-  return { stale: checks.filter((k): k is ProviderKey => k !== null) };
+  const health: TrackerHealth = { stale: [], needsWorkspace: [], unavailable: [] };
+  for (const { key, check } of checks) {
+    if (check && !check.tracker) health[check.problem].push(key);
+  }
+  return health;
 }

@@ -61,6 +61,9 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
           const title =
             ti?.title || b.title || (isProcessing ? "Creating ticket…" : `${b.source_kind ?? "brief"} ticket`);
           const dot = isProcessing ? "#dd6936" : ti?.stateColor || "#2e7d32";
+          // Empty for trackers with no readable key (Notion, Asana): the logo
+          // stands alone.
+          const shortId = shortIdentifier(b.ticket_identifier, b.provider);
           const stateName = isProcessing ? "Creating…" : ti?.stateName || "Filed";
           const cells = (
             <>
@@ -69,7 +72,7 @@ export default function TicketList({ briefs }: { briefs: DashboardBrief[] }) {
                 {!isProcessing && b.ticket_identifier ? (
                   <>
                     <TrackerLogo kind={b.provider ?? "linear"} size={12} />
-                    <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
+                    {shortId && <span className="truncate">{shortId}</span>}
                   </>
                 ) : (
                   <span aria-hidden />

@@ -2,15 +2,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
-import TrackerPicker, { type TrackerOption } from "./TrackerPicker";
+import TrackerPicker, { menuPlacement } from "./TrackerPicker";
+
+// The real option list lives beside the connect hook, which imports Clerk.
+vi.mock("@clerk/nextjs", () => ({ useUser: vi.fn(), useReverification: vi.fn() }));
+import { TRACKER_OPTIONS as OPTIONS } from "./useTrackerConnect";
 
 afterEach(cleanup);
 
-const OPTIONS: TrackerOption[] = [
-  { key: "linear", name: "Linear", caption: "Files tickets with embedded evidence." },
-  { key: "jira", name: "Jira", caption: "Atlassian Cloud - file to a project." },
-  { key: "github", name: "GitHub", caption: "File issues to a repository." },
-];
+/** Swap in a scrollIntoView spy (jsdom has none) for the length of `run`. */
+function withScrollSpy(run: (spy: ReturnType<typeof vi.fn>) => void) {
+  const spy = vi.fn();
+  Element.prototype.scrollIntoView = spy;
+  try {
+    run(spy);
+  } finally {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  }
+}
+
+const activeName = () => {
+  const list = screen.getByRole("listbox");
+  return document.getElementById(list.getAttribute("aria-activedescendant") ?? "")?.textContent;
+};
 
 function setup(props: Partial<ComponentProps<typeof TrackerPicker>> = {}) {
   const onConnect = vi.fn();
@@ -50,8 +64,151 @@ describe("TrackerPicker", () => {
     setup();
     fireEvent.click(trigger());
     const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(3);
+    expect(options.map((o) => o.textContent?.replace("connected", ""))).toEqual([
+      "Linear",
+      "Jira",
+      "GitHub",
+      "GitLab",
+      "Azure DevOps",
+      "ClickUp",
+      "Notion",
+      "Trello",
+      "Asana",
+      "Monday",
+    ]);
     expect(options[0].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("scrolls the list rather than outgrowing the window", () => {
+    setup();
+    fireEvent.click(trigger());
+    expect(screen.getByRole("listbox").className).toMatch(/max-h-\S+ .*overflow-y-auto/);
+  });
+
+  it("keeps the keyboard's option in view", () => {
+    withScrollSpy((scrollIntoView) => {
+      setup();
+      fireEvent.keyDown(trigger(), { key: "ArrowDown" });
+      fireEvent.keyDown(screen.getByRole("listbox"), { key: "End" });
+      const last = screen.getByRole("option", { name: /Monday/ });
+      expect(scrollIntoView.mock.contexts.at(-1)).toBe(last);
+    });
+  });
+
+  it("doesn't scroll the list on hover", () => {
+    withScrollSpy((scrollIntoView) => {
+      setup();
+      fireEvent.click(trigger());
+      scrollIntoView.mockClear();
+      fireEvent.mouseEnter(screen.getByRole("option", { name: /Asana/ }));
+      expect(activeName()).toBe("Asana");
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    });
+  });
+
+  it("pages through the list", () => {
+    setup();
+    fireEvent.keyDown(trigger(), { key: "ArrowDown" });
+    const list = screen.getByRole("listbox");
+    fireEvent.keyDown(list, { key: "PageDown" });
+    expect(activeName()).toBe("ClickUp");
+    fireEvent.keyDown(list, { key: "PageDown" });
+    expect(activeName()).toBe("Monday");
+    fireEvent.keyDown(list, { key: "PageUp" });
+    expect(activeName()).toBe("Azure DevOps");
+  });
+
+  it("jumps to a tracker by typing its name", () => {
+    setup();
+    fireEvent.keyDown(trigger(), { key: "ArrowDown" });
+    const list = screen.getByRole("listbox");
+    fireEvent.keyDown(list, { key: "a" });
+    expect(activeName()).toBe("Azure DevOps");
+    // The same letter again moves on to the next tracker that starts with it.
+    fireEvent.keyDown(list, { key: "a" });
+    expect(activeName()).toBe("Asana");
+    fireEvent.keyDown(list, { key: "Enter" });
+    expect(trigger().textContent).toContain("Asana");
+  });
+
+  it("types more than one letter", () => {
+    setup();
+    fireEvent.keyDown(trigger(), { key: "ArrowDown" });
+    const list = screen.getByRole("listbox");
+    for (const key of "git") fireEvent.keyDown(list, { key });
+    expect(activeName()).toBe("GitHub");
+    fireEvent.keyDown(list, { key: "l" });
+    expect(activeName()).toBe("GitLab");
+  });
+
+  it("reads a space inside a typed name as part of it, not as a pick", () => {
+    setup();
+    fireEvent.keyDown(trigger(), { key: "ArrowDown" });
+    const list = screen.getByRole("listbox");
+    for (const key of "azure d") fireEvent.keyDown(list, { key });
+    expect(screen.queryByRole("listbox")).toBeTruthy();
+    expect(activeName()).toBe("Azure DevOps");
+  });
+
+  it("says in the list which trackers aren't available yet", () => {
+    setup({ unavailable: ["monday"] });
+    fireEvent.click(trigger());
+    expect(screen.getByRole("option", { name: /Monday/ }).textContent).toContain("Not available yet");
+    expect(screen.getByRole("option", { name: /Asana/ }).textContent).not.toContain("Not available yet");
+  });
+
+  it("says why a stale tracker can't be reconnected here", () => {
+    setup({ stale: ["linear"], unavailable: ["linear"] });
+    expect(screen.getByText("Reconnect needed")).toBeTruthy();
+    expect(screen.getByText("Not available yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reconnect →" })).toHaveProperty("disabled", true);
+  });
+
+  it("shows an error that names no tracker before one is chosen", () => {
+    setup({ connected: null, notice: "Couldn't connect" });
+    expect(trigger().textContent).toContain("Choose a tracker");
+    expect(screen.getByText("Couldn't connect")).toBeTruthy();
+  });
+
+  it("won't connect a tracker this deployment can't connect yet", () => {
+    const { onConnect } = setup({ connected: null, unavailable: ["monday"] });
+    pick("Monday");
+    const connect = screen.getByRole("button", { name: "Connect Monday →" });
+    expect(connect).toHaveProperty("disabled", true);
+    expect(screen.getByText("Not available yet")).toBeTruthy();
+    fireEvent.click(connect);
+    expect(onConnect).not.toHaveBeenCalled();
+  });
+
+  it("won't switch to a tracker this deployment can't connect yet", () => {
+    setup({ unavailable: ["trello"] });
+    pick("Trello");
+    expect(screen.getByRole("button", { name: "Switch to Trello →" })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Not available yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+  });
+
+  it("connects an available tracker as usual next to an unavailable one", () => {
+    setup({ connected: null, unavailable: ["monday"] });
+    pick("Asana");
+    expect(screen.getByRole("button", { name: "Connect Asana →" })).toHaveProperty("disabled", false);
+    expect(screen.queryByText("Not available yet")).toBeNull();
+  });
+
+  it("asks for a workspace pick instead of calling it connected", () => {
+    const { onDisconnect } = setup({ connected: "asana", needsWorkspace: ["asana"] });
+    expect(screen.getByText("Workspace needed")).toBeTruthy();
+    expect(screen.queryByText("Connected ✓")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reconnect →" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    expect(onDisconnect).toHaveBeenCalledWith("asana");
+    expect(screen.getByRole("link", { name: "Pick" }).getAttribute("href")).toBe("#team");
+  });
+
+  it("calls Azure DevOps' missing pick an organization", () => {
+    setup({ connected: "azure", needsWorkspace: ["azure"] });
+    expect(screen.getByText("Organization needed")).toBeTruthy();
+    expect(screen.queryByText("Connected ✓")).toBeNull();
   });
 
   it("previews another tracker without switching to it", () => {
@@ -69,11 +226,11 @@ describe("TrackerPicker", () => {
     expect(onConnect).toHaveBeenCalledWith("jira");
   });
 
-  it("says which tracker a switch disconnects", () => {
+  it("says which tracker a switch replaces", () => {
     setup();
     pick("Jira");
     expect(screen.getByRole("button", { name: "Switch to Jira →" }).getAttribute("title")).toBe(
-      "Disconnects Linear",
+      "Replaces Linear",
     );
   });
 
@@ -161,5 +318,41 @@ describe("TrackerPicker", () => {
     setup({ busy: { linear: true } });
     expect(trigger()).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Disconnecting…" })).toBeTruthy();
+  });
+});
+
+// The Settings list clips its rows (overflow: hidden), and ten trackers no longer
+// fit inside one, so the menu is portalled to <body> and placed by hand.
+describe("menu placement", () => {
+  const rect = (top: number, bottom: number, left = 200) => ({ top, bottom, left }) as DOMRect;
+
+  it("opens below the trigger when there is room", () => {
+    expect(menuPlacement(rect(100, 124), 820)).toEqual({ left: 196, top: 130, maxHeight: 352 });
+  });
+
+  it("opens above the trigger near the bottom of the window", () => {
+    const place = menuPlacement(rect(700, 724), 820);
+    expect(place.top).toBeUndefined();
+    expect(place.bottom).toBe(126);
+    expect(place.maxHeight).toBe(352);
+  });
+
+  it("takes the roomier side, never runs past the window and never starts off its left edge", () => {
+    // 158px below the trigger, 282px above it: the menu goes up, capped to fit.
+    const place = menuPlacement(rect(300, 324, 4), 500);
+    expect(place.left).toBe(12);
+    expect(place.bottom).toBe(206);
+    expect(place.maxHeight).toBe(282);
+  });
+
+  it("is rendered outside the card, so a clipping parent can't cut it off", () => {
+    const { container } = render(
+      <div style={{ overflow: "hidden" }}>
+        <TrackerPicker options={OPTIONS} connected={null} stale={[]} busy={{}} defaultOpen messageFor={() => null} onConnect={() => {}} onDisconnect={() => {}} />
+      </div>,
+    );
+    const list = screen.getByRole("listbox");
+    expect(container.contains(list)).toBe(false);
+    expect(list.parentElement).toBe(document.body);
   });
 });

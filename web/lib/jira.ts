@@ -3,6 +3,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { clerkStrategy } from "./clerk-strategies";
 import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
+import { placeEvidence } from "./ticket-body";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
 
@@ -682,11 +683,12 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           return cap ? `- Screenshot ${shotN}: ${cap}` : `- Screenshot ${shotN}`;
         });
         const hasRec = evidence.some((e) => !e.contentType.startsWith("image/"));
-        body += "\n\n## Evidence\n\n";
-        if (lines.length) body += lines.join("\n") + "\n\n";
-        body += hasRec
+        const where = hasRec
           ? "Screenshots and the screen recording are in the Attachments panel."
           : "Screenshots are in the Attachments panel.";
+        // Inside the agent's own Evidence section when it wrote one, so the
+        // ticket never shows that heading twice.
+        body = placeEvidence(body, lines.length ? `${lines.join("\n")}\n\n${where}` : where);
       }
 
       const baseFields: Record<string, unknown> = {

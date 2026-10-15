@@ -117,3 +117,14 @@ test("the model reads the distilled sections, not the raw brief.json", async () 
 test("Summary and Technical notes written as plain lines become labels like the other sections", () => {
   expect(normalizeSectionLabels("Summary\nIt breaks.\n\nTechnical notes:\n- The save call returns 500.")).toBe("**Summary**\nIt breaks.\n\n**Technical notes**\n- The save call returns 500.");
 });
+
+test("search_issues and the prompt name the tracker by its own name, whichever it is", async () => {
+  // It once said "Linear" for a team and "Jira" for anything else, so an Azure
+  // DevOps user's agent was told to search Jira.
+  await processBrief(brief as never, { ...tracker, kind: "azure", targetNoun: "project" });
+  const params = create.mock.calls[0][0] as { tools: Array<{ name: string; description: string }>; instructions: string };
+  const search = params.tools.find((t) => t.name === "search_issues");
+  expect(search?.description).toContain("Search EXISTING Azure DevOps issues");
+  expect(search?.description).not.toMatch(/Linear|Jira/);
+  expect(params.instructions).toContain("THIS TRACKER: Azure DevOps.");
+});

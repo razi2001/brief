@@ -5,7 +5,7 @@ import { processBriefById } from "@/lib/agent/run-processing";
 import { claimFiling } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
-import { connectedProvider } from "@/lib/trackers/registry";
+import { NO_TRACKER_ERROR, trackerStatus } from "@/lib/trackers/registry";
 
 export const maxDuration = 300;
 
@@ -22,13 +22,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // Refuse up front when no tracker is connected, BEFORE flipping the row to
   // 'processing' - the extension gets an immediate, actionable 409 instead of a
   // brief that silently stalls and times out. The brief stays an uploaded draft
-  // so it can be filed once a tracker is linked.
-  const hasTracker = await connectedProvider(userId);
-  if (!hasTracker) {
+  // so it can be filed once a tracker is linked. The message says what to fix:
+  // connect one, pick a workspace, or reconnect an expired one.
+  const { tracker, issue } = await trackerStatus(userId);
+  if (!tracker) {
     return jsonCors(
       {
         error: "no_tracker",
-        message: "No tracker connected - connect one in Brief Cloud first.",
+        message: issue ?? NO_TRACKER_ERROR,
       },
       { status: 409 },
     );

@@ -2,7 +2,18 @@ import type { ReactNode } from "react";
 import BrandMark from "@/components/BrandMark";
 import { NAV_ITEMS } from "@/components/Nav";
 import { SettingsGlyph } from "@/components/SettingsSection";
-import { GithubLogo, JiraLogo, LinearLogo } from "@/components/TrackerLogo";
+import {
+  AsanaLogo,
+  AzureDevopsLogo,
+  ClickUpLogo,
+  GithubLogo,
+  GitlabLogo,
+  JiraLogo,
+  LinearLogo,
+  MondayLogo,
+  NotionLogo,
+  TrelloLogo,
+} from "@/components/TrackerLogo";
 import { IconChevron, IconChevronDown, IconRefresh, IconX } from "./icons";
 
 type Tab = (typeof NAV_ITEMS)[number]["label"];
@@ -35,10 +46,18 @@ export function MockApp({ active, children }: { active: Tab; children: ReactNode
   );
 }
 
+/** Every tracker the real picker lists (useTrackerConnect's TRACKER_DEFS), in the registry's order. */
 export const TRACKERS = {
   linear: { name: "Linear", Logo: LinearLogo, caption: "Files tickets with embedded evidence." },
   jira: { name: "Jira", Logo: JiraLogo, caption: "Atlassian Cloud - file to a project." },
   github: { name: "GitHub", Logo: GithubLogo, caption: "File issues to a repository." },
+  gitlab: { name: "GitLab", Logo: GitlabLogo, caption: "File issues to a project." },
+  azure: { name: "Azure DevOps", Logo: AzureDevopsLogo, caption: "File work items to a project." },
+  clickup: { name: "ClickUp", Logo: ClickUpLogo, caption: "File tasks to a list." },
+  notion: { name: "Notion", Logo: NotionLogo, caption: "File pages to a database." },
+  trello: { name: "Trello", Logo: TrelloLogo, caption: "File cards to a board." },
+  asana: { name: "Asana", Logo: AsanaLogo, caption: "File tasks to a project." },
+  monday: { name: "Monday", Logo: MondayLogo, caption: "File items to a board." },
 } as const;
 
 export function TrackerMark({ kind, size = 13 }: { kind: keyof typeof TRACKERS; size?: number }) {
@@ -69,8 +88,16 @@ export type SettingsState = {
 /** Settings (SettingsView): Workspace and Tickets, one row each, a row opens in place. */
 export function MockSettings({ s }: { s: SettingsState }) {
   const tracker = s.tracker ?? "connected";
+  // The card clips to its rounded corners, which cut the open list off at its
+  // edge; the real list hangs over the cards below, so while it is open the
+  // card stops clipping and the tracker row rounds its own top corners.
+  const menuOpen = tracker === "menu";
   const row = (id: string, icon: "tracker" | "team" | "rules" | "replay", label: string, sum: ReactNode, opens = true) => (
-    <div data-gd={`row-${id}`} className={`gd-row${s.open === id ? " on" : ""}`}>
+    <div
+      data-gd={`row-${id}`}
+      className={`gd-row${s.open === id ? " on" : ""}`}
+      style={menuOpen && id === "tracker" ? { borderRadius: "calc(11 * var(--a)) calc(11 * var(--a)) 0 0" } : undefined}
+    >
       <span className="ic">
         <SettingsGlyph icon={icon} />
       </span>
@@ -89,7 +116,7 @@ export function MockSettings({ s }: { s: SettingsState }) {
     <div className="gd-set">
       <div className="gd-h1">Settings</div>
       <div className="grp">Workspace</div>
-      <div className="gd-card">
+      <div className="gd-card" style={menuOpen ? { overflow: "visible" } : undefined}>
         {row(
           "tracker",
           "tracker",
@@ -116,9 +143,17 @@ export function MockSettings({ s }: { s: SettingsState }) {
                     Choose a tracker <IconChevronDown />
                   </span>
                   {tracker === "menu" && (
-                    <div className="gd-dd" style={{ left: "calc(60 * var(--a))", top: "calc(48 * var(--a))" }}>
+                    // TrackerPicker's list: 240px wide, every tracker in one
+                    // column. Rows are 30 here against the real 32, so all ten
+                    // fit above the bottom of the frame.
+                    <div className="gd-dd" style={{ left: "calc(60 * var(--a))", top: "calc(48 * var(--a))", width: "calc(240 * var(--a))" }}>
                       {(Object.keys(TRACKERS) as Array<keyof typeof TRACKERS>).map((k, i) => (
-                        <div key={k} data-gd={`dd-${k}`} className={`it${i === 0 ? " on" : ""}`}>
+                        <div
+                          key={k}
+                          data-gd={`dd-${k}`}
+                          className={`it${i === 0 ? " on" : ""}`}
+                          style={{ height: "calc(30 * var(--a))", paddingTop: 0, paddingBottom: 0 }}
+                        >
                           <TrackerMark kind={k} size={16} />
                           {TRACKERS[k].name}
                         </div>

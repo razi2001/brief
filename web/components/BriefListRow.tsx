@@ -90,6 +90,9 @@ export default function BriefListRow({
   const hrefExternal = !!href && href !== briefHref; // tracker link → new tab
   // Linear, Jira, GitHub - every tracker by its own name, so its id opens it there
   const providerName = PROVIDER_LABELS[b.provider ?? "linear"] ?? "Linear";
+  // Empty for trackers with no readable key (Notion, Asana): the logo alone
+  // still opens the ticket.
+  const shortId = shortIdentifier(b.ticket_identifier, b.provider);
 
   const title =
     ti?.title ||
@@ -187,12 +190,12 @@ export default function BriefListRow({
                 className="relative z-10 inline-flex min-w-0 items-center gap-1.5 py-0.5 font-mono text-xs text-muted no-underline transition-colors hover:text-ink"
               >
                 <TrackerLogo kind={b.provider ?? "linear"} size={12} />
-                <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
+                {shortId && <span className="truncate">{shortId}</span>}
               </a>
             ) : (
               <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
                 <TrackerLogo kind={b.provider ?? "linear"} size={12} />
-                <span className="truncate">{shortIdentifier(b.ticket_identifier, b.provider)}</span>
+                {shortId && <span className="truncate">{shortId}</span>}
               </span>
             )}
           </span>

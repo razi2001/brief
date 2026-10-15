@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { withGithubDetails } from "./github";
+import { withDetailsFolds } from "@/lib/ticket-body";
 import { withLinearDetails } from "./linear";
 import { jiraDescription } from "./jira";
 import { withBriefAttribution } from "./tracker";
@@ -11,7 +11,7 @@ const details = [
 
 describe("the technical logs, one folded section per video, at the bottom", () => {
   it("GitHub: a <details> block per video after the evidence, attribution still last", () => {
-    const body = withBriefAttribution(withGithubDetails("It hangs.\n\n## Evidence\n\nimg", details));
+    const body = withBriefAttribution(withDetailsFolds("It hangs.\n\n## Evidence\n\nimg", details));
     expect(body).toContain("## Evidence\n\nimg\n\n<details>\n<summary>Technical logs: Screen recording</summary>\n\n**Timeline**");
     expect(body.indexOf("<summary>Technical logs: Screen recording</summary>")).toBeLessThan(body.indexOf("<summary>Technical logs: Replay</summary>"));
     expect(body.lastIndexOf("</details>")).toBeLessThan(body.indexOf("Reported with"));
@@ -37,7 +37,7 @@ describe("the technical logs, one folded section per video, at the bottom", () =
   });
 
   it("nothing captured: no section anywhere", () => {
-    expect(withGithubDetails("Body", undefined)).toBe("Body");
+    expect(withDetailsFolds("Body", undefined)).toBe("Body");
     expect(withLinearDetails("Body", [{ title: "x", markdown: "  " }])).toBe("Body");
     expect((jiraDescription("Body").content ?? []).some((n) => n.type === "expand")).toBe(false);
   });

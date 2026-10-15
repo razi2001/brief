@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { normalizeSectionLabels, withReplayLink } from "./process-brief";
-import { promoteSectionHeadings } from "../github";
+import { promoteSectionHeadings } from "@/lib/ticket-body";
 
 describe("section labels", () => {
   it("turns a bare label line into a bold label, which GitHub then makes a heading", () => {

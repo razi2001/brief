@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import BrandMark from "./BrandMark";
 import StandalonePage, { SHEET } from "./StandalonePage";
 import { TrackerLogo } from "./TrackerLogo";
-import { TRACKER_DEFS, useTrackerConnect } from "./useTrackerConnect";
+import { NOT_AVAILABLE, TRACKER_DEFS, useTrackerConnect } from "./useTrackerConnect";
 import { ROLES, SOURCES } from "@/lib/onboarding-options";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
 
@@ -147,7 +147,7 @@ export default function Onboarding({
   greetingName: string;
 }) {
   const router = useRouter();
-  const { isLoaded, busy, errors, isConnected, pendingError, connect } =
+  const { isLoaded, busy, errors, notice, isConnected, isAvailable, pendingError, connect } =
     useTrackerConnect("/welcome");
   const trackerConnected = TRACKER_DEFS.some(isConnected);
 
@@ -180,6 +180,27 @@ export default function Onboarding({
     await saveSettings({ onboardedAt: true });
     router.replace("/dashboard");
   }
+
+  // The step is derived from the connections, and the owned ones need a round
+  // trip: until they're in, a user back from connecting Asana would see the
+  // tracker step flash before the extension step.
+  if (!isLoaded && rawStep === null) {
+    return (
+      <StandalonePage>
+        <div className={`${SHEET} w-full max-w-[560px] overflow-hidden`} aria-busy="true">
+          <div className="px-6 pb-5 pt-7 sm:px-8 sm:pt-8">
+            <div className="h-8 w-60 max-w-full rounded-md bg-surface-2" />
+            <div className="mt-2.5 h-3 w-72 max-w-full rounded bg-surface-2" />
+            <div className="mt-6 h-[18px] w-64 max-w-full rounded bg-surface-2" />
+          </div>
+          <div className="h-[420px] border-t hairline" />
+        </div>
+      </StandalonePage>
+    );
+  }
+
+  // One connect at a time: each one navigates away.
+  const anyBusy = Object.values(busy).some(Boolean);
 
   const stepTitle: Record<Step, string> = {
     you: "Tell us about you",
@@ -238,18 +259,22 @@ export default function Onboarding({
             {/* ---- Step 2: tracker ---- */}
             {step === "tracker" && (
               <div className="mt-5 flex flex-col gap-2">
+                {notice && <p className="px-1 text-xs text-[#b54328]">{notice}</p>}
                 {TRACKER_DEFS.map((t) => {
                   const isBusy = !!busy[t.key];
+                  const available = isAvailable(t);
                   // A click-time error wins; otherwise show why the LAST
                   // attempt didn't finish (Clerk's real verification error).
-                  const error = errors[t.key] || (t.providerMatch ? pendingError(t.providerMatch) : "");
+                  // The row already says when it isn't available yet.
+                  const clicked = !available && errors[t.key] === NOT_AVAILABLE ? "" : errors[t.key];
+                  const error = clicked || (t.providerMatch ? pendingError(t.providerMatch) : "");
                   return (
                     <div key={t.key}>
                       <button
                         type="button"
                         onClick={() => connect(t)}
-                        disabled={!isLoaded || isBusy}
-                        className="flex w-full items-center justify-between gap-3 rounded-lg border hairline bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
+                        disabled={!isLoaded || anyBusy || !available}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg border hairline bg-surface px-3 py-2.5 text-left transition-colors hover:bg-surface-2 disabled:opacity-60 disabled:hover:bg-surface"
                       >
                         <span className="flex min-w-0 items-center gap-3">
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border hairline bg-surface-2">
@@ -260,9 +285,13 @@ export default function Onboarding({
                             <span className="block truncate text-xs text-muted">{t.caption}</span>
                           </span>
                         </span>
-                        <span className="shrink-0 text-[13px] font-medium text-accent">
-                          {isBusy ? "Connecting…" : "Connect"}
-                        </span>
+                        {available ? (
+                          <span className="shrink-0 text-[13px] font-medium text-accent">
+                            {isBusy ? "Connecting…" : "Connect"}
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-xs text-muted">{NOT_AVAILABLE}</span>
+                        )}
                       </button>
                       {error && (
                         <p className="mt-1.5 px-1 text-xs text-[#b54328]">{error}</p>

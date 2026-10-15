@@ -1,9 +1,9 @@
 import { errorMessage } from "@/lib/errors";
 import { randomBytes } from "crypto";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import { noTrackerError, providerName, resolveTracker } from "@/lib/trackers/registry";
+import { resolveTrackerOrError } from "@/lib/trackers/registry";
 import { BRIEF_URL, type ProviderKey, type Tracker } from "@/lib/tracker";
-import { processBrief } from "@/lib/agent/process-brief";
+import { processBrief, type FileResult } from "@/lib/agent/process-brief";
 import { composeDraftTicket } from "@/lib/agent/compose-draft";
 import type { BriefOverrides } from "@/lib/agent/overrides";
 import { loadBriefInput } from "@/lib/agent/load-brief-input";
@@ -37,6 +37,41 @@ async function loadGuidance(userId: string): Promise<string> {
 }
 
 
+/** How long the filed ticket's live status may hold up recording the ticket. */
+const LIVE_STATE_MS = 5_000;
+
+/**
+ * The status to store for a ticket just filed, as the tickets feed will show
+ * it: the tracker's live read (getLiveIssues, the feed's own source) when it
+ * has the issue, else what the agent read back. Some adapters' getIssue gives
+ * no colour (GitLab, Asana, Monday) or a raw label (GitLab's
+ * `workflow::In review`), and that first snapshot is what the feed shows
+ * until its next sync. Time-boxed, because the row that records the ticket
+ * waits on it.
+ */
+export async function filedTicketState(
+  tracker: Tracker,
+  identifier: string,
+  fallback: FileResult["ticketState"],
+  timeoutMs = LIVE_STATE_MS,
+): Promise<{ name: string | null; color: string | null }> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const live = await Promise.race([
+      tracker.getLiveIssues([identifier]).then((r) => r.issues[identifier]),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), timeoutMs);
+      }),
+    ]);
+    if (live?.stateName) return { name: live.stateName, color: live.stateColor || null };
+  } catch {
+    /* display data only: the agent's read stands */
+  } finally {
+    clearTimeout(timer);
+  }
+  return { name: fallback?.name ?? null, color: fallback?.color ?? null };
+}
+
 /**
  * Orchestrates FILING a single brief: resolve the tracker, download media, run
  * the agent, mark the row 'filed' + clean up on success, or 'failed' on error.
@@ -48,7 +83,8 @@ async function loadGuidance(userId: string): Promise<string> {
  * be filed again.
  *
  * `opts.provider` pins the tracker (used by the brief page's export action so a
- * draft files to the chosen tracker); unset = Linear preferred, Jira fallback.
+ * draft files to the chosen tracker); unset = the first connected tracker in
+ * registry order.
  * The brief's existing share_id is preserved so a draft's link stays stable
  * across export. On success the screenshots (and the recording, when attached)
  * are KEPT in storage so the shareable brief page can embed them.
@@ -75,12 +111,11 @@ export async function processBriefById(
   if (!brief) return { ok: false, status: 404, error: "not found" };
 
   // Resolve the tracker. A pinned provider uses only that one (never silently
-  // file somewhere else); otherwise the registry picks the connected one.
-  const tracker: Tracker | null = await resolveTracker(userId, opts.provider);
+  // file somewhere else); otherwise the registry picks the connected one. A
+  // miss comes back with the line that says why: nothing connected, a pending
+  // workspace pick, an expired connection.
+  const { tracker, error } = await resolveTrackerOrError(userId, opts.provider);
   if (!tracker) {
-    const error = opts.provider
-      ? `${providerName(opts.provider)} is not connected - reconnect it under Settings, then retry.`
-      : await noTrackerError(userId);
     await releaseFiling(admin, userId, briefId, { status: "failed", error });
     return { ok: false, status: 409, error };
   }
@@ -149,13 +184,14 @@ export async function processBriefById(
     // would file a duplicate on the next run. Recording ticket_url is the one
     // thing worth retrying: it's the permanent "already filed" guard.
     try {
+      const state = await filedTicketState(tracker, result.ticketIdentifier, result.ticketState);
       const { error: updErr } = await admin
         .from("briefs")
         .update({
           ...filedPatch,
           ticket_title: result.ticketTitle || null,
-          ticket_state_name: result.ticketState?.name ?? null,
-          ticket_state_color: result.ticketState?.color ?? null,
+          ticket_state_name: state.name,
+          ticket_state_color: state.color,
           ticket_body: result.descriptionMarkdown || null,
           share_id: shareId,
         })
@@ -267,7 +303,9 @@ export async function draftBriefById(
     const draft = await composeDraftTicket(input, guidance);
 
     const shareId = (brief.share_id as string | null) || randomBytes(9).toString("base64url");
-    const draftedPatch = { status: "drafted", updated_at: new Date().toISOString() };
+    // A fresh draft has no failure to show; the page shows a draft's error as
+    // the reason its last export failed.
+    const draftedPatch = { status: "drafted", error: null, updated_at: new Date().toISOString() };
     const { error: updErr } = await draftWrite({
       ...draftedPatch,
       ticket_title: draft.title || null,

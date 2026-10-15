@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DashboardBrief, TicketInfo } from "@/lib/brief-types";
 import { providerOf, ticketSnapshotPatch } from "@/lib/ticket-sync";
 import type { ProviderKey } from "@/lib/tracker";
-import { connectedProviders, resolveConnectedTrackers } from "@/lib/trackers/registry";
+import { connectedTrackers, resolveConnectedTrackers } from "@/lib/trackers/registry";
 
 /**
  * Server-side helpers shared by the Dashboard (/dashboard) and Briefs (/briefs)
@@ -132,9 +132,17 @@ export async function getTrackerContext(): Promise<TrackerContext> {
     /* render degraded rather than throwing out of the server render */
   }
 
-  // Every tracker is a Clerk connected account, so this is already on the user
-  // object - no extra round trip.
-  const connected: ProviderKey[] = connectedProviders(user);
+  // Clerk-backed trackers are read off the user already in hand; owned ones
+  // cost one query on the connection store. With no user (signed out, or Clerk
+  // down) there is no id to ask with, so nothing reads as connected.
+  let connected: ProviderKey[] = [];
+  if (user) {
+    try {
+      connected = await connectedTrackers(user.id, user);
+    } catch {
+      /* degrade to "none connected" rather than throwing out of the render */
+    }
+  }
 
   const ticketGuidance = (user?.privateMetadata?.ticketGuidance as string) ?? "";
   const role = ((user?.privateMetadata?.role as string) ?? "").trim();

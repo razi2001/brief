@@ -103,6 +103,14 @@ describe("extraScopes", () => {
     expect(extraScopes("jira")).toBeUndefined();
   });
 
+  // GitLab asks for `api` on Brief's own authorize URL (lib/connections), so
+  // nothing about it is left here.
+  it("asks Clerk for nothing on a tracker Brief connects itself", async () => {
+    const { extraScopes } = await load(cleared);
+    expect(extraScopes("gitlab")).toBeUndefined();
+    expect(extraScopes("notion")).toBeUndefined();
+  });
+
   // A custom connector declares base_scopes on the connection itself, so
   // repeating them here would only duplicate entries on the consent screen.
   it("stays quiet when a custom connector already declares its scopes", async () => {

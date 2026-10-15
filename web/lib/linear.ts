@@ -3,6 +3,7 @@ import { clerkClient } from "@clerk/nextjs/server";
 import { clerkStrategy } from "./clerk-strategies";
 import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerPriority, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
+import { placeEvidence } from "./ticket-body";
 
 /** The technical logs, each video's folded on its own: Linear's collapsible section is `+++ Title` ... `+++`. */
 export function withLinearDetails(description: string, details?: Array<{ title: string; markdown: string }>): string {
@@ -560,9 +561,11 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
           console.warn("[linear-tracker] evidence upload failed:", e.filename, err);
         }
       }
-      // Append the Evidence section only if the description doesn't already carry hosted assets.
+      // Add the evidence only if the description doesn't already carry hosted
+      // assets, and inside the agent's own Evidence section when it wrote one,
+      // so the ticket never shows that heading twice.
       if (embeds.length && !description.includes("uploads.linear.app")) {
-        description += "\n\n## Evidence\n\n" + embeds.join("\n\n");
+        description = placeEvidence(description, embeds.join("\n\n"));
       }
       description = withBriefAttribution(withLinearDetails(description, details));
 

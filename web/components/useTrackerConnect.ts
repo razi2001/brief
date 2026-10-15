@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useUser, useReverification } from "@clerk/nextjs";
-import { PROVIDER_LABELS, type ProviderKey } from "./provider-labels";
+import { NOT_AVAILABLE, PROVIDER_LABELS, type ProviderKey } from "./provider-labels";
 import { clerkMatch, clerkStrategy, extraScopes } from "@/lib/clerk-strategies";
 
 /**
@@ -10,8 +10,17 @@ import { clerkMatch, clerkStrategy, extraScopes } from "@/lib/clerk-strategies";
  * page (Integrations) and the first-run onboarding wizard so they can't drift
  * apart.
  *
- * Every tracker here is a Clerk connected account, and only the Clerk CLIENT
- * can create or remove one, so these flows stay in the browser.
+ * Two kinds of connection sit behind one Connect button:
+ *
+ *  - "clerk" trackers (Linear, Jira, GitHub) are Clerk connected accounts.
+ *    Only the Clerk CLIENT can create or remove one, so those flows stay in
+ *    the browser.
+ *  - "owned" trackers (GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana,
+ *    Monday) have no Clerk connection, so Brief runs the OAuth flow itself
+ *    through /api/connect/<provider> and keeps the token. The browser only
+ *    navigates to the start route; the callback stores the token, removes
+ *    every other tracker, and sends the browser back with ?connected= or
+ *    ?error=.
  *
  * Clerk client API used (verified against @clerk/types in node_modules,
  * matching @clerk/nextjs v7.4.3):
@@ -26,45 +35,98 @@ export type TrackerDef = {
   key: ProviderKey;
   name: string;
   caption: string;
-  // Substring matched against externalAccount.provider (e.g. "oauth_linear"),
-  // and the strategy passed to createExternalAccount.
-  providerMatch: string;
-  strategy: string;
-  // Inline copy shown when the provider isn't available in this deployment.
-  notEnabledHint: string;
+  auth: "clerk" | "owned";
+  // Clerk trackers only: substring matched against externalAccount.provider
+  // (e.g. "oauth_linear"), and the strategy passed to createExternalAccount.
+  providerMatch?: string;
+  strategy?: string;
 };
 
+function clerkDef(key: ProviderKey, caption: string): TrackerDef {
+  return {
+    key,
+    name: PROVIDER_LABELS[key],
+    caption,
+    auth: "clerk",
+    providerMatch: clerkMatch(key),
+    strategy: clerkStrategy(key),
+  };
+}
+
+function ownedDef(key: ProviderKey, caption: string): TrackerDef {
+  return { key, name: PROVIDER_LABELS[key], caption, auth: "owned" };
+}
+
+/** Every tracker, in the registry's order. */
 export const TRACKER_DEFS: TrackerDef[] = [
-  {
-    key: "linear",
-    name: "Linear",
-    caption: "Files tickets with embedded evidence.",
-    providerMatch: clerkMatch("linear"),
-    strategy: clerkStrategy("linear"),
-    notEnabledHint: "Linear isn't enabled yet - add the Linear connection in Clerk.",
-  },
-  {
-    key: "jira",
-    name: "Jira",
-    caption: "Atlassian Cloud - file to a project.",
-    providerMatch: clerkMatch("jira"),
-    strategy: clerkStrategy("jira"),
-    notEnabledHint: "Jira isn't enabled yet - add the Atlassian connection in Clerk.",
-  },
-  {
-    key: "github",
-    name: "GitHub",
-    caption: "File issues to a repository.",
-    providerMatch: clerkMatch("github"),
-    strategy: clerkStrategy("github"),
-    notEnabledHint: "GitHub isn't enabled yet - add the GitHub connection in Clerk.",
-  },
+  clerkDef("linear", "Files tickets with embedded evidence."),
+  clerkDef("jira", "Atlassian Cloud - file to a project."),
+  clerkDef("github", "File issues to a repository."),
+  ownedDef("gitlab", "File issues to a project."),
+  ownedDef("azure", "File work items to a project."),
+  ownedDef("clickup", "File tasks to a list."),
+  ownedDef("notion", "File pages to a database."),
+  ownedDef("trello", "File cards to a board."),
+  ownedDef("asana", "File tasks to a project."),
+  ownedDef("monday", "File items to a board."),
 ];
+
+/** The card's dropdown: every tracker, in the registry's order. */
+export const TRACKER_OPTIONS = TRACKER_DEFS.map(({ key, name, caption }) => ({ key, name, caption }));
+
+/** A tracker Brief connected itself, as /api/me/connections reports it. */
+export type OwnedConnection = {
+  provider: ProviderKey;
+  label: string | null;
+  workspace: { id: string; name: string } | null;
+};
 
 // Clerk's account-linking rejection when the OAuth account's email doesn't
 // match any email on this user. Matched in pendingError (copy) and connect()
 // (the auto-heal).
 const EMAIL_MISMATCH_RE = /email address does not match|does not match your existing email/i;
+
+export { NOT_AVAILABLE };
+
+const COULDNT_CONNECT = "Couldn't connect";
+
+/**
+ * Copy for each failure code the connect callback sends back. Anyone can put
+ * anything in a query string, so the raw value is never shown: an unknown
+ * code reads as a plain failure.
+ */
+function returnErrorCopy(code: string, name: string): string {
+  switch (code) {
+    case "cancelled":
+      return "Connection cancelled";
+    case "unavailable":
+      return NOT_AVAILABLE;
+    case "no_org":
+      return `No ${name} organization on this account`;
+    case "no_workspace":
+      return `No ${name} workspace on this account`;
+    default:
+      return COULDNT_CONNECT;
+  }
+}
+
+type ReturnError = { key: ProviderKey | null; message: string };
+
+/**
+ * The failure an owned connect came back with: `?error=<code>&provider=<key>`.
+ * Read once, at first render, so the card can open on that tracker with the
+ * message already on it. A provider we don't know leaves the message
+ * unattributed.
+ */
+function readReturnError(): ReturnError | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const code = (params.get("error") ?? "").trim();
+  if (!code) return null;
+  const def = TRACKER_DEFS.find((d) => d.key === params.get("provider"));
+  if (!def) return { key: null, message: COULDNT_CONNECT };
+  return { key: def.key, message: returnErrorCopy(code, def.name) };
+}
 
 /**
  * Pull something readable out of a Clerk client error. Clerk throws objects
@@ -95,10 +157,106 @@ function isReverificationCancelled(err: unknown): boolean {
   return codes.some((c) => typeof c === "string" && /reverification/i.test(c));
 }
 
+type OwnedState = { owned: OwnedConnection[]; configured: Partial<Record<ProviderKey, boolean>> };
+
+/** Ask the server about the trackers Brief connects itself. Null on failure. */
+async function fetchOwned(): Promise<OwnedState | null> {
+  try {
+    const r = await fetch("/api/me/connections", { credentials: "same-origin" });
+    if (!r.ok) return null;
+    const j = (await r.json()) as Partial<OwnedState>;
+    return {
+      owned: Array.isArray(j.owned) ? j.owned : [],
+      configured: j.configured && typeof j.configured === "object" ? j.configured : {},
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** POST an owned tracker's disconnect. True when the server removed it. */
+async function postDisconnect(key: ProviderKey): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/connect/${key}/disconnect`, {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function useTrackerConnect(redirectPath = "/dashboard") {
   const { isLoaded, user } = useUser();
   const [busy, setBusy] = useState<Record<string, boolean>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Seeded from an owned connect's ?error=, so the message is on screen on the
+  // first paint back from the provider.
+  const [returned] = useState(readReturnError);
+  const [errors, setErrors] = useState<Record<string, string>>(() =>
+    returned?.key ? { [returned.key]: returned.message } : {},
+  );
+  // An error that names no tracker, shown on whichever one the card is on.
+  const [notice, setNotice] = useState(() => (returned && !returned.key ? returned.message : ""));
+
+  // The owned trackers need a round trip (Clerk accounts are already on the
+  // user object): fetched once the user is known, again after a disconnect.
+  const [owned, setOwned] = useState<OwnedConnection[]>([]);
+  // false = this deployment has no OAuth app for it, so Connect can only fail.
+  // Missing (not loaded, or the read failed) counts as available: the start
+  // route still refuses with a message of its own.
+  const [configured, setConfigured] = useState<Partial<Record<ProviderKey, boolean>>>({});
+  const [ownedLoaded, setOwnedLoaded] = useState(false);
+
+  const applyOwned = useCallback((state: OwnedState | null) => {
+    if (state) {
+      setOwned(state.owned);
+      setConfigured(state.configured);
+    }
+    setOwnedLoaded(true);
+  }, []);
+
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetchOwned().then((state) => {
+      if (!cancelled) applyOwned(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, applyOwned]);
+
+  const refreshOwned = useCallback(async () => applyOwned(await fetchOwned()), [applyOwned]);
+
+  /**
+   * Re-read the owned trackers after some were removed. When the read fails,
+   * the server already said those are gone, so they come off the list here
+   * rather than lingering as "Connected".
+   */
+  const refreshOwnedOrDrop = useCallback(
+    async (removed: ProviderKey[]) => {
+      const fresh = await fetchOwned();
+      if (fresh) applyOwned(fresh);
+      else if (removed.length) setOwned((list) => list.filter((o) => !removed.includes(o.provider)));
+    },
+    [applyOwned],
+  );
+
+  // The callback's ?connected= and ?error=&provider= have been read; take them
+  // out of the address bar so a reload doesn't show the error again. Other
+  // params (the workspace ?pick=) are left alone.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const q = url.searchParams;
+    if (!q.has("connected") && !q.has("error")) return;
+    if (q.has("error")) q.delete("provider");
+    q.delete("connected");
+    q.delete("error");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   // Removing a connected account is a Clerk "sensitive" action - this wrapper
   // pops the step-up reverification modal when required, then runs destroy.
   const destroyAccount = useReverification(
@@ -123,23 +281,38 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   // Only a VERIFIED external account counts as connected. Clerk creates an
   // (unverified) record even when the OAuth flow fails or is abandoned, so
   // checking mere existence would wrongly show "Connected".
-  const accountFor = (providerMatch: string, verified: boolean) =>
-    user?.externalAccounts.find(
-      (a) =>
-        (a.provider ?? "").toLowerCase().includes(providerMatch) &&
-        (verified ? a.verification?.status === "verified" : a.verification?.status !== "verified"),
-    );
+  const accountFor = (providerMatch: string | undefined, verified: boolean) =>
+    providerMatch
+      ? user?.externalAccounts.find(
+          (a) =>
+            (a.provider ?? "").toLowerCase().includes(providerMatch) &&
+            (verified
+              ? a.verification?.status === "verified"
+              : a.verification?.status !== "verified"),
+        )
+      : undefined;
 
-  /** Is this tracker connected? */
-  const isConnected = (t: TrackerDef): boolean => !!accountFor(t.providerMatch, true);
+  /** Is this tracker connected? Covers both kinds. */
+  const isConnected = (t: TrackerDef): boolean =>
+    t.auth === "owned"
+      ? owned.some((o) => o.provider === t.key)
+      : !!accountFor(t.providerMatch, true);
 
-  const connectedAccount = (providerMatch: string) => accountFor(providerMatch, true);
-  const pendingAccount = (providerMatch: string) => accountFor(providerMatch, false);
+  /**
+   * Can this tracker be connected here at all? Clerk tells us about its own at
+   * click time; an owned one needs an OAuth app on this deployment, which only
+   * the server knows.
+   */
+  const isAvailable = (t: TrackerDef): boolean =>
+    !(t.auth === "owned" && configured[t.key] === false);
+
+  const connectedAccount = (providerMatch: string | undefined) => accountFor(providerMatch, true);
+  const pendingAccount = (providerMatch: string | undefined) => accountFor(providerMatch, false);
 
   // The REASON the last OAuth attempt didn't verify - rewritten to something
   // actionable where we recognize the Clerk error, otherwise Clerk's own text.
   // Empty when there's no pending record or Clerk attached no error to it.
-  const pendingError = (providerMatch: string): string => {
+  const pendingError = (providerMatch: string | undefined): string => {
     const v = pendingAccount(providerMatch)?.verification;
     if (!v || v.status === "verified") return "";
     const raw = v.error?.longMessage || v.error?.message || "";
@@ -160,15 +333,36 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   };
 
   /**
-   * Brief files into ONE tracker, so connecting a new one drops every other.
-   * Clerk accounts can only be removed by the Clerk client, which is why this
-   * happens here rather than server-side; owned connections are cleared by the
-   * callback route once the new one lands.
-   * Returns false if the user cancelled the reverification needed to remove one.
+   * Brief files into ONE tracker, so a Clerk connect drops every other one
+   * once Clerk has handed back the OAuth URL: Clerk can't tell our server when
+   * its OAuth lands, so nothing would clear them afterwards, and an owned row
+   * left behind would keep winning the filing.
+   *
+   * The owned rows are read fresh first, so one connected in another tab is
+   * not missed; if that read fails nothing is removed. Clerk accounts go next,
+   * because the user can still back out of their reverification with the
+   * owned rows intact; owned rows go last.
+   *
+   * An owned connect never comes here - its callback clears the rest, and only
+   * once the new tracker is stored.
+   * Returns the card's error when something couldn't be removed, else null.
    */
-  async function disconnectOtherTrackers(keep: ProviderKey): Promise<boolean> {
-    if (!user) return true;
-    const otherMatches = TRACKER_DEFS.filter((d) => d.key !== keep).map((d) => d.providerMatch);
+  async function disconnectOtherTrackers(keep: ProviderKey): Promise<string | null> {
+    if (!user) return null;
+    const fresh = await fetchOwned();
+    if (!fresh) {
+      // Name what the page last knew of: the owned rows first, as those are
+      // what couldn't be read, else whichever tracker is connected.
+      const known = owned.filter((o) => o.provider !== keep).map((o) => PROVIDER_LABELS[o.provider]);
+      const current =
+        known.join(", ") || TRACKER_DEFS.find((d) => d.key !== keep && isConnected(d))?.name;
+      return current ? `Couldn't disconnect ${current}.` : COULDNT_CONNECT;
+    }
+    applyOwned(fresh);
+
+    const otherMatches = TRACKER_DEFS.filter((d) => d.key !== keep && d.providerMatch).map(
+      (d) => d.providerMatch!,
+    );
     const others = user.externalAccounts.filter((a) =>
       otherMatches.some((m) => (a.provider ?? "").toLowerCase().includes(m)),
     );
@@ -177,28 +371,37 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
       if (others.length) await user.reload();
     } catch {
       // Reverification cancelled, or removal failed.
-      return false;
+      return "Couldn't switch trackers - disconnect the current one first.";
     }
-    return true;
+
+    const rows = fresh.owned.filter((o) => o.provider !== keep);
+    const failed: ProviderKey[] = [];
+    for (const o of rows) {
+      if (!(await postDisconnect(o.provider))) failed.push(o.provider);
+    }
+    if (rows.length) {
+      await refreshOwnedOrDrop(rows.map((o) => o.provider).filter((k) => !failed.includes(k)));
+    }
+    if (!failed.length) return null;
+    return `Couldn't disconnect ${failed.map((k) => PROVIDER_LABELS[k] ?? k).join(", ")}.`;
   }
 
   async function connect(t: TrackerDef) {
     if (!user) return;
     setTrackerError(t.key, "");
+    setNotice("");
     setTrackerBusy(t.key, true);
-    try {
-      // One tracker at a time: drop the others before switching. If the user
-      // cancels the reverification to remove one, abort - don't connect both.
-      const switched = await disconnectOtherTrackers(t.key);
-      if (!switched) {
-        setTrackerError(
-          t.key,
-          "Couldn't switch trackers - you'll need to disconnect the current one first.",
-        );
-        setTrackerBusy(t.key, false);
-        return;
-      }
 
+    // Owned: hand off to our own OAuth start route. Nothing is disconnected
+    // here, so backing out at the provider keeps the current tracker.
+    if (t.auth === "owned") {
+      window.location.assign(
+        `/api/connect/${t.key}/start?returnTo=${encodeURIComponent(redirectPath)}`,
+      );
+      return; // navigating away - keep the button in its busy state.
+    }
+
+    try {
       const providerMatch = t.providerMatch;
       // Different-email linking: when the last attempt failed because the
       // provider account's email isn't on this user, adopt that email onto
@@ -240,20 +443,34 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
         ...(scopes ? { additionalScopes: scopes } : {}),
       });
       const redirectUrl = externalAccount.verification?.externalVerificationRedirectURL;
-      if (redirectUrl) {
-        // externalVerificationRedirectURL is a URL object; send the browser to it.
-        window.location.href = redirectUrl.toString();
-        return; // navigating away - keep the button in its busy state.
+      if (!redirectUrl) {
+        // Clerk accepted the call but gave us nowhere to send the browser. The
+        // verification object usually says why. Nothing was removed yet.
+        const why =
+          externalAccount.verification?.error?.longMessage ||
+          externalAccount.verification?.error?.message ||
+          "";
+        console.error(`[connect:${t.key}] no redirect url`, externalAccount.verification);
+        setTrackerError(t.key, why || COULDNT_CONNECT);
+        setTrackerBusy(t.key, false);
+        return;
       }
-      // Clerk accepted the call but gave us nowhere to send the browser. The
-      // verification object usually says why.
-      const why =
-        externalAccount.verification?.error?.longMessage ||
-        externalAccount.verification?.error?.message ||
-        "";
-      console.error(`[connect:${t.key}] no redirect url`, externalAccount.verification);
-      setTrackerError(t.key, why || t.notEnabledHint);
-      setTrackerBusy(t.key, false);
+
+      // One tracker at a time. Only now, with the OAuth URL in hand, do the
+      // others come off: a connect Clerk refuses never costs the current one.
+      // If one can't be removed (or the user cancels the reverification),
+      // stop - don't connect both. The unverified record just created is
+      // harmless, and the next attempt clears it.
+      const blocked = await disconnectOtherTrackers(t.key);
+      if (blocked) {
+        setTrackerError(t.key, blocked);
+        setTrackerBusy(t.key, false);
+        return;
+      }
+
+      // externalVerificationRedirectURL is a URL object; send the browser to it.
+      // Navigating away, so the button keeps its busy state.
+      window.location.href = redirectUrl.toString();
     } catch (err) {
       // Show what Clerk actually said. Guessing "the provider isn't enabled"
       // was actively misleading whenever the real cause was something else -
@@ -264,7 +481,7 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
         t.key,
         isReverificationCancelled(err)
           ? `Connecting ${t.name} needs you to confirm it's you. Hit Connect again and complete the verification step.`
-          : clerkErrorMessage(err) || t.notEnabledHint,
+          : clerkErrorMessage(err) || COULDNT_CONNECT,
       );
       setTrackerBusy(t.key, false);
     }
@@ -273,8 +490,15 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   /** Disconnect either kind. Returns false when it couldn't be removed here. */
   async function disconnect(t: TrackerDef): Promise<boolean> {
     setTrackerError(t.key, "");
+    setNotice("");
     setTrackerBusy(t.key, true);
     try {
+      if (t.auth === "owned") {
+        const ok = await postDisconnect(t.key);
+        await refreshOwnedOrDrop(ok ? [t.key] : []);
+        if (!ok) setTrackerError(t.key, `Couldn't disconnect ${t.name}.`);
+        return ok;
+      }
       const providerMatch = t.providerMatch;
       const account = connectedAccount(providerMatch) ?? pendingAccount(providerMatch);
       if (!account) return true;
@@ -290,18 +514,25 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
   }
 
   return {
-    isLoaded,
+    // Owned connections count toward "loaded": the card must not paint "Choose
+    // a tracker" and then jump to the Asana it was connected to all along.
+    isLoaded: isLoaded && (ownedLoaded || !user),
     user,
     busy,
     errors,
+    notice,
+    owned,
+    configured,
     setTrackerBusy,
     setTrackerError,
     isConnected,
+    isAvailable,
     connectedAccount,
     pendingAccount,
     pendingError,
     connect,
     disconnect,
+    refreshOwned,
     PROVIDER_LABELS,
   };
 }

@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { buildGithubBody, issueRef, parseIssueRef, parseRepo } from "@/lib/github";
 import {
-  buildGithubBody,
   describeRepo,
   hasEvidenceHeading,
   isPubliclyFetchable,
-  issueRef,
-  parseIssueRef,
-  parseRepo,
   promoteSectionHeadings,
-} from "@/lib/github";
+} from "@/lib/ticket-body";
 import { matchPriorityLabel } from "@/lib/tracker";
 
 describe("parseIssueRef", () => {
@@ -105,6 +102,16 @@ describe("buildGithubBody", () => {
     // The image still lands, under that heading.
     expect(md).toContain("![Screenshot 1](");
     expect(md.indexOf("## Evidence")).toBeLessThan(md.indexOf("![Screenshot 1]("));
+  });
+
+  // Appending after the whole body put the screenshots under whatever section
+  // the agent wrote after its Evidence section.
+  it("puts the images inside the agent's Evidence section, not under a later one", () => {
+    const md = buildGithubBody("Broken.\n\n## Evidence:\n\nThe toast.\n\n## Environment\n\nChrome 141", [shot()]);
+    // "Evidence:" is the agent's heading too, so no second one is added.
+    expect(md.match(/^#+ evidence/gim)).toHaveLength(1);
+    expect(md.indexOf("The toast.")).toBeLessThan(md.indexOf("![Screenshot 1]("));
+    expect(md.indexOf("![Screenshot 1](")).toBeLessThan(md.indexOf("## Environment"));
   });
 
   it("matches an Evidence heading at any level, and none that merely mentions it", () => {

@@ -4,6 +4,8 @@ import { processBriefById } from "@/lib/agent/run-processing";
 import { PROVIDER_KEYS } from "@/lib/ticket-sync";
 import type { ProviderKey } from "@/lib/tracker";
 import { briefPhase, claimFiling, releaseFiling } from "@/lib/brief-filing";
+import { resolveTrackerOrError } from "@/lib/trackers/registry";
+import { errorMessage } from "@/lib/errors";
 import { createAdminSupabase } from "@/lib/supabase/server";
 
 export const maxDuration = 300;
@@ -17,7 +19,12 @@ export const maxDuration = 300;
 // vision). It takes the filing claim (which also marks the brief 'processing')
 // and files in the background so the page can show a "Filing…" state
 // immediately; a failed export releases the claim and puts the brief back to
-// 'drafted' so the draft is never lost.
+// 'drafted' so the draft is never lost, with the reason on the row.
+//
+// The tracker is checked before the claim: a pick still to make, an expired
+// connection or a tracker this deployment can't reach is answered right away
+// with the line that says so, instead of a "Filing..." that quietly turns back
+// into a draft.
 //
 // The claim is what stops a capture becoming two tickets: a brief that already
 // has a ticket - or one another run is filing right now - is refused with 409
@@ -61,8 +68,14 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return Response.json({ error: "not_ready", message: "This brief isn't ready to export." }, { status: 409 });
   }
 
-  // Atomic: two clicks (or two tabs) race here and exactly one wins.
-  if (!(await claimFiling(admin, userId, id))) {
+  // Only the reason is used here; processBriefById resolves the tracker again
+  // when it files.
+  const { error: trackerError } = await resolveTrackerOrError(userId, provider);
+  if (trackerError) return Response.json({ error: trackerError }, { status: 409 });
+
+  // Atomic: two clicks (or two tabs) race here and exactly one wins. A retry
+  // clears the reason the last attempt left.
+  if (!(await claimFiling(admin, userId, id, { error: null }))) {
     return Response.json(
       { error: "already_filing", message: "This brief is being filed right now." },
       { status: 409 },
@@ -73,11 +86,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     try {
       const r = await processBriefById(userId, id, { provider, useExistingContent: true });
       // A failed export must not destroy the draft - put it back to 'drafted'
-      // and release the claim so the owner can retry. Guarded on ticket_url, so
-      // an export that DID create a ticket stays filed.
-      if (!r.ok) await releaseFiling(admin, userId, id, { status: "drafted", error: null });
-    } catch {
-      await releaseFiling(admin, userId, id, { status: "drafted", error: null });
+      // and release the claim so the owner can retry, keeping why it failed.
+      // Guarded on ticket_url, so an export that DID create a ticket stays
+      // filed.
+      if (!r.ok) await releaseFiling(admin, userId, id, { status: "drafted", error: r.error });
+    } catch (e) {
+      await releaseFiling(admin, userId, id, { status: "drafted", error: errorMessage(e) });
     }
   });
 

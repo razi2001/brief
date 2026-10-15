@@ -75,6 +75,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const { title, descriptionMarkdown } = parseDraftMarkdown(md);
     const patch: Record<string, unknown> = {
       status: "drafted",
+      // A fresh draft has no failure to show; the page shows a draft's error
+      // as the reason its last export failed.
+      error: null,
       ticket_title: title || null,
       ticket_body: descriptionMarkdown || null,
       updated_at: new Date().toISOString(),

@@ -20,25 +20,32 @@ export function openConnectPage() {
 export const TICKETS_URL = `${APP_URL}/tickets`;
 
 // Account status for gating "Create ticket": validates the pairing token and
-// reports which tracker (if any) the CURRENT account has connected. A 401
+// reports which tracker (if any) the CURRENT account has connected, with its
+// display name from the server, and with none, why a connected one can't file
+// yet (`trackerIssue`: a workspace to pick, an expired grant). A 401
 // means the pairing is dead (revoked, or the user switched accounts) - drop
 // the cached token so the UI honestly shows "not connected" instead of filing
 // into the void. Network errors return null so callers keep last-known state
 // (don't block offline users).
 export async function fetchAccountStatus() {
   const token = await getCloudToken();
-  if (!token) return { connected: false, tracker: null };
+  if (!token) return { connected: false, tracker: null, trackerName: null, trackerIssue: null };
   try {
     const res = await fetch(`${APP_URL}/api/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.status === 401) {
       await clearCloudToken();
-      return { connected: false, tracker: null };
+      return { connected: false, tracker: null, trackerName: null, trackerIssue: null };
     }
     if (!res.ok) return null;
     const body = await res.json().catch(() => ({}));
-    return { connected: true, tracker: body?.tracker ?? null };
+    return {
+      connected: true,
+      tracker: body?.tracker ?? null,
+      trackerName: body?.trackerName ?? null,
+      trackerIssue: typeof body?.trackerIssue === 'string' && body.trackerIssue ? body.trackerIssue : null,
+    };
   } catch {
     return null;
   }

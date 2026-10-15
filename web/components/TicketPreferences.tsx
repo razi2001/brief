@@ -47,8 +47,6 @@ type Props = {
   hasOrg: boolean;
   orgUpdatedByName: string;
   orgUpdatedAt: string | null;
-  /** Unused here now: the GitHub org picker lives in the Team section. */
-  needsGithubOrg?: boolean;
 };
 
 function timeAgo(iso: string | null): string {
@@ -332,67 +330,6 @@ function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * GitHub-only: which of your orgs is "your team"?
- *
- * Linear and Jira tokens each point at exactly one workspace, so they never ask.
- * A GitHub user belongs to many orgs at once and we refuse to guess - until
- * this is answered they have no org, which is the safe default.
- */
-export function GithubOrgPicker({ orgs }: { orgs: Array<{ login: string; avatarUrl?: string }> }) {
-  // The orgs come from the server render (lib/github listGithubOrgs), so the
-  // row opens on its choices instead of an empty box while they load.
-  const router = useRouter();
-  const [saving, setSaving] = useState("");
-  const [error, setError] = useState("");
-
-  async function pick(login: string) {
-    setError("");
-    setSaving(login);
-    try {
-      const res = await fetch("/api/org/github", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ login }),
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error || "Couldn't save that choice.");
-      // Picking an org changes what the whole page renders (team defaults
-      // appear, the picker goes away), and all of that is server-rendered -
-      // so re-run the server render rather than patching state here.
-      router.refresh();
-    } catch (e) {
-      setSaving("");
-      setError(e instanceof Error ? e.message : "Couldn't save that choice.");
-    }
-  }
-
-  return (
-    <div>
-      <Eyebrow>Your GitHub organization</Eyebrow>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        {orgs.map((o) => (
-          <button
-            key={o.login}
-            type="button"
-            onClick={() => pick(o.login)}
-            disabled={!!saving}
-            className={`${ghostButtonClass} gap-2`}
-          >
-            {o.avatarUrl && (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={o.avatarUrl} alt="" className="h-4 w-4 rounded-full" />
-            )}
-            {saving === o.login ? "Saving…" : o.login}
-          </button>
-        ))}
-      </div>
-      {error && <p className="mt-2 text-xs text-[#c62828]">{error}</p>}
     </div>
   );
 }

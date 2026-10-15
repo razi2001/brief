@@ -3,14 +3,15 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import TrackerPicker from "./TrackerPicker";
-import { TRACKER_DEFS, useTrackerConnect, type TrackerDef } from "./useTrackerConnect";
+import { NOT_AVAILABLE, TRACKER_DEFS, TRACKER_OPTIONS, useTrackerConnect, type TrackerDef } from "./useTrackerConnect";
 import type { ProviderKey } from "./provider-labels";
 
 /**
- * The Settings page's issue tracker section. Connections are managed here via
- * the Clerk client API rather than through the `<UserProfile/>` "Connected
- * accounts" panel. The connect/disconnect logic lives in useTrackerConnect
- * (shared with the onboarding wizard); TrackerPicker is the card over it.
+ * The Settings page's issue tracker section. Connections are managed here
+ * rather than through the `<UserProfile/>` "Connected accounts" panel: Clerk
+ * trackers through the Clerk client API, the rest through Brief's own OAuth
+ * routes. The connect/disconnect logic lives in useTrackerConnect (shared with
+ * the onboarding wizard); TrackerPicker is the card over it.
  */
 
 function SkeletonCard() {
@@ -28,24 +29,28 @@ function SkeletonCard() {
   );
 }
 
-const OPTIONS = TRACKER_DEFS.map(({ key, name, caption }) => ({ key, name, caption }));
-
 function defFor(key: ProviderKey): TrackerDef {
   return TRACKER_DEFS.find((d) => d.key === key)!;
 }
+
+const asKeys = (v: unknown): ProviderKey[] => (Array.isArray(v) ? (v as ProviderKey[]) : []);
 
 export default function Integrations() {
   // Which connected trackers can't actually be used. Clerk reports an account
   // as verified while refusing to vend a token for it once the grant goes
   // stale, so "connected" on its own is not the truth - only the server can
-  // tell, and it says so here. Fetched after paint: a slow tracker must not
-  // hold the page, and until it answers nothing claims to be broken.
-  const [stale, setStale] = useState<string[]>([]);
+  // tell, and it says so here. It also names the ones still waiting on a
+  // workspace pick, which are not broken. Fetched after paint: a slow tracker
+  // must not hold the page, and until it answers nothing claims to be broken.
+  const [health, setHealth] = useState<{ stale: ProviderKey[]; needsWorkspace: ProviderKey[] }>({
+    stale: [],
+    needsWorkspace: [],
+  });
   useEffect(() => {
     fetch("/api/trackers/health", { credentials: "same-origin" })
       .then((r) => r.json())
-      .then((j) => setStale(Array.isArray(j.stale) ? j.stale : []))
-      .catch(() => setStale([]));
+      .then((j) => setHealth({ stale: asKeys(j?.stale), needsWorkspace: asKeys(j?.needsWorkspace) }))
+      .catch(() => setHealth({ stale: [], needsWorkspace: [] }));
   }, []);
 
   const {
@@ -53,8 +58,10 @@ export default function Integrations() {
     user,
     busy,
     errors,
+    notice,
     setTrackerError,
     isConnected,
+    isAvailable,
     pendingAccount,
     pendingError,
     connect,
@@ -73,15 +80,22 @@ export default function Integrations() {
   const connected = TRACKER_DEFS.find((t) => isConnected(t))?.key ?? null;
   // A tracker whose last attempt didn't finish. Back from the OAuth round trip,
   // that is the one the card should open on, so its error is right there.
+  const errored = TRACKER_DEFS.find((t) => errors[t.key])?.key ?? null;
   const attempted =
-    TRACKER_DEFS.find((t) => errors[t.key] || pendingAccount(t.providerMatch))?.key ?? null;
+    errored ?? TRACKER_DEFS.find((t) => pendingAccount(t.providerMatch))?.key ?? null;
+  // A switch to an owned tracker that came back with an error left the current
+  // one connected, so the card opens on the attempt rather than hiding it.
+  const initialSelected = connected ? errored : attempted;
+  const unavailable = TRACKER_DEFS.filter((t) => !isAvailable(t)).map((t) => t.key);
 
   async function handleDisconnect(key: ProviderKey) {
+    const t = defFor(key);
     setTrackerError(key, "");
     setNeedsAccount((m) => ({ ...m, [key]: false }));
-    const ok = await disconnect(defFor(key));
+    const ok = await disconnect(t);
     // Fall back to the account page, where Clerk's own UI can finish the job.
-    if (!ok) setNeedsAccount((m) => ({ ...m, [key]: true }));
+    // An owned tracker has no such page; the hook already set its error.
+    if (!ok && t.auth === "clerk") setNeedsAccount((m) => ({ ...m, [key]: true }));
   }
 
   function messageFor(key: ProviderKey): ReactNode {
@@ -97,7 +111,10 @@ export default function Integrations() {
         </>
       );
     }
-    if (errors[key]) return errors[key];
+    // The card's own status already says a tracker isn't available yet.
+    if (errors[key] && !(errors[key] === NOT_AVAILABLE && unavailable.includes(key))) {
+      return errors[key];
+    }
     // Only Clerk connections leave a half-finished record behind.
     if (isConnected(t) || !pendingAccount(t.providerMatch)) return null;
     // Show Clerk's actual verification error when it has one - "didn't finish"
@@ -109,12 +126,15 @@ export default function Integrations() {
 
   return (
     <TrackerPicker
-          options={OPTIONS}
+          options={TRACKER_OPTIONS}
           connected={connected}
-          stale={stale}
+          stale={health.stale}
+          needsWorkspace={health.needsWorkspace}
+          unavailable={unavailable}
           busy={busy}
-          initialSelected={connected ? null : attempted}
+          initialSelected={initialSelected}
           messageFor={messageFor}
+          notice={notice}
           onConnect={(key) => connect(defFor(key))}
           onDisconnect={handleDisconnect}
         />

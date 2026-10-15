@@ -92,6 +92,7 @@ export default function TicketDoc({
   initialBody,
   assets,
   connected,
+  exportError = null,
   filing = false,
 }: {
   briefId: string;
@@ -106,6 +107,8 @@ export default function TicketDoc({
   assets: AssetMeta[];
   /** Trackers the owner has connected, offered as export targets on a draft. */
   connected: ProviderKey[];
+  /** Why the last export of this draft failed, shown beside the export buttons. */
+  exportError?: string | null;
   /** Being filed to a tracker right now: read-only + a "Filing…" indicator, but
    *  the full header/toolbar stays (no stripped-down page). */
   filing?: boolean;
@@ -405,7 +408,7 @@ export default function TicketDoc({
       {/* Action toolbar - one primary, then quiet ghost secondaries. */}
       <div className="mt-5 flex flex-wrap items-center gap-1 border-b border-hairline pb-5">
         {/* Primary: export the draft, or open the filed ticket. */}
-        {isOwner && isDraft && <ExportButtons briefId={briefId} connected={connected} />}
+        {isOwner && isDraft && <ExportButtons briefId={briefId} connected={connected} initialError={exportError ?? ""} />}
         {!isDraft && ticketUrl && (
           <a
             className="btn"

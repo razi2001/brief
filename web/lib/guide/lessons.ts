@@ -65,10 +65,11 @@ export const LESSONS: readonly Lesson[] = [
     slug: "connect-tracker",
     group: "start",
     title: "Connect your tracker",
-    blurb: "Brief files tickets straight into Linear, Jira or GitHub.",
+    blurb:
+      "Brief files tickets straight into Linear, Jira, GitHub, GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana or Monday.",
     steps: [
       "Open **Settings** and click the **Tracker** row.",
-      "Choose Linear, Jira or GitHub, then **Connect**.",
+      "Choose yours from the list, then **Connect**.",
       "Allow Brief on your tracker's page.",
       "Back in Settings, the row says *Connected*.",
     ],

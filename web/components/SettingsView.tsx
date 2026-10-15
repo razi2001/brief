@@ -1,6 +1,7 @@
 import IntegrationsClient from "@/components/IntegrationsClient";
 import TeamList, { teamSummary } from "@/components/TeamList";
-import TicketPreferences, { GithubOrgPicker } from "@/components/TicketPreferences";
+import TicketPreferences from "@/components/TicketPreferences";
+import WorkspacePicker from "@/components/WorkspacePicker";
 import SettingsList from "@/components/SettingsList";
 import Avatar from "@/components/Avatar";
 import { TrackerLogo } from "@/components/TrackerLogo";
@@ -10,6 +11,7 @@ import { providerName } from "@/lib/trackers/registry";
 import type { ProviderKey } from "@/components/provider-labels";
 import type { TeamMember } from "@/lib/team";
 import type { GuidanceContext } from "@/lib/settings";
+import type { Workspace } from "@/lib/tracker";
 
 /**
  * The Settings page body, from plain data (the page loads it). Separate so the
@@ -18,14 +20,29 @@ import type { GuidanceContext } from "@/lib/settings";
 export type SettingsViewProps = {
   tracker: ProviderKey | null;
   team: { org: { name: string; provider: ProviderKey }; members: TeamMember[]; replaySites: string[] } | null;
-  githubOrgs: Array<{ login: string; avatarUrl?: string }>;
+  /** The tracker's workspaces to choose a team from, when it sees several and none is picked. */
+  workspaces: { provider: ProviderKey; noun: string; list: Workspace[] } | null;
   guidance: GuidanceContext;
   mySites: string[];
   replayMode: ReplayMode;
+  /** Open the Team row on arrival: the connect flow sends people here to pick a workspace. */
+  openTeam?: boolean;
+  /** Open the Tracker row on arrival: a connect came back failing, and its error is on the card. */
+  openTracker?: boolean;
 };
 
-export default function SettingsView({ tracker, team, githubOrgs, guidance, mySites, replayMode }: SettingsViewProps) {
+export default function SettingsView({
+  tracker,
+  team,
+  workspaces,
+  guidance,
+  mySites,
+  replayMode,
+  openTeam = false,
+  openTracker = false,
+}: SettingsViewProps) {
   const hasTeam = !!team && team.members.length > 0;
+  const picking = workspaces && workspaces.list.length > 0 ? workspaces : null;
   // the list that applies: the team's, or your own (like Ticket rules)
   const sites = effectiveReplaySites({ hasTeam: !!team, mode: replayMode, team: team?.replaySites ?? [], mine: mySites });
   const rule = guidance.effective.trim().split(/\r?\n/)[0] ?? "";
@@ -45,7 +62,7 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
       <div className="mt-7">
         {group("Workspace")}
         <SettingsList
-          initialOpen={tracker ? null : "tracker"}
+          initialOpen={openTeam ? "team" : openTracker || !tracker ? "tracker" : null}
           rows={[
             {
               id: "tracker",
@@ -85,16 +102,21 @@ export default function SettingsView({ tracker, team, githubOrgs, guidance, mySi
                     ))}
                   </span>
                 </>
-              ) : githubOrgs.length > 0 ? (
-                <span className="text-accent">Pick your GitHub organization</span>
+              ) : picking ? (
+                <span className="truncate text-accent">{`Pick your ${providerName(picking.provider)} ${picking.noun}`}</span>
               ) : (
                 <span className="text-muted">Just you</span>
               ),
               // Nothing to show or choose: a plain row, not one that opens.
               body: hasTeam ? (
                 <TeamList members={team.members} />
-              ) : githubOrgs.length > 0 ? (
-                <GithubOrgPicker orgs={githubOrgs} />
+              ) : picking ? (
+                <WorkspacePicker
+                  provider={picking.provider}
+                  providerName={providerName(picking.provider)}
+                  noun={picking.noun}
+                  workspaces={picking.list}
+                />
               ) : undefined,
             },
           ]}

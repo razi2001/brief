@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import TicketPreferences from "./TicketPreferences";
 
-// The GitHub org picker uses the router; stub it.
+// Saving refreshes the server render through the router; stub it.
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
 }));
@@ -17,7 +17,6 @@ const baseProps = {
   hasOrg: true,
   orgUpdatedByName: "Jonas",
   orgUpdatedAt: "2026-09-02T10:00:00.000Z",
-  needsGithubOrg: false,
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;

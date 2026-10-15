@@ -7,6 +7,7 @@ import { videoLogSections, type VideoLogs } from "./tech-details";
 import { agentModel } from "./model";
 import { runToolLoop, text, image, type FunctionDef, type Part } from "./responses";
 import type { Tracker, IssueResult, TrackerPriority } from "../tracker";
+import { providerName } from "../trackers/registry";
 
 export interface BriefInput {
   json: unknown;                          // parsed brief.json
@@ -77,6 +78,9 @@ export async function processBrief(
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = agentModel();
   const noun = tracker.targetNoun;
+  // The tracker's own name ("Azure DevOps", not "azure"), wherever the model or
+  // the user reads it.
+  const trackerName = providerName(tracker.kind);
   const caps = tracker.capabilities;
   const prefs = (instructions ?? "").trim();
 
@@ -101,7 +105,7 @@ export async function processBrief(
   ].filter(Boolean) as string[];
   const sys =
     SYSTEM_PROMPT +
-    `\n\nTHIS TRACKER: ${tracker.kind}. A filing destination is called a ${noun}.` +
+    `\n\nTHIS TRACKER: ${trackerName}. A filing destination is called a ${noun}.` +
     (tracker.bodyGuidance ? ` ${tracker.bodyGuidance}` : "") +
     `\n\nTOOLING: You drive the tracker through tools, MCP-style. search_issues(query) looks up EXISTING issues so you can route and label by precedent - call it before picking a ${noun}. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${detailsExtras.length ? `, and ${detailsExtras.join(", ")}` : ""} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional ${settable.join("/")}). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once.${caps.comments ? " The comment is posted on the issue after it's created; it's separate from the description." : ""} Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system ${caps.nativeAttachments ? "uploads and embeds" : "embeds"} your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
     (prefs
@@ -129,6 +133,12 @@ export async function processBrief(
       'Extra Trello card fields by API name (e.g. {"due": "2026-07-01T12:00:00Z"}) - only when the preferences ask for one.',
     notion:
       'Notion database properties by their exact property NAME from get_target_details\' customFields (e.g. {"Environment": "Production"}). For select and status properties use one of the listed allowedValues.',
+    gitlab:
+      'Extra GitLab fields: {"milestone": "<title from get_target_details>", "due_date": "2026-07-01", "weight": 3, "confidential": true, "issue_type": "incident"} - only when the preferences need them.',
+    asana:
+      'Asana custom fields by field gid or exact name from get_target_details\' customFields (e.g. {"Environment": "Production"}); enum fields take one of the listed allowedValues.',
+    monday:
+      'Board columns by column id or exact title from get_target_details\' customFields (e.g. {"Environment": "Production"}); status and dropdown columns take one of the listed allowedValues.',
   };
 
   const customFieldsParam = {
@@ -152,6 +162,11 @@ export async function processBrief(
       "The value for this database's status property, using an exact option name from the target's state list.",
     azure:
       "The work item state (e.g. \"New\", \"Active\") from the target's state list - only when the preferences ask for a starting state.",
+    gitlab:
+      '"Open", "Closed", or a status label like "workflow::In review" from the target\'s state list - only when the preferences ask for one.',
+    asana:
+      'The section to put the task in, from the target\'s state list. "Done" completes the task when there is no section by that name.',
+    monday: "A label of the board's Status column, from the target's state list.",
   };
 
   const PRIORITY_HELP: Record<string, string> = {
@@ -159,6 +174,12 @@ export async function processBrief(
       "Issue priority - only when the preferences or report justify one. GitHub has no priority field, so this is applied to the repo's existing priority-style label (or the board's Priority field) and is skipped when neither exists.",
     trello:
       "Card priority - only when the preferences or report justify one. Trello has no priority field, so this is applied to a matching existing board label and skipped when there is none.",
+    gitlab:
+      "Issue priority - only when the preferences or report justify one. GitLab has no priority field, so this is applied to the project's existing priority-style label and skipped when there is none.",
+    asana:
+      "Task priority - only when the preferences or report justify one. Applied to the project's Priority field when it has one, skipped otherwise.",
+    monday:
+      "Item priority - only when the preferences or report justify one. Applied to the board's Priority column when it has one, skipped otherwise.",
   };
 
   const PROJECT_HELP: Record<string, string> = {
@@ -166,18 +187,20 @@ export async function processBrief(
       "The Area Path to file under (from the target's details) - when the preferences name an area, or say to pick the best matching one.",
     github:
       "The project board (title or number from the target's details) to add this issue to - needed when setting a state or a board field.",
+    monday:
+      'The group on the board (e.g. "Bugs") to put the item in - when the preferences name one, or say to pick the best matching one.',
   };
 
   const tools: FunctionDef[] = [
     {
       name: "list_targets",
-      description: `List the ${noun}s (team or project) so you can choose where to file.`,
+      description: `List the ${noun}s so you can choose where to file.`,
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
     {
       name: "search_issues",
       description:
-        `Search EXISTING ${noun === "team" ? "Linear" : "Jira"} issues to learn how this workspace files things like THIS report - which ${noun} similar issues live in, what labels and priority they carry, who owns them. Call this BEFORE choosing where to file. Use keywords from the failure (the error text, the failing endpoint/URL, the feature or page name); run a couple of searches with different keywords if the first is thin.`,
+        `Search EXISTING ${trackerName} issues to learn how this workspace files things like THIS report - which ${noun} similar issues live in, what labels and priority they carry, who owns them. Call this BEFORE choosing where to file. Use keywords from the failure (the error text, the failing endpoint/URL, the feature or page name); run a couple of searches with different keywords if the first is thin.`,
       parameters: {
         type: "object",
         properties: {
@@ -204,7 +227,7 @@ export async function processBrief(
     },
     {
       name: "create_issue",
-      description: `Create exactly one issue in the chosen ${noun} (team or project).`,
+      description: `Create exactly one issue in the chosen ${noun}.`,
       parameters: {
         type: "object",
         properties: {
@@ -285,7 +308,7 @@ export async function processBrief(
       parameters: {
         type: "object",
         properties: {
-          identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
+          identifier: { type: "string", description: "The issue identifier, exactly as create_issue returned it" },
         },
         required: ["identifier"],
         additionalProperties: false,
@@ -298,7 +321,7 @@ export async function processBrief(
       parameters: {
         type: "object",
         properties: {
-          identifier: { type: "string", description: "The issue identifier, e.g. \"ENG-42\" / \"PROJ-7\"" },
+          identifier: { type: "string", description: "The issue identifier, exactly as create_issue returned it" },
           title: { type: "string" },
           ...(caps.states
             ? { state: { type: "string", description: STATE_HELP[tracker.kind] ?? "Workflow state/status name to move the issue to" } }
@@ -327,7 +350,7 @@ export async function processBrief(
   const targets = await tracker.listTargets();
   if (!targets.length) {
     throw new Error(
-      `No ${noun}s found in your ${tracker.kind} workspace - create a ${noun} there, then retry.`,
+      `No ${noun}s found in your ${trackerName} workspace - create a ${noun} there, then retry.`,
     );
   }
   // One line per target, with its usable labels/states (capped - this is prompt
