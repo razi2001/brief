@@ -3,6 +3,7 @@ import {
   STATUS_COLOR,
   matchPriorityLabel,
   resolveName,
+  type IssueInput,
   type IssuePatch,
   type IssueSearchResult,
   type LiveIssue,
@@ -15,14 +16,17 @@ import {
   type Workspace,
 } from "./tracker";
 import { batchBlocks, parseRichText, plainRichText } from "./notion-blocks";
-import { buildNotionBody } from "./notion-body";
+import { buildNotionBody, type NotionEvidence } from "./notion-body";
+import { evidenceFileName, evidenceIndexes } from "./ticket-body";
 
 export type NotionTok = { token: string };
 
 const API = "https://api.notion.com/v1";
 // The last version before databases split into data sources (2025-09-03). A
 // database with ONE data source, which is nearly all of them, still answers to
-// its database id here, so the adapter keeps one id per target.
+// its database id here, so the adapter keeps one id per target. The File
+// Upload API came later but needs no newer version: Notion ships additive
+// changes, new endpoints included, to every version at once.
 const NOTION_VERSION = "2022-06-28";
 
 const AUTH_EXPIRED =
@@ -255,7 +259,10 @@ async function nt(tok: NotionTok, path: string, init: RequestInit = {}): Promise
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${tok.token}`);
   headers.set("Notion-Version", NOTION_VERSION);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  // A file upload's multipart body brings its own type, boundary included.
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
   const r = await fetch(`${API}${path}`, { ...init, headers });
   if (r.status === 401) throw new Error(AUTH_EXPIRED);
   return r;
@@ -275,6 +282,141 @@ export function retryAfterMs(header: string | null): number {
   const s = Number(header);
   const ms = header != null && header.trim() !== "" && Number.isFinite(s) && s >= 0 ? s * 1000 : 1000;
   return Math.min(ms, MAX_RETRY_WAIT_MS);
+}
+
+// ---------------------------------------------------------------------------
+// File uploads
+// ---------------------------------------------------------------------------
+
+/** The most Notion takes in one send; a larger file goes up in parts. */
+export const SINGLE_PART_MAX = 20 * 1024 * 1024;
+/** One part of a larger file: Notion takes 5 to 20 MiB a part and suggests 10. */
+export const PART_SIZE = 10 * 1024 * 1024;
+
+type FileUpload = { id: string; status?: string };
+
+/** One upload call, tried once more after the wait Notion asks for when it is rate limited. */
+async function uploadCall<T>(tok: NotionTok, path: string, init: RequestInit): Promise<T> {
+  let r = await nt(tok, path, init);
+  if (r.status === 429) {
+    await new Promise((done) => setTimeout(done, retryAfterMs(r.headers.get("Retry-After"))));
+    r = await nt(tok, path, init);
+  }
+  if (!r.ok) throw new Error(`Notion ${path} failed: ${r.status} ${await r.text()}`);
+  return (await r.json()) as T;
+}
+
+/**
+ * The largest file this workspace takes, in bytes, as its bot user reports it
+ * (5 MiB on a free plan). Undefined when Notion does not say, and then each
+ * upload is simply tried.
+ */
+async function uploadLimit(tok: NotionTok): Promise<number | undefined> {
+  try {
+    const r = await nt(tok, "/users/me");
+    if (!r.ok) return undefined;
+    const me = (await r.json()) as {
+      bot?: { workspace_limits?: { max_file_upload_size_in_bytes?: unknown } };
+    };
+    const n = me.bot?.workspace_limits?.max_file_upload_size_in_bytes;
+    return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Put one file into Notion and return its file upload id, for a block to
+ * refer to. Up to 20 MiB it is one send; past that, numbered 10 MiB parts and
+ * a complete call. Throws when Notion does not end up with the whole file.
+ */
+async function uploadFile(
+  tok: NotionTok,
+  file: { filename: string; contentType: string; bytes: Buffer },
+): Promise<string> {
+  const parts = file.bytes.length > SINGLE_PART_MAX ? Math.ceil(file.bytes.length / PART_SIZE) : 1;
+  const meta = { filename: file.filename, content_type: file.contentType };
+  const created = await uploadCall<FileUpload>(tok, "/file_uploads", {
+    method: "POST",
+    body: JSON.stringify(
+      parts > 1 ? { mode: "multi_part", number_of_parts: parts, ...meta } : { mode: "single_part", ...meta },
+    ),
+  });
+  let last = created;
+  for (let i = 0; i < parts; i++) {
+    const bytes = parts > 1 ? file.bytes.subarray(i * PART_SIZE, (i + 1) * PART_SIZE) : file.bytes;
+    const form = new FormData();
+    form.append("file", new Blob([new Uint8Array(bytes)], { type: file.contentType }), file.filename);
+    if (parts > 1) form.append("part_number", String(i + 1));
+    last = await uploadCall<FileUpload>(tok, `/file_uploads/${created.id}/send`, { method: "POST", body: form });
+  }
+  if (parts > 1) {
+    last = await uploadCall<FileUpload>(tok, `/file_uploads/${created.id}/complete`, { method: "POST" });
+  }
+  if (last.status !== "uploaded") {
+    throw new Error(`Notion file upload ${created.id} ended ${last.status ?? "without a status"}`);
+  }
+  return created.id;
+}
+
+/** The media type alone: "video/webm;codecs=vp9" is "video/webm". */
+function mediaType(contentType: string): string {
+  return (contentType ?? "").split(";")[0].trim().toLowerCase();
+}
+
+/**
+ * The evidence, each file uploaded into Notion where it can be, so the page
+ * shows Notion's own image and plays Notion's own video (WebM included)
+ * rather than pointing at Brief.
+ *
+ * A file stays on its Brief url when it is over the workspace's limit, when
+ * Notion refuses or fails the upload, or when it is neither an image nor a
+ * video (no block would show it). Evidence never fails a filing: anything
+ * that goes wrong here leaves that file, or all of them, as they were.
+ *
+ * Files go up one at a time: Notion's rate limit is an average of three
+ * requests a second, and a filing waits on this either way. Each is named the
+ * way every tracker names evidence ("screenshot-2.png", never the capture's
+ * own file name), since Notion keeps the name on the file.
+ */
+export async function uploadEvidence(
+  tok: NotionTok,
+  evidence: IssueInput["evidence"] | undefined,
+): Promise<NotionEvidence[]> {
+  const files: NotionEvidence[] = [...(evidence ?? [])];
+  const uploadable = (e: NotionEvidence) =>
+    e.bytes?.length > 0 && /^(image|video)\//.test(mediaType(e.contentType));
+  if (!files.some(uploadable)) return files;
+
+  try {
+    const limit = await uploadLimit(tok);
+    const indexes = evidenceIndexes(files);
+    for (let i = 0; i < files.length; i++) {
+      const e = files[i];
+      if (!uploadable(e)) continue;
+      if (limit !== undefined && e.bytes.length > limit) {
+        console.warn(
+          `[notion-tracker] ${e.contentType} of ${e.bytes.length} bytes is over this workspace's ` +
+            `${limit}-byte upload limit; embedding it by url.`,
+        );
+        continue;
+      }
+      try {
+        const type = mediaType(e.contentType);
+        const id = await uploadFile(tok, {
+          filename: evidenceFileName(type, indexes[i]),
+          contentType: type,
+          bytes: e.bytes,
+        });
+        files[i] = { ...e, fileUploadId: id };
+      } catch (err) {
+        console.warn(`[notion-tracker] evidence upload failed, embedding it by url:`, err);
+      }
+    }
+  } catch (err) {
+    console.warn(`[notion-tracker] evidence uploads failed, embedding by url:`, err);
+  }
+  return files;
 }
 
 // ---------------------------------------------------------------------------
@@ -572,7 +714,10 @@ export function makeNotionTracker(tok: NotionTok): Tracker {
         throw new Error(`Notion: database ${targetId} has no title property to file into.`);
       }
 
-      const blocks = buildNotionBody(descriptionMarkdown, evidence, details);
+      // Into Notion first, so the page can refer to the uploads; whatever did
+      // not upload is embedded by url.
+      const uploaded = await uploadEvidence(tok, evidence);
+      const usesUploads = uploaded.some((e) => e.fileUploadId);
 
       // The first-class fields are resolved against the database's own
       // options before they are sent; extraFields are the agent's free-form
@@ -604,7 +749,7 @@ export function makeNotionTracker(tok: NotionTok): Tracker {
 
       // Notion caps a request at 100 top-level children, so the body's first
       // batch goes with the page and the rest is appended in order.
-      const batches = batchBlocks(blocks);
+      let batches = batchBlocks(buildNotionBody(descriptionMarkdown, uploaded, details));
       const create = (fields: Record<string, unknown>) =>
         nt(tok, `/pages`, {
           method: "POST",
@@ -616,8 +761,17 @@ export function makeNotionTracker(tok: NotionTok): Tracker {
         });
 
       let r = await create(properties);
-      if (r.status === 400) {
-        const why = await r.text();
+      let why = r.status === 400 ? await r.text() : "";
+      // A body Notion rejects while it refers to uploads is filed again with
+      // every file embedded by url, as it would have been without them: the
+      // evidence must never cost the ticket.
+      if (why && usesUploads && !/body\.properties/.test(why)) {
+        console.warn(`[notion-tracker] filing with the evidence by url, Notion rejected the uploads: ${why}`);
+        batches = batchBlocks(buildNotionBody(descriptionMarkdown, evidence, details));
+        r = await create(properties);
+        why = r.status === 400 ? await r.text() : "";
+      }
+      if (why) {
         const droppable = Object.keys(extra).filter((k) => !(k in core));
         // Only a rejected property is worth a second try, and only the
         // free-form ones are dropped: a date the agent wrote as "yesterday"
@@ -631,8 +785,9 @@ export function makeNotionTracker(tok: NotionTok): Tracker {
           `[notion-tracker] filing without ${droppable.join(", ")}, which Notion rejected: ${why}`,
         );
         r = await create(core);
+        why = "";
       }
-      if (!r.ok) throw new Error(`Notion /pages failed: ${r.status} ${await r.text()}`);
+      if (!r.ok) throw new Error(`Notion /pages failed: ${r.status} ${why || (await r.text())}`);
       const page = (await r.json()) as NotionPage;
 
       for (const batch of batches.slice(1)) {

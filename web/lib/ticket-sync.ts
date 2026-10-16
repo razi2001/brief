@@ -2,6 +2,7 @@
 // of a filed ticket). Kept free of server-only imports so they're unit-testable.
 
 import type { ProviderKey } from "./tracker";
+import { PROVIDER_LABELS } from "./provider-labels";
 
 /** Every ProviderKey, as a runtime list, for validating a stored value. */
 export const PROVIDER_KEYS: ProviderKey[] = [
@@ -122,6 +123,19 @@ export function displayIdentifier(identifier?: string | null, provider?: Provide
   if (provider === "notion" || provider === "asana") return "";
   if (provider === "monday" && /^\d+$/.test(id)) return `#${id}`;
   return id;
+}
+
+/**
+ * What an id slot shows for a ticket with no readable identifier: the
+ * tracker's own name ("Notion", "Asana"), so the slot never reads as a logo
+ * beside nothing. "" when the ticket has an identifier a reader would
+ * recognise (show that instead), and when there is no ticket at all. The raw
+ * page id or task gid is never the answer.
+ */
+export function keylessTrackerName(identifier?: string | null, provider?: ProviderKey): string {
+  if (!provider || !(identifier ?? "").trim()) return "";
+  if (displayIdentifier(identifier, provider)) return "";
+  return PROVIDER_LABELS[provider] ?? "";
 }
 
 /**

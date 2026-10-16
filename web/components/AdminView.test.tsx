@@ -58,6 +58,21 @@ describe("AdminView", () => {
     expect(screen.getByText("Old ticket").tagName).toBe("SPAN");
   });
 
+  it("names a Notion ticket's tracker under its title instead of its page id", () => {
+    const PAGE_ID = "59833787-2cf9-4fdf-8782-e53db20768a5";
+    const url = "https://www.notion.so/Save-fails-598337872cf94fdf8782e53db20768a5";
+    const { container } = render(
+      <AdminView
+        rows={[row({ id: "n", title: "Save fails", ticketIdentifier: PAGE_ID, ticketUrl: url, provider: "notion" })]}
+        initial={DEFAULT_FILTERS}
+      />,
+    );
+    const name = screen.getByText("Notion");
+    expect(name.closest("a")?.getAttribute("href")).toBe(url);
+    expect(name.className).toContain("text-muted");
+    expect(container.innerHTML).not.toContain(PAGE_ID);
+  });
+
   it("filters by organization, then person, and keeps the URL in step", async () => {
     render(<AdminView rows={rows} initial={DEFAULT_FILTERS} />);
     fireEvent.change(screen.getByLabelText("Organization"), { target: { value: "linear:thunders" } });

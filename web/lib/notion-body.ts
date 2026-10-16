@@ -1,10 +1,12 @@
 // The body of a Notion ticket page, as blocks. Pure, and unit-tested in
 // notion.test.ts.
 //
-// Notion has no upload step in this adapter: evidence is embedded by the
-// stable Brief-hosted url (see app/api/evidence/[shareId]), the same way
-// GitHub does it, so the same rules about what to embed and how to label it
-// apply here.
+// Evidence goes into Notion itself where it can: notion.ts uploads each file
+// through Notion's File Upload API first, and the block refers to that upload.
+// A file that could not be uploaded (over the workspace's size limit, or
+// refused) is embedded by the stable Brief-hosted url instead (see
+// app/api/evidence/[shareId]), the same way GitHub does it, so the same rules
+// about what to embed and how to label it apply either way.
 
 import { BRIEF_ATTRIBUTION, type IssueInput } from "./tracker";
 import {
@@ -20,9 +22,16 @@ import {
 import { hasEvidenceHeading, isPubliclyFetchable } from "@/lib/ticket-body";
 
 /**
+ * One evidence file, with the id of its Notion file upload when its bytes went
+ * to Notion. Without one, the file is embedded by its url.
+ */
+export type NotionEvidence = IssueInput["evidence"][number] & { fileUploadId?: string };
+
+/**
  * Video formats Notion's video block plays from an external url. Anything else
- * (WebM, which is what most screen recordings are) gets a link instead: a
- * video block Notion cannot play is rejected, and with it the whole page.
+ * (WebM, which is what most screen recordings are) gets a link instead when it
+ * is embedded by url: an external video block Notion cannot play is rejected,
+ * and with it the whole page. An uploaded WebM plays like any other upload.
  */
 const NOTION_VIDEO = /\.(amv|asf|avi|f4v|flv|gifv|mkv|mov|mpg|mpeg|mpv|mp4|m4v|qt|wmv)$/i;
 
@@ -58,23 +67,39 @@ function isEvidenceHeading(b: NotionBlock): boolean {
 }
 
 /**
- * The evidence, as blocks, embedded by url.
+ * The evidence, as blocks: an uploaded file by its upload, anything else by url.
  *
- * Notion takes an externally hosted image directly, which is why evidence
- * travels with a stable Brief-hosted url. The rules are GitHub's:
+ * An uploaded image or video is Notion's own file, so it shows and plays like
+ * one pasted in by hand (a WebM recording included). The rest is embedded by
+ * the stable Brief-hosted url, and the rules are GitHub's:
  *  - a file with no `url` (a keyframe, deleted right after filing) is skipped
  *    rather than linked to something that will 404;
  *  - a url Notion cannot reach (a localhost APP_URL in development) is skipped
  *    rather than shown as a broken image in a real ticket;
+ * and for every file, uploaded or not:
  *  - the caption sits directly above its image, where a reader looks first,
  *    instead of in Notion's small grey caption under it;
  *  - a recording is "Screen recording", never its file name: the ticket never
  *    says how the report was captured.
  */
-export function evidenceBlocks(evidence: IssueInput["evidence"]): NotionBlock[] {
+export function evidenceBlocks(evidence: NotionEvidence[] | undefined): NotionBlock[] {
   const out: NotionBlock[] = [];
   let skipped = 0;
   for (const e of evidence ?? []) {
+    if (e.fileUploadId) {
+      const file = { type: "file_upload", file_upload: { id: e.fileUploadId } };
+      if (e.contentType.startsWith("image/")) {
+        if (e.caption?.trim()) out.push(block("paragraph", { rich_text: parseRichText(e.caption.trim()) }));
+        out.push(block("image", file));
+        continue;
+      }
+      if (e.contentType.startsWith("video/")) {
+        out.push(block("paragraph", { rich_text: [plainText("Screen recording", { bold: true })] }));
+        out.push(block("video", file));
+        continue;
+      }
+      // Neither: notion.ts never uploads one, but if it did, the url still works.
+    }
     if (!e.url) continue;
     // Not http(s) is not something Notion can embed, and would fail the page.
     if (!isHttpUrl(e.url) || !isPubliclyFetchable(e.url)) {
@@ -129,7 +154,7 @@ function withoutAttribution(markdown: string): string {
  */
 export function buildNotionBody(
   descriptionMarkdown: string,
-  evidence: IssueInput["evidence"],
+  evidence: NotionEvidence[] | undefined,
   details?: IssueInput["details"],
 ): NotionBlock[] {
   const blocks = markdownToBlocks(withoutAttribution(descriptionMarkdown));

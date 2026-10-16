@@ -125,9 +125,9 @@ export async function processBriefById(
   try {
     const prefix = brief.storage_prefix as string;
 
-    // Trackers with no upload API (GitHub) or that prefer a URL (Notion) embed
-    // the screenshots by link, so those links have to resolve the moment the
-    // ticket is rendered. The share token is therefore minted AND PERSISTED
+    // Trackers with no upload API (GitHub), and Notion for any file it could
+    // not upload, embed the screenshots by link, so those links have to resolve
+    // the moment the ticket is rendered. The share token is therefore minted AND PERSISTED
     // before filing rather than afterwards - the evidence route looks a brief
     // up by share_id, and a token that only lands in the post-filing write
     // would leave a race where GitHub fetches the image first and caches a 404.

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { chunk, displayIdentifier, providerOf, shortIdentifier, ticketSnapshotPatch } from "./ticket-sync";
+import {
+  chunk,
+  displayIdentifier,
+  keylessTrackerName,
+  providerOf,
+  shortIdentifier,
+  ticketSnapshotPatch,
+} from "./ticket-sync";
 
 describe("providerOf", () => {
   it("detects Jira from the hostname", () => {
@@ -265,5 +272,24 @@ describe("displayIdentifier", () => {
   it("shows nothing for Notion and Asana", () => {
     expect(displayIdentifier("0123456789abcdef0123456789abcdef", "notion")).toBe("");
     expect(displayIdentifier("1200000000000002", "asana")).toBe("");
+  });
+});
+
+describe("keylessTrackerName", () => {
+  it("names Notion and Asana where their meaningless ids would go", () => {
+    expect(keylessTrackerName("59833787-2cf9-4fdf-8782-e53db20768a5", "notion")).toBe("Notion");
+    expect(keylessTrackerName("1200000000000002", "asana")).toBe("Asana");
+  });
+
+  it("is empty for a ticket with an id a reader recognises, which is shown instead", () => {
+    expect(keylessTrackerName("ENG-42", "linear")).toBe("");
+    expect(keylessTrackerName("acme/web#12", "github")).toBe("");
+    expect(keylessTrackerName("1234567890", "monday")).toBe("");
+  });
+
+  it("is empty when there is no ticket, or no tracker to name", () => {
+    expect(keylessTrackerName(null, "notion")).toBe("");
+    expect(keylessTrackerName("  ", "notion")).toBe("");
+    expect(keylessTrackerName("59833787-2cf9-4fdf-8782-e53db20768a5", undefined)).toBe("");
   });
 });

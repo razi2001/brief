@@ -123,3 +123,42 @@ describe("BriefListRow opens every ticket in its own tracker", () => {
     expect(hrefsIn(container).filter((h) => h === GH).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("a ticket whose tracker has no readable id", () => {
+  const PAGE_ID = "59833787-2cf9-4fdf-8782-e53db20768a5";
+  const NOTION = "https://www.notion.so/Save-fails-598337872cf94fdf8782e53db20768a5";
+  const notion: DashboardBrief = {
+    ...brief({ ...liveTicket, url: NOTION }),
+    ticket_url: NOTION,
+    ticket_identifier: PAGE_ID,
+    provider: "notion",
+  };
+
+  it("names the tracker in the tickets feed's ID column, and never shows the page id", () => {
+    const { container } = render(
+      <ul>
+        <BriefListRow brief={notion} />
+      </ul>,
+    );
+    const link = container.querySelector('a[aria-label="Open in Notion"]');
+    expect(link?.getAttribute("href")).toBe(NOTION);
+    expect(link?.textContent).toBe("Notion");
+    expect(link?.querySelector("span")?.className).toContain("text-muted");
+    expect(link?.getAttribute("title")).toBe("Open in Notion");
+    expect(container.innerHTML).not.toContain(PAGE_ID);
+  });
+
+  it("names the tracker on the dashboard's recent tickets too", () => {
+    const { container } = render(<TicketList briefs={[{ ...notion, provider: "asana", ticket_identifier: "1200000000000002" }]} />);
+    const idCell = container.querySelector("li a > span");
+    expect(idCell?.textContent).toBe("Asana");
+    expect(container.innerHTML).not.toContain("1200000000000002");
+  });
+
+  it("still shows the id itself for a tracker that has one", () => {
+    const { container } = render(<TicketList briefs={[brief(liveTicket)]} />);
+    const idCell = container.querySelector("li a > span");
+    expect(idCell?.textContent).toBe("APP-4690");
+    expect(idCell?.textContent).not.toContain("Linear");
+  });
+});

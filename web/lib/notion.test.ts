@@ -310,8 +310,9 @@ describe("buildNotionBody", () => {
         url: "https://brief.test/api/evidence/s1/recording.webm",
       },
     ]);
-    // Notion's video block does not play WebM, and a video block it cannot
-    // play is rejected with the whole page, so a WebM recording is a link.
+    // By url, Notion's video block does not play WebM, and a video block it
+    // cannot play is rejected with the whole page, so a WebM it could not
+    // upload is a link.
     const link = blocks[2];
     expect(link.type).toBe("paragraph");
     expect(link.paragraph).toEqual({
@@ -359,6 +360,35 @@ describe("buildNotionBody", () => {
     expect(types(blocks)).toEqual(["paragraph", "divider", "paragraph"]);
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
+  });
+
+  it("shows an uploaded screenshot from its upload, caption above, whatever its url", () => {
+    const blocks = buildNotionBody("It hangs.", [
+      // An upload needs no reachable url: this one works on a localhost APP_URL too.
+      shot({ caption: "The cart is empty", url: "http://localhost:3000/a.png", fileUploadId: "fu-1" }),
+    ]);
+    expect(types(blocks)).toEqual(["paragraph", "heading_2", "paragraph", "image", "divider", "paragraph"]);
+    expect(blockText(blocks[2])).toBe("The cart is empty");
+    expect(blocks[3].image).toEqual({ type: "file_upload", file_upload: { id: "fu-1" } });
+  });
+
+  it("plays an uploaded WebM recording in a video block, called a screen recording", () => {
+    const blocks = buildNotionBody("It hangs.", [
+      {
+        filename: "brief-capture-1699.webm",
+        contentType: "video/webm",
+        bytes: Buffer.from("webm"),
+        url: "https://brief.test/api/evidence/s1/recording.webm",
+        fileUploadId: "fu-2",
+      },
+    ]);
+    expect(types(blocks).slice(1, 4)).toEqual(["heading_2", "paragraph", "video"]);
+    expect(blocks[2].paragraph).toEqual({
+      rich_text: [{ type: "text", text: { content: "Screen recording" }, annotations: { bold: true } }],
+    });
+    expect(blocks[3].video).toEqual({ type: "file_upload", file_upload: { id: "fu-2" } });
+    expect(JSON.stringify(blocks)).not.toContain("brief-capture-1699");
+    expect(JSON.stringify(blocks)).not.toContain("Watch the screen recording");
   });
 
   it("folds the technical logs into a toggle per video, after the evidence", () => {
@@ -537,6 +567,8 @@ type Call = {
   method: string;
   headers: Headers;
   body: Record<string, unknown> | undefined;
+  /** A multipart body (a file upload's send), as sent. */
+  form?: FormData;
 };
 type Reply = { status?: number; json: unknown; headers?: Record<string, string> };
 type Route = [method: string, path: string, reply: () => Reply];
@@ -550,10 +582,10 @@ function mockNotion(...routes: Route[]): Call[] {
     "fetch",
     vi.fn(async (url: string, init: RequestInit = {}) => {
       const method = init.method ?? "GET";
-      const body = init.body
-        ? (JSON.parse(String(init.body)) as Record<string, unknown>)
-        : undefined;
-      calls.push({ url, method, headers: new Headers(init.headers), body });
+      const form = init.body instanceof FormData ? init.body : undefined;
+      const body =
+        init.body && !form ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
+      calls.push({ url, method, headers: new Headers(init.headers), body, form });
       const path = url.replace(API, "");
       const route = routes.find(([m, p]) => m === method && p === path);
       const reply: Reply = route
@@ -637,6 +669,8 @@ describe("fileIssue", () => {
       rich_text: [{ type: "text", text: { content: "Looking into it" } }],
     });
     expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+    // Evidence with no bytes has nothing to upload, so Notion is not asked.
+    expect(calls.some((c) => c.url === `${API}/users/me` || c.url.includes("/file_uploads"))).toBe(false);
 
     expect(out).toEqual({
       id: PAGE_ID,
@@ -784,6 +818,402 @@ describe("fileIssue", () => {
         evidence: [],
       }),
     ).rejects.toThrow(/Notion \/pages failed: 404/);
+  });
+});
+
+// The File Upload API's envelopes, shaped like Notion's reference: the bot
+// user carries the workspace's upload limit, a created upload is "pending",
+// and a sent (or completed) one is "uploaded".
+const FREE_LIMIT = 5 * 1024 * 1024;
+const PAID_LIMIT = 5 * 1024 * 1024 * 1024;
+const MIB = 1024 * 1024;
+
+const botMe = (limit?: number) => ({
+  json: {
+    object: "user",
+    id: BOT_ID,
+    name: "Brief",
+    avatar_url: null,
+    type: "bot",
+    bot: {
+      owner: { type: "workspace", workspace: true },
+      workspace_id: "ws-7f3a",
+      workspace_name: "Acme",
+      ...(limit === undefined ? {} : { workspace_limits: { max_file_upload_size_in_bytes: limit } }),
+    },
+    request_id: "a1b2c3d4-0000-4000-8000-000000000001",
+  },
+});
+
+const fileUpload = (id: string, over: Record<string, unknown> = {}) => ({
+  json: {
+    object: "file_upload",
+    id,
+    created_time: "2026-10-15T09:00:00.000Z",
+    last_edited_time: "2026-10-15T09:00:00.000Z",
+    expiry_time: "2026-10-15T10:00:00.000Z",
+    upload_url: `https://api.notion.com/v1/file_uploads/${id}/send`,
+    archived: false,
+    status: "pending",
+    filename: null,
+    content_type: null,
+    content_length: null,
+    request_id: "a1b2c3d4-0000-4000-8000-000000000002",
+    ...over,
+  },
+});
+
+const sent = (id: string, filename: string, contentType: string, size: number) =>
+  fileUpload(id, { status: "uploaded", filename, content_type: contentType, content_length: String(size) });
+
+const SHOT_UPLOAD = "b52b8ed6-e029-4707-a671-832549c09de3";
+const REC_UPLOAD = "2f1c3e5a-7b4d-4c8e-9a1f-6d2b8c4e0f13";
+
+/** Routes that upload one file, created with `id`, sent whole. */
+const uploadRoutes = (id: string, filename: string, contentType: string, size: number): Route[] => [
+  ["POST", `/file_uploads/${id}/send`, () => sent(id, filename, contentType, size)],
+];
+
+const png = (size: number) => Buffer.alloc(size, 1);
+const webm = (size: number) => Buffer.alloc(size, 2);
+const recording = (bytes: Buffer) => ({
+  filename: "brief-capture-1699.webm",
+  contentType: "video/webm",
+  bytes,
+  url: "https://brief.test/api/evidence/s1/recording.webm",
+});
+
+const pageCreate = (calls: Call[]) => calls.filter((c) => c.method === "POST" && c.url === `${API}/pages`);
+const uploadCalls = (calls: Call[]) => calls.filter((c) => c.url.startsWith(`${API}/file_uploads`));
+
+describe("fileIssue evidence uploads", () => {
+  it("uploads a screenshot into Notion and shows it from that upload, caption above", async () => {
+    const bytes = png(2048);
+    const calls = mockNotion(
+      ...schemaRoutes,
+      ["GET", "/users/me", () => botMe(FREE_LIMIT)],
+      ["POST", "/file_uploads", () => fileUpload(SHOT_UPLOAD)],
+      ...uploadRoutes(SHOT_UPLOAD, "screenshot-1.png", "image/png", bytes.length),
+      ["POST", "/pages", () => ({ json: PAGE() })],
+    );
+
+    await makeNotionTracker({ token: "secret_tok" }).fileIssue({
+      targetId: DB_ID,
+      title: "Save fails on checkout",
+      descriptionMarkdown: "The save button does nothing.",
+      evidence: [shot({ bytes, caption: "The cart still shows zero items" })],
+    });
+
+    const [create, send] = uploadCalls(calls);
+    expect(create.method).toBe("POST");
+    expect(create.url).toBe(`${API}/file_uploads`);
+    // Named like every tracker names evidence, never the capture's own name.
+    expect(create.body).toEqual({ mode: "single_part", filename: "screenshot-1.png", content_type: "image/png" });
+    expect(create.headers.get("Notion-Version")).toBe("2022-06-28");
+    expect(create.headers.get("Authorization")).toBe("Bearer secret_tok");
+
+    expect(send.url).toBe(`${API}/file_uploads/${SHOT_UPLOAD}/send`);
+    expect(send.headers.get("Notion-Version")).toBe("2022-06-28");
+    // fetch writes the multipart type itself, boundary included.
+    expect(send.headers.get("Content-Type")).toBeNull();
+    const file = send.form?.get("file") as File;
+    expect(file.name).toBe("screenshot-1.png");
+    expect(file.type).toBe("image/png");
+    expect(file.size).toBe(bytes.length);
+    expect(send.form?.get("part_number")).toBeNull();
+
+    const children = pageCreate(calls)[0].body?.children as NotionBlock[];
+    expect(types(children)).toEqual(["paragraph", "heading_2", "paragraph", "image", "divider", "paragraph"]);
+    expect(blockText(children[2])).toBe("The cart still shows zero items");
+    expect(children[3].image).toEqual({ type: "file_upload", file_upload: { id: SHOT_UPLOAD } });
+    expect(JSON.stringify(children)).not.toContain("brief.test/api/evidence");
+  });
+
+  it("uploads a WebM recording and plays it in a video block", async () => {
+    const bytes = webm(3 * MIB);
+    const calls = mockNotion(
+      ...schemaRoutes,
+      ["GET", "/users/me", () => botMe(FREE_LIMIT)],
+      ["POST", "/file_uploads", () => fileUpload(REC_UPLOAD)],
+      ...uploadRoutes(REC_UPLOAD, "screen-recording.webm", "video/webm", bytes.length),
+      ["POST", "/pages", () => ({ json: PAGE() })],
+    );
+
+    await makeNotionTracker({ token: "t" }).fileIssue({
+      targetId: DB_ID,
+      title: "Save fails on checkout",
+      descriptionMarkdown: "It hangs.",
+      evidence: [recording(bytes)],
+    });
+
+    const [create, send] = uploadCalls(calls);
+    expect(create.body).toEqual({
+      mode: "single_part",
+      filename: "screen-recording.webm",
+      content_type: "video/webm",
+    });
+    expect((send.form?.get("file") as File).type).toBe("video/webm");
+
+    const children = pageCreate(calls)[0].body?.children as NotionBlock[];
+    expect(types(children)).toEqual(["paragraph", "heading_2", "paragraph", "video", "divider", "paragraph"]);
+    expect(blockText(children[2])).toBe("Screen recording");
+    expect(children[3].video).toEqual({ type: "file_upload", file_upload: { id: REC_UPLOAD } });
+    expect(JSON.stringify(children)).not.toContain("Watch the screen recording");
+    expect(JSON.stringify(children)).not.toContain("brief-capture-1699");
+  });
+
+  it("keeps a file over the workspace's limit on its url, and never tries to upload it", async () => {
+    const small = png(1024);
+    const calls = mockNotion(
+      ...schemaRoutes,
+      ["GET", "/users/me", () => botMe(FREE_LIMIT)],
+      ["POST", "/file_uploads", () => fileUpload(SHOT_UPLOAD)],
+      ...uploadRoutes(SHOT_UPLOAD, "screenshot-1.png", "image/png", small.length),
+      ["POST", "/pages", () => ({ json: PAGE() })],
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await makeNotionTracker({ token: "t" }).fileIssue({
+      targetId: DB_ID,
+      title: "x",
+      descriptionMarkdown: "It hangs.",
+      evidence: [
+        shot({ bytes: small }),
+        shot({ bytes: png(FREE_LIMIT + 1), url: "https://brief.test/api/evidence/s1/screenshots/b.png" }),
+        recording(webm(FREE_LIMIT + 1)),
+      ],
+    });
+    warn.mockRestore();
+
+    // One upload: the small screenshot. The two over 5 MiB stay on Brief.
+    expect(uploadCalls(calls).filter((c) => c.url === `${API}/file_uploads`)).toHaveLength(1);
+    const children = pageCreate(calls)[0].body?.children as NotionBlock[];
+    expect(types(children).slice(1, 5)).toEqual(["heading_2", "image", "image", "paragraph"]);
+    expect(children[2].image).toEqual({ type: "file_upload", file_upload: { id: SHOT_UPLOAD } });
+    expect(children[3].image).toEqual({
+      type: "external",
+      external: { url: "https://brief.test/api/evidence/s1/screenshots/b.png" },
+    });
+    expect(children[4].paragraph).toEqual({
+      rich_text: [
+        { type: "text", text: { content: "Screen recording:" }, annotations: { bold: true } },
+        { type: "text", text: { content: " " } },
+        {
+          type: "text",
+          text: {
+            content: "Watch the screen recording",
+            link: { url: "https://brief.test/api/evidence/s1/recording.webm" },
+          },
+        },
+      ],
+    });
+  });
+
+  it("files the page with the evidence by url when Notion refuses the upload", async () => {
+    const calls = mockNotion(
+      ...schemaRoutes,
+      ["GET", "/users/me", () => botMe(FREE_LIMIT)],
+      ["POST", "/file_uploads", () => fileUpload(SHOT_UPLOAD)],
+      [
+        "POST",
+        `/file_uploads/${SHOT_UPLOAD}/send`,
+        () => ({
+          status: 400,
+          json: {
+            object: "error",
+            status: 400,
+            code: "validation_error",
+            message: "The file upload is not in the pending state.",
+          },
+        }),
+      ],
+      ["POST", "/pages", () => ({ json: PAGE() })],
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const out = await makeNotionTracker({ token: "t" }).fileIssue({
+      targetId: DB_ID,
+      title: "Save fails on checkout",
+      descriptionMarkdown: "It hangs.",
+      evidence: [shot({ bytes: png(1024) }), recording(webm(2048))],
+    });
+
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+    expect(out.identifier).toBe(PAGE_ID);
+    const children = pageCreate(calls)[0].body?.children as NotionBlock[];
+    expect(children.find((b) => b.type === "image")?.image).toEqual({
+      type: "external",
+      external: { url: "https://brief.test/api/evidence/s1/screenshots/a.png" },
+    });
+    expect(JSON.stringify(children)).toContain("Watch the screen recording");
+    expect(children.some((b) => b.type === "video")).toBe(false);
+  });
+
+  it("tries the upload when Notion does not say the limit, and falls back when it is refused", async () => {
+    const calls = mockNotion(
+      ...schemaRoutes,
+      // A bot user without workspace_limits: the limit is unknown.
+      ["GET", "/users/me", () => botMe()],
+      [
+        "POST",
+        "/file_uploads",
+        () => ({
+          status: 400,
+          json: {
+            object: "error",
+            status: 400,
+            code: "validation_error",
+            message: "The file size exceeds the limit for this workspace.",
+          },
+        }),
+      ],
+      ["POST", "/pages", () => ({ json: PAGE() })],
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const out = await makeNotionTracker({ token: "t" }).fileIssue({
+      targetId: DB_ID,
+      title: "x",
+      descriptionMarkdown: "It hangs.",
+      evidence: [shot({ bytes: png(8 * MIB) })],
+    });
+    warn.mockRestore();
+
+    expect(uploadCalls(calls)).toHaveLength(1);
+    expect(out.identifier).toBe(PAGE_ID);
+    const children = pageCreate(calls)[0].body?.children as NotionBlock[];
+    expect(children.find((b) => b.type === "image")?.image).toEqual({
+      type: "external",
+      external: { url: "https://brief.test/api/evidence/s1/screenshots/a.png" },
+    });
+  });
+
+  it("files again with the evidence by url when Notion rejects the page over an upload", async () => {
+    let attempt = 0;
+    const calls = mockNotion(
+      ...schemaRoutes,
+      ["GET", "/users/me", () => botMe(FREE_LIMIT)],
+      ["POST", "/file_uploads", () => fileUpload(SHOT_UPLOAD)],
+      ...uploadRoutes(SHOT_UPLOAD, "screenshot-1.png", "image/png", 1024),
+      [
+        "POST",
+        "/pages",
+        () =>
+          ++attempt === 1
+            ? {
+                status: 400,
+                json: {
+                  object: "error",
+                  status: 400,
+                  code: "validation_error",
+                  message: `body failed validation: body.children[2].image.file_upload.id ${SHOT_UPLOAD} has expired.`,
+                },
+              }
+            : { json: PAGE() },
+      ],
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const out = await makeNotionTracker({ token: "t" }).fileIssue({
+      targetId: DB_ID,
+      title: "x",
+      descriptionMarkdown: "It hangs.",
+      state: "Done",
+      evidence: [shot({ bytes: png(1024) })],
+    });
+    warn.mockRestore();
+
+    const creates = pageCreate(calls);
+    expect(creates).toHaveLength(2);
+    expect((creates[0].body?.children as NotionBlock[]).find((b) => b.type === "image")?.image).toEqual({
+      type: "file_upload",
+      file_upload: { id: SHOT_UPLOAD },
+    });
+    expect((creates[1].body?.children as NotionBlock[]).find((b) => b.type === "image")?.image).toEqual({
+      type: "external",
+      external: { url: "https://brief.test/api/evidence/s1/screenshots/a.png" },
+    });
+    // Same fields both times: only the evidence changed.
+    expect(creates[1].body?.properties).toEqual(creates[0].body?.properties);
+    expect(out.identifier).toBe(PAGE_ID);
+  });
+
+  it("sends a file over 20 MiB in numbered parts and completes it, on a workspace that takes it", async () => {
+    const bytes = webm(25 * MIB);
+    const calls = mockNotion(
+      ...schemaRoutes,
+      ["GET", "/users/me", () => botMe(PAID_LIMIT)],
+      ["POST", "/file_uploads", () => fileUpload(REC_UPLOAD, { number_of_parts: { total: 3, sent: 0 } })],
+      ["POST", `/file_uploads/${REC_UPLOAD}/send`, () => fileUpload(REC_UPLOAD)],
+      [
+        "POST",
+        `/file_uploads/${REC_UPLOAD}/complete`,
+        () => sent(REC_UPLOAD, "screen-recording.webm", "video/webm", bytes.length),
+      ],
+      ["POST", "/pages", () => ({ json: PAGE() })],
+    );
+
+    await makeNotionTracker({ token: "t" }).fileIssue({
+      targetId: DB_ID,
+      title: "x",
+      descriptionMarkdown: "It hangs.",
+      evidence: [recording(bytes)],
+    });
+
+    const [create, ...rest] = uploadCalls(calls);
+    expect(create.body).toEqual({
+      mode: "multi_part",
+      number_of_parts: 3,
+      filename: "screen-recording.webm",
+      content_type: "video/webm",
+    });
+    const sends = rest.filter((c) => c.url.endsWith("/send"));
+    expect(sends.map((c) => c.form?.get("part_number"))).toEqual(["1", "2", "3"]);
+    expect(sends.map((c) => (c.form?.get("file") as File).size)).toEqual([10 * MIB, 10 * MIB, 5 * MIB]);
+    expect(rest[rest.length - 1].url).toBe(`${API}/file_uploads/${REC_UPLOAD}/complete`);
+
+    const children = pageCreate(calls)[0].body?.children as NotionBlock[];
+    expect(children.find((b) => b.type === "video")?.video).toEqual({
+      type: "file_upload",
+      file_upload: { id: REC_UPLOAD },
+    });
+  });
+
+  it("retries a rate-limited upload call once, after the wait Notion asks for", async () => {
+    let tries = 0;
+    const calls = mockNotion(
+      ...schemaRoutes,
+      ["GET", "/users/me", () => botMe(FREE_LIMIT)],
+      [
+        "POST",
+        "/file_uploads",
+        () =>
+          ++tries === 1
+            ? {
+                status: 429,
+                headers: { "Retry-After": "0" },
+                json: { object: "error", status: 429, code: "rate_limited", message: "Slow down." },
+              }
+            : fileUpload(SHOT_UPLOAD),
+      ],
+      ...uploadRoutes(SHOT_UPLOAD, "screenshot-1.png", "image/png", 1024),
+      ["POST", "/pages", () => ({ json: PAGE() })],
+    );
+
+    await makeNotionTracker({ token: "t" }).fileIssue({
+      targetId: DB_ID,
+      title: "x",
+      descriptionMarkdown: "It hangs.",
+      evidence: [shot({ bytes: png(1024) })],
+    });
+
+    expect(uploadCalls(calls).filter((c) => c.url === `${API}/file_uploads`)).toHaveLength(2);
+    const children = pageCreate(calls)[0].body?.children as NotionBlock[];
+    expect(children.find((b) => b.type === "image")?.image).toEqual({
+      type: "file_upload",
+      file_upload: { id: SHOT_UPLOAD },
+    });
   });
 });
 

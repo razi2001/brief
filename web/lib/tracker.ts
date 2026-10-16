@@ -63,7 +63,11 @@ export interface TrackerCapabilities {
   issueTypes: boolean;
   /** A comment can be posted on the issue after creation. */
   comments: boolean;
-  /** Evidence is uploaded to the provider (false = embedded by public URL). */
+  /**
+   * Evidence is uploaded to the provider (false = embedded by public URL).
+   * Notion is false although it uploads what it can: the URL is its fallback,
+   * so the filing path has to keep the evidence and its share URL for it.
+   */
   nativeAttachments: boolean;
 }
 
@@ -169,9 +173,10 @@ export interface IssueInput {
   // (Linear) or in the body next to the attachment reference (Jira).
   //
   // `url` is a stable, permanent Brief-hosted URL for the same bytes (see
-  // app/api/evidence/[shareId]). Adapters with no upload API - GitHub outright,
-  // Notion by preference - embed THAT instead of uploading, which is why the
-  // bytes and the URL travel together rather than one or the other.
+  // app/api/evidence/[shareId]). An adapter with no upload API (GitHub) embeds
+  // THAT instead of uploading, and Notion embeds it for any file it could not
+  // upload, which is why the bytes and the URL travel together rather than one
+  // or the other.
   evidence: Array<{
     filename: string;
     contentType: string;

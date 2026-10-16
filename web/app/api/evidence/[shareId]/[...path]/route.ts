@@ -6,9 +6,9 @@ import { createAdminSupabase } from "@/lib/supabase/server";
  *
  * Most trackers take an upload and host the image themselves (Linear, Jira,
  * Azure DevOps, ClickUp, Trello). GitHub has no public image-upload API at all,
- * and Notion prefers an external URL, so for those two the screenshots have to
- * be embedded by URL - and that URL has to outlive the request that filed the
- * ticket. The share page's signed URLs expire after an hour, which would leave
+ * so its screenshots have to be embedded by URL, and Notion falls back to the
+ * URL for any file it could not upload (over a free workspace's 5 MiB limit, or
+ * refused) - and that URL has to outlive the request that filed the ticket. The share page's signed URLs expire after an hour, which would leave
  * every GitHub issue showing broken images by the next morning.
  *
  * Authorization is the unguessable `share_id`, exactly the trust model the

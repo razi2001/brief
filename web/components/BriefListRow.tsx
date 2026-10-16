@@ -5,7 +5,8 @@ import RetryButton from "./RetryButton";
 import ArchiveButton from "./ArchiveButton";
 import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
-import { shortIdentifier } from "@/lib/ticket-sync";
+import { displayIdentifier } from "@/lib/ticket-sync";
+import TicketIdText from "./TicketIdText";
 import { PROVIDER_LABELS } from "./provider-labels";
 import BrandMark from "./BrandMark";
 import Elapsed from "./Elapsed";
@@ -90,9 +91,9 @@ export default function BriefListRow({
   const hrefExternal = !!href && href !== briefHref; // tracker link → new tab
   // Linear, Jira, GitHub - every tracker by its own name, so its id opens it there
   const providerName = PROVIDER_LABELS[b.provider ?? "linear"] ?? "Linear";
-  // Empty for trackers with no readable key (Notion, Asana): the logo alone
-  // still opens the ticket.
-  const shortId = shortIdentifier(b.ticket_identifier, b.provider);
+  // Empty for trackers with no readable key (Notion, Asana), whose raw page id
+  // or task gid stays out of the tooltip too.
+  const shownId = displayIdentifier(b.ticket_identifier, b.provider);
 
   const title =
     ti?.title ||
@@ -185,17 +186,17 @@ export default function BriefListRow({
                 href={trackerHref}
                 target="_blank"
                 rel="noreferrer"
-                title={`${b.ticket_identifier} - open in ${providerName}`}
+                title={shownId ? `${shownId} - open in ${providerName}` : `Open in ${providerName}`}
                 aria-label={`Open in ${providerName}`}
                 className="relative z-10 inline-flex min-w-0 items-center gap-1.5 py-0.5 font-mono text-xs text-muted no-underline transition-colors hover:text-ink"
               >
                 <TrackerLogo kind={b.provider ?? "linear"} size={12} />
-                {shortId && <span className="truncate">{shortId}</span>}
+                <TicketIdText identifier={b.ticket_identifier} provider={b.provider} />
               </a>
             ) : (
               <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
                 <TrackerLogo kind={b.provider ?? "linear"} size={12} />
-                {shortId && <span className="truncate">{shortId}</span>}
+                <TicketIdText identifier={b.ticket_identifier} provider={b.provider} />
               </span>
             )}
           </span>

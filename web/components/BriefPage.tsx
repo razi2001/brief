@@ -71,16 +71,22 @@ export function BriefFooter() {
   );
 }
 
-/** Status dot + label, the ticket id in mono, and the date. */
+/**
+ * Status dot + label, the ticket id in mono, and the date. A ticket with no
+ * readable id (a Notion page, an Asana task) shows its tracker's name there
+ * instead, in plain muted text.
+ */
 export function TicketMeta({
   stateName,
   stateColor,
   identifier,
+  trackerName,
   reported,
 }: {
   stateName: string;
   stateColor: string;
   identifier?: string | null;
+  trackerName?: string | null;
   reported?: string;
 }) {
   const sep = <span className="h-3 w-px bg-[rgba(26,22,18,0.14)]" aria-hidden />;
@@ -93,11 +99,18 @@ export function TicketMeta({
         />
         {stateName}
       </span>
-      {identifier && (
+      {identifier ? (
         <>
           {sep}
           <span className="font-mono text-xs text-muted">{identifier}</span>
         </>
+      ) : (
+        trackerName && (
+          <>
+            {sep}
+            <span className="text-muted">{trackerName}</span>
+          </>
+        )
       )}
       {reported && (
         <>

@@ -13,8 +13,9 @@ import { listNotionWorkspaces, makeNotionTracker } from "@/lib/notion";
 
 const TOKEN = process.env.LIVE_NOTION_TOKEN;
 
-// 1x1 transparent PNG. Notion embeds evidence by url, so the bytes travel only
-// for parity with the other trackers; the url is what lands on the page.
+// 1x1 transparent PNG. Its bytes are uploaded into Notion, well under even a
+// free workspace's 5 MiB limit, so the page shows Notion's own copy; the url
+// is only the fallback had the upload failed.
 const PIXEL = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
   "base64",
@@ -85,12 +86,19 @@ describe.skipIf(!TOKEN)("Notion live", () => {
         const got = await tracker.getIssue(filed.identifier);
         expect(got.title).toBe(title);
 
-        // The body landed as real blocks: the image by url, the logs folded.
+        // The body landed as real blocks: the image uploaded, the logs folded.
+        // An attached upload reads back as a Notion-hosted "file", not by url.
         const kids = (await (await notion(`/blocks/${filed.identifier}/children?page_size=100`)).json()) as {
-          results?: Array<{ type: string; image?: { external?: { url?: string } } }>;
+          results?: Array<{
+            type: string;
+            image?: { type?: string; file?: { url?: string }; external?: { url?: string } };
+          }>;
         };
         const blocks = kids.results ?? [];
-        expect(blocks.some((b) => b.type === "image" && b.image?.external?.url === PIXEL_URL)).toBe(true);
+        const image = blocks.find((b) => b.type === "image");
+        expect(image?.image?.type).toBe("file");
+        expect(image?.image?.file?.url).toBeTruthy();
+        expect(image?.image?.external).toBeUndefined();
         expect(blocks.some((b) => b.type === "toggle")).toBe(true);
 
         if (details.states.length) {

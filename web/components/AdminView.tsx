@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Avatar from "./Avatar";
 import RefreshButton from "./RefreshButton";
 import { TrackerLogo } from "./TrackerLogo";
-import { shortIdentifier } from "@/lib/ticket-sync";
+import TicketIdText from "./TicketIdText";
 import type { ProviderKey } from "@/lib/tracker";
 import {
   DEFAULT_FILTERS,
@@ -127,7 +127,10 @@ function Row({ r }: { r: AdminRow }) {
               className="inline-flex shrink-0 items-center gap-1 font-mono text-muted no-underline hover:text-ink"
             >
               {r.provider && <TrackerLogo kind={r.provider} size={11} />}
-              {shortIdentifier(r.ticketIdentifier, (r.provider ?? undefined) as ProviderKey | undefined)}
+              <TicketIdText
+                identifier={r.ticketIdentifier}
+                provider={(r.provider ?? undefined) as ProviderKey | undefined}
+              />
             </a>
           )}
           {r.deleted && <span className="pill shrink-0 !py-0 text-[10.5px]">Deleted</span>}

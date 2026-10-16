@@ -60,8 +60,8 @@ export async function loadBriefInput(
     uploadsVideo?: boolean;
     /**
      * Base for stable evidence URLs (`<origin>/api/evidence/<shareId>`). Set on
-     * the filing path so adapters without an upload API (GitHub, Notion) can
-     * embed the screenshots by URL. Omitted on the draft path, which files
+     * the filing path so an adapter without an upload API (GitHub), or Notion
+     * for a file it could not upload, can embed the screenshots by URL. Omitted on the draft path, which files
      * nothing.
      */
     evidenceBaseUrl?: string;

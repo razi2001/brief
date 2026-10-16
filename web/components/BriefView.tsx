@@ -7,7 +7,7 @@ import { getTrackerContext, attachTicketInfoFast, type BriefRow } from "@/lib/br
 import { providerName as providerLabelFor } from "@/lib/trackers/registry";
 import type { ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import { displayIdentifier, providerOf, shortIdentifier } from "@/lib/ticket-sync";
+import { displayIdentifier, keylessTrackerName, providerOf, shortIdentifier } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
@@ -319,6 +319,9 @@ export default async function BriefView({ shareId, section }: { shareId: string;
   // The meta row has room for the whole id; the breadcrumb gets the short one.
   const shownId = (!isDraft && displayIdentifier(ticketIdentifier, provider)) || null;
   const shortId = shownId && shortIdentifier(ticketIdentifier, provider);
+  // In the meta row, such a ticket names its tracker where the id would be.
+  // The breadcrumb leaves it out: a crumb there reads as a place in the app.
+  const trackerName = (!isDraft && keylessTrackerName(ticketIdentifier, provider)) || null;
   // Deleted in the tracker → no tracker link anywhere on the page.
   const ticketUrl = live?.deleted ? null : live?.url || brief.ticket_url;
   const ticketTitle = (live?.title || brief.ticket_title || brief.title || "Bug report").trim() || "Bug report";
@@ -393,6 +396,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
             stateName={stateName}
             stateColor={stateColor}
             identifier={shownId}
+            trackerName={trackerName}
             reported={reported}
           />
 

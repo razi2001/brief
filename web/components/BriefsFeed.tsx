@@ -15,6 +15,7 @@ import { type FilterOption } from "./FilterPopover";
 import ColumnFilter from "./ColumnFilter";
 import BriefListRow from "./BriefListRow";
 import type { DashboardBrief } from "@/lib/brief-types";
+import { keylessTrackerName } from "@/lib/ticket-sync";
 
 // "Updated" column presets (single-select) + their max-age windows.
 const UPDATED_OPTIONS: FilterOption[] = [
@@ -316,7 +317,8 @@ export default function BriefsFeed({
       reconciled.has(filterKeyOf(b)) &&
       assigneeReconciled.has(assigneeKeyOf(b)) &&
       matchText(titleTextOf(b), titleQuery) &&
-      matchText(b.ticket_identifier || "", idQuery) &&
+      // The ID column shows a keyless ticket's tracker name, so that matches too.
+      matchText(`${b.ticket_identifier || ""} ${keylessTrackerName(b.ticket_identifier, b.provider)}`, idQuery) &&
       isWithinRange(b, updatedRange),
   );
 
