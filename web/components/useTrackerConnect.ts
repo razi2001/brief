@@ -20,7 +20,9 @@ import { codeCopy, COULDNT_CONNECT } from "@/lib/connect-errors";
  * remain of that while users move over:
  *
  *  - an account connected through Clerk still counts as connected, and its
- *    Disconnect removes it (the server does, beside Brief's own row);
+ *    Disconnect removes it (the server does, beside Brief's own row). Once
+ *    Brief's app for it is set up, moveToBrief runs Brief's flow for it, and
+ *    the callback replaces the Clerk account only when that flow succeeds;
  *  - a deployment that has no Brief OAuth app for one of them yet
  *    (/api/me/connections says `configured: false`) still connects it through
  *    Clerk, so shipping this before the apps exist changes nothing. When that
@@ -345,6 +347,18 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
    */
   const isAvailable = (t: TrackerDef): boolean => !!t.providerMatch || configured[t.key] !== false;
 
+  /**
+   * Can this tracker move off its Clerk account onto Brief's own OAuth? Only
+   * Linear, Jira or GitHub, connected through Clerk, with no Brief row for it
+   * (a row is what files once it exists) and Brief's app for it set up on
+   * this deployment.
+   */
+  const canMoveToBrief = (t: TrackerDef): boolean =>
+    !!t.providerMatch &&
+    configured[t.key] === true &&
+    !owned.some((o) => o.provider === t.key) &&
+    !!accountFor(t.providerMatch, true);
+
   const connectedAccount = (providerMatch: string | undefined) => accountFor(providerMatch, true);
   const pendingAccount = (providerMatch: string | undefined) => accountFor(providerMatch, false);
 
@@ -428,6 +442,28 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     return `Couldn't disconnect ${failed.map((k) => PROVIDER_LABELS[k] ?? k).join(", ")}.`;
   }
 
+  /**
+   * Hand off to Brief's own OAuth start route. Nothing is disconnected here, so
+   * backing out at the provider keeps the current tracker.
+   */
+  function startOwnedFlow(key: ProviderKey) {
+    window.location.assign(`/api/connect/${key}/start?returnTo=${encodeURIComponent(redirectPath)}`);
+  }
+
+  /**
+   * Move a Clerk-held Linear, Jira or GitHub onto Brief's own OAuth: the same
+   * start route an owned connect takes, with nothing disconnected first. The
+   * callback removes the Clerk account once the new token is stored; a
+   * connect that is cancelled or fails leaves it filing as before.
+   */
+  function moveToBrief(t: TrackerDef) {
+    if (!canMoveToBrief(t)) return;
+    setTrackerError(t.key, "");
+    setNotice("");
+    setTrackerBusy(t.key, true);
+    startOwnedFlow(t.key); // navigating away - keep the button in its busy state.
+  }
+
   async function connect(t: TrackerDef) {
     if (!user) return;
     setTrackerError(t.key, "");
@@ -451,12 +487,8 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
       briefFlow = known;
     }
 
-    // Hand off to our own OAuth start route. Nothing is disconnected here, so
-    // backing out at the provider keeps the current tracker.
     if (briefFlow) {
-      window.location.assign(
-        `/api/connect/${t.key}/start?returnTo=${encodeURIComponent(redirectPath)}`,
-      );
+      startOwnedFlow(t.key);
       return; // navigating away - keep the button in its busy state.
     }
 
@@ -585,10 +617,12 @@ export function useTrackerConnect(redirectPath = "/dashboard") {
     setTrackerError,
     isConnected,
     isAvailable,
+    canMoveToBrief,
     connectedAccount,
     pendingAccount,
     pendingError,
     connect,
+    moveToBrief,
     disconnect,
     refreshOwned,
     PROVIDER_LABELS,

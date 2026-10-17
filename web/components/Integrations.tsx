@@ -64,10 +64,12 @@ export default function Integrations() {
     setTrackerError,
     isConnected,
     isAvailable,
+    canMoveToBrief,
     connectedAccount,
     pendingAccount,
     pendingError,
     connect,
+    moveToBrief,
     disconnect,
   } = useTrackerConnect("/connections");
   // Set when the inline disconnect ultimately fails (user cancels the
@@ -90,6 +92,8 @@ export default function Integrations() {
   // one connected, so the card opens on the attempt rather than hiding it.
   const initialSelected = connected ? errored : attempted;
   const unavailable = TRACKER_DEFS.filter((t) => !isAvailable(t)).map((t) => t.key);
+  // Still on a Clerk account that Brief's own OAuth can take over.
+  const updatable = TRACKER_DEFS.filter((t) => canMoveToBrief(t)).map((t) => t.key);
 
   async function handleDisconnect(key: ProviderKey) {
     const t = defFor(key);
@@ -145,12 +149,14 @@ export default function Integrations() {
           stale={health.stale}
           needsWorkspace={health.needsWorkspace}
           unavailable={unavailable}
+          updatable={updatable}
           busy={busy}
           initialSelected={initialSelected}
           messageFor={messageFor}
           notice={notice}
           onConnect={(key) => connect(defFor(key))}
           onDisconnect={handleDisconnect}
+          onUpdate={(key) => moveToBrief(defFor(key))}
         />
   );
 }

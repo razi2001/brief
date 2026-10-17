@@ -574,6 +574,99 @@ describe("Linear, Jira and GitHub while they move off Clerk", () => {
     expect(github.destroy).not.toHaveBeenCalled();
   });
 
+  describe("Reconnect, for a tracker still on Clerk", () => {
+    const update = () => screen.queryByRole("button", { name: "Reconnect" });
+
+    it.each([
+      ["linear", "oauth_linear"],
+      ["jira", "oauth_atlassian"],
+      ["github", "oauth_github"],
+    ] as const)("moves %s through Brief's start route and disconnects nothing", async (key, provider) => {
+      configured = { ...configured, [key]: true };
+      const held = account(provider);
+      clerk.user!.externalAccounts = [held];
+      render(<Integrations />);
+      fireEvent.click(await screen.findByRole("button", { name: "Reconnect" }));
+
+      expect(assign).toHaveBeenCalledWith(`/api/connect/${key}/start?returnTo=%2Fconnections`);
+      expect(held.destroy).not.toHaveBeenCalled();
+      expect(disconnectCalls()).toEqual([]);
+      expect(calls).not.toContain("createExternalAccount");
+      expect(sentTo).toEqual([]);
+      // Still connected while the browser leaves for the provider.
+      expect(screen.getByText("Connected ✓")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Reconnecting…" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Disconnect" })).toHaveProperty("disabled", true);
+    });
+
+    it("isn't offered when Brief's app for it is not set up here", async () => {
+      clerk.user!.externalAccounts = [account("oauth_linear")];
+      render(<Integrations />);
+      await screen.findByText("Connected ✓");
+      expect(update()).toBeNull();
+    });
+
+    it("isn't offered when the page couldn't tell whether Brief's app is set up", async () => {
+      configured = { ...configured, linear: true };
+      clerk.user!.externalAccounts = [account("oauth_linear")];
+      fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url === "/api/me/connections") return json({ error: "down" }, false);
+        return server(url, init);
+      });
+      render(<Integrations />);
+      await screen.findByText("Connected ✓");
+      expect(update()).toBeNull();
+    });
+
+    it("isn't offered once Brief holds the tracker, even beside a Clerk account the page still sees", async () => {
+      configured = { ...configured, linear: true };
+      owned = [ownedRow("linear")];
+      clerk.user!.externalAccounts = [account("oauth_linear")];
+      render(<Integrations />);
+      await screen.findByText("Connected ✓");
+      expect(update()).toBeNull();
+    });
+
+    it("isn't offered for a tracker Brief always held", async () => {
+      owned = [ownedRow("asana")];
+      configured = Object.fromEntries(Object.keys(configured).map((k) => [k, true]));
+      render(<Integrations />);
+      await screen.findByText("Connected ✓");
+      expect(update()).toBeNull();
+    });
+
+    it("shows Connected, and no Reconnect, back from a move that worked", async () => {
+      configured = { ...configured, github: true };
+      // The callback stored the row and removed the Clerk account.
+      owned = [ownedRow("github")];
+      window.history.replaceState(null, "", "/connections?connected=github");
+      render(<Integrations />);
+
+      expect((await trigger()).textContent).toContain("GitHub");
+      expect(screen.getByText("Connected ✓")).toBeTruthy();
+      expect(update()).toBeNull();
+      expect(window.location.search).toBe("");
+    });
+
+    it("keeps the Clerk connection, with the error on its card, back from a move that failed", async () => {
+      configured = { ...configured, linear: true };
+      const held = account("oauth_linear");
+      clerk.user!.externalAccounts = [held];
+      window.history.replaceState(null, "", "/connections?error=failed&provider=linear");
+      lastError = { provider: "linear", message: "Couldn't connect", detail: "Linear: invalid_grant" };
+      render(<Integrations />);
+
+      expect((await trigger()).textContent).toContain("Linear");
+      expect(await screen.findByText("Linear: invalid_grant")).toBeTruthy();
+      expect(screen.getByText("Couldn't connect")).toBeTruthy();
+      expect(screen.getByText("Connected ✓")).toBeTruthy();
+      // Still on offer, and nothing was removed.
+      expect(update()).toBeTruthy();
+      expect(held.destroy).not.toHaveBeenCalled();
+      expect(disconnectCalls()).toEqual([]);
+    });
+  });
+
   it("points to account settings when a Clerk account the server couldn't remove is left", async () => {
     clerk.user!.externalAccounts = [account("oauth_linear")];
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {

@@ -132,6 +132,16 @@ body::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:
 
 /* ---------- CREATE ---------- */
 .create-wrap { padding:18px 18px 12px; }
+/* A reconnect the tracker should get but filing doesn't need (Linear, Jira or
+   GitHub still held by Clerk): a slim accent link above Create, never in its
+   way. */
+.reconnect-btn { display:flex; align-items:center; justify-content:center; gap:7px; margin:0 auto 10px; padding:5px 10px;
+  border:none; border-radius:8px; background:none; cursor:pointer; color:var(--accent);
+  font-family:var(--mono); font-size:12px; font-weight:500; letter-spacing:.01em;
+  transition:color var(--t), background var(--t); }
+.reconnect-btn:hover { color:#c95e2c; background:rgba(221,105,54,.08); }
+.reconnect-btn[hidden] { display:none; }
+.reconnect-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); flex:none; }
 /* The quiet second action under Create ticket: write it up on its own page,
    no ticket yet. A text link, not a second button. Only shown when a tracker
    is connected - without one, Create already makes a draft. */

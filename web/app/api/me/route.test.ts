@@ -22,13 +22,14 @@ vi.mock("@clerk/nextjs/server", () => ({
   }),
 }));
 
-// The owned connection store.
+// The owned connection store, and which providers this deployment has an app for.
 const store = vi.hoisted(() => ({ current: {} as Record<string, { meta: Record<string, string> }> }));
+const configured = vi.hoisted(() => ({ current: {} as Record<string, boolean> }));
 vi.mock("@/lib/connections", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/lib/connections")>();
   return {
     ...mod,
-    isProviderConfigured: () => true,
+    isProviderConfigured: (provider: string) => configured.current[provider] ?? true,
     listConnectedProviders: async () => Object.keys(store.current),
     getConnection: async (_userId: string, provider: string) => {
       const row = store.current[provider];
@@ -54,6 +55,7 @@ beforeEach(() => {
   clerkUser.current = { id: "user_1", externalAccounts: [] };
   oauthToken.current = null;
   store.current = {};
+  configured.current = {};
 });
 
 describe("/api/me", () => {
@@ -64,6 +66,7 @@ describe("/api/me", () => {
       tracker: "monday",
       trackerName: "Monday",
       trackerIssue: null,
+      trackerAction: null,
     });
   });
 
@@ -81,6 +84,7 @@ describe("/api/me", () => {
       tracker: null,
       trackerName: null,
       trackerIssue: "Pick your Azure DevOps organization under Settings, then retry.",
+      trackerAction: null,
     });
   });
 
@@ -92,7 +96,68 @@ describe("/api/me", () => {
   });
 
   it("has nothing to explain when nothing is connected", async () => {
-    expect(await (await me()).json()).toEqual({ ok: true, tracker: null, trackerName: null, trackerIssue: null });
+    expect(await (await me()).json()).toEqual({
+      ok: true,
+      tracker: null,
+      trackerName: null,
+      trackerIssue: null,
+      trackerAction: null,
+    });
+  });
+
+  describe("trackerAction", () => {
+    it.each([
+      ["linear", "oauth_linear", "Linear"],
+      ["jira", "oauth_atlassian", "Jira"],
+      ["github", "oauth_github", "GitHub"],
+    ])("asks to reconnect a %s still held by Clerk once Brief's app for it is set up, and still files", async (key, provider, name) => {
+      clerkUser.current = { id: "user_1", externalAccounts: [{ provider }] };
+      oauthToken.current = "clerk-token";
+      // A Clerk Jira files into its token's first site.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json([{ id: "cloud-1", name: "Acme", url: "https://acme.atlassian.net", scopes: ["write:jira-work"] }]),
+        ),
+      );
+      try {
+        expect(await (await me()).json()).toEqual({
+          ok: true,
+          tracker: key,
+          trackerName: name,
+          trackerIssue: null,
+          trackerAction: "reconnect",
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("asks nothing when Brief's app for it is not set up here", async () => {
+      configured.current = { github: false };
+      clerkUser.current = { id: "user_1", externalAccounts: [{ provider: "oauth_github" }] };
+      oauthToken.current = "gh-token";
+      expect(await (await me()).json()).toMatchObject({ tracker: "github", trackerAction: null });
+    });
+
+    it("asks nothing once Brief holds the tracker", async () => {
+      store.current = { linear: { meta: {} } };
+      clerkUser.current = { id: "user_1", externalAccounts: [{ provider: "oauth_linear" }] };
+      oauthToken.current = "clerk-token";
+      expect(await (await me()).json()).toMatchObject({ tracker: "linear", trackerAction: null });
+    });
+
+    it("asks nothing for a tracker Brief always held", async () => {
+      store.current = { gitlab: { meta: {} } };
+      expect(await (await me()).json()).toMatchObject({ tracker: "gitlab", trackerAction: null });
+    });
+
+    it("leaves an expired Clerk connection to trackerIssue", async () => {
+      clerkUser.current = { id: "user_1", externalAccounts: [{ provider: "oauth_linear" }] };
+      const body = await (await me()).json();
+      expect(body).toMatchObject({ tracker: null, trackerAction: null });
+      expect(body.trackerIssue).toMatch(/expired/);
+    });
   });
 
   it("refuses a token that pairs to no one", async () => {

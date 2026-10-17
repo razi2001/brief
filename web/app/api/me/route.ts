@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { clerkClient, type User } from "@clerk/nextjs/server";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
-import { providerName, trackerStatus } from "@/lib/trackers/registry";
+import { CLERK_PROVIDERS, providerName, trackerStatus } from "@/lib/trackers/registry";
+import { isOwnedProvider, isProviderConfigured, readConnection } from "@/lib/connections";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import type { ProviderKey } from "@/lib/tracker";
 
@@ -15,6 +16,7 @@ export function OPTIONS() {
  * ticket" can be gated BEFORE the user records and files - not after, via a
  * 409 from the process route. A 401 tells the extension to drop its cached
  * token (it belongs to a revoked pairing or a deleted account).
+ * `trackerAction` asks for a reconnect that filing does not need (actionFor).
  */
 export async function GET(req: NextRequest) {
   const token = bearerFromHeader(req.headers.get("authorization"));
@@ -51,5 +53,22 @@ export async function GET(req: NextRequest) {
   // "Filing to Azure DevOps" for a tracker added after it shipped.
   const trackerName = tracker ? providerName(tracker) : null;
 
-  return jsonCors({ ok: true, tracker, trackerName, trackerIssue });
+  const trackerAction = tracker ? await actionFor(userId, tracker) : null;
+
+  return jsonCors({ ok: true, tracker, trackerName, trackerIssue, trackerAction });
+}
+
+/**
+ * "reconnect" when the tracker filed into is a Linear, Jira or GitHub still
+ * held by its Clerk account (Brief has no row for it) and Brief's own app for
+ * it is set up here: a reconnect moves it onto Brief's OAuth. Filing works
+ * either way, so this is a nudge, never a block. A row that exists but can't
+ * be read is not "absent", so a store hiccup never asks Brief-held users to
+ * reconnect.
+ */
+async function actionFor(userId: string, tracker: ProviderKey): Promise<"reconnect" | null> {
+  if (!CLERK_PROVIDERS.some((p) => p.key === tracker)) return null;
+  if (!isOwnedProvider(tracker) || !isProviderConfigured(tracker)) return null;
+  const read = await readConnection(userId, tracker).catch(() => null);
+  return read?.state === "absent" ? "reconnect" : null;
 }

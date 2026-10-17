@@ -263,6 +263,45 @@ describe("TrackerPicker", () => {
     expect(onDisconnect).toHaveBeenCalledWith("linear");
   });
 
+  it("offers Reconnect beside Disconnect for a tracker that can move to Brief", () => {
+    const onUpdate = vi.fn();
+    const { onDisconnect, onConnect } = setup({ updatable: ["linear"], onUpdate });
+    expect(screen.getByText("Connected ✓")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(onUpdate).toHaveBeenCalledWith("linear");
+    expect(onDisconnect).not.toHaveBeenCalled();
+    expect(onConnect).not.toHaveBeenCalled();
+  });
+
+  it("offers Reconnect only on the trackers it's told can move", () => {
+    setup({ updatable: ["github"], onUpdate: vi.fn() });
+    expect(screen.getByText("Connected ✓")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+  });
+
+  it("says Reconnect, not Disconnect, is in flight once Reconnect is clicked", () => {
+    const onUpdate = vi.fn();
+    const { rerender, onConnect, onDisconnect } = setup({ updatable: ["linear"], onUpdate });
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    rerender(
+      <TrackerPicker
+        options={OPTIONS}
+        connected="linear"
+        stale={[]}
+        busy={{ linear: true }}
+        updatable={["linear"]}
+        messageFor={() => null}
+        onConnect={onConnect}
+        onDisconnect={onDisconnect}
+        onUpdate={onUpdate}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Reconnecting…" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Disconnect" })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Connected ✓")).toBeTruthy();
+  });
+
   it("opens on the tracker whose last attempt didn't finish, with its message", () => {
     setup({
       connected: null,
@@ -315,9 +354,10 @@ describe("TrackerPicker", () => {
   });
 
   it("locks the choice while something is in flight", () => {
-    setup({ busy: { linear: true } });
+    setup({ busy: { linear: true }, updatable: ["linear"], onUpdate: vi.fn() });
     expect(trigger()).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Disconnecting…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reconnect" })).toHaveProperty("disabled", true);
   });
 });
 

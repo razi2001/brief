@@ -18,6 +18,7 @@ const descField = $('#descField');
 const kvList = $('#kvList');
 const addFieldBtn = $('#addFieldBtn');
 const createBtn = $('#createBtn');
+const reconnectBtn = $('#reconnectBtn');
 const draftBtn = $('#draftBtn');
 const briefCloudBtn = $('#briefCloudBtn');
 const brandMark = $('#brandMark');
@@ -40,6 +41,7 @@ let bcConnected = false;
 let bcTracker;
 let bcTrackerName = null; // the server's display name for bcTracker, when it sent one
 let bcTrackerIssue = null; // with no tracker, why a connected one can't file yet, when the server said
+let bcTrackerAction = null; // 'reconnect': the tracker files, but should be reconnected (still on Clerk)
 let currentSheet = null; // 'shot:<id>' | 'rec' | 'chooser' | 'reset' | null
 let lastSig = '';
 
@@ -728,6 +730,8 @@ async function primaryCreate() {
       if (st) {
         bcConnected = st.connected; bcTracker = st.tracker; bcTrackerName = st.trackerName ?? null;
         bcTrackerIssue = st.tracker ? null : st.trackerIssue ?? null;
+        bcTrackerAction = st.tracker ? st.trackerAction ?? null : null;
+        renderReconnect();
       }
     } catch { /* unknown: try to file, the server says if there's no tracker */ }
     updateCreate();
@@ -784,29 +788,44 @@ chrome.storage.local.get('ticketsUnseen').then(({ ticketsUnseen }) => {
   if (ticketsUnseen) briefCloudBtn?.classList.add('unseen');
 }).catch(() => {});
 
+// Take `url` in a Brief Cloud tab already open, rather than piling up tabs:
+// one already on `prefer` (URL patterns) first, else any app tab, else a new one.
+async function openAppTab(url, prefer) {
+  try {
+    for (const pattern of [prefer, `${APP_URL}/*`]) {
+      const tabs = await chrome.tabs.query({ url: pattern });
+      if (tabs.length && tabs[0].id != null) {
+        const tab = tabs[0];
+        await chrome.tabs.update(tab.id, { active: true, url });
+        try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
+        return;
+      }
+    }
+  } catch {}
+  await chrome.tabs.create({ url }).catch(() => {});
+}
+
 // The cloud button opens the list the last capture landed in: Drafts after a
 // draft, Tickets otherwise.
 async function openTicketsTab() {
   const { unseenView } = await chrome.storage.local.get('unseenView').catch(() => ({}));
   const TICKETS_URL = unseenView === 'drafts' ? `${APP_URL}/drafts` : TICKETS_URL_BASE;
-  try {
-    const ticketTabs = await chrome.tabs.query({ url: [`${TICKETS_URL_BASE}*`, `${APP_URL}/drafts*`] });
-    if (ticketTabs.length && ticketTabs[0].id != null) {
-      const tab = ticketTabs[0];
-      await chrome.tabs.update(tab.id, { active: true, url: TICKETS_URL });
-      try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
-      return;
-    }
-    const appTabs = await chrome.tabs.query({ url: `${APP_URL}/*` });
-    if (appTabs.length && appTabs[0].id != null) {
-      const tab = appTabs[0];
-      await chrome.tabs.update(tab.id, { active: true, url: TICKETS_URL });
-      try { await chrome.windows.update(tab.windowId, { focused: true }); } catch {}
-      return;
-    }
-  } catch {}
-  await chrome.tabs.create({ url: TICKETS_URL }).catch(() => {});
+  await openAppTab(TICKETS_URL, [`${TICKETS_URL_BASE}*`, `${APP_URL}/drafts*`]);
 }
+
+// A tracker that files but should be reconnected (Linear, Jira or GitHub still
+// held by Clerk): a slim link above Create, which stays enabled. It opens the
+// tracker row of Connections.
+function renderReconnect() {
+  if (!reconnectBtn) return;
+  const show = bcTrackerAction === 'reconnect' && !!bcTracker;
+  reconnectBtn.hidden = !show;
+  if (show) reconnectBtn.querySelector('.reconnect-label').textContent = `Reconnect ${trackerName()}`;
+}
+reconnectBtn?.addEventListener('click', async () => {
+  await openAppTab(`${APP_URL}/connections#tracker`, `${APP_URL}/connections*`);
+  window.close();
+});
 briefCloudBtn?.addEventListener('click', async () => {
   let token = null; try { token = await getCloudToken(); } catch {}
   if (token) await openTicketsTab();
@@ -906,26 +925,33 @@ function attachVoiceDictation(textarea, container, onCommit) {
 // painted, then grew a caret ~700ms later while the primary button shrank to
 // make room. So: remember the last answer, open in that shape, and only touch
 // the DOM if the truth turns out to be different.
-// Stored as { tracker, trackerName, trackerIssue }. A cache written before
-// trackerName or trackerIssue existed has only `tracker`, which still reads
-// fine: the name falls back to TRACKER_NAMES and the issue to the plain
-// "connect a tracker" line until the next /api/me answer rewrites it.
+// Stored as { tracker, trackerName, trackerIssue, trackerAction }. A cache
+// written before trackerName, trackerIssue or trackerAction existed still reads
+// fine: the name falls back to TRACKER_NAMES, the issue to the plain "connect a
+// tracker" line and the action to none, until the next /api/me answer
+// rewrites it.
 const TRACKER_CACHE_KEY = 'bcTrackerCache';
 async function readTrackerCache() {
   try {
     const { [TRACKER_CACHE_KEY]: c } = await chrome.storage.local.get(TRACKER_CACHE_KEY);
-    if (!c || typeof c !== 'object') return { tracker: undefined, trackerName: null, trackerIssue: null }; // undefined = never asked
+    if (!c || typeof c !== 'object') return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null }; // undefined = never asked
     return {
       tracker: c.tracker ?? null,
       trackerName: typeof c.trackerName === 'string' ? c.trackerName : null,
       trackerIssue: typeof c.trackerIssue === 'string' ? c.trackerIssue : null,
+      trackerAction: c.trackerAction === 'reconnect' ? 'reconnect' : null,
     };
-  } catch { return { tracker: undefined, trackerName: null, trackerIssue: null }; }
+  } catch { return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null }; }
 }
-function writeTrackerCache(tracker, trackerName, trackerIssue) {
+function writeTrackerCache(tracker, trackerName, trackerIssue, trackerAction) {
   try {
     return chrome.storage.local.set({
-      [TRACKER_CACHE_KEY]: { tracker: tracker ?? null, trackerName: trackerName ?? null, trackerIssue: trackerIssue ?? null },
+      [TRACKER_CACHE_KEY]: {
+        tracker: tracker ?? null,
+        trackerName: trackerName ?? null,
+        trackerIssue: trackerIssue ?? null,
+        trackerAction: trackerAction ?? null,
+      },
     });
   } catch { return Promise.resolve(); }
 }
@@ -935,7 +961,11 @@ async function bcRefresh() {
   bcConnected = !!token;
   // Not paired: there is no tracker to have, so don't leave a remembered caret
   // waiting for the next open.
-  if (!token) { await writeTrackerCache(null, null, null); return; }
+  if (!token) {
+    await writeTrackerCache(null, null, null, null);
+    bcTrackerAction = null; renderReconnect();
+    return;
+  }
   try {
     const status = await fetchAccountStatus();
     if (!status) return;
@@ -943,10 +973,13 @@ async function bcRefresh() {
     const tracker = status.tracker ?? null;
     const name = tracker ? status.trackerName ?? null : null;
     const issue = tracker ? null : status.trackerIssue ?? null;
-    await writeTrackerCache(tracker, name, issue);
+    const action = tracker ? status.trackerAction ?? null : null;
+    await writeTrackerCache(tracker, name, issue, action);
     bcTrackerName = name;
     bcTrackerIssue = issue;
+    bcTrackerAction = action;
     if (tracker !== bcTracker) { bcTracker = tracker; updateCreate(); }
+    renderReconnect();
   } catch {}
 }
 
@@ -993,7 +1026,8 @@ resetBtn?.addEventListener('click', openReset);
   else { draft = emptyDraft(); await setDraft(draft); }
   // The tracker we saw last time, read before the first paint, so the Create
   // button opens at its final width instead of settling once /api/me answers.
-  ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue } = await readTrackerCache());
+  ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue, trackerAction: bcTrackerAction } = await readTrackerCache());
+  renderReconnect();
   // Filing runs in the worker, so it can finish - or fail - while the popup is
   // closed. Unstick a flag left by a worker recycled mid-flow, and surface a
   // failure once (the badge showed "!" until now).

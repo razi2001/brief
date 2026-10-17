@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 // Reachable at https://cloud.get-brief.app/privacy (allowlisted in proxy.ts).
 // Keep this in sync with the Chrome Web Store "Privacy practices" disclosures.
 
-const LAST_UPDATED = "October 14, 2026";
+const LAST_UPDATED = "October 17, 2026";
 
 function Section({
   title,
@@ -131,8 +131,10 @@ export default function PrivacyPage() {
             authorization and holds the token, and our backend asks Clerk for it
             when it needs it. Either way, the token is used only to file and
             update your tickets and to read what writing them needs, such as
-            projects, labels, statuses and people. Disconnecting a tracker deletes
-            its token.
+            projects, labels, statuses and people. When your account has no
+            profile photo of its own, connecting also reads the tracker
+            account&apos;s photo once and sets it as your account&apos;s profile
+            photo at Clerk. Disconnecting a tracker deletes its token.
           </p>
         </Section>
 

@@ -13,7 +13,7 @@ const session = vi.hoisted(() => ({ userId: "user_1" as string | null }));
 
 /** The Clerk user's external accounts, which ones the route removed, and failures to inject. */
 const clerk = vi.hoisted(() => ({
-  accounts: [] as Array<{ id: string; provider: string }>,
+  accounts: [] as Array<{ id: string; provider: string; imageUrl?: string }>,
   deleted: [] as string[],
   failGetUser: false,
   failDelete: false,
@@ -22,6 +22,12 @@ const clerk = vi.hoisted(() => ({
   // email address they verified with a code, like every Brief user.
   passwordEnabled: false,
   emails: [] as Array<{ verification: { status: string; strategy: string } }>,
+  // The profile photo: by default Clerk's own avatar, so none of the user's.
+  hasImage: false,
+  imageUrl: "",
+  failUpload: false,
+  // Photo uploads and account deletes, in the order they happened.
+  log: [] as string[],
 }));
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -35,12 +41,23 @@ vi.mock("@clerk/nextjs/server", () => ({
           externalAccounts: clerk.accounts,
           passwordEnabled: clerk.passwordEnabled,
           emailAddresses: clerk.emails,
+          hasImage: clerk.hasImage,
+          imageUrl: clerk.imageUrl,
         };
       },
       deleteUserExternalAccount: async ({ externalAccountId }: { externalAccountId: string }) => {
         if (clerk.failDelete) throw new Error("clerk refused");
         clerk.deleted.push(externalAccountId);
+        clerk.log.push(`delete ${externalAccountId}`);
         return { id: externalAccountId, deleted: true };
+      },
+      updateUserProfileImage: async (_userId: string, { file }: { file: File }) => {
+        if (clerk.failUpload) throw new Error("clerk refused the image");
+        clerk.log.push(`photo ${file.type}`);
+        // Clerk then shows the upload, as it does.
+        clerk.hasImage = true;
+        clerk.imageUrl = `https://img.clerk.com/${Buffer.from(JSON.stringify({ type: "upload", src: "u" })).toString("base64url")}`;
+        return {};
       },
     },
   }),
@@ -227,6 +244,10 @@ let tokenErrorBody: unknown = { error: "invalid_grant" };
 let trelloMeOk = true;
 /** What Azure DevOps' account listing answers: its status, and its organizations. */
 let azureAccounts: { status: number; names: string[] } = { status: 200, names: [] };
+/** The GitHub account's photo, when it has one, and whether its host is down. */
+let githubPhoto: { url: string; down?: boolean } | null = null;
+/** Photos Clerk's image proxy serves: a Clerk account's own. */
+let clerkPhotos = new Set<string>();
 
 const TOKEN_HOSTS = [
   "api.linear.app/oauth/token",
@@ -249,7 +270,18 @@ function fakeFetch(url: string | URL, init?: RequestInit): Promise<Response> {
     return typeof tokenReply === "number" ? json(tokenErrorBody, tokenReply) : json(tokenReply);
   }
   if (u === "https://api.linear.app/graphql") return json({ data: { viewer: { name: "Ada Linear", displayName: "ada" } } });
-  if (u === "https://api.github.com/user") return json({ name: null, login: "ada-gh" });
+  if (u === "https://api.github.com/user") {
+    return json({ name: null, login: "ada-gh", ...(githubPhoto ? { avatar_url: githubPhoto.url } : {}) });
+  }
+  if (githubPhoto && u === githubPhoto.url) {
+    if (githubPhoto.down) return Promise.reject(new TypeError("fetch failed"));
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    return Promise.resolve(new Response(png, { status: 200, headers: { "Content-Type": "image/png" } }));
+  }
+  if (clerkPhotos.has(u)) {
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4, 5, 6]);
+    return Promise.resolve(new Response(png, { status: 200, headers: { "Content-Type": "image/png" } }));
+  }
   if (u === "https://gitlab.com/api/v4/user") return json({ name: "Ada GitLab", username: "adagl" });
   if (u.includes("vssps.visualstudio.com/_apis/profile")) return json({ id: "member-1", displayName: "Ada Lovelace" });
   if (u.includes("vssps.visualstudio.com/_apis/accounts")) {
@@ -424,6 +456,12 @@ beforeEach(() => {
   clerk.reads = 0;
   clerk.passwordEnabled = false;
   clerk.emails = [{ verification: { status: "verified", strategy: "email_code" } }];
+  clerk.hasImage = false;
+  clerk.imageUrl = "";
+  clerk.failUpload = false;
+  clerk.log = [];
+  githubPhoto = null;
+  clerkPhotos = new Set();
   registry.clerk.splice(0, registry.clerk.length, ...CLERK_MATCHES.map((d) => ({ ...d })));
   db.rows = [];
   db.orgDeletes = [];
@@ -1345,6 +1383,78 @@ describe("callback", () => {
     expect(workspaces.forgetWorkspaces).toHaveBeenCalledWith("user_1");
   });
 
+  describe("the account's photo", () => {
+    const GH_PHOTO = "https://avatars.githubusercontent.com/u/7?v=4";
+    const proxied = (src: string) =>
+      `https://img.clerk.com/${Buffer.from(JSON.stringify({ type: "proxy", src })).toString("base64url")}`;
+    const GOOGLE = proxied("https://lh3.googleusercontent.com/a/ada");
+    const LINEAR = proxied("https://public.linear.app/ada.png");
+
+    it("gives a user with no photo of their own the new account's", async () => {
+      githubPhoto = { url: GH_PHOTO };
+      const url = location(await runCallback("github"));
+      expect(url.searchParams.get("connected")).toBe("github");
+      expect(clerk.log).toEqual(["photo image/png"]);
+    });
+
+    it("sets it before removing the Clerk tracker account whose photo the user shows", async () => {
+      clerk.hasImage = true;
+      clerk.imageUrl = LINEAR;
+      clerk.accounts = [
+        { id: "ea_google", provider: "oauth_google", imageUrl: GOOGLE },
+        { id: "ea_linear", provider: "oauth_linear", imageUrl: LINEAR },
+      ];
+      githubPhoto = { url: GH_PHOTO };
+      const url = location(await runCallback("github"));
+      expect(url.searchParams.get("connected")).toBe("github");
+      expect(clerk.log).toEqual(["photo image/png", "delete ea_linear"]);
+    });
+
+    it("never replaces a photo from a sign-in method such as Google", async () => {
+      clerk.hasImage = true;
+      clerk.imageUrl = GOOGLE;
+      clerk.accounts = [
+        { id: "ea_google", provider: "oauth_google", imageUrl: GOOGLE },
+        { id: "ea_linear", provider: "oauth_linear", imageUrl: LINEAR },
+      ];
+      githubPhoto = { url: GH_PHOTO };
+      await runCallback("github");
+      expect(clerk.log).toEqual(["delete ea_linear"]);
+      expect(fetchCalls.some((c) => c.url === GH_PHOTO)).toBe(false);
+    });
+
+    it("keeps the removed Clerk account's photo when the new account has none", async () => {
+      lists.clickup = [{ id: "1", name: "Acme" }];
+      clerk.hasImage = true;
+      clerk.imageUrl = LINEAR;
+      clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear", imageUrl: LINEAR }];
+      clerkPhotos.add(LINEAR);
+      const url = location(await runCallback("clickup"));
+      expect(url.searchParams.get("connected")).toBe("clickup");
+      expect(clerk.log).toEqual(["photo image/png", "delete ea_linear"]);
+    });
+
+    it.each([
+      ["the photo can't be fetched", () => (githubPhoto = { url: GH_PHOTO, down: true })],
+      [
+        "Clerk refuses it",
+        () => {
+          githubPhoto = { url: GH_PHOTO };
+          clerk.failUpload = true;
+        },
+      ],
+    ])("still connects, and switches, when %s", async (_label, breakIt) => {
+      clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear", imageUrl: LINEAR }];
+      breakIt();
+      const res = await runCallback("github");
+      expect(location(res).searchParams.get("connected")).toBe("github");
+      expect(recorded(res)).toBeNull();
+      expect(clerk.log).toEqual(["delete ea_linear"]);
+      expect(store.deleteOtherConnections).toHaveBeenCalledWith("user_1", "github");
+      expect(store.deleteConnection).not.toHaveBeenCalled();
+    });
+  });
+
   // Registry order puts Linear first, so a Linear account that survived the
   // cleanup would keep winning while the card said ClickUp was connected.
   it.each([
@@ -1373,6 +1483,39 @@ describe("callback", () => {
     const url = location(await runCallback("monday"));
     expect(url.searchParams.get("error")).toBe("failed");
     expect(url.searchParams.get("provider")).toBe("monday");
+    expect(store.deleteOtherConnections).toHaveBeenCalledTimes(2);
+    expect(store.deleteConnection).toHaveBeenCalledWith("user_1", "monday");
+  });
+
+  it("retries removing the other owned connections once, and connects", async () => {
+    lists.monday = [{ id: "1", name: "Acme" }];
+    store.deleteOtherConnections.mockRejectedValueOnce(new Error("db blip"));
+    const url = location(await runCallback("monday"));
+    expect(url.searchParams.get("connected")).toBe("monday");
+    expect(store.deleteOtherConnections).toHaveBeenCalledTimes(2);
+    expect(store.deleteConnection).not.toHaveBeenCalled();
+  });
+
+  // Removing a Clerk account can't be undone: rolling back after it would
+  // leave the user with no tracker at all.
+  it("keeps the new connection when the owned cleanup fails after the Clerk accounts went", async () => {
+    lists.monday = [{ id: "1", name: "Acme" }];
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    store.deleteOtherConnections.mockRejectedValue(new Error("db down"));
+    const url = location(await runCallback("monday"));
+    expect(url.searchParams.get("error")).toBe("failed");
+    expect(clerk.deleted).toEqual(["ea_linear"]);
+    expect(store.deleteConnection).not.toHaveBeenCalled();
+  });
+
+  it("still rolls back when a Clerk account kept as a sign-in is left to fall back on", async () => {
+    lists.monday = [{ id: "1", name: "Acme" }];
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear" }];
+    clerk.emails = [{ verification: { status: "verified", strategy: "from_oauth_linear" } }];
+    store.deleteOtherConnections.mockRejectedValue(new Error("db down"));
+    const url = location(await runCallback("monday"));
+    expect(url.searchParams.get("error")).toBe("failed");
+    expect(clerk.deleted).toEqual([]);
     expect(store.deleteConnection).toHaveBeenCalledWith("user_1", "monday");
   });
 
@@ -1598,7 +1741,7 @@ describe("callback: the error cookie", () => {
     store.saveConnection.mockRejectedValueOnce(new Error("db down"));
     expect(recorded(await runCallback("monday"))).toEqual({ provider: "monday", code: "failed", reason: BRIEF_REASON.save });
 
-    store.deleteOtherConnections.mockRejectedValueOnce(new Error("db down"));
+    store.deleteOtherConnections.mockRejectedValue(new Error("db down"));
     expect(recorded(await runCallback("monday"))).toEqual({
       provider: "monday",
       code: "failed",
@@ -1885,6 +2028,16 @@ describe("disconnect", () => {
     expect(store.deleteConnection).toHaveBeenCalledWith("user_1", provider);
     expect(clerk.deleted).toEqual([id]);
     expect(db.orgDeletes).toEqual(["user_1"]);
+  });
+
+  it("keeps the photo the user shows from the Clerk account it removes", async () => {
+    const linear = `https://img.clerk.com/${Buffer.from(JSON.stringify({ type: "proxy", src: "https://public.linear.app/ada.png" })).toString("base64url")}`;
+    clerk.hasImage = true;
+    clerk.imageUrl = linear;
+    clerk.accounts = [{ id: "ea_linear", provider: "oauth_linear", imageUrl: linear }];
+    clerkPhotos.add(linear);
+    expect(await (await post("linear")).json()).toEqual({ ok: true });
+    expect(clerk.log).toEqual(["photo image/png", "delete ea_linear"]);
   });
 
   it("drops only the Brief row when asked to keep the Clerk account", async () => {

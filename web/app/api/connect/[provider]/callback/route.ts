@@ -35,6 +35,7 @@ import {
 } from "@/lib/connect-flow";
 import { BRIEF_REASON, providerFailure, readTokenRefusal, type ConnectFailure } from "@/lib/connect-errors";
 import { removeClerkTrackers } from "@/lib/clerk-trackers";
+import { adoptTrackerAvatar } from "@/lib/tracker-avatar";
 import { forgetLegacyGithubPick, forgetWorkspaces, legacyGithubPick } from "@/lib/workspaces";
 import { getLinearOrg } from "@/lib/linear";
 import { listJiraSites } from "@/lib/jira";
@@ -57,6 +58,8 @@ type Token = {
   label?: string;
   /** The workspace the token was minted for, when the reply names it (Notion). */
   workspace?: Workspace;
+  /** The account's photo, when the token reply names it (Notion). */
+  avatarUrl?: string;
 };
 
 /** Where the browser goes next, and why when nothing was stored. */
@@ -285,7 +288,7 @@ async function exchangeCode(
     data?: { name?: string; email?: string };
     workspace_id?: string | null;
     workspace_name?: string | null;
-    owner?: { user?: { name?: string | null } };
+    owner?: { user?: { name?: string | null; avatar_url?: string | null } };
   };
   // GitHub refuses with a 200 whose body names the error.
   if (!j?.access_token) {
@@ -302,6 +305,7 @@ async function exchangeCode(
       // owns has no user, and the workspace names the card instead.
       label: j.data?.name || j.data?.email || j.owner?.user?.name || j.workspace_name || undefined,
       workspace: j.workspace_id ? { id: j.workspace_id, name: j.workspace_name || "Notion workspace" } : undefined,
+      avatarUrl: j.owner?.user?.avatar_url || undefined,
     },
   };
 }
@@ -541,16 +545,29 @@ async function finish(
     meta,
   });
 
-  const only = await makeOnlyTracker(userId, provider);
+  // A user with no photo of their own takes this account's. Before the
+  // switch: a Clerk tracker account it removes may hold the photo shown now.
+  // Best effort, and never a reason to fail the connect.
+  await adoptTrackerAvatar(userId, provider, {
+    accessToken: token.accessToken,
+    avatarUrl: token.avatarUrl,
+    siteId: pinned?.id ?? workspaces[0]?.id,
+    apiKey: provider === "trello" ? OWNED_SPECS.trello.clientId() : undefined,
+  }).catch(() => null);
+
+  const cleanup = await makeOnlyTracker(userId, provider);
   // Either way the cached lists and org may belong to a tracker that is gone
   // now: a failed cleanup can still have removed part of it.
   forgetWorkspaces(userId);
   await forgetOrg(userId);
-  if (!only) {
+  if (cleanup !== "done") {
     // Registry order puts Linear, Jira and GitHub first, so a previous tracker
     // that survived the cleanup would keep winning while the card said the new
-    // one was connected. Take the new one back out and say it failed.
-    if (!reconnect) await rollBack(userId, provider);
+    // one was connected: say it failed, and take the new one back out. Unless
+    // the cleanup already removed the user's Clerk tracker accounts, which
+    // can't be undone: rolling back then could leave them no tracker at all,
+    // so the new one stays and the leftover row goes on the next try.
+    if (!reconnect && cleanup === "roll-back") await rollBack(userId, provider);
     return refuse("failed", BRIEF_REASON.switch);
   }
   // The Clerk-era GitHub pick now lives on the connection. One the new token
@@ -593,25 +610,33 @@ function keptPick(
  * leaves the previous tracker in place. The browser removes nothing before an
  * owned flow starts, so this is where the previous tracker goes, Clerk ones
  * included. That covers this provider's own Clerk account too: someone moving
- * Linear from Clerk to Brief leaves no Clerk Linear account behind. False when
- * anything could not be removed.
+ * Linear from Clerk to Brief leaves no Clerk Linear account behind. Anything
+ * but `done` means something could not be removed; `roll-back` when taking the
+ * new connection back out still leaves the user a tracker, `keep` when not.
  *
  * Clerk goes first: it is the remote call more likely to fail, and a failure
  * there leaves every owned row as it was. The database just took the save, so
  * the owned delete after it rarely fails.
  */
-async function makeOnlyTracker(userId: string, provider: OwnedProvider): Promise<boolean> {
+async function makeOnlyTracker(userId: string, provider: OwnedProvider): Promise<"done" | "roll-back" | "keep"> {
   // An account kept as the user's only way to sign in is logged there; the
   // switch goes ahead without it.
   const clerk = await removeClerkTrackers(userId);
-  if (clerk !== "done" && clerk !== "kept") return false;
-  try {
-    await deleteOtherConnections(userId, provider);
-    return true;
-  } catch (err) {
-    console.warn("[connect] could not remove the other owned connections:", errorName(err));
-    return false;
+  if (clerk === "unreachable" || clerk === "failed") return "roll-back";
+  // A passing blip gets one retry: past a Clerk removal, a failure here can't
+  // be rolled back.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await deleteOtherConnections(userId, provider);
+      return "done";
+    } catch (err) {
+      console.warn("[connect] could not remove the other owned connections:", errorName(err));
+    }
   }
+  // `done`: the Clerk tracker accounts are gone for good. Anything else left a
+  // tracker the user can fall back on (a kept Clerk account, or the owned rows
+  // that just failed to go).
+  return clerk === "done" ? "keep" : "roll-back";
 }
 
 /** Delete the connection just saved, after the switch to it failed. */

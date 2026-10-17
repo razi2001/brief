@@ -41,6 +41,11 @@ type Props = {
   needsWorkspace?: ProviderKey[];
   /** Trackers this deployment can't connect yet (no OAuth app for them). */
   unavailable?: ProviderKey[];
+  /**
+   * Connected through a Clerk account that Brief's own OAuth can take over:
+   * the card offers Reconnect beside Disconnect.
+   */
+  updatable?: ProviderKey[];
   /** Trackers with a connect or disconnect in flight. */
   busy: Record<string, boolean>;
   /**
@@ -57,6 +62,8 @@ type Props = {
   notice?: ReactNode;
   onConnect: (key: ProviderKey) => void;
   onDisconnect: (key: ProviderKey) => void;
+  /** Move an `updatable` tracker onto Brief's own OAuth, disconnecting nothing. */
+  onUpdate?: (key: ProviderKey) => void;
 };
 
 function Chevron() {
@@ -152,6 +159,7 @@ export default function TrackerPicker({
   stale,
   needsWorkspace = [],
   unavailable = [],
+  updatable = [],
   busy,
   initialSelected,
   defaultOpen = false,
@@ -159,6 +167,7 @@ export default function TrackerPicker({
   notice,
   onConnect,
   onDisconnect,
+  onUpdate,
 }: Props) {
   // Every index below (active option, keyboard moves, type-ahead) is into this
   // ordered list, so the menu and the keys always agree.
@@ -174,6 +183,9 @@ export default function TrackerPicker({
   const typed = useRef({ text: "", at: 0 });
   const listId = useId();
   const [place, setPlace] = useState<CSSProperties | null>(null);
+  // Reconnect and Disconnect share the tracker's busy flag; this says which of
+  // the two is in flight, so only that one reads as working.
+  const [updating, setUpdating] = useState<ProviderKey | null>(null);
 
   // Keep the portalled menu pinned to its trigger while the page scrolls or
   // the window resizes. Measured before paint, so it never flashes at 0,0.
@@ -370,6 +382,7 @@ export default function TrackerPicker({
           </>
         );
       }
+      const isUpdating = isBusy && updating === key;
       return (
         <>
           <span className={`${STATUS} text-muted`}>
@@ -378,12 +391,28 @@ export default function TrackerPicker({
           </span>
           <button
             type="button"
-            onClick={() => onDisconnect(key)}
+            onClick={() => {
+              setUpdating(null);
+              onDisconnect(key);
+            }}
             disabled={isBusy}
             className={QUIET}
           >
-            {isBusy ? "Disconnecting…" : "Disconnect"}
+            {isBusy && !isUpdating ? "Disconnecting…" : "Disconnect"}
           </button>
+          {onUpdate && updatable.includes(key) && (
+            <button
+              type="button"
+              onClick={() => {
+                setUpdating(key);
+                onUpdate(key);
+              }}
+              disabled={isBusy}
+              className={QUIET}
+            >
+              {isUpdating ? "Reconnecting…" : "Reconnect"}
+            </button>
+          )}
         </>
       );
     }
