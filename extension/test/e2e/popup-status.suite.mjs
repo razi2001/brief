@@ -77,14 +77,48 @@
   check('an old cache and an older server: no row, Create enabled', !s4.shown && s4.createDisabled === false, JSON.stringify(s4));
   await b.send('Target.closeTarget', { targetId: P4.targetId }).catch(() => {});
 
-  // No tracker that can file: Create says why and links to Connections, as before.
-  me = { ok: true, tracker: null, trackerName: null, trackerIssue: 'Your Linear connection has expired - reconnect it under Settings, then retry.', trackerAction: null };
-  await reset({ tracker: null });
-  const P5 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
-  await click(P5.sid, '#createBtn'); await sleep(300);
-  const s5 = await popupState(P5.sid);
-  const link = await evalIn(P5.sid, `document.querySelector('#errBar .err-link')?.textContent || ''`);
-  check('a tracker issue still shows on Create, with its Connect link, and no reconnect row', /has expired/.test(s5.err) && link === 'Connect' && !s5.shown, JSON.stringify({ ...s5, link }));
+  // No tracker that can file: Create becomes the fix the server names, and
+  // opens Connections' tracker row, with no error shown.
+  const createState = (sid) => evalIn(sid, `(() => {
+    const c = document.querySelector('#createBtn');
+    const r = document.querySelector('#reconnectBtn');
+    return { label: c.textContent.trim(), disabled: c.disabled, title: c.title, row: !!r && !r.hidden, err: document.querySelector('#errBar').textContent };
+  })()`);
+  const fixes = [
+    ['an expired Linear', { trackerName: 'Linear', trackerIssue: 'Your Linear connection has expired - reconnect it under Settings, then retry.', trackerAction: 'reconnect' }, 'Reconnect Linear', 'popup-fix-reconnect.png'],
+    ['a pick still to make', { trackerName: 'Azure DevOps', trackerIssue: 'Pick your Azure DevOps organization under Settings, then retry.', trackerAction: 'pick' }, 'Finish connecting Azure DevOps', 'popup-fix-pick.png'],
+    ['nothing connected', { trackerName: null, trackerIssue: null, trackerAction: 'connect' }, 'Connect a tracker', 'popup-fix-connect.png'],
+    ['an older server that sends no action', { trackerName: null, trackerIssue: null }, 'Connect a tracker', null],
+  ];
+  for (const [what, status, label, png] of fixes) {
+    me = { ok: true, tracker: null, ...status };
+    await reset({ tracker: null });
+    const P = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+    const st = await createState(P.sid);
+    check(`${what}: Create reads "${label}", enabled, with no reconnect row`, st.label === label && !st.disabled && !st.row, JSON.stringify(st));
+    if (png) await shot(P.sid, png);
+    await evalIn(P.sid, `(() => {
+      chrome.tabs.query = async () => [];
+      chrome.tabs.create = async (o) => { await chrome.storage.local.set({ __opened: o.url }); return {}; };
+      window.close = () => {};
+    })()`);
+    await W(`chrome.storage.local.remove('__opened')`);
+    await click(P.sid, '#createBtn'); await sleep(500);
+    const went = await W(`chrome.storage.local.get('__opened').then((r) => r.__opened)`);
+    const after = await createState(P.sid);
+    check(`${what}: clicking it opens Connections' tracker row and shows no error`, went === `${APP}/connections#tracker` && after.err === '', JSON.stringify({ went, err: after.err }));
+    await b.send('Target.closeTarget', { targetId: P.targetId }).catch(() => {});
+  }
+
+  // The next open paints the fix from the cache, before /api/me answers.
+  me = { ok: true, tracker: null, trackerName: 'Linear', trackerIssue: null, trackerAction: 'reconnect' };
+  await reset({ tracker: null, trackerName: 'Linear', trackerAction: 'reconnect' });
+  meDelayMs = 2500;
+  const P6 = await open(`chrome-extension://${extId}/popup.html`); await sleep(900);
+  const s6 = await createState(P6.sid);
+  check('a cached fix shows before /api/me answers', s6.label === 'Reconnect Linear' && !s6.disabled, JSON.stringify(s6));
+  meDelayMs = 0;
+  await b.send('Target.closeTarget', { targetId: P6.targetId }).catch(() => {});
 
   const thrown = exceptions.filter(Boolean);
   check('the popup threw nothing', thrown.length === 0, thrown.join(' | '));

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { clerkClient, type User } from "@clerk/nextjs/server";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
-import { CLERK_PROVIDERS, providerName, trackerStatus } from "@/lib/trackers/registry";
+import { CLERK_PROVIDERS, providerName, trackerStatus, type TrackerFix } from "@/lib/trackers/registry";
 import { isOwnedProvider, isProviderConfigured, readConnection } from "@/lib/connections";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import type { ProviderKey } from "@/lib/tracker";
@@ -16,7 +16,11 @@ export function OPTIONS() {
  * ticket" can be gated BEFORE the user records and files - not after, via a
  * 409 from the process route. A 401 tells the extension to drop its cached
  * token (it belongs to a revoked pairing or a deleted account).
- * `trackerAction` asks for a reconnect that filing does not need (actionFor).
+ * `trackerAction` says what the popup's Create button should offer instead:
+ *  - with a tracker: "reconnect" for a reconnect filing does not need
+ *    (actionFor), else null
+ *  - with none: "pick" or "reconnect" for the connected tracker that can't
+ *    file yet (named in `trackerName`), else "connect"
  */
 export async function GET(req: NextRequest) {
   const token = bearerFromHeader(req.headers.get("authorization"));
@@ -42,18 +46,22 @@ export async function GET(req: NextRequest) {
   // to pick, an expired grant) instead of a plain "no tracker".
   let tracker: ProviderKey | null = null;
   let trackerIssue: string | null = null;
+  let fix: TrackerFix | null = null;
   try {
-    ({ tracker, issue: trackerIssue } = await trackerStatus(userId, user));
+    ({ tracker, issue: trackerIssue, fix } = await trackerStatus(userId, user));
   } catch {
     tracker = null;
     trackerIssue = null;
+    fix = null;
   }
 
   // The display name too, so the extension needs no table of its own to say
-  // "Filing to Azure DevOps" for a tracker added after it shipped.
-  const trackerName = tracker ? providerName(tracker) : null;
+  // "Filing to Azure DevOps" for a tracker added after it shipped. With no
+  // tracker, the name of the one to fix, if any.
+  const named = tracker ?? fix?.key ?? null;
+  const trackerName = named ? providerName(named) : null;
 
-  const trackerAction = tracker ? await actionFor(userId, tracker) : null;
+  const trackerAction = tracker ? await actionFor(userId, tracker) : (fix?.action ?? "connect");
 
   return jsonCors({ ok: true, tracker, trackerName, trackerIssue, trackerAction });
 }

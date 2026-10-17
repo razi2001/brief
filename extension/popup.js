@@ -5,7 +5,7 @@
 // happens in bottom sheets. Capture (screenshot/video) runs on the page, so those
 // actions close the popup and it reopens when the capture lands.
 
-import { APP_URL, TICKETS_URL as TICKETS_URL_BASE, getCloudToken, fetchAccountStatus, transcribeNote } from './cloud.js';
+import { APP_URL, TICKETS_URL as TICKETS_URL_BASE, getCloudToken, fetchAccountStatus, transcribeNote, TRACKER_ACTIONS } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft } from './draft.js';
 import { putFile, hasFile, deleteFile, recKey, shotKey, replayKey, replayVoiceKey, draftKeys } from './filestore.js';
 import { syncReplaySites } from './replay-sites.js';
@@ -39,9 +39,9 @@ const MAX_SHOTS = 3;
 let draft = emptyDraft();
 let bcConnected = false;
 let bcTracker;
-let bcTrackerName = null; // the server's display name for bcTracker, when it sent one
+let bcTrackerName = null; // the server's display name for bcTracker, or with none, for the tracker to fix
 let bcTrackerIssue = null; // with no tracker, why a connected one can't file yet, when the server said
-let bcTrackerAction = null; // 'reconnect': the tracker files, but should be reconnected (still on Clerk)
+let bcTrackerAction = null; // with a tracker, 'reconnect' (still on Clerk); with none, 'reconnect' | 'pick' | 'connect'
 let currentSheet = null; // 'shot:<id>' | 'rec' | 'chooser' | 'reset' | null
 let lastSig = '';
 
@@ -254,9 +254,12 @@ function updateCreate() {
   // the in-progress state too.
   const filing = !!draft.filing;
   const ready = isReadyDraft(draft);
-  createBtn.disabled = filing || uploading || !ready;
+  // With no tracker that can file, the button offers the fix instead.
+  const fix = filing ? null : trackerFixLabel();
+  createBtn.disabled = fix ? false : filing || uploading || !ready;
+  createBtn.title = fix && bcTrackerIssue ? bcTrackerIssue : '';
   // Two actions, the same for everyone: Create ticket files to the tracker
-  // (without one it says so and offers to connect), Save as draft writes the
+  // (without one it becomes the way to connect one), Save as draft writes the
   // brief up on its own page with no ticket.
   draftBtn.hidden = false;
   draftBtn.disabled = filing || uploading || !ready;
@@ -264,7 +267,8 @@ function updateCreate() {
   const savingDraft = filing && draft.filingMode === 'draft';
   if (draftLabel) draftLabel.innerHTML = savingDraft ? '<span class="btn-spin"></span> Saving…' : 'Save as draft';
   if (label) {
-    if (savingDraft) label.textContent = 'Create ticket';
+    if (fix) label.textContent = fix;
+    else if (savingDraft) label.textContent = 'Create ticket';
     else if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Creating…'}`;
     else label.textContent = uploading ? 'Uploading…' : 'Create ticket';
   }
@@ -719,10 +723,22 @@ async function startFiling(mode) {
   showInlineError(`Couldn’t create brief: ${res?.error || 'unknown error'}`);
 }
 
-// The primary action: file to the connected tracker. With none connected it
-// says so and offers to connect one (the draft is kept, and Save as draft
-// still works). If we don't yet know the tracker status (fast click on open),
-// resolve it first.
+// What Create offers when no tracker can file: the fix the server named, or a
+// plain connect. Null while a tracker files, or before a paired account's
+// status is known.
+function trackerFixLabel() {
+  if (bcTracker !== null) return null;
+  const name = bcTrackerName || 'your tracker';
+  if (bcTrackerAction === 'reconnect') return `Reconnect ${name}`;
+  if (bcTrackerAction === 'pick') return `Finish connecting ${name}`;
+  if (bcTrackerAction === 'connect' || bcConnected) return 'Connect a tracker';
+  return null;
+}
+
+// The primary action: file to the connected tracker. With none that can file
+// it opens the tracker row in Connections (the draft is kept, and Save as
+// draft still works). If we don't yet know the tracker status (fast click on
+// open), resolve it first.
 async function primaryCreate() {
   if (bcTracker === undefined) {
     try {
@@ -730,14 +746,15 @@ async function primaryCreate() {
       if (st) {
         bcConnected = st.connected; bcTracker = st.tracker; bcTrackerName = st.trackerName ?? null;
         bcTrackerIssue = st.tracker ? null : st.trackerIssue ?? null;
-        bcTrackerAction = st.tracker ? st.trackerAction ?? null : null;
+        bcTrackerAction = st.connected ? st.trackerAction ?? null : null;
         renderReconnect();
       }
     } catch { /* unknown: try to file, the server says if there's no tracker */ }
     updateCreate();
   }
-  if (bcTracker === null && bcConnected) {
-    showInlineError(bcTrackerIssue || 'Connect a tracker to create tickets.', { linkText: 'Connect', url: `${APP_URL}/connections#tracker` });
+  if (trackerFixLabel()) {
+    await openAppTab(`${APP_URL}/connections#tracker`, `${APP_URL}/connections*`);
+    window.close();
     return;
   }
   startFiling('ticket');
@@ -927,9 +944,9 @@ function attachVoiceDictation(textarea, container, onCommit) {
 // the DOM if the truth turns out to be different.
 // Stored as { tracker, trackerName, trackerIssue, trackerAction }. A cache
 // written before trackerName, trackerIssue or trackerAction existed still reads
-// fine: the name falls back to TRACKER_NAMES, the issue to the plain "connect a
-// tracker" line and the action to none, until the next /api/me answer
-// rewrites it.
+// fine: the name falls back to TRACKER_NAMES and the action to none (a plain
+// "Connect a tracker" once the account reads as paired), until the next
+// /api/me answer rewrites it.
 const TRACKER_CACHE_KEY = 'bcTrackerCache';
 async function readTrackerCache() {
   try {
@@ -939,7 +956,7 @@ async function readTrackerCache() {
       tracker: c.tracker ?? null,
       trackerName: typeof c.trackerName === 'string' ? c.trackerName : null,
       trackerIssue: typeof c.trackerIssue === 'string' ? c.trackerIssue : null,
-      trackerAction: c.trackerAction === 'reconnect' ? 'reconnect' : null,
+      trackerAction: TRACKER_ACTIONS.includes(c.trackerAction) ? c.trackerAction : null,
     };
   } catch { return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null }; }
 }
@@ -963,7 +980,8 @@ async function bcRefresh() {
   // waiting for the next open.
   if (!token) {
     await writeTrackerCache(null, null, null, null);
-    bcTrackerAction = null; renderReconnect();
+    bcTrackerName = null; bcTrackerIssue = null; bcTrackerAction = null;
+    updateCreate(); renderReconnect();
     return;
   }
   try {
@@ -971,14 +989,17 @@ async function bcRefresh() {
     if (!status) return;
     bcConnected = status.connected;
     const tracker = status.tracker ?? null;
-    const name = tracker ? status.trackerName ?? null : null;
+    const name = status.trackerName ?? null;
     const issue = tracker ? null : status.trackerIssue ?? null;
-    const action = tracker ? status.trackerAction ?? null : null;
+    const action = status.connected ? status.trackerAction ?? null : null;
     await writeTrackerCache(tracker, name, issue, action);
     bcTrackerName = name;
     bcTrackerIssue = issue;
     bcTrackerAction = action;
-    if (tracker !== bcTracker) { bcTracker = tracker; updateCreate(); }
+    // The label can change without the tracker changing (a reconnect becomes
+    // a pick), so always; it only rewrites the button's own text.
+    bcTracker = tracker;
+    updateCreate();
     renderReconnect();
   } catch {}
 }

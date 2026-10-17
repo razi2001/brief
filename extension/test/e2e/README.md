@@ -10,7 +10,7 @@ driven over the DevTools protocol, against a small test site served locally.
 | `filing-restart` | a ticket filed in the background survives the worker being shut down mid-filing: its files are kept, it resumes, it's filed once |
 | `auto-report` | "Brief it" (Alt+Shift+B, or right-click): the last minute becomes a draft with nothing opened - suspects found (a failed call), stills taken there, uploaded, the toolbar icon says it; an unrecorded page is explained in the popup |
 | `replay-trim` | a trimmed replay opens on the part kept, not the start of the recording: its video's first frame (a ticket's thumbnail) and the editor reopening it |
-| `popup-status` | the popup and `/api/me`: a tracker still on Clerk shows "Reconnect <tracker>" above an enabled Create ticket, from the cache on the next open, gone once the server stops asking; old caches and servers without `trackerAction`; a tracker issue still shows on Create with its Connect link |
+| `popup-status` | the popup and `/api/me`: a tracker still on Clerk shows "Reconnect <tracker>" above an enabled Create ticket, from the cache on the next open, gone once the server stops asking; old caches and servers without `trackerAction`; with no tracker that can file, Create becomes the fix ("Reconnect Linear", "Finish connecting <tracker>", "Connect a tracker") and opens Connections, with no error |
 | `upload-race` | a recording trimmed while the original is still uploading: the trimmed upload is the one filed, whichever finishes last |
 
 ## Run

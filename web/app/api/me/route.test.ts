@@ -77,31 +77,32 @@ describe("/api/me", () => {
     expect(body).toMatchObject({ tracker: "github", trackerName: "GitHub", trackerIssue: null });
   });
 
-  it("says why there is no tracker when a connection is waiting on its workspace pick", async () => {
+  it("says why there is no tracker when a connection is waiting on its workspace pick, and offers the pick", async () => {
     store.current = { azure: { meta: {} } };
     expect(await (await me()).json()).toEqual({
       ok: true,
       tracker: null,
-      trackerName: null,
+      trackerName: "Azure DevOps",
       trackerIssue: "Pick your Azure DevOps organization under Settings, then retry.",
-      trackerAction: null,
+      trackerAction: "pick",
     });
   });
 
-  it("says a connection expired when its token can't be had", async () => {
+  it("says a connection expired when its token can't be had, and offers the reconnect", async () => {
     clerkUser.current = { id: "user_1", externalAccounts: [{ provider: "oauth_linear" }] };
     const body = await (await me()).json();
     expect(body.tracker).toBeNull();
     expect(body.trackerIssue).toBe("Your Linear connection has expired - reconnect it under Settings, then retry.");
+    expect(body).toMatchObject({ trackerName: "Linear", trackerAction: "reconnect" });
   });
 
-  it("has nothing to explain when nothing is connected", async () => {
+  it("offers a connect when nothing is connected", async () => {
     expect(await (await me()).json()).toEqual({
       ok: true,
       tracker: null,
       trackerName: null,
       trackerIssue: null,
-      trackerAction: null,
+      trackerAction: "connect",
     });
   });
 
@@ -152,10 +153,10 @@ describe("/api/me", () => {
       expect(await (await me()).json()).toMatchObject({ tracker: "gitlab", trackerAction: null });
     });
 
-    it("leaves an expired Clerk connection to trackerIssue", async () => {
+    it("asks for a reconnect of an expired Clerk connection, which can't file", async () => {
       clerkUser.current = { id: "user_1", externalAccounts: [{ provider: "oauth_linear" }] };
       const body = await (await me()).json();
-      expect(body).toMatchObject({ tracker: null, trackerAction: null });
+      expect(body).toMatchObject({ tracker: null, trackerName: "Linear", trackerAction: "reconnect" });
       expect(body.trackerIssue).toMatch(/expired/);
     });
   });

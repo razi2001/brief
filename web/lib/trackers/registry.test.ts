@@ -626,19 +626,19 @@ describe("checkTracker", () => {
 describe("why there is no tracker", () => {
   it("says nothing is connected when nothing is", async () => {
     expect(NO_TRACKER_ERROR).toBe("No tracker connected - connect one in Settings, then retry.");
-    expect(await trackerStatus("user_1")).toEqual({ tracker: null, issue: null });
+    expect(await trackerStatus("user_1")).toEqual({ tracker: null, issue: null, fix: null });
     expect(await resolveTrackerOrError("user_1")).toEqual({ tracker: null, error: NO_TRACKER_ERROR });
   });
 
   it("names the tracker that files", async () => {
     store.monday = conn("monday");
-    expect(await trackerStatus("user_1")).toEqual({ tracker: "monday", issue: null });
+    expect(await trackerStatus("user_1")).toEqual({ tracker: "monday", issue: null, fix: null });
   });
 
   it("asks for the Azure DevOps organization rather than a reconnect", async () => {
     store.azure = conn("azure");
     const line = "Pick your Azure DevOps organization under Settings, then retry.";
-    expect(await trackerStatus("user_1")).toEqual({ tracker: null, issue: line });
+    expect(await trackerStatus("user_1")).toEqual({ tracker: null, issue: line, fix: { key: "azure", action: "pick" } });
     expect((await resolveTrackerOrError("user_1")).error).toBe(line);
   });
 
@@ -650,9 +650,9 @@ describe("why there is no tracker", () => {
   it("says an owned connection expired when its row is there but no token comes back", async () => {
     // The row lists as connected, but the refresh was refused.
     vi.mocked(listConnectedProviders).mockResolvedValue(["monday"]);
-    expect((await trackerStatus("user_1")).issue).toBe(
-      "Your Monday connection has expired - reconnect it under Settings, then retry.",
-    );
+    const status = await trackerStatus("user_1");
+    expect(status.issue).toBe("Your Monday connection has expired - reconnect it under Settings, then retry.");
+    expect(status.fix).toEqual({ key: "monday", action: "reconnect" });
   });
 
   it("says a Clerk-backed connection expired when Clerk won't vend its token", async () => {
@@ -666,7 +666,10 @@ describe("why there is no tracker", () => {
     vi.stubEnv("TRELLO_API_KEY", "");
     vi.mocked(isProviderConfigured).mockImplementation((p) => p !== "trello");
     store.trello = conn("trello");
-    expect((await trackerStatus("user_1")).issue).toBe("Trello isn't available right now.");
+    const status = await trackerStatus("user_1");
+    expect(status.issue).toBe("Trello isn't available right now.");
+    // Nothing the user can do about it from Brief.
+    expect(status.fix).toBeNull();
   });
 
   it("puts a reconnect the user can do ahead of a tracker they can't fix", async () => {
@@ -679,7 +682,7 @@ describe("why there is no tracker", () => {
 
   it("blames no Clerk-backed tracker when Clerk can't be read", async () => {
     vi.mocked(getClerkUser).mockRejectedValue(new Error("clerk down"));
-    expect(await trackerStatus("user_1")).toEqual({ tracker: null, issue: null });
+    expect(await trackerStatus("user_1")).toEqual({ tracker: null, issue: null, fix: null });
   });
 
   it("still explains an owned connection when Clerk is down", async () => {

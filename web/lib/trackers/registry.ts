@@ -320,7 +320,23 @@ function issueFor(misses: Array<{ key: ProviderKey; problem: TrackerProblem }>):
   return off ? unavailableError(off.key) : null;
 }
 
-type Resolution = { key: ProviderKey; tracker: Tracker; issue: null } | { key: null; tracker: null; issue: string | null };
+/**
+ * What the user can do about a connected tracker that can't file: finish its
+ * workspace pick, or reconnect it. Same order as issueFor, so it is the fix
+ * for the line issueFor says.
+ */
+export type TrackerFix = { key: ProviderKey; action: "pick" | "reconnect" };
+
+function fixFor(misses: Array<{ key: ProviderKey; problem: TrackerProblem }>): TrackerFix | null {
+  const pick = misses.find((m) => m.problem === "needsWorkspace");
+  if (pick) return { key: pick.key, action: "pick" };
+  const stale = misses.find((m) => m.problem === "stale");
+  return stale ? { key: stale.key, action: "reconnect" } : null;
+}
+
+type Resolution =
+  | { key: ProviderKey; tracker: Tracker; issue: null; fix: null }
+  | { key: null; tracker: null; issue: string | null; fix: TrackerFix | null };
 
 /**
  * The first connected tracker that resolves, in registry order, or the reason
@@ -332,12 +348,12 @@ async function resolveFirst(userId: string, user?: ClerkUserLike): Promise<Resol
   const misses: Array<{ key: ProviderKey; problem: TrackerProblem }> = [];
   for (const def of defs) {
     const r = await runCheck(def, userId);
-    if (r.tracker) return { key: def.key, tracker: r.tracker, issue: null };
+    if (r.tracker) return { key: def.key, tracker: r.tracker, issue: null, fix: null };
     // A miss only says "expired" for a tracker known to be connected: one
     // Brief holds, or one Clerk said it holds.
     if (clerkKnown || owned.has(def.key)) misses.push({ key: def.key, problem: r.problem });
   }
-  return { key: null, tracker: null, issue: issueFor(misses) };
+  return { key: null, tracker: null, issue: issueFor(misses), fix: fixFor(misses) };
 }
 
 /**
@@ -381,14 +397,15 @@ export async function resolveTrackerOrError(
 /**
  * Which tracker this user files into, and when there is none but something is
  * connected, the line that says why (a pending workspace pick, an expired
- * connection). Pass the Clerk user when the caller already has it.
+ * connection) and the fix for it. Pass the Clerk user when the caller already
+ * has it.
  */
 export async function trackerStatus(
   userId: string,
   user?: ClerkUserLike,
-): Promise<{ tracker: ProviderKey | null; issue: string | null }> {
+): Promise<{ tracker: ProviderKey | null; issue: string | null; fix: TrackerFix | null }> {
   const r = await resolveFirst(userId, user);
-  return { tracker: r.key, issue: r.issue };
+  return { tracker: r.key, issue: r.issue, fix: r.fix };
 }
 
 /** Resolve every connected tracker, keyed by provider. Used by the live sync. */
