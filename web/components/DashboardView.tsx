@@ -3,6 +3,7 @@ import Podium from "./Podium";
 import { BugCloud, CountUp, InviteCard, ProofRing, TimeBar } from "./DashboardFun";
 import type { RoiSummary } from "@/lib/roi";
 import type { PodiumEntry } from "@/lib/org-server";
+import { CHROME_STORE_URL } from "@/lib/chrome-store";
 
 /**
  * The Dashboard is a scoreboard, not another ticket list (Tickets is one
@@ -146,12 +147,14 @@ function GettingStarted(p: DashboardViewProps) {
       done: p.extensionPaired,
       label: "Add the Brief extension to Chrome",
       done_label: "Extension connected",
-      action: { href: "https://get-brief.app", text: "Get it", external: true },
+      action: { href: CHROME_STORE_URL, text: "Get it", external: true },
     },
     {
       done: p.filed > 0,
       label: "File your first ticket",
       done_label: "First ticket filed",
+      // A page broken on purpose, to file a first ticket from.
+      action: { href: "https://get-brief.app/demo-sandbox", text: "Practice", external: true },
     },
   ];
   const next = steps.findIndex((s) => !s.done);

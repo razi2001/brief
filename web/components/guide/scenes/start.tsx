@@ -1,7 +1,6 @@
 import BrandMark from "@/components/BrandMark";
 import { BrowserFrame } from "../mock/Browser";
 import { MockApp, MockSettings, TRACKERS, type SettingsState } from "../mock/App";
-import { MockPopup } from "../mock/Popup";
 import { Mark, u } from "../mock/Stage";
 import { IconCheck, IconMic, IconPin, IconPuzzle } from "../mock/icons";
 import { AT, scene } from "./types";
@@ -18,7 +17,6 @@ type InstallS = {
   granted?: boolean;
   menu?: boolean;
   pinned?: boolean;
-  popup?: boolean;
 };
 
 function Store({ installed, dialog }: { installed?: boolean; dialog?: boolean }) {
@@ -134,7 +132,7 @@ function Connected() {
 }
 
 export const install = scene<InstallS>({
-  poster: 13,
+  poster: 11,
   frames: [
     { ms: 900, step: 0, cursor: AT.rest, s: { page: "store" } },
     { ms: 1100, step: 0, target: "add-to-chrome", click: true, s: { page: "store" } },
@@ -144,19 +142,17 @@ export const install = scene<InstallS>({
     { ms: 1000, step: 1, target: "grant", click: true, s: { page: "perm", installed: true } },
     { ms: 1100, step: 1, target: "allow", click: true, s: { page: "perm", installed: true, prompt: true } },
     { ms: 900, step: 1, cursor: AT.rest, s: { page: "perm", installed: true, granted: true } },
-    { ms: 1000, step: 2, target: "puzzle", click: true, s: { page: "perm", granted: true } },
-    { ms: 1000, step: 2, target: "pin", click: true, s: { page: "perm", granted: true, menu: true } },
-    { ms: 800, step: 2, cursor: AT.rest, s: { page: "perm", granted: true, pinned: true } },
-    { ms: 1000, step: 3, target: "brief-icon", click: true, s: { page: "perm", granted: true, pinned: true } },
-    { ms: 1100, step: 3, target: "cloud", click: true, s: { page: "perm", granted: true, pinned: true, popup: true } },
-    { ms: 2600, step: 3, cursor: AT.rest, s: { page: "connected", pinned: true } },
+    { ms: 2200, step: 2, cursor: AT.rest, s: { page: "connected" } },
+    { ms: 1000, step: 3, target: "puzzle", click: true, s: { page: "connected" } },
+    { ms: 1000, step: 3, target: "pin", click: true, s: { page: "connected", menu: true } },
+    { ms: 1600, step: 3, cursor: AT.rest, s: { page: "connected", pinned: true } },
   ],
   View: ({ s }) => (
     <BrowserFrame
       url={s.page === "store" ? "chromewebstore.google.com/detail/brief-cloud" : s.page === "perm" ? "Brief Cloud" : `${APP}/connect`}
       title={s.page === "store" ? "Brief Cloud - Chrome Web Store" : s.page === "perm" ? "Brief - Microphone access" : "Brief Cloud"}
       fav={s.page === "store" ? "#34a853" : "#dd6936"}
-      brief={{ pinned: !!s.pinned, open: s.popup }}
+      brief={{ pinned: !!s.pinned }}
       puzzleOn={s.menu}
       overlay={
         <>
@@ -177,7 +173,6 @@ export const install = scene<InstallS>({
               </div>
             </div>
           )}
-          {s.popup && <MockPopup />}
         </>
       }
     >

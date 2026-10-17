@@ -1,9 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ProviderKey } from "./provider-labels";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }) }));
+const router = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => router }));
+// The demo has its own tests; here it only has to hand back onOpenGuide.
+vi.mock("./onboarding/TryItDemo", () => ({
+  default: ({ onOpenGuide }: { onOpenGuide: () => void }) => (
+    <button type="button" onClick={onOpenGuide}>
+      Open the Guide
+    </button>
+  ),
+}));
 
 const clerk = vi.hoisted(() => ({
   createExternalAccount: null as null | ReturnType<typeof vi.fn>,
@@ -133,5 +142,110 @@ describe("Onboarding's tracker step", () => {
 
     expect(await screen.findByText("Install the extension")).toBeTruthy();
     expect(screen.queryByText("Connect your tracker")).toBeNull();
+  });
+});
+
+describe("Onboarding's extension step", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    connections = Promise.resolve({ owned: [{ provider: "asana", label: null, workspace: null }], configured: {} });
+  });
+
+  it("names no button the popup doesn't have", async () => {
+    renderWizard();
+    await screen.findByText("Install the extension");
+    expect(screen.getByRole("link", { name: /Add to Chrome/ })).toBeTruthy();
+    expect(screen.queryByText(/Connect to Brief Cloud/)).toBeNull();
+  });
+
+  it("shows the extension connected once it pairs with this account, in this tab or the setup tab", async () => {
+    renderWizard();
+    await screen.findByText("Install the extension");
+
+    // ExtensionTokenSync (or /connect in the setup tab) paired it as this user.
+    localStorage.setItem("briefExtSyncedUser", "user_1");
+    await act(async () => window.dispatchEvent(new Event("brief-ext-paired")));
+
+    expect(screen.getByText("Extension connected")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Add to Chrome/ })).toBeNull();
+  });
+
+  it("doesn't count a pairing made as someone else", async () => {
+    localStorage.setItem("briefExtSyncedUser", "user_2");
+    renderWizard();
+    expect(await screen.findByText("Install the extension")).toBeTruthy();
+    expect(screen.queryByText("Extension connected")).toBeNull();
+  });
+});
+
+describe("Onboarding's Try it step", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    router.replace.mockClear();
+    connections = Promise.resolve({ owned: [{ provider: "asana", label: null, workspace: null }], configured: {} });
+  });
+  const settingsPosts = () =>
+    (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([url]) => url === "/api/settings")
+      .map(([, init]) => JSON.parse((init as RequestInit).body as string));
+  const continueBtn = () => screen.getByRole("button", { name: "Continue" });
+  const toTryIt = async () => {
+    renderWizard();
+    await screen.findByText("Install the extension");
+    fireEvent.click(continueBtn());
+    await screen.findByRole("heading", { name: "Try it" });
+  };
+
+  it("has four steps on the rail", async () => {
+    renderWizard();
+    await screen.findByText("Install the extension");
+    const rail = within(screen.getByRole("list", { name: "Setup steps" })).getAllByRole("listitem");
+    expect(rail.map((li) => li.textContent?.replace(/\d/g, ""))).toEqual(["You", "Tracker", "Extension", "Try it"]);
+  });
+
+  it("goes from the extension step to Try it with Continue", async () => {
+    await toTryIt();
+    expect(screen.getByText("Report two bugs. About a minute.")).toBeTruthy();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it("makes Continue the accent button once the extension is connected", async () => {
+    renderWizard();
+    await screen.findByText("Install the extension");
+    expect(continueBtn().className).not.toMatch(/btn-accent/);
+    localStorage.setItem("briefExtSyncedUser", "user_1");
+    await act(async () => window.dispatchEvent(new Event("brief-ext-paired")));
+    expect(continueBtn().className).toMatch(/btn-accent/);
+  });
+
+  it("All set, take me home: saves onboardedAt and goes to the dashboard", async () => {
+    await toTryIt();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "All set, take me home" })));
+    expect(settingsPosts()).toContainEqual({ onboardedAt: true });
+    expect(router.replace).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("Open the Guide: saves onboardedAt and goes to the Guide", async () => {
+    await toTryIt();
+    const guide = await screen.findByRole("button", { name: "Open the Guide" });
+    await act(async () => fireEvent.click(guide));
+    expect(settingsPosts()).toContainEqual({ onboardedAt: true });
+    expect(router.replace).toHaveBeenCalledWith("/guide");
+  });
+
+  it("hides Skip setup only on Try it", async () => {
+    renderWizard();
+    await screen.findByText("Install the extension");
+    expect(screen.getByRole("button", { name: "Skip setup, straight home" })).toBeTruthy();
+    fireEvent.click(continueBtn());
+    await screen.findByRole("heading", { name: "Try it" });
+    expect(screen.queryByRole("button", { name: "Skip setup, straight home" })).toBeNull();
+  });
+
+  it("goes back from Try it to the extension step", async () => {
+    await toTryIt();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText("Install the extension")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Open the Guide" })).toBeNull();
   });
 });

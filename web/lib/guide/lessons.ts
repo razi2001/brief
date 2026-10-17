@@ -54,8 +54,8 @@ export const LESSONS: readonly Lesson[] = [
     steps: [
       `Add [Brief Cloud](${CHROME_STORE_URL}) from the Chrome Web Store.`,
       "A setup tab opens: click **Grant microphone access**, then **Allow**.",
+      "The tab moves on to Brief Cloud and connects the extension to your account: *Connected*.",
       "Pin it: the puzzle icon, then the pin next to Brief Cloud.",
-      "Click the Brief icon, then the cloud. A tab confirms it's *connected*.",
     ],
     scene: "install",
     tryIt: { kind: "install" },

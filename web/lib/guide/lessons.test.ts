@@ -36,6 +36,14 @@ describe("guide lessons", () => {
     }
   });
 
+  it("installs the way the extension really pairs: the setup tab connects it, no click on the cloud", () => {
+    const steps = lessonBySlug("install-extension")!.steps;
+    expect(steps.findIndex((s) => /Grant microphone access/.test(s))).toBeLessThan(
+      steps.findIndex((s) => /Connected/.test(s)),
+    );
+    for (const s of steps) expect(s, s).not.toMatch(/the cloud/i);
+  });
+
   it("never uses an em or en dash (brand voice)", () => {
     const text = LESSONS.flatMap((l) => [l.title, l.blurb, ...l.steps, ...(l.tryIt.kind === "link" ? [l.tryIt.label] : [])]);
     for (const t of text) expect(t, t).not.toMatch(/[–—]/);

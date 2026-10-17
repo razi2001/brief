@@ -829,6 +829,12 @@ async function openTicketsTab() {
   const TICKETS_URL = unseenView === 'drafts' ? `${APP_URL}/drafts` : TICKETS_URL_BASE;
   await openAppTab(TICKETS_URL, [`${TICKETS_URL_BASE}*`, `${APP_URL}/drafts*`]);
 }
+// Not paired yet, the cloud button reads "Connect": a click opens the pairing
+// page instead of the tickets list.
+function renderCloudLink() {
+  briefCloudBtn?.classList.toggle('unlinked', !bcConnected);
+  briefCloudBtn?.setAttribute('aria-label', bcConnected ? 'Open Brief Cloud' : 'Connect to Brief Cloud');
+}
 
 // A tracker that files but should be reconnected (Linear, Jira or GitHub still
 // held by Clerk): a slim link above Create, which stays enabled. It opens the
@@ -976,6 +982,7 @@ function writeTrackerCache(tracker, trackerName, trackerIssue, trackerAction) {
 async function bcRefresh() {
   let token = null; try { token = await getCloudToken(); } catch {}
   bcConnected = !!token;
+  renderCloudLink();
   // Not paired: there is no tracker to have, so don't leave a remembered caret
   // waiting for the next open.
   if (!token) {
@@ -988,6 +995,7 @@ async function bcRefresh() {
     const status = await fetchAccountStatus();
     if (!status) return;
     bcConnected = status.connected;
+    renderCloudLink();
     const tracker = status.tracker ?? null;
     const name = status.trackerName ?? null;
     const issue = tracker ? null : status.trackerIssue ?? null;
@@ -1049,6 +1057,9 @@ resetBtn?.addEventListener('click', openReset);
   // button opens at its final width instead of settling once /api/me answers.
   ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue, trackerAction: bcTrackerAction } = await readTrackerCache());
   renderReconnect();
+  // Same for the cloud button: open already reading "Connect" when unpaired.
+  bcConnected = !!(await getCloudToken().catch(() => null));
+  renderCloudLink();
   // Filing runs in the worker, so it can finish - or fail - while the popup is
   // closed. Unstick a flag left by a worker recycled mid-flow, and surface a
   // failure once (the badge showed "!" until now).
@@ -1099,6 +1110,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // it there afterwards, so nothing here says "created" (the cloud's dot leads
   // to the list, where its real state shows).
   if (area === 'local' && changes.filingDrafts) readTicketsInFlight();
+  if (area === 'local' && changes.briefCloudToken) bcRefresh();
   if (area === 'local' && changes.failedDraft?.newValue) showFailedDraft(changes.failedDraft.newValue);
   if (area !== 'local' || !changes.draft) return;
   getDraft().then((d) => {

@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
 import BrandMark from "./BrandMark";
 import StandalonePage, { SHEET } from "./StandalonePage";
 import { TrackerLogo } from "./TrackerLogo";
@@ -9,9 +11,17 @@ import { NOT_AVAILABLE, TRACKER_DEFS, useTrackerConnect } from "./useTrackerConn
 import { availableFirst } from "./TrackerPicker";
 import { ROLES, SOURCES } from "@/lib/onboarding-options";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
+import { useExtensionPaired } from "./ExtensionTokenSync";
 
-type Step = "you" | "tracker" | "extension";
-const STEP_ORDER: Step[] = ["you", "tracker", "extension"];
+type Step = "you" | "tracker" | "extension" | "tryit";
+const STEP_ORDER: Step[] = ["you", "tracker", "extension", "tryit"];
+
+// The two-bug demo from get-brief.app: only fetched once someone reaches it.
+// Its stand-in has the demo window's height, so the page doesn't jump.
+const TryItDemo = dynamic(() => import("./onboarding/TryItDemo"), {
+  ssr: false,
+  loading: () => <div className="h-[600px] rounded-2xl bg-surface-2 min-[1100px]:h-[610px]" />,
+});
 
 /** Fire-and-await settings write; failures surface as a return value. */
 async function saveSettings(body: Record<string, unknown>): Promise<boolean> {
@@ -36,17 +46,21 @@ function Check({ size = 9 }: { size?: number }) {
   );
 }
 
-function StepRail({ current, trackerDone }: { current: Step; trackerDone: boolean }) {
+function StepRail({ current, trackerDone, extensionDone }: { current: Step; trackerDone: boolean; extensionDone: boolean }) {
   const labels: Record<Step, string> = {
     you: "You",
     tracker: "Tracker",
     extension: "Extension",
+    tryit: "Try it",
   };
   const currentIdx = STEP_ORDER.indexOf(current);
   return (
-    <ol className="flex items-center gap-2 sm:gap-3">
+    <ol aria-label="Setup steps" className="flex items-center gap-2 sm:gap-3">
       {STEP_ORDER.map((s, i) => {
-        const done = i < currentIdx || (s === "tracker" && trackerDone && currentIdx > 0);
+        const done =
+          i < currentIdx ||
+          (s === "tracker" && trackerDone && currentIdx > 0) ||
+          (s === "extension" && extensionDone);
         const active = s === current;
         return (
           <li key={s} className="flex items-center gap-2 sm:gap-3">
@@ -64,8 +78,11 @@ function StepRail({ current, trackerDone }: { current: Step; trackerDone: boolea
               >
                 {done ? <Check /> : i + 1}
               </span>
+              {/* Four labels don't fit a phone: there, only the current one shows. */}
               <span
-                className={`text-[13px] ${active ? "font-medium text-ink" : done ? "text-ink-2" : "text-muted"}`}
+                className={`whitespace-nowrap text-[13px] ${
+                  active ? "font-medium text-ink" : `${done ? "text-ink-2" : "text-muted"} max-sm:sr-only`
+                }`}
               >
                 {labels[s]}
               </span>
@@ -134,9 +151,11 @@ function ChipGrid({
 /**
  * The first-run onboarding experience - a dedicated full page (/welcome), not
  * a dashboard widget. New sign-ups land here straight from Clerk (no hop
- * through "/"). Three steps: about you (role + how you heard) → connect a
- * tracker (inline Clerk OAuth) → install the extension. Finishing or skipping
- * stamps privateMetadata.onboardedAt and heads to the dashboard.
+ * through "/"). Four steps: about you (role + how you heard) → connect a
+ * tracker (inline Clerk OAuth) → install the extension → try it (the
+ * get-brief.app two-bug demo). Finishing or skipping stamps
+ * privateMetadata.onboardedAt and heads to the dashboard, or to the Guide from
+ * the demo's end.
  */
 export default function Onboarding({
   initialRole,
@@ -151,6 +170,9 @@ export default function Onboarding({
   const { isLoaded, busy, errors, notice, lastError, isConnected, isAvailable, pendingError, connect } =
     useTrackerConnect("/welcome");
   const trackerConnected = TRACKER_DEFS.some(isConnected);
+  // Paired by the setup tab, or (installed before signing up) by
+  // ExtensionTokenSync as soon as this account existed.
+  const extensionPaired = useExtensionPaired(useUser().user?.id);
 
   // `rawStep` is null until the user manually navigates; before that the step
   // is DERIVED from real state. This matters because returning from the
@@ -166,6 +188,15 @@ export default function Onboarding({
   const autoStep: Step = trackerConnected ? "extension" : initialRole ? "tracker" : "you";
   const step: Step = rawStep ?? autoStep;
 
+  // The demo is tall: on Try it, scroll just enough to show all of it and the
+  // footer under it.
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (step !== "tryit") return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    footerRef.current?.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+  }, [step]);
+
   async function submitYou() {
     if (savingYou) return;
     setSavingYou(true);
@@ -175,11 +206,13 @@ export default function Onboarding({
     setStep("tracker");
   }
 
-  async function finish() {
+  // Saving onboardedAt first matters for the Guide too: without it the
+  // dashboard would later send the user back here.
+  async function finish(to: "/dashboard" | "/guide" = "/dashboard") {
     if (finishing) return;
     setFinishing(true);
     await saveSettings({ onboardedAt: true });
-    router.replace("/dashboard");
+    router.replace(to);
   }
 
   // The step is derived from the connections, and the owned ones need a round
@@ -206,19 +239,21 @@ export default function Onboarding({
   const stepTitle: Record<Step, string> = {
     you: "Tell us about you",
     tracker: "Connect your tracker",
-    extension: "Install the extension",
+    extension: extensionPaired ? "Extension connected" : "Install the extension",
+    tryit: "Try it",
   };
   const stepSub: Record<Step, string> = {
     you: "Brief uses this to write tickets the way your team expects them.",
     tracker: "Brief writes tickets straight into it - no copy-paste, ever.",
     extension: "This is how you capture a bug: record, talk, done.",
+    tryit: "Report two bugs. About a minute.",
   };
 
   const backLink = "text-[13px] text-muted no-underline transition-colors hover:text-ink";
 
   return (
     <StandalonePage>
-      <div className="w-full max-w-[560px]">
+      <div className={`w-full ${step === "tryit" ? "max-w-[880px]" : "max-w-[560px]"}`}>
         <div className={`${SHEET} overflow-hidden`}>
           {/* Greeting + where you are */}
           <div className="px-6 pb-5 pt-7 sm:px-8 sm:pt-8">
@@ -229,7 +264,7 @@ export default function Onboarding({
               Two minutes of setup, then your bugs file themselves.
             </p>
             <div className="mt-5">
-              <StepRail current={step} trackerDone={trackerConnected} />
+              <StepRail current={step} trackerDone={trackerConnected} extensionDone={extensionPaired} />
             </div>
           </div>
 
@@ -320,8 +355,9 @@ export default function Onboarding({
                   </span>
                 )}
 
-                {/* Install card - groups the store action with its two setup steps
-                    so the button doesn't float in empty space. */}
+                {/* Install card - groups the store action with its setup steps
+                    so the button doesn't float in empty space. Once the
+                    extension is paired only pinning is left. */}
                 <div className="overflow-hidden rounded-xl border hairline bg-surface">
                   <div className="flex flex-wrap items-center justify-between gap-3 p-4">
                     <div className="flex items-center gap-3">
@@ -331,47 +367,65 @@ export default function Onboarding({
                         <p className="mt-0.5 text-xs text-muted">Free · Chrome Web Store</p>
                       </div>
                     </div>
-                    <a
-                      href={CHROME_STORE_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn-accent shrink-0 no-underline"
-                    >
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                      </svg>
-                      Add to Chrome
-                    </a>
+                    {extensionPaired ? (
+                      <span className="pill shrink-0 border-[rgba(46,125,50,.3)] bg-[rgba(46,125,50,.08)] text-[#2e7d32]">
+                        <Check size={10} />
+                        Connected
+                      </span>
+                    ) : (
+                      <a
+                        href={CHROME_STORE_URL}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-accent shrink-0 no-underline"
+                      >
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                          <polyline points="7 10 12 15 17 10" />
+                          <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        Add to Chrome
+                      </a>
+                    )}
                   </div>
 
                   <ol className="flex flex-col gap-2.5 border-t hairline bg-surface-2/60 px-4 py-3.5">
-                    <li className="flex items-start gap-2.5 text-[13px] text-ink-2">
-                      <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border hairline bg-surface text-[10px] font-semibold tabular-nums text-muted">
-                        1
-                      </span>
-                      <span>Pin Brief to your toolbar so it&apos;s one click away.</span>
-                    </li>
-                    <li className="flex items-start gap-2.5 text-[13px] text-ink-2">
-                      <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border hairline bg-surface text-[10px] font-semibold tabular-nums text-muted">
-                        2
-                      </span>
-                      <span>
-                        Open it and hit{" "}
-                        <span className="font-medium text-ink">Connect to Brief Cloud</span> - it
-                        pairs with this account instantly. Then record a bug and it
-                        files itself.
-                      </span>
-                    </li>
+                    {[
+                      ...(extensionPaired
+                        ? []
+                        : [
+                            <>
+                              In the tab that opens, click{" "}
+                              <span className="font-medium text-ink">Grant microphone access</span>.
+                              Brief connects to this account on its own.
+                            </>,
+                          ]),
+                      <>Pin Brief to your toolbar so it&apos;s one click away.</>,
+                    ].map((text, i, all) => (
+                      <li key={i} className="flex items-start gap-2.5 text-[13px] text-ink-2">
+                        {all.length > 1 && (
+                          <span className="mt-px flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border hairline bg-surface text-[10px] font-semibold tabular-nums text-muted">
+                            {i + 1}
+                          </span>
+                        )}
+                        <span>{text}</span>
+                      </li>
+                    ))}
                   </ol>
                 </div>
+              </div>
+            )}
+
+            {/* ---- Step 4: try it ---- */}
+            {step === "tryit" && (
+              <div className="mt-5">
+                <TryItDemo onOpenGuide={() => finish("/guide")} />
               </div>
             )}
           </div>
 
           {/* Footer: back on the left, the step's forward action on the right */}
-          <div className="flex items-center justify-between gap-3 border-t hairline bg-surface-2/60 px-6 py-3.5 sm:px-8">
+          <div ref={footerRef} className="flex items-center justify-between gap-3 border-t hairline bg-surface-2/60 px-6 py-3.5 sm:px-8">
             {step === "you" && (
               <>
                 <span />
@@ -408,7 +462,21 @@ export default function Onboarding({
                 )}
                 <button
                   type="button"
-                  onClick={finish}
+                  onClick={() => setStep("tryit")}
+                  className={`${extensionPaired ? "btn-accent" : "btn"} cursor-pointer`}
+                >
+                  Continue
+                </button>
+              </>
+            )}
+            {step === "tryit" && (
+              <>
+                <button type="button" onClick={() => setStep("extension")} className={backLink}>
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => finish()}
                   disabled={finishing}
                   className="btn cursor-pointer disabled:opacity-60"
                 >
@@ -419,18 +487,19 @@ export default function Onboarding({
           </div>
         </div>
 
-        {/* Quiet escape hatch - never trap the user in a wizard. */}
-        {step !== "extension" && (
-          <p className="mt-4 text-center">
+        {/* Escape hatch, as a real button - never trap the user in a wizard.
+            Try it's own footer already finishes. */}
+        {step !== "tryit" && (
+          <div className="mt-5 flex justify-center">
             <button
               type="button"
-              onClick={finish}
+              onClick={() => finish()}
               disabled={finishing}
-              className="text-xs text-muted no-underline transition-colors hover:text-ink disabled:opacity-60"
+              className="btn cursor-pointer px-5 py-2.5 text-sm disabled:opacity-60"
             >
               Skip setup, straight home
             </button>
-          </p>
+          </div>
         )}
       </div>
     </StandalonePage>
