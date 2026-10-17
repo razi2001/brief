@@ -800,11 +800,21 @@ describe("callback", () => {
     lists.monday = [{ id: "123", name: "Acme" }];
     await runCallback("monday");
 
-    const { url, body } = tokenCall();
+    const { url, init } = tokenCall();
     expect(url.toString()).toBe("https://auth.monday.com/oauth_ms/oauth/token");
-    expect(body.get("code_verifier")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // monday's OAuth 2.1 endpoint takes JSON, credentials in the body.
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
+    const body = JSON.parse(String(init?.body)) as Record<string, string>;
+    expect(body).toMatchObject({
+      grant_type: "authorization_code",
+      code: "code-123",
+      client_id: expect.any(String),
+      client_secret: expect.any(String),
+      redirect_uri: expect.stringContaining("/api/connect/monday/callback"),
+    });
+    expect(body.code_verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
     // The grant holds the scope; the token request doesn't repeat it.
-    expect(body.has("scope")).toBe(false);
+    expect(body).not.toHaveProperty("scope");
     expect(store.saveConnection).toHaveBeenCalledWith("user_1", "monday", {
       accessToken: "mo_tok",
       refreshToken: "mo_rt",

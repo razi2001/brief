@@ -304,6 +304,9 @@ export const OWNED_SPECS: Record<OwnedProvider, OwnedSpec> = {
     scope: "me:read account:read boards:read boards:write updates:write users:read workspaces:read assets:read",
     // The grant already holds the scope; on a refresh a scope could narrow it.
     tokenScope: false,
+    // The OAuth 2.1 token endpoint is documented with a JSON body only, the
+    // app's credentials inside it.
+    tokenAuth: "json-body",
   },
 };
 

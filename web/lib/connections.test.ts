@@ -463,7 +463,7 @@ describe("monday refresh (OAuth 2.1)", () => {
 
     expect((await getConnection(USER, "monday"))?.accessToken).toBe("mo-new");
     expect(fetchMock.mock.calls[0][0]).toBe("https://auth.monday.com/oauth_ms/oauth/token");
-    expect(Object.fromEntries(sentBody(fetchMock))).toEqual({
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual({
       client_id: "mo-client",
       client_secret: "mo-secret",
       grant_type: "refresh_token",
