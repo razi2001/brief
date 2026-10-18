@@ -112,7 +112,7 @@
     await reset({ tracker: null });
     const P = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
     const st = await createState(P.sid);
-    check(`${what}: Create saves a draft; the menu's "${rowTitle}" row offers "${label}"`, !st.row && !st.dot && st.fix === rowTitle && st.pill === label && st.label === 'Save draft' && !st.disabled, JSON.stringify(st));
+    check(`${what}: Create saves a draft; the menu's "${rowTitle}" row offers "${label}"`, !st.row && !st.dot && st.fix === rowTitle && st.pill === label && st.label === 'Share link' && !st.disabled, JSON.stringify(st));
     await evalIn(P.sid, `(() => {
       chrome.tabs.query = async () => [];
       chrome.tabs.create = async (o) => { await chrome.storage.local.set({ __opened: o.url }); return {}; };
@@ -134,11 +134,11 @@
   meDelayMs = 2500;
   const P6 = await open(`chrome-extension://${extId}/popup.html`); await sleep(900);
   const s6 = await createState(P6.sid);
-  check('a cached fix shows before /api/me answers', s6.fix === 'Create in Linear' && s6.pill === 'Reconnect' && s6.label === 'Save draft', JSON.stringify(s6));
+  check('a cached fix shows before /api/me answers', s6.fix === 'Create in Linear' && s6.pill === 'Reconnect' && s6.label === 'Share link', JSON.stringify(s6));
   meDelayMs = 0;
   await b.send('Target.closeTarget', { targetId: P6.targetId }).catch(() => {});
 
-  // One button and its menu: the pick (Create in <tracker>, Save draft, Fix
+  // One button and its menu: the pick (Create in <tracker>, Share link, Fix
   // prompt) becomes the button, and is remembered.
   const menuState = (sid) => evalIn(sid, `(() => {
     const m = document.querySelector('#createMenu');
@@ -169,19 +169,19 @@
   await click(P7.sid, '.cm-item[data-key="draft"]'); await sleep(300);
   const m2 = await menuState(P7.sid);
   const saved = await W(`chrome.storage.local.get('createDefault').then((r) => r.createDefault)`);
-  check('picking Save draft makes it the button, and it is remembered', !m2.open && m2.button === 'Save draft' && saved === 'draft', JSON.stringify({ m2, saved }));
+  check('picking Share link makes it the button, and it is remembered', !m2.open && m2.button === 'Share link' && saved === 'draft', JSON.stringify({ m2, saved }));
   await shot(P7.sid, 'popup-ctas.png');
   await b.send('Target.closeTarget', { targetId: P7.targetId }).catch(() => {});
 
   P7 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
   const m3 = await menuState(P7.sid);
-  check('the next open is still on Save draft', m3.button === 'Save draft', JSON.stringify(m3));
+  check('the next open is still on Share link', m3.button === 'Share link', JSON.stringify(m3));
   await stubCopy(P7.sid);
   calls.length = 0;
   await click(P7.sid, '#createBtn'); await sleep(2500);
   const link = await copiedText();
   const linkId = link.match(/^https:\/\/cloud\.get-brief\.app\/b\/([A-Za-z0-9_-]{12})$/)?.[1];
-  check('Save draft copies the brief page link on click', !!linkId, JSON.stringify(link));
+  check('Share link copies the brief page link on click', !!linkId, JSON.stringify(link));
   check('the brief is created with that link and drafted with it',
     calls.find((c) => c.what === 'create')?.body.shareId === linkId && calls.find((c) => c.what === 'draft')?.body.shareId === linkId, JSON.stringify(shareIdsSent()));
   const t7 = await evalIn(P7.sid, `(() => { const t = document.querySelector('#toast'); return { text: t.textContent, check: !!t.querySelector('svg'), oneLine: t.getBoundingClientRect().height < 40 }; })()`);
@@ -211,7 +211,7 @@
   await click(P8.sid, '#createMenuBtn'); await sleep(300);
   const m8 = await menuState(P8.sid);
   check('with no tracker: the button saves a draft, the menu leads with the fix',
-    m8.button === 'Save draft' && m8.items[0].key === 'fix' && m8.items[0].t === 'Create ticket' && m8.items[1].on, JSON.stringify(m8));
+    m8.button === 'Share link' && m8.items[0].key === 'fix' && m8.items[0].t === 'Create ticket' && m8.items[1].on, JSON.stringify(m8));
   await shot(P8.sid, 'popup-ctas-no-tracker.png');
   await W(`chrome.storage.local.remove('__opened')`);
   await click(P8.sid, '.cm-item[data-key="fix"]'); await sleep(500);

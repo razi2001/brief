@@ -80,19 +80,19 @@ function Thumb({ kind }: { kind: Tile["kind"] }) {
 export type CreateMode = "ticket" | "draft" | "prompt";
 const MODE_LABEL: Record<CreateMode, string> = {
   ticket: "Create in Linear",
-  draft: "Save draft",
+  draft: "Share link",
   prompt: "Fix prompt",
 };
 const MENU: Array<{ key: CreateMode; icon: ReactNode; t: string; s: string }> = [
   { key: "ticket", icon: <IconPlane />, t: "Create in Linear", s: "File the ticket now" },
-  { key: "draft", icon: <IconLink />, t: "Save draft", s: "Copies its public link" },
+  { key: "draft", icon: <IconLink />, t: "Share link", s: "Public page, kept in Drafts" },
   { key: "prompt", icon: <IconTerminal />, t: "Fix prompt", s: "Copies a prompt for your agent" },
 ];
 
 /**
  * The extension popup, as popup.html draws it: the header (reset, cloud),
  * Evidence with its tiles and Add, Additional data, and the Create button
- * with its menu (Create in Linear, Save draft, Fix prompt); with the + chooser or a screenshot's
+ * with its menu (Create in Linear, Share link, Fix prompt); with the + chooser or a screenshot's
  * sheet over it, the "Ticket queued" toast, and the dot that flies into the
  * cloud.
  */

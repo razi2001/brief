@@ -302,7 +302,7 @@ const ICONS = {
 };
 const svg = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 const MODE_ICON = { draft: svg('link'), prompt: svg('prompt') };
-const MODE_LABEL = { draft: 'Save draft', prompt: 'Fix prompt' };
+const MODE_LABEL = { draft: 'Share link', prompt: 'Fix prompt' };
 // The menu: the tracker, the draft and the prompt. Picking one makes it the
 // button. With no tracker that files, the ticket row says why and carries the
 // fix as a pill (Connect, Reconnect, Finish), which opens Settings.
@@ -315,7 +315,7 @@ function renderCreateMenu() {
     fix
       ? { key: 'fix', icon: 'send', t: createLabel(), s: why, pill }
       : { key: 'ticket', icon: 'send', t: createLabel(), s: 'File the ticket now' },
-    { key: 'draft', icon: 'link', t: 'Save draft', s: 'Copies its public link' },
+    { key: 'draft', icon: 'link', t: 'Share link', s: 'Public page, kept in Drafts' },
     { key: 'prompt', icon: 'prompt', t: 'Fix prompt', s: 'Copies a prompt for your agent' },
   ];
   createMenu.innerHTML = items.map((it) =>
