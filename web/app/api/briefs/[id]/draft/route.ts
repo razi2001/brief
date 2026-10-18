@@ -1,5 +1,5 @@
 import { NextRequest, after } from "next/server";
-import { randomBytes } from "crypto";
+import { isShareId, isUniqueViolation, newShareId } from "@/lib/share-id";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { mergeBriefOverrides } from "@/lib/agent/overrides";
 import { briefPhase } from "@/lib/brief-filing";
@@ -33,6 +33,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     description?: string;
     extra?: Array<{ key: string; value: string }>;
     screenshots?: Array<{ file: string; description?: string; annotated?: boolean }>;
+    /** The token Public link or Fix prompt already copied. */
+    shareId?: string;
   };
   const title = (body?.title ?? "").toString().trim();
   const overrides = {
@@ -86,18 +88,26 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     /* best-effort: the stream still writes from whatever brief.json exists */
   }
 
-  // Reuse an existing token (idempotent re-draft) or mint one now.
-  const shareId = (existing.share_id as string | null) || randomBytes(9).toString("base64url");
-  await admin
-    .from("briefs")
-    .update({
-      status: "processing",
-      updated_at: new Date().toISOString(),
-      share_id: shareId,
-      ...(title ? { title } : {}),
-    })
-    .eq("id", id)
-    .eq("user_id", userId);
+  // Reuse an existing token (idempotent re-draft), else the one the extension
+  // already copied as the link (Public link, Fix prompt), else mint one now.
+  let shareId = (existing.share_id as string | null) || (isShareId(body?.shareId) ? body.shareId : null) || newShareId();
+  const markWriting = () =>
+    admin
+      .from("briefs")
+      .update({
+        status: "processing",
+        updated_at: new Date().toISOString(),
+        share_id: shareId,
+        ...(title ? { title } : {}),
+      })
+      .eq("id", id)
+      .eq("user_id", userId);
+  const { error: markError } = await markWriting();
+  if (isUniqueViolation(markError)) {
+    // the copied token is already another brief's: this one gets its own
+    shareId = newShareId();
+    await markWriting();
+  }
 
   // Write it now, in the background. The draft used to be written only when
   // its page was opened (the page streamed it) - fine when saving a draft

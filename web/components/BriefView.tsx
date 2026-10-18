@@ -5,7 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { getUserId } from "@/lib/auth";
 import { getTrackerContext, attachTicketInfoFast, type BriefRow } from "@/lib/briefs-server";
 import { providerName as providerLabelFor } from "@/lib/trackers/registry";
-import type { ProviderKey } from "@/lib/tracker";
+import { BRIEF_URL, type ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { displayIdentifier, keylessTrackerName, providerOf, shortIdentifier } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
@@ -96,10 +96,13 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
 export async function briefMetadata(shareId: string): Promise<Metadata> {
   const brief = await loadBrief(shareId);
   const title = brief?.ticket_title || brief?.title || "Bug report";
+  const origin = (process.env.APP_URL || BRIEF_URL).replace(/\/+$/, "");
   return {
     title: `${title} · Brief`,
     description: "A bug report captured and written up with Brief.",
     robots: { index: false, follow: false },
+    // the same report as Markdown, for a coding agent handed this link
+    alternates: { types: { "text/markdown": `${origin}/b/${shareId}.md` } },
   };
 }
 
@@ -178,7 +181,7 @@ function Frame({
   return (
     <BriefPageFrame signedIn={signedIn}>
       {children}
-      <BriefFooter />
+      <BriefFooter signedIn={signedIn} />
     </BriefPageFrame>
   );
 }
@@ -351,7 +354,9 @@ export default async function BriefView({ shareId, section }: { shareId: string;
           ("loaded twice"). */}
       <article className={inProgress ? undefined : "brief-page-in"}>
       {inProgress ? (
-        isOwner && writing ? (
+        // (an 'uploaded' row isn't handed over yet: its edits aren't merged,
+        // so the owner waits on the skeleton too, rather than start a write)
+        isOwner && writing && brief.status === "processing" ? (
           // The owner watches their ticket stream in, token by token. The
           // rail (mode="writing") narrates - no status pill over the doc.
           <LiveWriter briefId={brief.id} fallbackTitle={brief.title} />

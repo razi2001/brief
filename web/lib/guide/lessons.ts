@@ -127,9 +127,9 @@ export const LESSONS: readonly Lesson[] = [
     blurb: "One click, and Brief writes the ticket and files it while you get on with your day.",
     steps: [
       "Add a line under **Additional data** if you like. The video often says enough.",
-      "Click **Create ticket**. It flies to the cloud and says *Ticket queued*. You can close the popup.",
+      "Click **Create in** your tracker. It flies to the cloud and says *Ticket queued*. You can close the popup.",
       "Brief writes it and files it. It shows up in **Tickets** with your tracker's status.",
-      "Not ready to file? **Save as draft** writes it up and keeps it in **Drafts**.",
+      "Open **▾** to change what the button does. **Save draft** writes it up on a page anyone can open, no account needed, and copies the link. **Fix prompt** copies a prompt for your coding agent. Your pick stays.",
     ],
     scene: "create",
     tryIt: { kind: "link", href: "/tickets", label: "Open Tickets" },

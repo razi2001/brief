@@ -18,7 +18,9 @@ type PopupState = {
   typing?: boolean;
   fieldOn?: boolean;
   createDown?: boolean;
-  draftOn?: boolean;
+  mode?: "ticket" | "draft" | "prompt";
+  menuOn?: boolean;
+  menuHover?: "ticket" | "draft" | "prompt";
   toast?: string;
   fly?: boolean;
   cloud?: "landed" | "unseen" | "sending";
@@ -108,8 +110,10 @@ export const create = scene<CreateS>({
     { ms: 2000, step: 1, target: "create", s: { popup: { fly: true, cloud: "landed", toast: "Ticket queued" } } },
     { ms: 1300, step: 2, cursor: AT.rest, s: { feed: "filing" } },
     { ms: 2000, step: 2, cursor: AT.rest, s: { feed: "filed" } },
-    { ms: 1100, step: 3, target: "draft", click: true, s: { popup: { tiles: [VIDEO], desc: DESC, draftOn: true } } },
-    { ms: 1500, step: 3, target: "draft", s: { popup: { fly: true, cloud: "landed", toast: "Draft queued" } } },
+    { ms: 1100, step: 3, target: "caret", click: true, s: { popup: { tiles: [VIDEO], desc: DESC, menuOn: true } } },
+    { ms: 1100, step: 3, target: "m-draft", click: true, s: { popup: { tiles: [VIDEO], desc: DESC, menuOn: true, menuHover: "draft" } } },
+    { ms: 1100, step: 3, target: "create", click: true, s: { popup: { tiles: [VIDEO], desc: DESC, mode: "draft", createDown: true } } },
+    { ms: 1600, step: 3, target: "create", s: { popup: { mode: "draft", fly: true, cloud: "landed", toast: "Link copied" } } },
     { ms: 2000, step: 3, cursor: AT.rest, s: { feed: "drafts" } },
   ],
   View: ({ s }) =>

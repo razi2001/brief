@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 // Next.js 16 renamed the `middleware` file convention to `proxy`. Clerk's
 // clerkMiddleware() runs from this file on Next 16 (it detects middleware|proxy).
@@ -23,7 +24,13 @@ const isPublic = createRouteMatcher([
   "/api/evidence/(.*)",
 ]);
 
+// /b/<shareId>.md is that page as Markdown for a coding agent (the extension's
+// Fix prompt links it), served by app/b/[shareId]/md.
+const AGENT_REPORT = /^\/b\/([A-Za-z0-9_-]+)\.md$/;
+
 export default clerkMiddleware(async (auth, req) => {
+  const md = AGENT_REPORT.exec(req.nextUrl.pathname);
+  if (md) return NextResponse.rewrite(new URL(`/b/${md[1]}/md`, req.url));
   if (!isPublic(req)) await auth.protect();
 });
 

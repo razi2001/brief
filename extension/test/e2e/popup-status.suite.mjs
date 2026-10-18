@@ -5,10 +5,23 @@
   const APP = 'https://cloud.get-brief.app';
   let me = {};
   let meDelayMs = 0;
+  // What the worker sent when a brief was created and drafted (Public link,
+  // Fix prompt): the create hands back upload urls on this same origin.
+  const calls = [];
   const answer = async (sid, p) => {
-    const isMe = p.request.url.endsWith('/api/me');
+    const url = p.request.url;
+    const isMe = url.endsWith('/api/me');
     if (isMe && meDelayMs) await sleep(meDelayMs);
-    const body = isMe ? me : { ok: true };
+    let body = isMe ? me : { ok: true };
+    if (p.request.method === 'POST' && /\/api\/briefs$/.test(url)) {
+      const req = JSON.parse(p.request.postData || '{}');
+      calls.push({ what: 'create', body: req });
+      body = { briefId: 'b-e2e', uploads: Object.fromEntries((req.files || []).map((f) => [f, { path: f, token: 't', signedUrl: `${APP}/upload/${f}` }])) };
+    } else if (/\/api\/briefs\/[^/]+\/draft$/.test(url)) {
+      const req = JSON.parse(p.request.postData || '{}');
+      calls.push({ what: 'draft', body: req });
+      body = { queued: true, shareId: req.shareId };
+    }
     await b.send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(JSON.stringify(body)).toString('base64') }, sid).catch(() => {});
   };
   const watch = async (sid) => b.send('Fetch.enable', { patterns: [{ urlPattern: APP + '/*' }] }, sid).catch(() => {});
@@ -22,7 +35,7 @@
   await b.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
 
   // A paired account and a brief ready to file.
-  const reset = (cache) => W(`chrome.storage.local.remove('bcTrackerCache').then(() => chrome.storage.local.set({
+  const reset = (cache) => W(`chrome.storage.local.remove(['bcTrackerCache', 'createDefault']).then(() => chrome.storage.local.set({
     briefCloudToken: 'bxt_test',
     draft: { id: 'd-status', createdAt: Date.now(), screenshots: [], description: 'the Pay button does nothing' },
     ${cache ? `bcTrackerCache: ${JSON.stringify(cache)},` : ''}
@@ -77,36 +90,41 @@
   check('an old cache and an older server: no row, Create enabled', !s4.shown && s4.createDisabled === false, JSON.stringify(s4));
   await b.send('Target.closeTarget', { targetId: P4.targetId }).catch(() => {});
 
-  // No tracker that can file: Create becomes the fix the server names, and
-  // opens Connections' tracker row, with no error shown.
+  // No tracker that can file: the button saves drafts, and the menu's ticket
+  // row carries the fix as a pill (Connect, Reconnect, Finish), which opens
+  // Connections' tracker row.
   const createState = (sid) => evalIn(sid, `(() => {
     const c = document.querySelector('#createBtn');
     const r = document.querySelector('#reconnectBtn');
-    return { label: c.textContent.trim(), disabled: c.disabled, title: c.title, row: !!r && !r.hidden, err: document.querySelector('#errBar').textContent };
+    const m = document.querySelector('#createMenuBtn');
+    const fix = document.querySelector('.cm-item[data-key="fix"]');
+    return { label: c.textContent.trim(), disabled: c.disabled, row: !!r && !r.hidden && r.offsetParent !== null, dot: m.classList.contains('attn'),
+      fix: fix ? fix.querySelector('.cm-t').textContent : null, pill: fix?.querySelector('.cm-pill')?.textContent || null, err: document.querySelector('#errBar').textContent };
   })()`);
   const fixes = [
-    ['an expired Linear', { trackerName: 'Linear', trackerIssue: 'Your Linear connection has expired - reconnect it under Settings, then retry.', trackerAction: 'reconnect' }, 'Reconnect Linear', 'popup-fix-reconnect.png'],
-    ['a pick still to make', { trackerName: 'Azure DevOps', trackerIssue: 'Pick your Azure DevOps organization under Settings, then retry.', trackerAction: 'pick' }, 'Finish connecting Azure DevOps', 'popup-fix-pick.png'],
-    ['nothing connected', { trackerName: null, trackerIssue: null, trackerAction: 'connect' }, 'Connect a tracker', 'popup-fix-connect.png'],
-    ['an older server that sends no action', { trackerName: null, trackerIssue: null }, 'Connect a tracker', null],
+    ['an expired Linear', { trackerName: 'Linear', trackerIssue: 'Your Linear connection has expired - reconnect it under Settings, then retry.', trackerAction: 'reconnect' }, ['Create in Linear', 'Reconnect'], 'popup-fix-reconnect.png'],
+    ['a pick still to make', { trackerName: 'Azure DevOps', trackerIssue: 'Pick your Azure DevOps organization under Settings, then retry.', trackerAction: 'pick' }, ['Create in Azure DevOps', 'Finish'], 'popup-fix-pick.png'],
+    ['nothing connected', { trackerName: null, trackerIssue: null, trackerAction: 'connect' }, ['Create ticket', 'Connect'], 'popup-fix-connect.png'],
+    ['an older server that sends no action', { trackerName: null, trackerIssue: null }, ['Create ticket', 'Connect'], null],
   ];
-  for (const [what, status, label, png] of fixes) {
+  for (const [what, status, [rowTitle, label], png] of fixes) {
     me = { ok: true, tracker: null, ...status };
     await reset({ tracker: null });
     const P = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
     const st = await createState(P.sid);
-    check(`${what}: Create reads "${label}", enabled, with no reconnect row`, st.label === label && !st.disabled && !st.row, JSON.stringify(st));
-    if (png) await shot(P.sid, png);
+    check(`${what}: Create saves a draft; the menu's "${rowTitle}" row offers "${label}"`, !st.row && !st.dot && st.fix === rowTitle && st.pill === label && st.label === 'Save draft' && !st.disabled, JSON.stringify(st));
     await evalIn(P.sid, `(() => {
       chrome.tabs.query = async () => [];
       chrome.tabs.create = async (o) => { await chrome.storage.local.set({ __opened: o.url }); return {}; };
       window.close = () => {};
     })()`);
     await W(`chrome.storage.local.remove('__opened')`);
-    await click(P.sid, '#createBtn'); await sleep(500);
+    await click(P.sid, '#createMenuBtn'); await sleep(300);
+    if (png) await shot(P.sid, png);
+    await click(P.sid, '.cm-item[data-key="fix"] .cm-pill'); await sleep(500);
     const went = await W(`chrome.storage.local.get('__opened').then((r) => r.__opened)`);
     const after = await createState(P.sid);
-    check(`${what}: clicking it opens Connections' tracker row and shows no error`, went === `${APP}/connections#tracker` && after.err === '', JSON.stringify({ went, err: after.err }));
+    check(`${what}: the fix opens Connections' tracker row and shows no error`, went === `${APP}/connections#tracker` && after.err === '', JSON.stringify({ went, err: after.err }));
     await b.send('Target.closeTarget', { targetId: P.targetId }).catch(() => {});
   }
 
@@ -116,9 +134,90 @@
   meDelayMs = 2500;
   const P6 = await open(`chrome-extension://${extId}/popup.html`); await sleep(900);
   const s6 = await createState(P6.sid);
-  check('a cached fix shows before /api/me answers', s6.label === 'Reconnect Linear' && !s6.disabled, JSON.stringify(s6));
+  check('a cached fix shows before /api/me answers', s6.fix === 'Create in Linear' && s6.pill === 'Reconnect' && s6.label === 'Save draft', JSON.stringify(s6));
   meDelayMs = 0;
   await b.send('Target.closeTarget', { targetId: P6.targetId }).catch(() => {});
+
+  // One button and its menu: the pick (Create in <tracker>, Save draft, Fix
+  // prompt) becomes the button, and is remembered.
+  const menuState = (sid) => evalIn(sid, `(() => {
+    const m = document.querySelector('#createMenu');
+    return { open: m.classList.contains('open') && getComputedStyle(m).visibility === 'visible',
+      items: [...m.querySelectorAll('.cm-item')].map((i) => ({ key: i.dataset.key, t: i.querySelector('.cm-t').textContent, on: i.getAttribute('aria-checked') === 'true' })),
+      button: document.querySelector('#createBtn').textContent.trim() };
+  })()`);
+  const stubCopy = (sid) => evalIn(sid, `(() => {
+    navigator.clipboard.writeText = async (t) => { await chrome.storage.local.set({ __copied: t }); };
+    chrome.tabs.query = async () => [];
+    chrome.tabs.create = async (o) => { await chrome.storage.local.set({ __opened: o.url }); return {}; };
+    window.close = () => {};
+  })()`);
+  const copiedText = () => W(`chrome.storage.local.get('__copied').then((r) => r.__copied || '')`);
+  const shareIdsSent = () => calls.map((c) => ({ what: c.what, shareId: c.body.shareId }));
+  const pick = async (sid, key) => { await click(sid, '#createMenuBtn'); await sleep(300); await click(sid, `.cm-item[data-key="${key}"]`); await sleep(300); };
+
+  me = { ok: true, tracker: 'linear', trackerName: 'Linear', trackerIssue: null, trackerAction: null };
+  await reset({ tracker: 'linear', trackerName: 'Linear' });
+  let P7 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const m0 = await menuState(P7.sid);
+  check('with a tracker the button reads "Create in Linear"', m0.button === 'Create in Linear' && !m0.open, JSON.stringify(m0));
+  await click(P7.sid, '#createMenuBtn'); await sleep(300);
+  const m1 = await menuState(P7.sid);
+  check('its menu offers the tracker, the draft and the prompt, the tracker ticked',
+    m1.open && m1.items.map((i) => i.key).join() === 'ticket,draft,prompt' && m1.items[0].t === 'Create in Linear' && m1.items[0].on, JSON.stringify(m1));
+  await shot(P7.sid, 'popup-create-menu.png');
+  await click(P7.sid, '.cm-item[data-key="draft"]'); await sleep(300);
+  const m2 = await menuState(P7.sid);
+  const saved = await W(`chrome.storage.local.get('createDefault').then((r) => r.createDefault)`);
+  check('picking Save draft makes it the button, and it is remembered', !m2.open && m2.button === 'Save draft' && saved === 'draft', JSON.stringify({ m2, saved }));
+  await shot(P7.sid, 'popup-ctas.png');
+  await b.send('Target.closeTarget', { targetId: P7.targetId }).catch(() => {});
+
+  P7 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const m3 = await menuState(P7.sid);
+  check('the next open is still on Save draft', m3.button === 'Save draft', JSON.stringify(m3));
+  await stubCopy(P7.sid);
+  calls.length = 0;
+  await click(P7.sid, '#createBtn'); await sleep(2500);
+  const link = await copiedText();
+  const linkId = link.match(/^https:\/\/cloud\.get-brief\.app\/b\/([A-Za-z0-9_-]{12})$/)?.[1];
+  check('Save draft copies the brief page link on click', !!linkId, JSON.stringify(link));
+  check('the brief is created with that link and drafted with it',
+    calls.find((c) => c.what === 'create')?.body.shareId === linkId && calls.find((c) => c.what === 'draft')?.body.shareId === linkId, JSON.stringify(shareIdsSent()));
+  const t7 = await evalIn(P7.sid, `(() => { const t = document.querySelector('#toast'); return { text: t.textContent, check: !!t.querySelector('svg'), oneLine: t.getBoundingClientRect().height < 40 }; })()`);
+  check('it says "Link copied", on one line with a check', t7.text === 'Link copied' && t7.check && t7.oneLine, JSON.stringify(t7));
+
+  // A new brief, then Fix prompt: the reporter's words and the report as Markdown.
+  await W(`chrome.storage.local.set({ __copied: '', draft: { id: 'd-prompt', createdAt: Date.now(), screenshots: [], description: '  the Pay button does nothing\\nsecond line' } })`);
+  await sleep(800);
+  await pick(P7.sid, 'prompt');
+  calls.length = 0;
+  await click(P7.sid, '#createBtn'); await sleep(2500);
+  const prompt = await copiedText();
+  const promptId = prompt.match(/https:\/\/cloud\.get-brief\.app\/b\/([A-Za-z0-9_-]{12})\.md/)?.[1];
+  check('Fix prompt copies the bug in the reporter\'s words', prompt.startsWith('Fix this bug: the Pay button does nothing\n\n'), JSON.stringify(prompt));
+  check('and points the agent at the report as Markdown, the same link the brief is drafted with',
+    !!promptId && calls.find((c) => c.what === 'draft')?.body.shareId === promptId, JSON.stringify({ prompt, sent: shareIdsSent() }));
+  const t8 = await evalIn(P7.sid, `document.querySelector('#toast').textContent`);
+  check('it says "Prompt copied"', t8 === 'Prompt copied', t8);
+  await b.send('Target.closeTarget', { targetId: P7.targetId }).catch(() => {});
+
+  // No tracker: the button saves drafts whatever was picked, and the menu's
+  // first item is the fix, which opens Connections.
+  me = { ok: true, tracker: null, trackerName: null, trackerIssue: null, trackerAction: 'connect' };
+  await reset({ tracker: null });
+  const P8 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  await stubCopy(P8.sid);
+  await click(P8.sid, '#createMenuBtn'); await sleep(300);
+  const m8 = await menuState(P8.sid);
+  check('with no tracker: the button saves a draft, the menu leads with the fix',
+    m8.button === 'Save draft' && m8.items[0].key === 'fix' && m8.items[0].t === 'Create ticket' && m8.items[1].on, JSON.stringify(m8));
+  await shot(P8.sid, 'popup-ctas-no-tracker.png');
+  await W(`chrome.storage.local.remove('__opened')`);
+  await click(P8.sid, '.cm-item[data-key="fix"]'); await sleep(500);
+  const went8 = await W(`chrome.storage.local.get('__opened').then((r) => r.__opened)`);
+  check('the fix in the menu opens Connections\' tracker row', went8 === `${APP}/connections#tracker`, JSON.stringify(went8));
+  await b.send('Target.closeTarget', { targetId: P8.targetId }).catch(() => {});
 
   const thrown = exceptions.filter(Boolean);
   check('the popup threw nothing', thrown.length === 0, thrown.join(' | '));

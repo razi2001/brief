@@ -1,15 +1,20 @@
 import type { ReactNode } from "react";
 import BrandMark from "@/components/BrandMark";
 import {
+  IconCheck,
   IconChevron,
+  IconChevronDown,
   IconCloud,
+  IconLink,
   IconMic,
   IconPencil,
+  IconPlane,
   IconPlay,
   IconPlus,
   IconReplay,
   IconReset,
   IconShot,
+  IconTerminal,
   IconUpload,
   IconVideo,
   IconX,
@@ -72,11 +77,24 @@ function Thumb({ kind }: { kind: Tile["kind"] }) {
   );
 }
 
+export type CreateMode = "ticket" | "draft" | "prompt";
+const MODE_LABEL: Record<CreateMode, string> = {
+  ticket: "Create in Linear",
+  draft: "Save draft",
+  prompt: "Fix prompt",
+};
+const MENU: Array<{ key: CreateMode; icon: ReactNode; t: string; s: string }> = [
+  { key: "ticket", icon: <IconPlane />, t: "Create in Linear", s: "File the ticket now" },
+  { key: "draft", icon: <IconLink />, t: "Save draft", s: "Copies its public link" },
+  { key: "prompt", icon: <IconTerminal />, t: "Fix prompt", s: "Copies a prompt for your agent" },
+];
+
 /**
  * The extension popup, as popup.html draws it: the header (reset, cloud),
- * Evidence with its tiles and Add, Additional data, Create ticket and Save as
- * draft; with the + chooser or a screenshot's sheet over it, the "Ticket
- * queued" toast, and the dot that flies into the cloud.
+ * Evidence with its tiles and Add, Additional data, and the Create button
+ * with its menu (Create in Linear, Save draft, Fix prompt); with the + chooser or a screenshot's
+ * sheet over it, the "Ticket queued" toast, and the dot that flies into the
+ * cloud.
  */
 export function MockPopup({
   tiles = [],
@@ -85,7 +103,9 @@ export function MockPopup({
   typing,
   fieldOn,
   createDown,
-  draftOn,
+  mode = "ticket",
+  menuOn,
+  menuHover,
   sheet,
   toast,
   fly,
@@ -97,7 +117,10 @@ export function MockPopup({
   typing?: boolean;
   fieldOn?: boolean;
   createDown?: boolean;
-  draftOn?: boolean;
+  /** What the button does (picked in its menu). */
+  mode?: CreateMode;
+  menuOn?: boolean;
+  menuHover?: CreateMode;
   sheet?: Sheet;
   toast?: string;
   /** The dot from Create ticket to the cloud button. */
@@ -166,15 +189,36 @@ export function MockPopup({
             <IconMic />
           </span>
         </div>
-        <div className="addfield">
-          <IconPlus />
-          Add field
-        </div>
       </div>
 
       <div className="go">
-        <div data-gd="create" className={`create${createDown ? " down" : ""}`}>Create ticket</div>
-        <div data-gd="draft" className={`draft${draftOn ? " on" : ""}`}>Save as draft</div>
+        {menuOn && (
+          <div className="cmenu">
+            {MENU.map((m) => (
+              <div key={m.key} data-gd={`m-${m.key}`} className={`cmi${menuHover === m.key ? " on" : ""}`}>
+                <span className={`cmi-ico${mode === m.key ? " cur" : ""}`}>{m.icon}</span>
+                <span className="cmi-txt">
+                  <span className="cmi-t">{m.t}</span>
+                  <span className="cmi-s">{m.s}</span>
+                </span>
+                {mode === m.key && (
+                  <span className="cmi-ck">
+                    <IconCheck />
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="split">
+          <div data-gd="create" className={`create${createDown ? " down" : ""}`}>
+            {mode === "draft" ? <IconLink /> : mode === "prompt" ? <IconTerminal /> : null}
+            {MODE_LABEL[mode]}
+          </div>
+          <div data-gd="caret" className={`caret${menuOn ? " open" : ""}`}>
+            <IconChevronDown />
+          </div>
+        </div>
       </div>
 
       {sheet && (
@@ -257,7 +301,12 @@ export function MockPopup({
           }
         />
       )}
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast">
+          <IconCheck />
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

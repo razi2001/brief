@@ -181,3 +181,21 @@ export const IconSend = () => (
     <path d="M12 19V5M5 12l7-7 7 7" />
   </svg>
 );
+export const IconLink = () => (
+  <svg viewBox="0 0 24 24" {...line}>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </svg>
+);
+export const IconTerminal = () => (
+  <svg viewBox="0 0 24 24" {...line}>
+    <path d="m4 17 6-6-6-6" />
+    <path d="M12 19h8" />
+  </svg>
+);
+export const IconPlane = () => (
+  <svg viewBox="0 0 24 24" {...line}>
+    <path d="M22 2 11 13" />
+    <path d="M22 2 15 22l-4-9-9-4z" />
+  </svg>
+);

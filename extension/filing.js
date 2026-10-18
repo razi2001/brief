@@ -1,6 +1,6 @@
 // Brief - filing (runs in the background service worker)
 //
-// "Create ticket" / "Save as draft" used to run inside the popup, and Chrome
+// "Create in <tracker>" / "Public link" / "Fix prompt" used to run inside the popup, and Chrome
 // destroys the popup the instant it loses focus - so clicking Create and then
 // clicking anywhere else silently dropped the whole flow: nothing was uploaded,
 // nothing was filed. The worker outlives the popup. The popup only ASKS for the
@@ -127,12 +127,14 @@ async function activePageContext() {
 // Make sure the brief exists as a cloud draft: create it + upload brief.json and
 // the screenshots on first send, or push new screenshots into an existing draft
 // (a recording's draft was created by the offscreen upload). Mutates `d`.
-async function ensureUploaded(d, opts) {
+//
+// `shareId`: a link already copied (Public link, Fix prompt), claimed with the brief.
+async function ensureUploaded(d, opts = {}) {
   const shotFiles = [...buildScreenshotFiles(d), ...(await buildReplayFiles(d, opts))];
   if (!d.cloudBriefId) {
     const page = await activePageContext();
     const { files, meta } = buildBriefJsonAndMeta(d, page);
-    const id = await uploadDraft([...files, ...shotFiles], meta);
+    const id = await uploadDraft([...files, ...shotFiles], meta, undefined, { shareId: opts.shareId });
     d.cloudBriefId = id;
     await updateDraft(d.id, (x) => { x.cloudBriefId = id; });
     // a filing that resumes after a worker restart goes on with this upload
@@ -198,9 +200,10 @@ async function fileOne(d, mode) {
   // is attached to it in the tracker.
   const draft = mode !== 'ticket';
   const run = async () => {
-    await ensureUploaded(d, { waitVideo: !draft });
+    const shareId = draft ? d.shareId : undefined;
+    await ensureUploaded(d, { waitVideo: !draft, shareId });
     const overrides = buildOverrides(d);
-    return mode === 'ticket' ? processBrief(d.cloudBriefId, overrides) : createDraft(d.cloudBriefId, overrides);
+    return mode === 'ticket' ? processBrief(d.cloudBriefId, overrides) : createDraft(d.cloudBriefId, { ...overrides, ...(shareId ? { shareId } : {}) });
   };
   try {
     try {

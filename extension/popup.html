@@ -52,13 +52,15 @@
           <textarea class="ai-field has-mic" id="descField" placeholder="Describe the brief…" spellcheck="true"></textarea>
         </div>
         <div class="sheet-fields" id="kvList"></div>
-        <button class="addfield" id="addFieldBtn" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg> Add field</button>
       </section>
 
-      <div class="create-wrap">
+      <div class="create-wrap" id="createWrap">
         <button class="reconnect-btn" id="reconnectBtn" type="button" hidden><span class="reconnect-dot" aria-hidden="true"></span><span class="reconnect-label">Reconnect</span></button>
-        <button class="create" id="createBtn" type="button"><span class="ctk-label">Create ticket</span></button>
-        <button class="draft-btn" id="draftBtn" type="button" hidden><span class="draft-label">Save as draft</span></button>
+        <div class="create-split" id="createSplit">
+          <button class="cta primary" id="createBtn" type="button"><span class="ctk-label">Create ticket</span></button>
+          <button class="cta primary caret" id="createMenuBtn" type="button" aria-label="Choose what this button does" aria-haspopup="menu" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6"/></svg></button>
+        </div>
+        <div class="create-menu" id="createMenu" role="menu" aria-label="What Create does"></div>
       </div>
     </main>
 

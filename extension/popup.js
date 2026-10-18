@@ -5,7 +5,7 @@
 // happens in bottom sheets. Capture (screenshot/video) runs on the page, so those
 // actions close the popup and it reopens when the capture lands.
 
-import { APP_URL, TICKETS_URL as TICKETS_URL_BASE, getCloudToken, fetchAccountStatus, transcribeNote, TRACKER_ACTIONS } from './cloud.js';
+import { APP_URL, TICKETS_URL as TICKETS_URL_BASE, getCloudToken, fetchAccountStatus, transcribeNote, TRACKER_ACTIONS, briefPageUrl, newShareId } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft } from './draft.js';
 import { putFile, hasFile, deleteFile, recKey, shotKey, replayKey, replayVoiceKey, draftKeys } from './filestore.js';
 import { syncReplaySites } from './replay-sites.js';
@@ -16,10 +16,10 @@ const evCount = $('#evCount');
 const descWrap = $('#descWrap');
 const descField = $('#descField');
 const kvList = $('#kvList');
-const addFieldBtn = $('#addFieldBtn');
 const createBtn = $('#createBtn');
 const reconnectBtn = $('#reconnectBtn');
-const draftBtn = $('#draftBtn');
+const createMenuBtn = $('#createMenuBtn');
+const createMenu = $('#createMenu');
 const briefCloudBtn = $('#briefCloudBtn');
 const brandMark = $('#brandMark');
 const scrim = $('#scrim');
@@ -42,6 +42,11 @@ let bcTracker;
 let bcTrackerName = null; // the server's display name for bcTracker, or with none, for the tracker to fix
 let bcTrackerIssue = null; // with no tracker, why a connected one can't file yet, when the server said
 let bcTrackerAction = null; // with a tracker, 'reconnect' (still on Clerk); with none, 'reconnect' | 'pick' | 'connect'
+// What the orange button does, picked in its menu and remembered:
+// 'ticket' files to the tracker, 'draft' saves a draft and copies its public
+// link, 'prompt' saves a draft and copies a fix prompt.
+const CREATE_MODES = ['ticket', 'draft', 'prompt'];
+let createDefault = 'ticket';
 let currentSheet = null; // 'shot:<id>' | 'rec' | 'chooser' | 'reset' | null
 let lastSig = '';
 
@@ -55,11 +60,26 @@ function esc(s) { return (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 function fmtDur(ms) { const s = Math.max(0, Math.round((ms || 0) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 function genShotId() { return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 let toastTimer;
-function toast(msg) {
-  toastEl.textContent = msg;
+const TOAST_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+// `ok` marks a done thing (filed, copied) with a check; notices stay plain.
+function toast(msg, { ok = false } = {}) {
+  toastEl.innerHTML = `${ok ? TOAST_CHECK : ''}<span>${esc(msg)}</span>`;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600);
+}
+// The popup is focused and the click just happened, so the async clipboard
+// works; the old copy command is the fallback if it ever refuses.
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch { return false; }
 }
 async function persist(patch) {
   const updated = await updateDraft(draft.id, patch);
@@ -214,7 +234,8 @@ function renderGallery() {
   evCount.textContent = String(shots.length + (draft.recording ? 1 : 0) + (draft.replay ? 1 : 0));
 }
 
-// ---------- additional data (inline: description + custom fields) ----------
+// ---------- additional data (inline: description, plus any custom fields an
+// older build added - shown so they can be edited or removed, no new ones) ----------
 function readKv() {
   return [...kvList.querySelectorAll('.sheet-field')]
     .map((r) => ({ key: $('.k', r).value, value: $('.v', r).value }))
@@ -240,10 +261,6 @@ function initAdditionalData() {
   attachVoiceDictation(descField, descWrap, persistDesc);
   kvList.addEventListener('input', persistKv);
   kvList.addEventListener('click', (e) => { const fx = e.target.closest('.fx'); if (fx) { fx.closest('.sheet-field').remove(); persistKv(); } });
-  addFieldBtn.addEventListener('click', () => {
-    kvList.insertAdjacentHTML('beforeend', fieldRowHTML({ key: '', value: '' }));
-    $('.k', kvList.lastElementChild)?.focus();
-  });
   syncAdditionalData();
 }
 
@@ -256,22 +273,86 @@ function updateCreate() {
   const ready = isReadyDraft(draft);
   // With no tracker that can file, the button offers the fix instead.
   const fix = filing ? null : trackerFixLabel();
-  createBtn.disabled = fix ? false : filing || uploading || !ready;
-  createBtn.title = fix && bcTrackerIssue ? bcTrackerIssue : '';
-  // Two actions, the same for everyone: Create ticket files to the tracker
-  // (without one it becomes the way to connect one), Save as draft writes the
-  // brief up on its own page with no ticket.
-  draftBtn.hidden = false;
-  draftBtn.disabled = filing || uploading || !ready;
-  const draftLabel = draftBtn.querySelector('.draft-label');
-  const savingDraft = filing && draft.filingMode === 'draft';
-  if (draftLabel) draftLabel.innerHTML = savingDraft ? '<span class="btn-spin"></span> Saving…' : 'Save as draft';
+  // One button, doing what its menu says (createMode). With no tracker that
+  // files it can't file, so it saves the draft; the fix is the link above.
+  const mode = createMode();
+  createBtn.dataset.mode = mode;
+  createBtn.disabled = filing || uploading || !ready;
+  createMenuBtn.disabled = filing || uploading || !ready;
+  if (createBtn.disabled) closeCreateMenu();
+
   if (label) {
-    if (fix) label.textContent = fix;
-    else if (savingDraft) label.textContent = 'Create ticket';
-    else if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Creating…'}`;
-    else label.textContent = uploading ? 'Uploading…' : 'Create ticket';
+    if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Saving…'}`;
+    else if (uploading) label.textContent = 'Uploading…';
+    else label.innerHTML = mode === 'ticket' ? esc(createLabel()) : `${MODE_ICON[mode]}${esc(MODE_LABEL[mode])}`;
   }
+  renderCreateMenu();
+}
+// What the button does now: the remembered pick, except that with no tracker
+// that files it can't file, so it saves a draft instead.
+function createMode() {
+  if (createDefault === 'ticket' && trackerFixLabel()) return 'draft';
+  return createDefault;
+}
+const ICONS = {
+  send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  prompt: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+};
+const svg = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+const MODE_ICON = { draft: svg('link'), prompt: svg('prompt') };
+const MODE_LABEL = { draft: 'Save draft', prompt: 'Fix prompt' };
+// The menu: the tracker, the draft and the prompt. Picking one makes it the
+// button. With no tracker that files, the ticket row says why and carries the
+// fix as a pill (Connect, Reconnect, Finish), which opens Settings.
+const FIX_PILL = { reconnect: ['Reconnect', 'Connection expired'], pick: ['Finish', 'One step left'] };
+function renderCreateMenu() {
+  const fix = trackerFixLabel();
+  const mode = createMode();
+  const [pill, why] = FIX_PILL[bcTrackerAction] || ['Connect', 'No tracker yet'];
+  const items = [
+    fix
+      ? { key: 'fix', icon: 'send', t: createLabel(), s: why, pill }
+      : { key: 'ticket', icon: 'send', t: createLabel(), s: 'File the ticket now' },
+    { key: 'draft', icon: 'link', t: 'Save draft', s: 'Copies its public link' },
+    { key: 'prompt', icon: 'prompt', t: 'Fix prompt', s: 'Copies a prompt for your agent' },
+  ];
+  createMenu.innerHTML = items.map((it) =>
+    `<button class="cm-item${it.pill ? ' cm-fix' : ''}" type="button" role="menuitemradio" data-key="${it.key}" aria-checked="${it.key === mode}"` +
+    `${it.pill ? ` title="${esc(bcTrackerIssue || fix)}"` : ''}>` +
+    `<span class="cm-ico">${svg(it.icon)}</span>` +
+    `<span class="cm-txt"><span class="cm-t">${esc(it.t)}</span><span class="cm-s">${esc(it.s)}</span></span>` +
+    (it.pill ? `<span class="cm-pill">${it.pill}</span>` : `<span class="cm-check">${svg('check')}</span>`) +
+    `</button>`).join('');
+}
+function openCreateMenu() {
+  renderCreateMenu();
+  createMenu.classList.add('open');
+  createMenuBtn.setAttribute('aria-expanded', 'true');
+  createMenu.querySelector('[aria-checked="true"]')?.focus();
+}
+function closeCreateMenu() {
+  createMenu.classList.remove('open');
+  createMenuBtn.setAttribute('aria-expanded', 'false');
+}
+async function pickCreateMode(key) {
+  closeCreateMenu();
+  if (key === 'fix') {
+    await openAppTab(`${APP_URL}/connections#tracker`, `${APP_URL}/connections*`);
+    window.close();
+    return;
+  }
+  if (!CREATE_MODES.includes(key)) return;
+  createDefault = key;
+  chrome.storage.local.set({ createDefault: key }).catch(() => {});
+  updateCreate();
+  createBtn.focus();
+}
+// "Create in Linear": the tracker it lands in, once known.
+function createLabel() {
+  const name = bcTrackerName || TRACKER_NAMES[bcTracker];
+  return name ? `Create in ${name}` : 'Create ticket';
 }
 
 // ---------- sheets ----------
@@ -298,13 +379,39 @@ function openSheet(title, bodyHTML, onReady, key, headAction, closeAsCheck) {
   sheet.classList.add('open');
   document.body.classList.add('sheet-open');
   if (onReady) onReady(sheetBody);
+  clearTimeout(sheetFitTimer);
+  requestAnimationFrame(fitSheet);
 }
+// The popup is only as tall as the brief, and a sheet is an overlay: a sheet
+// taller than the brief scrolled inside a short popup. While one is open the
+// page is made tall enough to hold it (the popup window follows, up to
+// Chrome's 600px), and it settles back once the sheet has slid away.
+let sheetFitTimer = null;
+function fitSheet() {
+  if (!sheet.classList.contains('open')) return;
+  // Measured without the scrollbar: with it the content is 8px narrower, so a
+  // full-width screenshot is shorter and "fits", and the bar never leaves.
+  // +2: the heights round, and a pixel short still shows the bar.
+  sheetBody.style.overflowY = 'hidden';
+  const need = sheet.getBoundingClientRect().height - sheetBody.clientHeight + sheetBody.scrollHeight + 16 + 2;
+  sheetBody.style.overflowY = '';
+  document.body.style.minHeight = `${Math.min(600, Math.ceil(need))}px`;
+  // Fitting, it gets no scrollbar at all (an overflow:auto bar, once shown,
+  // narrows the content just enough to stay); only past 600px does it scroll.
+  sheetBody.classList.toggle('fits', need <= 600);
+}
+// (not on the sheet body's own style: that's fitSheet measuring)
+new MutationObserver((muts) => {
+  if (muts.some((m) => !(m.type === 'attributes' && m.target === sheetBody))) requestAnimationFrame(fitSheet);
+}).observe(sheetBody, { childList: true, subtree: true, attributes: true });
+sheetBody.addEventListener('load', () => requestAnimationFrame(fitSheet), true);
 sheetAction.addEventListener('click', () => { if (sheetActionHandler) sheetActionHandler(); });
 function closeSheet() {
   sheet.classList.remove('open');
   scrim.classList.remove('open');
   document.body.classList.remove('sheet-open');
   currentSheet = null;
+  sheetFitTimer = setTimeout(() => { if (!sheet.classList.contains('open')) document.body.style.minHeight = ''; }, 260);
   // Reflect any edits made in the sheet, then re-baseline the signature so the
   // storage listener doesn't immediately rebuild on our own write.
   render();
@@ -694,16 +801,28 @@ const TRACKER_NAMES = {
 };
 function trackerName() { return bcTrackerName || TRACKER_NAMES[bcTracker] || 'your tracker'; }
 // `mode`: 'ticket' files straight to the connected tracker; 'draft' writes the
-// brief up with no ticket. Both are handed to the worker and land behind the
+// brief up with no ticket, and copies `kind`: its public link, or a prompt for
+// a coding agent to fix it. Both are handed to the worker and land behind the
 // cloud button.
-async function startFiling(mode) {
+async function startFiling(mode, kind = 'link') {
   clearInlineError();
   if (!isReadyDraft(draft) || draft.uploading || draft.filing) return;
   let token = null; try { token = await getCloudToken(); } catch {}
   if (!token) { await chrome.tabs.create({ url: `${APP_URL}/connect?ext=${chrome.runtime.id}` }).catch(() => {}); window.close(); return; }
+  // The link is copied now, before anything uploads: its id is picked here
+  // and the server takes it, so the page is there by the time anyone opens
+  // it. Kept on the draft, so a retry after a failure keeps the same link.
+  let done = 'Ticket queued';
+  if (mode === 'draft') {
+    const shareId = draft.shareId || newShareId();
+    const url = briefPageUrl(shareId);
+    const copied = await copyText(kind === 'prompt' ? fixPrompt(draft.description, `${url}.md`) : url);
+    await persist((d) => { d.shareId = shareId; });
+    done = !copied ? 'Couldn’t copy. It’s in Drafts' : kind === 'prompt' ? 'Prompt copied' : 'Link copied';
+  }
 
   // Optimistic UI; the worker owns the flow (and the draft's flag) from here.
-  draft.filing = true; draft.filingMode = mode; draft.fileError = null;
+  draft.filing = true; draft.filingMode = mode; draft.filingKind = kind; draft.fileError = null;
   render();
   let res = null;
   try { res = await chrome.runtime.sendMessage({ type: 'FILE_DRAFT', mode }); }
@@ -712,8 +831,8 @@ async function startFiling(mode) {
     // Ticket or draft, the same: no tab and no wait. The worker finishes it in
     // the background (the cloud spins until it lands) and this popup is already
     // on a fresh draft.
-    flyToCloud();
-    toast(mode === 'ticket' ? 'Ticket queued' : 'Draft queued');
+    flyToCloud(createBtn);
+    toast(done, { ok: !done.startsWith('Couldn’t') });
     return;
   }
   if (res?.error === 'already_filing') return; // an earlier ask is still running; the draft flag shows it
@@ -721,6 +840,19 @@ async function startFiling(mode) {
   if (d) draft = d;
   render();
   showInlineError(`Couldn’t create brief: ${res?.error || 'unknown error'}`);
+}
+
+// What a coding agent gets: the bug in the reporter's words, and the report
+// itself as Markdown (/b/<id>.md waits for the write-up, and lists every
+// screenshot and recording by URL).
+function fixPrompt(description, mdUrl) {
+  const first = (description || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
+  const what = first.length > 160 ? `${first.slice(0, 157).replace(/\s+\S*$/, '')}…` : first;
+  return [
+    what ? `Fix this bug: ${what}` : 'Fix the bug in this report.',
+    `The full report (steps, expected and actual, technical notes, screenshots): ${mdUrl}`,
+    'Find the cause in this codebase, fix it, and add a test that would have caught it.',
+  ].join('\n\n');
 }
 
 // What Create offers when no tracker can file: the fix the server named, or a
@@ -752,6 +884,9 @@ async function primaryCreate() {
     } catch { /* unknown: try to file, the server says if there's no tracker */ }
     updateCreate();
   }
+  const mode = createMode();
+  if (mode === 'draft') return startFiling('draft', 'link');
+  if (mode === 'prompt') return startFiling('draft', 'prompt');
   if (trackerFixLabel()) {
     await openAppTab(`${APP_URL}/connections#tracker`, `${APP_URL}/connections*`);
     window.close();
@@ -778,8 +913,8 @@ function showFailedDraft(failed) {
 // ---------- tickets tab + cloud button ----------
 // A filed ticket goes to the list behind the cloud button: a dot flies there
 // from Create, the button lands it, and a dot stays until the list is opened.
-function flyToCloud() {
-  const from = createBtn.getBoundingClientRect();
+function flyToCloud(fromEl = createBtn) {
+  const from = fromEl.getBoundingClientRect();
   const to = briefCloudBtn.getBoundingClientRect();
   const dot = document.createElement('span');
   dot.className = 'fly-dot';
@@ -839,6 +974,9 @@ function renderCloudLink() {
 // A tracker that files but should be reconnected (Linear, Jira or GitHub still
 // held by Clerk): a slim link above Create, which stays enabled. It opens the
 // tracker row of Connections.
+// A tracker that files but should be reconnected (still on Clerk). With none
+// that files, the fix is the first item of Create's menu instead, and a dot
+// on its ▾ says so.
 function renderReconnect() {
   if (!reconnectBtn) return;
   const show = bcTrackerAction === 'reconnect' && !!bcTracker;
@@ -1043,8 +1181,21 @@ gallery.addEventListener('click', async (e) => {
   const shot = e.target.closest('[data-shot]');
   if (shot) return openShot(shot.getAttribute('data-shot'));
 });
-createBtn.addEventListener('click', primaryCreate);
-draftBtn.addEventListener('click', () => startFiling('draft'));
+createBtn.addEventListener('click', () => { closeCreateMenu(); primaryCreate(); });
+createMenuBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (createMenu.classList.contains('open')) closeCreateMenu(); else openCreateMenu();
+});
+createMenu.addEventListener('click', (e) => {
+  const it = e.target.closest('.cm-item');
+  if (it) pickCreateMode(it.dataset.key);
+});
+document.addEventListener('click', (e) => {
+  if (createMenu.classList.contains('open') && !e.target.closest('#createMenu')) closeCreateMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && createMenu.classList.contains('open')) { e.stopPropagation(); closeCreateMenu(); createMenuBtn.focus(); }
+}, true);
 resetBtn?.addEventListener('click', openReset);
 
 // ---------- boot ----------
@@ -1056,6 +1207,11 @@ resetBtn?.addEventListener('click', openReset);
   // The tracker we saw last time, read before the first paint, so the Create
   // button opens at its final width instead of settling once /api/me answers.
   ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue, trackerAction: bcTrackerAction } = await readTrackerCache());
+  // and what the button does, as picked last time
+  try {
+    const { createDefault: picked } = await chrome.storage.local.get('createDefault');
+    if (CREATE_MODES.includes(picked)) createDefault = picked;
+  } catch {}
   renderReconnect();
   // Same for the cloud button: open already reading "Connect" when unpaired.
   bcConnected = !!(await getCloudToken().catch(() => null));

@@ -110,13 +110,16 @@ export async function transcribeNote(blob, tokenOverride) {
 //
 // `tokenOverride` lets a caller pass a token captured earlier (before any
 // account-sync churn could clear storage); falls back to the stored token.
-export async function uploadDraft(files, meta, tokenOverride) {
+//
+// `shareId`: the link Public link or Fix prompt already copied - the brief takes it
+// as it's created, so the link works from here on.
+export async function uploadDraft(files, meta, tokenOverride, { shareId } = {}) {
   const token = tokenOverride || (await getCloudToken());
   if (!token) throw new Error("Not connected to Brief Cloud");
   const create = await fetchOrThrow(`${APP_URL}/api/briefs`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ meta, files: files.map((f) => f.name) }),
+    body: JSON.stringify({ meta, files: files.map((f) => f.name), ...(shareId ? { shareId } : {}) }),
   }, "create brief");
   if (!create.ok) throw new Error(`create brief failed: ${create.status}${await errorDetail(create)}`);
   const { briefId, uploads } = await create.json();
@@ -231,4 +234,12 @@ export async function createDraft(briefId, overrides = {}) {
 // Absolute URL of a brief's hosted page.
 export function briefPageUrl(shareId) {
   return `${APP_URL}/b/${shareId}`;
+}
+
+// A brief's share token, picked here so Public link and Fix prompt can copy the link
+// before anything uploads: 9 random bytes, base64url, 12 characters - the
+// shape the server mints and the only one it takes.
+export function newShareId() {
+  const bytes = crypto.getRandomValues(new Uint8Array(9));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_");
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import BrandMark from "./BrandMark";
 import EvidenceCard from "./EvidenceCard";
+import { CHROME_STORE_URL } from "@/lib/chrome-store";
 
 /**
  * The public brief page's chrome (app/b/[shareId]): a minimal top bar on the
@@ -13,7 +14,7 @@ export function BriefPageFrame({
   signedIn,
   children,
 }: {
-  /** A signed-in viewer gets "All tickets"; a visitor gets "Try it free". */
+  /** A signed-in viewer gets "All tickets"; a visitor gets "Add to Chrome". */
   signedIn: boolean;
   children: ReactNode;
 }) {
@@ -35,8 +36,8 @@ export function BriefPageFrame({
             All tickets
           </Link>
         ) : (
-          <a href="https://cloud.get-brief.app" target="_blank" rel="noreferrer" className="btn">
-            Try it free
+          <a href={CHROME_STORE_URL} target="_blank" rel="noreferrer" className="btn">
+            Add to Chrome
           </a>
         )}
       </header>
@@ -52,13 +53,13 @@ export function ReadingColumn({ children, className = "" }: { children: ReactNod
   return <div className={`mx-auto w-full max-w-[720px] px-5 pb-10 pt-9 sm:px-10 sm:pb-14 sm:pt-12 ${className}`}>{children}</div>;
 }
 
-/** Quiet sign-off at the foot of the sheet. */
-export function BriefFooter() {
+/** Quiet sign-off at the foot of the sheet; a visitor also gets the install. */
+export function BriefFooter({ signedIn }: { signedIn: boolean }) {
   return (
     <footer className="mx-auto w-full max-w-[720px] px-5 pb-8 sm:px-10">
-      <div className="flex items-center gap-2 border-t border-hairline pt-5">
+      <div className="flex items-center justify-between gap-3 border-t border-hairline pt-5">
       <a
-        href="https://cloud.get-brief.app"
+        href="https://get-brief.app"
         target="_blank"
         rel="noreferrer"
         className="inline-flex items-center gap-2 text-xs text-muted no-underline transition-colors hover:text-ink-2"
@@ -66,6 +67,17 @@ export function BriefFooter() {
         <BrandMark size={14} className="rounded-[3px]" />
         Captured with Brief
       </a>
+      {!signedIn && (
+        <a
+          href={CHROME_STORE_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="group text-xs font-medium no-underline"
+        >
+          {/* on a span: the global `a { color: inherit }` outranks a utility on the link */}
+          <span className="text-accent transition-colors group-hover:text-[#c95e2c]">Add to Chrome</span>
+        </a>
+      )}
       </div>
     </footer>
   );
