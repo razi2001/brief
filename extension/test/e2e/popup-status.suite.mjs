@@ -35,7 +35,7 @@
   await b.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
 
   // A paired account and a brief ready to file.
-  const reset = (cache) => W(`chrome.storage.local.remove(['bcTrackerCache', 'createDefault']).then(() => chrome.storage.local.set({
+  const reset = (cache) => W(`chrome.storage.local.remove(['bcTrackerCache', 'createDefault', 'fixAgent']).then(() => chrome.storage.local.set({
     briefCloudToken: 'bxt_test',
     draft: { id: 'd-status', createdAt: Date.now(), screenshots: [], description: 'the Pay button does nothing' },
     ${cache ? `bcTrackerCache: ${JSON.stringify(cache)},` : ''}
@@ -148,10 +148,22 @@
   })()`);
   const stubCopy = (sid) => evalIn(sid, `(() => {
     navigator.clipboard.writeText = async (t) => { await chrome.storage.local.set({ __copied: t }); };
-    chrome.tabs.query = async () => [];
+    // the page the popup sits on, for app links; no Brief tab already open
+    chrome.tabs.query = async (q) => (q && q.active ? [{ id: 7, url: 'https://shop.test/checkout' }] : []);
     chrome.tabs.create = async (o) => { await chrome.storage.local.set({ __opened: o.url }); return {}; };
+    // an app link (codex://...) goes through the page: note it, don't follow it
+    chrome.tabs.update = async (id, o) => { await chrome.storage.local.set({ [/^https?:/.test(o.url) ? '__opened' : '__launched']: o.url, __launchedVia: id }); return {}; };
+    HTMLAnchorElement.prototype.click = function () { chrome.storage.local.set({ __launched: this.href, __launchedVia: 'popup' }); };
     window.close = () => {};
   })()`);
+  const stored = (key) => W(`chrome.storage.local.get('${key}').then((r) => r['${key}'] || '')`);
+  const pickAgent = async (sid, agent) => {
+    await click(sid, '#createMenuBtn'); await sleep(300);
+    await click(sid, '.cm-item[data-key="prompt"]'); await sleep(500);
+    const offered = await evalIn(sid, `[...document.querySelectorAll('#sheetBody [data-agent]')].map((b) => b.dataset.agent).join()`);
+    await click(sid, `[data-agent="${agent}"]`); await sleep(500);
+    return offered;
+  };
   const copiedText = () => W(`chrome.storage.local.get('__copied').then((r) => r.__copied || '')`);
   const shareIdsSent = () => calls.map((c) => ({ what: c.what, shareId: c.body.shareId }));
   const pick = async (sid, key) => { await click(sid, '#createMenuBtn'); await sleep(300); await click(sid, `.cm-item[data-key="${key}"]`); await sleep(300); };
@@ -187,10 +199,14 @@
   const t7 = await evalIn(P7.sid, `(() => { const t = document.querySelector('#toast'); return { text: t.textContent, check: !!t.querySelector('svg'), oneLine: t.getBoundingClientRect().height < 40 }; })()`);
   check('it says "Link copied", on one line with a check', t7.text === 'Link copied' && t7.check && t7.oneLine, JSON.stringify(t7));
 
-  // A new brief, then Fix prompt: the reporter's words and the report as Markdown.
-  await W(`chrome.storage.local.set({ __copied: '', draft: { id: 'd-prompt', createdAt: Date.now(), screenshots: [], description: '  the Pay button does nothing\\nsecond line' } })`);
+  // A new brief, then Fix prompt: picking it asks which agent, once; the
+  // button then copies the prompt and opens that agent with it.
+  await W(`chrome.storage.local.set({ __copied: '', __launched: '', __opened: '', draft: { id: 'd-prompt', createdAt: Date.now(), screenshots: [], description: '  the Pay button does nothing\\nsecond line' } })`);
   await sleep(800);
-  await pick(P7.sid, 'prompt');
+  const offered = await pickAgent(P7.sid, 'codex');
+  check('picking Fix prompt asks which agent', offered === 'claude,codex,cursor,vscode,copy', offered);
+  const mc = await menuState(P7.sid);
+  check('Codex makes the button "Fix in Codex", and it is remembered', mc.button === 'Fix in Codex' && (await stored('fixAgent')) === 'codex' && (await stored('createDefault')) === 'prompt', JSON.stringify(mc));
   calls.length = 0;
   await click(P7.sid, '#createBtn'); await sleep(2500);
   const prompt = await copiedText();
@@ -198,9 +214,45 @@
   check('Fix prompt copies the bug in the reporter\'s words', prompt.startsWith('Fix this bug: the Pay button does nothing\n\n'), JSON.stringify(prompt));
   check('and points the agent at the report as Markdown, the same link the brief is drafted with',
     !!promptId && calls.find((c) => c.what === 'draft')?.body.shareId === promptId, JSON.stringify({ prompt, sent: shareIdsSent() }));
+  const launched = await stored('__launched');
+  check('and opens Codex with that prompt filled in, through the page (not the popup)', launched === `codex://new?prompt=${encodeURIComponent(prompt)}` && (await stored('__launchedVia')) === 7, launched.slice(0, 120));
   const t8 = await evalIn(P7.sid, `document.querySelector('#toast').textContent`);
-  check('it says "Prompt copied"', t8 === 'Prompt copied', t8);
+  check('it says "Prompt copied, opening Codex"', t8 === 'Prompt copied, opening Codex', t8);
+
+  // Claude Code: the Claude desktop app's Code tab, no browser tab.
+  await W(`chrome.storage.local.set({ __copied: '', __launched: '', __opened: '', draft: { id: 'd-claude', createdAt: Date.now(), screenshots: [], description: 'checkout hangs' } })`);
+  await sleep(800);
+  await pickAgent(P7.sid, 'claude');
+  const mcl = await menuState(P7.sid);
+  check('Claude Code makes the button "Fix in Claude Code"', mcl.button === 'Fix in Claude Code', JSON.stringify(mcl));
+  await click(P7.sid, '#createBtn'); await sleep(2500);
+  const prompt2 = await copiedText();
+  const launchedClaude = await stored('__launched');
+  check("and opens the Claude app's Code tab with the prompt filled in", !!prompt2 && launchedClaude === `claude://code/new?q=${encodeURIComponent(prompt2)}` && !(await stored('__opened')), launchedClaude.slice(0, 120));
+
+  // Just copy: the plain label, nothing opened.
+  await W(`chrome.storage.local.set({ __copied: '', __launched: '', __opened: '', draft: { id: 'd-copy', createdAt: Date.now(), screenshots: [], description: 'cart empties' } })`);
+  await sleep(800);
+  await pickAgent(P7.sid, 'copy');
+  const mcp = await menuState(P7.sid);
+  await click(P7.sid, '#createBtn'); await sleep(2500);
+  check('Just copy: "Fix prompt", copies, opens nothing',
+    mcp.button === 'Fix prompt' && !!(await copiedText()) && !(await stored('__launched')) && !(await stored('__opened')), JSON.stringify(mcp));
   await b.send('Target.closeTarget', { targetId: P7.targetId }).catch(() => {});
+
+  // Fix prompt picked before any agent was: the first click asks, then goes.
+  await reset({ tracker: 'linear', trackerName: 'Linear' });
+  await W(`chrome.storage.local.set({ createDefault: 'prompt', __copied: '', __launched: '', __opened: '' })`);
+  const P9 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  await stubCopy(P9.sid);
+  const before = await menuState(P9.sid);
+  await click(P9.sid, '#createBtn'); await sleep(600);
+  const asked = await evalIn(P9.sid, `!!document.querySelector('#sheet.open [data-agent]')`);
+  check('with no agent yet, the first click asks first and copies nothing', before.button === 'Fix prompt' && asked && !(await copiedText()), JSON.stringify({ before, asked }));
+  await click(P9.sid, '[data-agent="cursor"]'); await sleep(2500);
+  const launched9 = await stored('__launched');
+  check('picking Cursor then copies and opens Cursor', !!(await copiedText()) && launched9.startsWith('cursor://anysphere.cursor-deeplink/prompt?text='), launched9.slice(0, 80));
+  await b.send('Target.closeTarget', { targetId: P9.targetId }).catch(() => {});
 
   // No tracker: the button saves drafts whatever was picked, and the menu's
   // first item is the fix, which opens Connections.

@@ -47,6 +47,8 @@ let bcTrackerAction = null; // with a tracker, 'reconnect' (still on Clerk); wit
 // link, 'prompt' saves a draft and copies a fix prompt.
 const CREATE_MODES = ['ticket', 'draft', 'prompt'];
 let createDefault = 'ticket';
+// The coding agent Fix prompt opens (FIX_AGENTS), asked once and remembered.
+let fixAgent = null;
 let currentSheet = null; // 'shot:<id>' | 'rec' | 'chooser' | 'reset' | null
 let lastSig = '';
 
@@ -284,7 +286,7 @@ function updateCreate() {
   if (label) {
     if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Saving…'}`;
     else if (uploading) label.textContent = 'Uploading…';
-    else label.innerHTML = mode === 'ticket' ? esc(createLabel()) : `${MODE_ICON[mode]}${esc(MODE_LABEL[mode])}`;
+    else label.innerHTML = mode === 'ticket' ? esc(createLabel()) : `${MODE_ICON[mode]}${esc(mode === 'prompt' ? promptLabel() : MODE_LABEL[mode])}`;
   }
   renderCreateMenu();
 }
@@ -303,6 +305,22 @@ const ICONS = {
 const svg = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 const MODE_ICON = { draft: svg('link'), prompt: svg('prompt') };
 const MODE_LABEL = { draft: 'Share link', prompt: 'Fix prompt' };
+// Where Fix prompt takes the prompt, besides the clipboard: each desktop app
+// opens with it filled in, by its own link scheme, and none sends it (you
+// press Enter there).
+const ICONS_PROMPT = '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>';
+const FIX_AGENTS = {
+  claude: { name: 'Claude Code', sub: 'Opens the Claude app', icon: '<path d="M12 3v18"/><path d="M3 12h18"/><path d="m5.6 5.6 12.8 12.8"/><path d="M18.4 5.6 5.6 18.4"/>', url: (p) => `claude://code/new?q=${encodeURIComponent(p)}` },
+  codex: { name: 'Codex', sub: 'Opens the Codex app', icon: ICONS_PROMPT, url: (p) => `codex://new?prompt=${encodeURIComponent(p)}` },
+  cursor: { name: 'Cursor', sub: 'Opens Cursor', icon: '<path d="m4 4 7 17 2.5-7.5L21 11z"/>', url: (p) => `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(p)}` },
+  vscode: { name: 'VS Code', sub: 'Opens Copilot in VS Code', icon: '<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>', url: (p) => `vscode://agents/new?prompt=${encodeURIComponent(p)}` },
+  copy: { name: null, sub: 'Paste it anywhere', icon: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>', url: null, title: 'Just copy' },
+};
+// "Fix in Codex" once an agent is picked; "Fix prompt" for just copy.
+function promptLabel() {
+  const name = FIX_AGENTS[fixAgent]?.name;
+  return name ? `Fix in ${name}` : 'Fix prompt';
+}
 // The menu: the tracker, the draft and the prompt. Picking one makes it the
 // button. With no tracker that files, the ticket row says why and carries the
 // fix as a pill (Connect, Reconnect, Finish), which opens Settings.
@@ -316,7 +334,7 @@ function renderCreateMenu() {
       ? { key: 'fix', icon: 'send', t: createLabel(), s: why, pill }
       : { key: 'ticket', icon: 'send', t: createLabel(), s: 'File the ticket now' },
     { key: 'draft', icon: 'link', t: 'Share link', s: 'Public page, kept in Drafts' },
-    { key: 'prompt', icon: 'prompt', t: 'Fix prompt', s: 'Copies a prompt for your agent' },
+    { key: 'prompt', icon: 'prompt', t: promptLabel(), s: FIX_AGENTS[fixAgent]?.name ? `Copies the prompt, opens ${FIX_AGENTS[fixAgent].name}` : 'Copies a prompt for your agent' },
   ];
   createMenu.innerHTML = items.map((it) =>
     `<button class="cm-item${it.pill ? ' cm-fix' : ''}" type="button" role="menuitemradio" data-key="${it.key}" aria-checked="${it.key === mode}"` +
@@ -344,10 +362,56 @@ async function pickCreateMode(key) {
     return;
   }
   if (!CREATE_MODES.includes(key)) return;
+  // Fix prompt: which agent (asked again here, so this is also how to change it)
+  if (key === 'prompt') return openAgentPicker();
   createDefault = key;
   chrome.storage.local.set({ createDefault: key }).catch(() => {});
   updateCreate();
   createBtn.focus();
+}
+// "Your coding agent": the agents Fix prompt can open, and just copy. Picking
+// one makes Fix prompt the button, in that agent's name. `then` runs after the
+// pick (from inside that click, so the copy and the app link still work).
+function openAgentPicker(then) {
+  const chev = '<path d="m9 6 6 6-6 6"/>';
+  const check = '<path d="M20 6 9 17l-5-5"/>';
+  const body = '<div class="chooser">' + Object.entries(FIX_AGENTS).map(([key, a]) =>
+    `<button class="choice" type="button" data-agent="${key}">` +
+    `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${a.icon}</svg></span>` +
+    `<span class="ctxt"><span class="ct">${esc(a.title || a.name)}</span><span class="cs">${esc(a.sub)}</span></span>` +
+    `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${key === fixAgent ? check : chev}</svg></span>` +
+    `</button>`).join('') + '</div>';
+  openSheet('Your coding <em>agent</em>', body, (root) => {
+    root.querySelectorAll('[data-agent]').forEach((b) => b.addEventListener('click', () => {
+      fixAgent = b.dataset.agent;
+      createDefault = 'prompt';
+      chrome.storage.local.set({ fixAgent, createDefault }).catch(() => {});
+      closeSheet();
+      updateCreate();
+      if (then) then(); else createBtn.focus();
+    }));
+  }, 'agent');
+}
+// An app's own link (claude://, codex://, cursor://, vscode://), opened
+// through the page the popup sits on: Chrome asks "Open <app>?" over that
+// page, full size (opened from the popup, its dialog was squeezed into the
+// popup's little window), and the page itself doesn't navigate. A page that
+// can't take it (chrome://, the Web Store) gets it from the popup instead.
+// An app that isn't installed just doesn't open; the prompt is copied anyway.
+async function launchApp(url) {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id != null && /^https?:/.test(tab.url || '')) {
+      await chrome.tabs.update(tab.id, { url });
+      return;
+    }
+  } catch {}
+  const a = document.createElement('a');
+  a.href = url;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 // "Create in Linear": the tracker it lands in, once known.
 function createLabel() {
@@ -813,12 +877,20 @@ async function startFiling(mode, kind = 'link') {
   // and the server takes it, so the page is there by the time anyone opens
   // it. Kept on the draft, so a retry after a failure keeps the same link.
   let done = 'Ticket queued';
+  let launchAfter = null;
   if (mode === 'draft') {
     const shareId = draft.shareId || newShareId();
     const url = briefPageUrl(shareId);
-    const copied = await copyText(kind === 'prompt' ? fixPrompt(draft.description, `${url}.md`) : url);
+    const prompt = kind === 'prompt' ? fixPrompt(draft.description, `${url}.md`) : null;
+    const copied = await copyText(prompt ?? url);
     await persist((d) => { d.shareId = shareId; });
-    done = !copied ? 'Couldn’t copy. It’s in Drafts' : kind === 'prompt' ? 'Prompt copied' : 'Link copied';
+    // Fix prompt also opens the agent's app with it, once the brief is
+    // handed off (Chrome's "Open <app>?" takes focus, and the popup goes).
+    const agent = kind === 'prompt' ? FIX_AGENTS[fixAgent] : null;
+    if (agent?.url) launchAfter = agent.url(prompt);
+    done = !copied ? 'Couldn’t copy. It’s in Drafts'
+      : kind !== 'prompt' ? 'Link copied'
+      : agent?.name ? `Prompt copied, opening ${agent.name}` : 'Prompt copied';
   }
 
   // Optimistic UI; the worker owns the flow (and the draft's flag) from here.
@@ -833,6 +905,7 @@ async function startFiling(mode, kind = 'link') {
     // on a fresh draft.
     flyToCloud(createBtn);
     toast(done, { ok: !done.startsWith('Couldn’t') });
+    if (launchAfter) await launchApp(launchAfter);
     return;
   }
   if (res?.error === 'already_filing') return; // an earlier ask is still running; the draft flag shows it
@@ -886,7 +959,7 @@ async function primaryCreate() {
   }
   const mode = createMode();
   if (mode === 'draft') return startFiling('draft', 'link');
-  if (mode === 'prompt') return startFiling('draft', 'prompt');
+  if (mode === 'prompt') return fixAgent ? startFiling('draft', 'prompt') : openAgentPicker(() => startFiling('draft', 'prompt'));
   if (trackerFixLabel()) {
     await openAppTab(`${APP_URL}/connections#tracker`, `${APP_URL}/connections*`);
     window.close();
@@ -1209,8 +1282,9 @@ resetBtn?.addEventListener('click', openReset);
   ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue, trackerAction: bcTrackerAction } = await readTrackerCache());
   // and what the button does, as picked last time
   try {
-    const { createDefault: picked } = await chrome.storage.local.get('createDefault');
+    const { createDefault: picked, fixAgent: agent } = await chrome.storage.local.get(['createDefault', 'fixAgent']);
     if (CREATE_MODES.includes(picked)) createDefault = picked;
+    if (Object.hasOwn(FIX_AGENTS, agent)) fixAgent = agent;
   } catch {}
   renderReconnect();
   // Same for the cloud button: open already reading "Connect" when unpaired.

@@ -129,7 +129,7 @@ export const LESSONS: readonly Lesson[] = [
       "Add a line under **Additional data** if you like. The video often says enough.",
       "Click **Create in** your tracker. It flies to the cloud and says *Ticket queued*. You can close the popup.",
       "Brief writes it and files it. It shows up in **Tickets** with your tracker's status.",
-      "Open **▾** to change what the button does. **Share link** writes it up on a page anyone can open, no account needed, copies the link and keeps it in **Drafts**. **Fix prompt** copies a prompt for your coding agent. Your pick stays.",
+      "Open **▾** to change what the button does. **Share link** writes it up on a page anyone can open, no account needed, copies the link and keeps it in **Drafts**. **Fix prompt** copies a prompt for your coding agent and opens it there: Claude Code, Codex, Cursor or VS Code, picked once. Your pick stays.",
     ],
     scene: "create",
     tryIt: { kind: "link", href: "/tickets", label: "Open Tickets" },
