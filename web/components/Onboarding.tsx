@@ -274,7 +274,7 @@ export default function Onboarding({
     you: "Brief uses this to write tickets the way your team expects them.",
     tracker: "Brief writes tickets straight into it - no copy-paste, ever.",
     extension: "This is how you capture a bug: record, talk, done.",
-    replay: "Brief keeps the last minute on your app. Nothing to start, nothing to reproduce.",
+    replay: "Brief keeps the last minute on your app. Talk over it, and the ticket uses what you say.",
     tryit: "Report two bugs. About a minute.",
   };
 

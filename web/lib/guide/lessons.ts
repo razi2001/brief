@@ -114,8 +114,9 @@ export const LESSONS: readonly Lesson[] = [
     blurb: "On your Replay sites, Brief keeps the last 60 seconds. Nothing to start, nothing to reproduce.",
     steps: [
       "Something broke on a Replay site? Click **Add**, then **Replay**.",
-      "Trim to the moment that matters, then **Add to brief**.",
-      "It becomes a video, with every click and call for the ticket.",
+      "Trim to the moment that matters.",
+      "Click **Record voice** and say what went wrong while it plays. The ticket uses what you say. Then **Add to brief**.",
+      "It becomes a video, with your voice and every click and call for the ticket.",
     ],
     scene: "replay",
     tryIt: { kind: "mark" },

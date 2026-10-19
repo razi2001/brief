@@ -691,6 +691,10 @@
 .gd-ed .tool .dot { width: calc(6 * var(--a)); height: calc(6 * var(--a)); border-radius: 50%; background: #dd6936; }
 .gd-ed .tool.on .dot { background: #f5f1e8; }
 .gd-ed .tool.has svg { color: #e5484d; }
+.gd-ed .tool.recording { background: #e5484d; color: #fff; }
+.gd-ed .tool .rdot { width: calc(8 * var(--a)); height: calc(8 * var(--a)); border-radius: 50%; background: #fff; animation: gd-blink 1s steps(2) infinite; }
+.gd-ed .tool .vx { margin-left: calc(2 * var(--a)); width: calc(18 * var(--a)); height: calc(18 * var(--a)); display: inline-grid; place-items: center; color: #8a8378; font-size: calc(14 * var(--a)); line-height: 1; }
+@keyframes gd-blink { 50% { opacity: 0.2; } }
 .gd-ed .opts { display: flex; align-items: center; gap: calc(2 * var(--a)); padding: calc(4 * var(--a)); border-radius: calc(12 * var(--a)); background: #fffdf9; border: calc(1 * var(--a)) solid rgba(26, 22, 18, 0.1); animation: gd-pop 0.2s both; }
 .gd-ed .opt { height: calc(28 * var(--a)); padding: 0 calc(11 * var(--a)); border-radius: calc(8 * var(--a)); display: inline-flex; align-items: center; font-size: calc(11.5 * var(--a)); color: #8a8378; }
 .gd-ed .opt.on { background: #ece6d6; color: #1a1612; }

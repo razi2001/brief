@@ -7,7 +7,9 @@ const RATIOS = ["Free", "16:9", "4:3", "1:1", "9:16"];
  * The evidence editor (player.html / replay.html, editor.css): the title, Cancel
  * and Save; the picture on its stage; the tool pill (and crop's ratios above
  * it); play, the trim strip, the clock and the speed. Positions are % of the
- * strip.
+ * strip. `voice` is the Record voice button's state (editor/shell.js
+ * voiceButtons): a take running ("Stop 0:04") or a take kept ("Voice 0:04").
+ * `glide` moves the playhead over that many seconds, as playback does.
  */
 export function MockEditor({
   kind,
@@ -22,6 +24,8 @@ export function MockEditor({
   mark,
   action = "Save",
   actionOn,
+  voice,
+  glide,
 }: {
   kind: "recording" | "replay";
   page: AcmePage;
@@ -35,9 +39,14 @@ export function MockEditor({
   mark?: { at: number; note?: string };
   action?: string;
   actionOn?: boolean;
+  voice?: { rec?: boolean; secs: number };
+  glide?: number;
 }) {
   const total = 33;
   const kept = Math.round(((keep[1] - keep[0] - (gone ? gone[1] - gone[0] : 0)) / 100) * total);
+  // the clock counts kept time, from the start handle
+  const at = Math.min(Math.round((Math.max(0, head - keep[0]) / 100) * total), kept);
+  const clock = (secs: number) => `0:${String(secs).padStart(2, "0")}`;
   return (
     <div className="gd-ed">
       <div className="eh">
@@ -92,9 +101,24 @@ export function MockEditor({
               Sound on
             </span>
           )}
-          <span className="tool">
-            <IconMic />
-            Record voice
+          <span data-gd="tool-voice" className={`tool${voice?.rec ? " recording" : ""}`}>
+            {voice?.rec ? (
+              <>
+                <i className="rdot" />
+                Stop {clock(voice.secs)}
+              </>
+            ) : voice ? (
+              <>
+                <IconMic />
+                Voice {clock(voice.secs)}
+                <span className="vx">×</span>
+              </>
+            ) : (
+              <>
+                <IconMic />
+                Record voice
+              </>
+            )}
           </span>
           <span data-gd="tool-mark" className={`tool${tool === "mark" ? " on" : ""}${mark ? " has" : ""}`}>
             <IconFlag />
@@ -120,10 +144,10 @@ export function MockEditor({
           <span data-gd="h-end" className="h" style={{ left: `${keep[1]}%` }} />
           {cut !== undefined && <span className="cut gd-in" style={{ left: `${cut}%` }} />}
           {mark && <span className="mark" style={{ left: `${mark.at}%` }} />}
-          <span className="head" style={{ left: `${head}%` }} />
+          <span className="head" style={{ left: `${head}%`, transition: glide ? `left ${glide}s linear` : undefined }} />
         </div>
         <span className="clock">
-          0:{String(Math.round((head / 100) * total)).padStart(2, "0")} <span>/ 0:{String(kept).padStart(2, "0")}</span>
+          {clock(at)} <span>/ {clock(kept)}</span>
         </span>
         <span className="speed">1×</span>
       </div>

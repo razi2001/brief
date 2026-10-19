@@ -4,6 +4,7 @@ import { MockPopup, type Sheet, type Tile } from "../mock/Popup";
 import { MockEditor } from "../mock/Editor";
 import { MockApp, MockFeed, MockSettings, type SettingsState } from "../mock/App";
 import { Mark, u } from "../mock/Stage";
+import { IconMic } from "../mock/icons";
 import { AT, scene } from "./types";
 
 const APP = "cloud.get-brief.app";
@@ -43,24 +44,41 @@ type ReplayS = {
   query?: boolean;
   searching?: boolean;
   popup?: PopupState;
-  ed?: { keep: [number, number]; on?: boolean };
+  ed?: { keep: [number, number]; on?: boolean; head?: number; glide?: number; voice?: { rec?: boolean; secs: number }; said?: boolean };
   got?: boolean;
 };
 
+const SAID = "Search just spins, then fails.";
+
+const CARD = { position: "absolute", padding: u(12), borderRadius: u(12), background: "#fffdfa", border: `${u(1)} solid rgba(26,22,18,.12)`, boxShadow: `0 ${u(18)} ${u(40)} ${u(-14)} rgba(26,22,18,.45)`, zIndex: 9 } as const;
+
+/** What the reporter says while the voice-over records. */
+function Speaking() {
+  return (
+    <div className="gd-slide" style={{ ...CARD, left: u(250), top: u(210), display: "flex", alignItems: "center", gap: u(8), padding: `${u(9)} ${u(14)}`, fontSize: u(10), color: "#1a1612" }}>
+      <span style={{ display: "grid", width: u(14), height: u(14), color: "#e5484d" }}>
+        <IconMic />
+      </span>
+      <span className="gd-type">“{SAID}”</span>
+    </div>
+  );
+}
+
 function WhatItKeeps() {
-  const lines: Array<[string, string, boolean?]> = [
+  const lines: Array<[string, string, ("net" | "voice")?]> = [
+    ["0:00", `Your voice: “${SAID.replace(/\.$/, "")}”`, "voice"],
     ["0:02", "Typed in Search"],
     ["0:03", "Clicked “Search”"],
-    ["0:03", "GET /orders/search", true],
-    ["0:23", "504 after 20 s", true],
+    ["0:03", "GET /orders/search", "net"],
+    ["0:23", "504 after 20 s", "net"],
   ];
   return (
-    <div className="gd-slide" style={{ position: "absolute", left: u(24), top: u(40), width: u(250), padding: u(12), borderRadius: u(12), background: "#fffdfa", border: `${u(1)} solid rgba(26,22,18,.12)`, boxShadow: `0 ${u(18)} ${u(40)} ${u(-14)} rgba(26,22,18,.45)`, zIndex: 9 }}>
+    <div className="gd-slide" style={{ ...CARD, left: u(24), top: u(40), width: u(280) }}>
       <div style={{ fontSize: u(9.5), fontWeight: 600, marginBottom: u(6) }}>What the ticket gets</div>
-      {lines.map(([t, l, net]) => (
+      {lines.map(([t, l, tone]) => (
         <div key={t + l} style={{ display: "flex", gap: u(8), fontSize: u(8.5), padding: `${u(3)} 0`, fontFamily: "var(--font-mono)" }}>
           <span style={{ color: "#8a8378" }}>{t}</span>
-          <span style={{ color: net ? "#c62828" : "#3a3530" }}>{l}</span>
+          <span style={{ color: tone === "net" ? "#c62828" : tone === "voice" ? "#dd6936" : "#3a3530" }}>{l}</span>
         </div>
       ))}
     </div>
@@ -70,7 +88,7 @@ function WhatItKeeps() {
 const REPLAY: Tile = { kind: "replay", label: "Replay" };
 
 export const replay = scene<ReplayS>({
-  poster: 8,
+  poster: 12,
   frames: [
     { ms: 1200, step: 0, target: "search-btn", click: true, s: { query: true } },
     { ms: 1300, step: 0, target: "brief-icon", click: true, s: { query: true, searching: true } },
@@ -78,14 +96,30 @@ export const replay = scene<ReplayS>({
     { ms: 1100, step: 0, target: "choice-replay", click: true, s: { query: true, searching: true, popup: { sheet: { kind: "chooser", on: "replay" } } } },
     { ms: 900, step: 1, target: "h-start", s: { ed: { keep: [0, 100] } } },
     { ms: 1100, step: 1, target: "h-start", s: { ed: { keep: [45, 100] } } },
-    { ms: 1100, step: 1, target: "ed-save", click: true, s: { ed: { keep: [45, 100], on: true } } },
-    { ms: 1200, step: 2, cursor: AT.rest, s: { query: true, searching: true, popup: { tiles: [{ ...REPLAY, on: true }] } } },
-    { ms: 2600, step: 2, cursor: AT.rest, s: { query: true, searching: true, popup: { tiles: [REPLAY] }, got: true } },
+    // a take plays the kept part from its start and stops at its end
+    { ms: 900, step: 2, target: "tool-voice", click: true, s: { ed: { keep: [45, 100], head: 45, voice: { rec: true, secs: 0 } } } },
+    { ms: 2200, step: 2, target: "tool-voice", s: { ed: { keep: [45, 100], head: 80, glide: 2.2, voice: { rec: true, secs: 12 }, said: true } } },
+    { ms: 800, step: 2, target: "tool-voice", s: { ed: { keep: [45, 100], head: 100, glide: 0.8, voice: { rec: true, secs: 18 }, said: true } } },
+    { ms: 900, step: 2, target: "tool-voice", s: { ed: { keep: [45, 100], head: 100, voice: { secs: 18 } } } },
+    { ms: 1100, step: 2, target: "ed-save", click: true, s: { ed: { keep: [45, 100], head: 100, voice: { secs: 18 }, on: true } } },
+    { ms: 1200, step: 3, cursor: AT.rest, s: { query: true, searching: true, popup: { tiles: [{ ...REPLAY, on: true }] } } },
+    { ms: 3000, step: 3, cursor: AT.rest, s: { query: true, searching: true, popup: { tiles: [REPLAY] }, got: true } },
   ],
   View: ({ s }) =>
     s.ed ? (
       <BrowserFrame url="Brief Cloud · Replay" title="Replay" fav="#dd6936">
-        <MockEditor kind="replay" page="search" searching keep={s.ed.keep} action="Add to brief" actionOn={s.ed.on} head={s.ed.keep[0] + 20} />
+        <MockEditor
+          kind="replay"
+          page="search"
+          searching
+          keep={s.ed.keep}
+          action="Add to brief"
+          actionOn={s.ed.on}
+          head={s.ed.head ?? s.ed.keep[0] + 20}
+          glide={s.ed.glide}
+          voice={s.ed.voice}
+        />
+        {s.ed.said && <Speaking />}
       </BrowserFrame>
     ) : (
       <OnAcme page="search" popup={s.popup} acme={{ query: s.query ? "1042" : undefined, searching: s.searching }}>
