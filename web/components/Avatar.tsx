@@ -1,6 +1,11 @@
+"use client";
+
+import { useState } from "react";
+
 /**
- * A person's picture, or their initials on the accent tint when there isn't one.
- * Shared by the podium and the Settings team list.
+ * A person's picture, or their initials on the accent tint when there isn't
+ * one or it won't load. Shared by the podium, the admin list and the Settings
+ * team list.
  */
 
 function initialsOf(name: string): string {
@@ -18,13 +23,20 @@ export default function Avatar({
   imageUrl?: string;
   size: number;
 }) {
-  return imageUrl ? (
+  // The photo that failed, so a new one gets its own try.
+  const [failed, setFailed] = useState<string>();
+  return imageUrl && imageUrl !== failed ? (
     /* eslint-disable-next-line @next/next/no-img-element */
     <img
       src={imageUrl}
       alt=""
       style={{ width: size, height: size }}
       className="shrink-0 rounded-full object-cover"
+      onError={() => setFailed(imageUrl)}
+      // A server-rendered photo can fail before React listens for onError.
+      ref={(el) => {
+        if (el?.complete && el.naturalWidth === 0) setFailed(imageUrl);
+      }}
     />
   ) : (
     <span
