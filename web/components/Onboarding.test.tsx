@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ProviderKey } from "./provider-labels";
 
-const router = vi.hoisted(() => ({ replace: vi.fn() }));
+const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 // The demo has its own tests; here it only has to hand back onOpenGuide.
 vi.mock("./onboarding/TryItDemo", () => ({
@@ -30,7 +30,7 @@ vi.mock("@clerk/nextjs", () => ({
   useReverification: <A extends unknown[], R>(fn: (...a: A) => R) => fn,
 }));
 
-import Onboarding from "./Onboarding";
+import Onboarding, { type OnboardingReplay } from "./Onboarding";
 
 type Connections = {
   owned: Array<{ provider: ProviderKey; label: string | null; workspace: null }>;
@@ -50,8 +50,11 @@ beforeEach(() => {
   clerk.createExternalAccount = vi.fn();
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) => {
+    vi.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/me/connections") return { ok: true, json: async () => connections };
+      // The Replay step saves the whole list and shows what the server kept.
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (url === "/api/settings" && body.replaySites) return { ok: true, json: async () => ({ ok: true, replaySites: body.replaySites }) };
       return { ok: true, json: async () => ({}) };
     }),
   );
@@ -84,8 +87,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const renderWizard = () =>
-  render(<Onboarding initialRole="Engineer" initialSource="" greetingName="Razi" />);
+const NO_REPLAY: OnboardingReplay = { team: null, mine: [], mode: "inherit" };
+
+const renderWizard = (replay: OnboardingReplay = NO_REPLAY) =>
+  render(<Onboarding initialRole="Engineer" initialSource="" greetingName="Razi" replay={replay} />);
 
 const row = (name: string) => screen.getByRole("button", { name: new RegExp(`^${name}`) });
 
@@ -193,17 +198,18 @@ describe("Onboarding's Try it step", () => {
     renderWizard();
     await screen.findByText("Install the extension");
     fireEvent.click(continueBtn());
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await screen.findByRole("heading", { name: "Try it" });
   };
 
-  it("has four steps on the rail", async () => {
+  it("has five steps on the rail", async () => {
     renderWizard();
     await screen.findByText("Install the extension");
     const rail = within(screen.getByRole("list", { name: "Setup steps" })).getAllByRole("listitem");
-    expect(rail.map((li) => li.textContent?.replace(/\d/g, ""))).toEqual(["You", "Tracker", "Extension", "Try it"]);
+    expect(rail.map((li) => li.textContent?.replace(/\d/g, ""))).toEqual(["You", "Tracker", "Extension", "Replay", "Try it"]);
   });
 
-  it("goes from the extension step to Try it with Continue", async () => {
+  it("goes from the extension step through Replay to Try it", async () => {
     await toTryIt();
     expect(screen.getByText("Report two bugs. About a minute.")).toBeTruthy();
     expect(router.replace).not.toHaveBeenCalled();
@@ -238,14 +244,74 @@ describe("Onboarding's Try it step", () => {
     await screen.findByText("Install the extension");
     expect(screen.getByRole("button", { name: "Skip setup, straight home" })).toBeTruthy();
     fireEvent.click(continueBtn());
+    await screen.findByRole("heading", { name: "Turn on Replay" });
+    expect(screen.getByRole("button", { name: "Skip setup, straight home" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     await screen.findByRole("heading", { name: "Try it" });
     expect(screen.queryByRole("button", { name: "Skip setup, straight home" })).toBeNull();
   });
 
-  it("goes back from Try it to the extension step", async () => {
+  it("goes back from Try it to the Replay step, then to the extension step", async () => {
     await toTryIt();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(await screen.findByText("Install the extension")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Turn on Replay" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Open the Guide" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText("Install the extension")).toBeTruthy();
+  });
+});
+
+describe("Onboarding's Replay step", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    router.refresh.mockClear();
+    connections = Promise.resolve({ owned: [{ provider: "asana", label: null, workspace: null }], configured: {} });
+  });
+  const toReplay = async (replay?: OnboardingReplay) => {
+    renderWizard(replay);
+    await screen.findByText("Install the extension");
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  };
+  const railItem = (label: string) =>
+    within(screen.getByRole("list", { name: "Setup steps" }))
+      .getAllByRole("listitem")
+      .find((li) => li.textContent?.includes(label))!;
+
+  it("asks for a site, with Not now, when no sites are set", async () => {
+    await toReplay();
+    expect(await screen.findByRole("heading", { name: "Turn on Replay" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Site" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Not now" }).className).not.toMatch(/btn-accent/);
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+    expect(screen.queryByText("Replay on")).toBeNull();
+  });
+
+  it("saves a site added here as the user's own and refreshes the page's data", async () => {
+    await toReplay();
+    fireEvent.change(await screen.findByRole("textbox", { name: "Site" }), { target: { value: "app.acme.com" } });
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Add" })));
+
+    const posts = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([url]) => url === "/api/settings")
+      .map(([, init]) => JSON.parse((init as RequestInit).body as string));
+    expect(posts).toContainEqual({ replaySites: ["app.acme.com"] });
+    expect(router.refresh).toHaveBeenCalled();
+  });
+
+  it("shows Replay on, the team's sites and an accent Continue when the team already records", async () => {
+    await toReplay({ team: { name: "Acme", sites: ["app.acme.com"], members: 3 }, mine: [], mode: "inherit" });
+    expect(await screen.findByRole("heading", { name: "Replay is on" })).toBeTruthy();
+    expect(screen.getByText("Replay on")).toBeTruthy();
+    expect(screen.getByText("app.acme.com")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Continue" }).className).toMatch(/btn-accent/);
+    expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
+    // Ticked on the rail, not numbered.
+    expect(within(railItem("Replay")).queryByText("4")).toBeNull();
+  });
+
+  it("goes by the user's own list when they don't follow the team", async () => {
+    await toReplay({ team: { name: "Acme", sites: ["app.acme.com"], members: 3 }, mine: [], mode: "override" });
+    expect(await screen.findByRole("heading", { name: "Turn on Replay" })).toBeTruthy();
+    expect(within(railItem("Replay")).getByText("4")).toBeTruthy();
   });
 });

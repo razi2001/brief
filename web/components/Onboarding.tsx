@@ -12,9 +12,18 @@ import { availableFirst } from "./TrackerPicker";
 import { ROLES, SOURCES } from "@/lib/onboarding-options";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
 import { useExtensionPaired } from "./ExtensionTokenSync";
+import ReplaySites from "./ReplaySites";
+import { effectiveReplaySites, type ReplayMode } from "@/lib/replay-sites";
 
-type Step = "you" | "tracker" | "extension" | "tryit";
-const STEP_ORDER: Step[] = ["you", "tracker", "extension", "tryit"];
+type Step = "you" | "tracker" | "extension" | "replay" | "tryit";
+const STEP_ORDER: Step[] = ["you", "tracker", "extension", "replay", "tryit"];
+
+/** The Replay sites as Settings shows them: the team's (with a team) and the user's own. */
+export type OnboardingReplay = {
+  team: { name: string; sites: string[]; members: number } | null;
+  mine: string[];
+  mode: ReplayMode;
+};
 
 // The two-bug demo from get-brief.app: only fetched once someone reaches it.
 // Its stand-in has the demo window's height, so the page doesn't jump.
@@ -46,11 +55,22 @@ function Check({ size = 9 }: { size?: number }) {
   );
 }
 
-function StepRail({ current, trackerDone, extensionDone }: { current: Step; trackerDone: boolean; extensionDone: boolean }) {
+function StepRail({
+  current,
+  trackerDone,
+  extensionDone,
+  replayDone,
+}: {
+  current: Step;
+  trackerDone: boolean;
+  extensionDone: boolean;
+  replayDone: boolean;
+}) {
   const labels: Record<Step, string> = {
     you: "You",
     tracker: "Tracker",
     extension: "Extension",
+    replay: "Replay",
     tryit: "Try it",
   };
   const currentIdx = STEP_ORDER.indexOf(current);
@@ -60,7 +80,8 @@ function StepRail({ current, trackerDone, extensionDone }: { current: Step; trac
         const done =
           i < currentIdx ||
           (s === "tracker" && trackerDone && currentIdx > 0) ||
-          (s === "extension" && extensionDone);
+          (s === "extension" && extensionDone) ||
+          (s === "replay" && replayDone);
         const active = s === current;
         return (
           <li key={s} className="flex items-center gap-2 sm:gap-3">
@@ -78,7 +99,7 @@ function StepRail({ current, trackerDone, extensionDone }: { current: Step; trac
               >
                 {done ? <Check /> : i + 1}
               </span>
-              {/* Four labels don't fit a phone: there, only the current one shows. */}
+              {/* Five labels don't fit a phone: there, only the current one shows. */}
               <span
                 className={`whitespace-nowrap text-[13px] ${
                   active ? "font-medium text-ink" : `${done ? "text-ink-2" : "text-muted"} max-sm:sr-only`
@@ -151,20 +172,22 @@ function ChipGrid({
 /**
  * The first-run onboarding experience - a dedicated full page (/welcome), not
  * a dashboard widget. New sign-ups land here straight from Clerk (no hop
- * through "/"). Four steps: about you (role + how you heard) → connect a
- * tracker (inline Clerk OAuth) → install the extension → try it (the
- * get-brief.app two-bug demo). Finishing or skipping stamps
- * privateMetadata.onboardedAt and heads to the dashboard, or to the Guide from
- * the demo's end.
+ * through "/"). Five steps: about you (role + how you heard) → connect a
+ * tracker (inline Clerk OAuth) → install the extension → Replay sites (the
+ * Settings editor, team or own) → try it (the get-brief.app two-bug demo).
+ * Finishing or skipping stamps privateMetadata.onboardedAt and heads to the
+ * dashboard, or to the Guide from the demo's end.
  */
 export default function Onboarding({
   initialRole,
   initialSource,
   greetingName,
+  replay,
 }: {
   initialRole: string;
   initialSource: string;
   greetingName: string;
+  replay: OnboardingReplay;
 }) {
   const router = useRouter();
   const { isLoaded, busy, errors, notice, lastError, isConnected, isAvailable, pendingError, connect } =
@@ -173,6 +196,10 @@ export default function Onboarding({
   // Paired by the setup tab, or (installed before signing up) by
   // ExtensionTokenSync as soon as this account existed.
   const extensionPaired = useExtensionPaired(useUser().user?.id);
+  // From the server: a save on the Replay step refreshes the page's data.
+  const replayOn =
+    effectiveReplaySites({ hasTeam: !!replay.team, mode: replay.mode, team: replay.team?.sites ?? [], mine: replay.mine })
+      .length > 0;
 
   // `rawStep` is null until the user manually navigates; before that the step
   // is DERIVED from real state. This matters because returning from the
@@ -240,12 +267,14 @@ export default function Onboarding({
     you: "Tell us about you",
     tracker: "Connect your tracker",
     extension: extensionPaired ? "Extension connected" : "Install the extension",
+    replay: replayOn ? "Replay is on" : "Turn on Replay",
     tryit: "Try it",
   };
   const stepSub: Record<Step, string> = {
     you: "Brief uses this to write tickets the way your team expects them.",
     tracker: "Brief writes tickets straight into it - no copy-paste, ever.",
     extension: "This is how you capture a bug: record, talk, done.",
+    replay: "Brief keeps the last minute on your app. Nothing to start, nothing to reproduce.",
     tryit: "Report two bugs. About a minute.",
   };
 
@@ -264,7 +293,7 @@ export default function Onboarding({
               Two minutes of setup, then your bugs file themselves.
             </p>
             <div className="mt-5">
-              <StepRail current={step} trackerDone={trackerConnected} extensionDone={extensionPaired} />
+              <StepRail current={step} trackerDone={trackerConnected} extensionDone={extensionPaired} replayDone={replayOn} />
             </div>
           </div>
 
@@ -416,7 +445,20 @@ export default function Onboarding({
               </div>
             )}
 
-            {/* ---- Step 4: try it ---- */}
+            {/* ---- Step 4: Replay sites ---- */}
+            {step === "replay" && (
+              <div className="mt-5 flex flex-col gap-4">
+                {replayOn && (
+                  <span className="pill w-fit border-[rgba(46,125,50,.3)] bg-[rgba(46,125,50,.08)] text-[#2e7d32]">
+                    <Check size={10} />
+                    Replay on
+                  </span>
+                )}
+                <ReplaySites team={replay.team} mine={replay.mine} mode={replay.mode} />
+              </div>
+            )}
+
+            {/* ---- Step 5: try it ---- */}
             {step === "tryit" && (
               <div className="mt-5">
                 <TryItDemo onOpenGuide={() => finish("/guide")} />
@@ -462,16 +504,30 @@ export default function Onboarding({
                 )}
                 <button
                   type="button"
-                  onClick={() => setStep("tryit")}
+                  onClick={() => setStep("replay")}
                   className={`${extensionPaired ? "btn-accent" : "btn"} cursor-pointer`}
                 >
                   Continue
                 </button>
               </>
             )}
-            {step === "tryit" && (
+            {step === "replay" && (
               <>
                 <button type="button" onClick={() => setStep("extension")} className={backLink}>
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep("tryit")}
+                  className={`${replayOn ? "btn-accent" : "btn"} cursor-pointer`}
+                >
+                  {replayOn ? "Continue" : "Not now"}
+                </button>
+              </>
+            )}
+            {step === "tryit" && (
+              <>
+                <button type="button" onClick={() => setStep("replay")} className={backLink}>
                   Back
                 </button>
                 <button

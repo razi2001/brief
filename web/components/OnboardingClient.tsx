@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import StandalonePage, { SHEET } from "./StandalonePage";
+import type { OnboardingReplay } from "./Onboarding";
 
 /**
  * Client-only mount for <Onboarding/>, for the same reason as
@@ -29,6 +30,7 @@ export default function OnboardingClient(props: {
   initialRole: string;
   initialSource: string;
   greetingName: string;
+  replay: OnboardingReplay;
 }) {
   return <Onboarding {...props} />;
 }
