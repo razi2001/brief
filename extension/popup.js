@@ -915,16 +915,19 @@ async function startFiling(mode, kind = 'link') {
   showInlineError(`Couldn’t create brief: ${res?.error || 'unknown error'}`);
 }
 
-// What a coding agent gets: the bug in the reporter's words, and the report
-// itself as Markdown (/b/<id>.md waits for the write-up, and lists every
-// screenshot and recording by URL).
+// What a coding agent gets: the bug in the reporter's words, the report itself
+// as Markdown (/b/<id>.md waits for the write-up, and lists every screenshot
+// and recording by URL), and the way back: a ticket on whoever runs the agent,
+// a PR, and the fix posted on the ticket (or in the chat).
 function fixPrompt(description, mdUrl) {
   const first = (description || '').split('\n').map((l) => l.trim()).find(Boolean) || '';
   const what = first.length > 160 ? `${first.slice(0, 157).replace(/\s+\S*$/, '')}…` : first;
   return [
     what ? `Fix this bug: ${what}` : 'Fix the bug in this report.',
     `The full report (steps, expected and actual, technical notes, screenshots): ${mdUrl}`,
+    'If it makes sense, create a ticket for it in our tracker and assign it to me.',
     'Find the cause in this codebase, fix it, and add a test that would have caught it.',
+    'Once it is done, open a PR and send me the link. Then comment "Here is the fix" with the PR link on the ticket, or here if there is no ticket.',
   ].join('\n\n');
 }
 

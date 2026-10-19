@@ -214,6 +214,9 @@
   check('Fix prompt copies the bug in the reporter\'s words', prompt.startsWith('Fix this bug: the Pay button does nothing\n\n'), JSON.stringify(prompt));
   check('and points the agent at the report as Markdown, the same link the brief is drafted with',
     !!promptId && calls.find((c) => c.what === 'draft')?.body.shareId === promptId, JSON.stringify({ prompt, sent: shareIdsSent() }));
+  check('and asks for a ticket assigned to the reader, a PR sent back, and "Here is the fix" on the ticket or in the chat',
+    prompt.includes('create a ticket for it in our tracker and assign it to me') && prompt.includes('open a PR and send me the link')
+      && prompt.includes('comment "Here is the fix" with the PR link on the ticket, or here if there is no ticket'), JSON.stringify(prompt));
   const launched = await stored('__launched');
   check('and opens Codex with that prompt filled in, through the page (not the popup)', launched === `codex://new?prompt=${encodeURIComponent(prompt)}` && (await stored('__launchedVia')) === 7, launched.slice(0, 120));
   const t8 = await evalIn(P7.sid, `document.querySelector('#toast').textContent`);
