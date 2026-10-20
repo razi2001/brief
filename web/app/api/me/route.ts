@@ -5,6 +5,7 @@ import { CLERK_PROVIDERS, providerName, trackerStatus, type TrackerFix } from "@
 import { isOwnedProvider, isProviderConfigured, readConnection } from "@/lib/connections";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import type { ProviderKey } from "@/lib/tracker";
+import { track } from "@/lib/events";
 
 export function OPTIONS() {
   return corsPreflight();
@@ -37,6 +38,8 @@ export async function GET(req: NextRequest) {
   } catch {
     return jsonCors({ error: "unauthorized" }, { status: 401 });
   }
+  // The popup asks this each time it opens.
+  track(userId, "extension.opened");
 
   // Which tracker the extension should name in its "Filing to X" copy, and
   // whether "Create ticket" can file at all. Resolved through the registry so

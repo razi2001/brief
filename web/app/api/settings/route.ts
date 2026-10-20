@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { cleanSiteList } from "@/lib/replay-sites";
+import { track } from "@/lib/events";
 
 export const maxDuration = 60;
 
@@ -84,6 +85,11 @@ export async function POST(req: NextRequest) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+
+  if ("role" in updates || "source" in updates) {
+    track(userId, "onboarding.about", { role: updates.role, source: updates.source });
+  }
+  if (updates.onboardedAt) track(userId, "onboarding.finished");
 
   return NextResponse.json({ ok: true, ...("replaySites" in updates ? { replaySites: updates.replaySites } : {}) });
 }

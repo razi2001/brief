@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useRef } from "react";
 import { initDemo } from "./try-it-demo-machine";
+import { sendEvent } from "../usage";
 import "./try-it-demo.css";
 
 /**
@@ -20,6 +21,19 @@ function TryItDemo({ onOpenGuide }: { onOpenGuide: () => void }) {
     guideRef.current = onOpenGuide;
   });
   useEffect(() => initDemo(stageRef.current!, { onOpenGuide: () => guideRef.current() }), []);
+  // Each demo button once per mount, for the activity log: how far people get.
+  useEffect(() => {
+    const stage = stageRef.current!;
+    const seen = new Set<string>();
+    const onAct = (e: Event) => {
+      const act = (e.target as Element | null)?.closest?.("[data-act]")?.getAttribute("data-act");
+      if (!act || seen.has(act)) return;
+      seen.add(act);
+      sendEvent("onboarding.demo", { act });
+    };
+    stage.addEventListener("click", onAct, true);
+    return () => stage.removeEventListener("click", onAct, true);
+  }, []);
 
   return (
     <div className="try-demo">

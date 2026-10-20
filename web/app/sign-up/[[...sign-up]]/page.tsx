@@ -1,8 +1,16 @@
 import { SignUp } from "@clerk/nextjs";
 import StandalonePage, { AuthLinks, AuthTitle } from "@/components/StandalonePage";
 import { clerkAuthSheet } from "@/components/clerk-sheet";
+import { signupSource } from "@/lib/signup-source";
 
-export default function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  // Which get-brief.app button and referrer brought this sign-up: Clerk keeps
+  // it on the new user (email code and Google alike) for /admin/activity.
+  const signup = signupSource(await searchParams);
   return (
     <StandalonePage center>
       <AuthTitle />
@@ -13,7 +21,12 @@ export default function Page() {
           once the account exists (lib/extension-handoff). The "Already have
           an account?" link uses NEXT_PUBLIC_CLERK_SIGN_IN_URL (=/sign-in)
           automatically. */}
-      <SignUp forceRedirectUrl="/welcome" fallbackRedirectUrl="/welcome" appearance={clerkAuthSheet} />
+      <SignUp
+        forceRedirectUrl="/welcome"
+        fallbackRedirectUrl="/welcome"
+        appearance={clerkAuthSheet}
+        unsafeMetadata={signup ? { signup } : undefined}
+      />
       <AuthLinks />
     </StandalonePage>
   );

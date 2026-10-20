@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 // Reachable at https://cloud.get-brief.app/privacy (allowlisted in proxy.ts).
 // Keep this in sync with the Chrome Web Store "Privacy practices" disclosures.
 
-const LAST_UPDATED = "October 17, 2026";
+const LAST_UPDATED = "October 20, 2026";
 
 function Section({
   title,
@@ -55,9 +55,10 @@ export default function PrivacyPage() {
           </p>
           <p>
             Short version: we only handle the briefs you choose to record, we send
-            them to our own backend so we can turn them into tickets, we do not
-            run any advertising or analytics trackers, and we never sell your
-            data.
+            them to our own backend so we can turn them into tickets, we keep our
+            own log of how Brief Cloud is used so we can improve it, we do not run
+            any advertising or third-party analytics trackers, and we never sell
+            your data.
           </p>
         </div>
 
@@ -135,6 +136,24 @@ export default function PrivacyPage() {
             profile photo of its own, connecting also reads the tracker
             account&apos;s photo once and sets it as your account&apos;s profile
             photo at Clerk. Disconnecting a tracker deletes its token.
+          </p>
+        </Section>
+
+        <Section title="Usage log">
+          <p>
+            Brief Cloud keeps a log of what you do with your account: the pages
+            you open in the web app, the setup steps you reach, the trackers you
+            connect or disconnect, when the extension is paired or its popup
+            opens, and when a brief is created, filed or fails. When you sign up
+            from get-brief.app, we also keep which button you clicked and the site
+            you came from.
+          </p>
+          <p>
+            We use this log only to see where Brief Cloud is hard to use and fix
+            it. It is kept in our own database, it is not shared with anyone, and
+            it uses no cookies and no third-party analytics. The extension itself
+            sends no analytics: the log is made from the requests it already sends
+            to our backend.
           </p>
         </Section>
 

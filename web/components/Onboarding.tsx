@@ -13,6 +13,7 @@ import { ROLES, SOURCES } from "@/lib/onboarding-options";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
 import { useExtensionPaired } from "./ExtensionTokenSync";
 import ReplaySites from "./ReplaySites";
+import { sendEvent } from "./usage";
 import { effectiveReplaySites, type ReplayMode } from "@/lib/replay-sites";
 
 type Step = "you" | "tracker" | "extension" | "replay" | "tryit";
@@ -214,6 +215,13 @@ export default function Onboarding({
 
   const autoStep: Step = trackerConnected ? "extension" : initialRole ? "tracker" : "you";
   const step: Step = rawStep ?? autoStep;
+
+  // The activity log's onboarding steps: where a new user stops. Not while
+  // the connections load, when the derived step is still a guess.
+  const stepKnown = isLoaded || rawStep !== null;
+  useEffect(() => {
+    if (stepKnown) sendEvent("onboarding.step", { step });
+  }, [step, stepKnown]);
 
   // The demo is tall: on Try it, scroll just enough to show all of it and the
   // footer under it.

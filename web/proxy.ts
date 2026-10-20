@@ -12,6 +12,8 @@ import { NextResponse } from "next/server";
 // an embedded <img> server-side (GitHub proxies every image through camo), and
 // they have no Clerk session - protected, every screenshot in a filed ticket
 // renders broken.
+// /api/t is get-brief.app's page-view beacon: no session, app/api/t checks the
+// origin.
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
@@ -22,6 +24,7 @@ const isPublic = createRouteMatcher([
   "/api/replay-sites",
   "/api/transcribe",
   "/api/evidence/(.*)",
+  "/api/t",
 ]);
 
 // /b/<shareId>.md is that page as Markdown for a coding agent (the extension's

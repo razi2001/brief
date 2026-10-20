@@ -47,6 +47,7 @@ import { listTrelloWorkspaces } from "@/lib/trello";
 import { listAsanaWorkspaces } from "@/lib/asana";
 import { listMondayAccount } from "@/lib/monday";
 import type { Workspace } from "@/lib/tracker";
+import { track } from "@/lib/events";
 
 type RouteCtx = { params: Promise<{ provider: string }> };
 
@@ -86,8 +87,12 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
   const { userId } = await auth();
   if (!userId) return Response.json({ error: "unauthorized" }, { status: 401 });
   const secure = secureCookies(origin);
-  // Why it failed, for the page to explain once (lib/connect-flow).
-  const record = (code: ConnectError, why: Why = {}) => errorCookie({ provider, code, ...why }, userId, secure);
+  // Why it failed, for the page to explain once (lib/connect-flow), and for
+  // the activity log.
+  const record = (code: ConnectError, why: Why = {}) => {
+    track(userId, "tracker.connect_failed", { provider, code, reason: why.reason ?? "" });
+    return errorCookie({ provider, code, ...why }, userId, secure);
+  };
   const flow = readFlowCookie(req);
   const state = readFlowState(search.get("state"), provider, userId, flow);
   // A state that does not verify (expired included), belongs to another flow,
@@ -169,6 +174,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
 
   try {
     const outcome = await finish(origin, userId, provider, returnTo, exchange.token);
+    if (!outcome.failure) track(userId, "tracker.connected", { provider });
     return redirectTo(outcome.url, clear, outcome.failure ? record(outcome.failure.code, outcome.failure) : null);
   } catch (err) {
     console.warn(`[connect] could not store the ${provider} connection:`, errorName(err));
@@ -195,8 +201,10 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
 
   const body = (await req.json().catch(() => ({}))) as { token?: unknown; state?: unknown };
   const secure = secureCookies(origin);
-  const record = (code: ConnectError, why: Why = {}) =>
-    errorCookie({ provider: "trello", code, ...why }, userId, secure);
+  const record = (code: ConnectError, why: Why = {}) => {
+    track(userId, "tracker.connect_failed", { provider: "trello", code, reason: why.reason ?? "" });
+    return errorCookie({ provider: "trello", code, ...why }, userId, secure);
+  };
   const flow = readFlowCookie(req);
   const state = readFlowState(typeof body.state === "string" ? body.state : null, "trello", userId, flow);
   if (!state) {
@@ -227,6 +235,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     // A token created with expiration=never has no refresh token and no expiry.
     const outcome = await finish(origin, userId, "trello", returnTo, { accessToken: token });
     if (outcome.failure) return refuse(outcome.failure.code, 400, outcome.failure);
+    track(userId, "tracker.connected", { provider: "trello" });
     return jsonWithCookies({ ok: true, redirect: relative(outcome.url) }, 200, clear);
   } catch (err) {
     console.warn("[connect] could not store the trello connection:", errorName(err));

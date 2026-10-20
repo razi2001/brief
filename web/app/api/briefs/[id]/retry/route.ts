@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { processBriefById } from "@/lib/agent/run-processing";
 import { claimFiling } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { track } from "@/lib/events";
 
 export const maxDuration = 300;
 
@@ -34,6 +35,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     );
   }
 
+  track(userId, "brief.retry");
   const r = await processBriefById(userId, id);
   return r.ok ? Response.json(r.result) : Response.json({ error: r.error }, { status: r.status });
 }

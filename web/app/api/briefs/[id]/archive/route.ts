@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { track } from "@/lib/events";
 
 export const maxDuration = 60;
 
@@ -25,5 +26,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     .eq("user_id", userId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  track(userId, "brief.archived", unarchive ? { undo: true } : {});
   return NextResponse.json({ ok: true });
 }

@@ -10,6 +10,7 @@ import { loadBriefInput } from "@/lib/agent/load-brief-input";
 import { supabaseStore } from "@/lib/agent/brief-store";
 import { getUserSettings } from "@/lib/settings";
 import { briefPhase, releaseFiling } from "@/lib/brief-filing";
+import { track } from "@/lib/events";
 
 // moved to load-brief-input.ts; re-exported for existing importers
 export { loadBriefInput, nearestFrame, urlAt } from "@/lib/agent/load-brief-input";
@@ -117,6 +118,7 @@ export async function processBriefById(
   const { tracker, error } = await resolveTrackerOrError(userId, opts.provider);
   if (!tracker) {
     await releaseFiling(admin, userId, briefId, { status: "failed", error });
+    track(userId, "brief.failed", { stage: "file", error });
     return { ok: false, status: 409, error };
   }
 
@@ -169,6 +171,7 @@ export async function processBriefById(
         : undefined;
 
     const result = await processBrief(input, tracker, guidance, fixed);
+    track(userId, "brief.filed", { provider: tracker.kind });
 
     const filedPatch = {
       status: "filed",
@@ -247,6 +250,7 @@ export async function processBriefById(
     // that never created one) - fail the brief AND hand the claim back so the
     // owner can retry straight away.
     await releaseFiling(admin, userId, briefId, { status: "failed", error: errorMessage(e) });
+    track(userId, "brief.failed", { stage: "file", error: errorMessage(e) });
     return { ok: false, status: 500, error: errorMessage(e) };
   }
 }
@@ -316,12 +320,14 @@ export async function draftBriefById(
 
     // Keep ALL media: export re-runs the full filing agent, which needs the
     // brief.json/keyframes/etc. Storage is cleaned up at filing time instead.
+    track(userId, "brief.drafted");
     return {
       ok: true,
       result: { ticketUrl: "", ticketIdentifier: "", summary: draft.title || "drafted" },
     };
   } catch (e) {
     await draftWrite({ status: "failed", error: errorMessage(e) });
+    track(userId, "brief.failed", { stage: "draft", error: errorMessage(e) });
     return { ok: false, status: 500, error: errorMessage(e) };
   }
 }

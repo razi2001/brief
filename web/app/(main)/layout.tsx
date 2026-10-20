@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { UserButton } from "@clerk/nextjs";
 import AppShell from "@/components/AppShell";
+import PageViews from "@/components/PageViews";
 import { SidebarAdminLink, SidebarWorkspace } from "@/components/SidebarInfo";
 
 /**
@@ -37,6 +38,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         />
       }
     >
+      <PageViews />
       {children}
     </AppShell>
   );

@@ -4,6 +4,7 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 import { detectSourceKind } from "@/lib/brief";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import { isShareId, isUniqueViolation } from "@/lib/share-id";
+import { track } from "@/lib/events";
 
 export function OPTIONS() {
   return corsPreflight();
@@ -40,6 +41,7 @@ export async function POST(req: NextRequest) {
     if (isUniqueViolation(error)) ({ data: brief, error } = await insert(row));
   }
   if (error || !brief) return jsonCors({ error: error?.message }, { status: 500 });
+  track(userId, "brief.created", { kind: sourceKind ?? "unknown" });
 
   const prefix = `${userId}/${brief.id}`;
   await admin.from("briefs").update({ storage_prefix: prefix }).eq("id", brief.id);

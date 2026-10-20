@@ -4,6 +4,7 @@ import { deleteConnection, isOwnedProvider } from "@/lib/connections";
 import { appOrigin, forgetOrg, isSameOrigin } from "@/lib/connect-flow";
 import { removeClerkTrackers } from "@/lib/clerk-trackers";
 import { forgetWorkspaces } from "@/lib/workspaces";
+import { track } from "@/lib/events";
 
 /**
  * Drop a tracker connection: the row Brief stores and, for Linear, Jira and
@@ -49,5 +50,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ provider: 
   // (logged), the row is gone and the disconnect stands.
   if (clerk === "failed") return Response.json({ error: "failed" }, { status: 500 });
   if (clerk === "kept") return Response.json({ error: "failed" }, { status: 409 });
+  track(userId, "tracker.disconnected", { provider });
   return Response.json({ ok: true });
 }

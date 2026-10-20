@@ -14,6 +14,7 @@ import {
   secureCookies,
   signFlowState,
 } from "@/lib/connect-flow";
+import { track } from "@/lib/events";
 
 /**
  * Begin the OAuth flow for a tracker, whose token Brief stores itself. Linear,
@@ -79,5 +80,6 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ provider: s
   if (provider === "azure") params.set("prompt", "select_account");
   for (const [k, v] of Object.entries(spec.authorizeExtra ?? {})) params.set(k, v);
 
+  track(userId, "tracker.connect_start", { provider });
   return redirectTo(url, flowCookie(flow, secureCookies(origin)));
 }

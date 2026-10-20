@@ -6,6 +6,7 @@ import { claimFiling } from "@/lib/brief-filing";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import { NO_TRACKER_ERROR, trackerStatus } from "@/lib/trackers/registry";
+import { track } from "@/lib/events";
 
 export const maxDuration = 300;
 
@@ -26,6 +27,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // connect one, pick a workspace, or reconnect an expired one.
   const { tracker, issue } = await trackerStatus(userId);
   if (!tracker) {
+    track(userId, "brief.file_refused", { reason: "no_tracker" });
     return jsonCors(
       {
         error: "no_tracker",

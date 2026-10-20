@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { RECORDING_NAMES } from "@/lib/brief";
+import { track } from "@/lib/events";
 
 export const maxDuration = 60;
 
@@ -41,5 +42,6 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
 
   const { error } = await admin.from("briefs").delete().eq("id", id).eq("user_id", userId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  track(userId, "brief.deleted");
   return NextResponse.json({ ok: true });
 }

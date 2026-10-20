@@ -19,12 +19,12 @@ export const NAV_ITEMS = [
   { href: "/guide", label: "Guide", icon: icon(<><path d="M8 4.2C6.6 3.1 4.6 2.7 2.5 2.9v9.4c2.1-.2 4.1.2 5.5 1.3 1.4-1.1 3.4-1.5 5.5-1.3V2.9c-2.1-.2-4.1.2-5.5 1.3Z" /><path d="M8 4.2v9.4" /></>) },
 ] as const;
 
-type Item = { href: string; label: string; icon: ReactNode };
+type Item = { href: string; label: string; icon: ReactNode; exact?: boolean };
 
-/** One sidebar link, highlighted while you're on its route (or below it). */
+/** One sidebar link, highlighted while you're on its route (or below it, unless `exact`). */
 export function NavLink({ item }: { item: Item }) {
   const pathname = usePathname();
-  const active = pathname === item.href || pathname.startsWith(item.href + "/");
+  const active = pathname === item.href || (!item.exact && pathname.startsWith(item.href + "/"));
   return (
     <Link
       href={item.href}
@@ -49,6 +49,21 @@ export function AdminNavLink() {
         href: "/admin",
         label: "All tickets",
         icon: icon(<><circle cx="8" cy="8" r="6" /><path d="M2 8h12M8 2c1.7 1.7 2.5 3.7 2.5 6S9.7 12.3 8 14M8 2C6.3 3.7 5.5 5.7 5.5 8s.8 4.3 2.5 6" /></>),
+        // /admin/activity has its own link.
+        exact: true,
+      }}
+    />
+  );
+}
+
+/** The owner's activity log: sign-ups, their setup, and the website. */
+export function ActivityNavLink() {
+  return (
+    <NavLink
+      item={{
+        href: "/admin/activity",
+        label: "Activity",
+        icon: icon(<path d="M1.5 8.5h3l2-5 3 9 2-4h3" />),
       }}
     />
   );

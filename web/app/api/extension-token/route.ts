@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { generateExtensionToken, hashToken } from "@/lib/tokens";
+import { track } from "@/lib/events";
 
 export async function POST() {
   const { userId } = await auth();
@@ -14,5 +15,6 @@ export async function POST() {
     label: "chrome-extension",
   });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  track(userId, "extension.paired");
   return NextResponse.json({ token }); // returned once, plaintext never stored
 }
