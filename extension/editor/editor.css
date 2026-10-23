@@ -21,8 +21,13 @@ button { font:inherit; color:inherit; background:none; border:none; cursor:point
 .save:disabled { opacity:.45; transform:none; cursor:default; }
 
 /* ---------- stage ---------- */
-.ed-stage { flex:1 1 auto; min-height:0; margin:0 24px; position:relative; display:flex; align-items:center; justify-content:center; }
+.ed-stage { flex:1 1 auto; min-height:0; margin:0 24px; position:relative; display:flex; align-items:center; justify-content:center;
+  user-select:none; -webkit-user-select:none; } /* a drag selecting the picture would tint it blue and break the stroke */
 .ed-stage .empty { color:var(--muted); font-size:13px; }
+.empty-box { display:flex; flex-direction:column; align-items:center; gap:16px; text-align:center; }
+.empty-act { height:34px; padding:0 16px; border-radius:10px; background:var(--ink); color:var(--cream); font-size:12.5px; text-decoration:none;
+  display:inline-flex; align-items:center; transition:transform var(--t); }
+.empty-act:hover { transform:translateY(-1px); }
 .media { position:relative; max-width:100%; max-height:100%; border-radius:12px; overflow:hidden; background:var(--stage);
   box-shadow:0 1px 2px rgba(26,22,18,.08), 0 18px 50px -12px rgba(26,22,18,.35); }
 .media video, .media img.pic { display:block; width:100%; height:100%; }
@@ -69,6 +74,13 @@ button { font:inherit; color:inherit; background:none; border:none; cursor:point
 .opt svg { width:14px; height:14px; }
 .opt:hover { color:var(--ink); }
 .opt.on { background:var(--cream-2); color:var(--ink); }
+.opt:disabled { opacity:.35; cursor:default; }
+.opt:disabled:hover { color:var(--muted); }
+/* screenshot: the marks over the capture, and their colors */
+.shot-media .ink { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
+.shot-media.drawing .ink { cursor:crosshair; }
+.opt .swatch { display:block; width:13px; height:13px; border-radius:50%; box-shadow:0 0 0 1px rgba(26,22,18,.18); }
+.opt.on .swatch { box-shadow:0 0 0 2px var(--cream-2), 0 0 0 3.5px var(--ink); }
 .opt.rec { color:var(--red); }
 .opt.rec i { width:8px; height:8px; border-radius:50%; background:var(--red); }
 .opt.recording { background:var(--red); color:#fff; }

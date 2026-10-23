@@ -24,6 +24,8 @@ const PAGES = {
 <script>let n=0;add.onclick=()=>{n++;document.getElementById('n').textContent=n;};</script>`),
   '/settings': page('Settings', `<h2>Account settings</h2><button id="add">Save</button><p id="n"></p><script>add.onclick=()=>{document.getElementById('n').textContent='saved';};</script>`),
   '/secret': page('Mail', `<h2>SECRET-UNWATCHED inbox</h2><input id="card"/><button id="add">Send</button>`),
+  // its last script takes 4s: the page shows, but it hasn't finished loading
+  '/slow': page('Slow', `<h2>Reports</h2><p>Loading the rest</p><script src="/slow.js"></script>`),
   '/': page('Checkout', `<h2>Checkout</h2><p>Items: <b id="n">0</b></p><input id="card" placeholder="Card number"/>
 <button id="add">Add item</button> <button id="pay">Pay</button><p id="msg"></p>
 <script>let n=0;add.onclick=()=>{n++;document.getElementById('n').textContent=n;};
@@ -31,6 +33,7 @@ const cv=document.createElement('canvas');cv.width=24;cv.height=24;const g=cv.ge
 pay.onclick=()=>{msg.className='err';msg.textContent='Payment failed: 500 Internal Server Error';fetch('/api/pay?token=abc123&amount=5',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({amount:5,password:'hunter2'})}).catch(()=>{});console.error('pay failed', 500);};</script>`),
 };
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/slow.js')) { setTimeout(() => { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end('window.slowDone = true;'); }, 4000); return; }
   if (req.url.startsWith('/api/pay')) { setTimeout(() => { res.writeHead(500, { 'content-type': 'application/json', 'x-request-id': 'req-7f3a9c' }); res.end('{"error":"boom","session":"s3cr3t"}'); }, 1200); return; }
   res.writeHead(200, { 'content-type': 'text/html' }); res.end(PAGES[req.url.split('?')[0]] || PAGES['/']);
 }).listen(WEB);

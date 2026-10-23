@@ -86,12 +86,15 @@ async function startShot(itemId) {
 async function resetBeforeRecording() {
   STATE.recording = false;
   STATE.events = [];
+  const s = await getRecSession();
+  disarmTabs(s);
   await setRecSession(null);
   try {
     if (ACTIVE_BAR_TAB_ID != null) {
       await chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'CLOSE_BAR' });
     }
   } catch {}
+  if (s?.capture === 'window') await closeBars();
   if ((await getUploadsPending()) === 0) {
     await closeOffscreenDocument().catch(() => {});
   }
@@ -395,7 +398,11 @@ chrome.runtime.onStartup.addListener(() => { clearReplay().catch(() => {}); sync
 chrome.runtime.onInstalled.addListener(() => { syncReplaySites().catch(() => {}); });
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) return;
-  chrome.tabs.query({ active: true, windowId }).then(([t]) => { if (t?.id != null) logFocus(t.id); }).catch(() => {});
+  chrome.tabs.query({ active: true, windowId }).then(([t]) => {
+    if (t?.id == null) return;
+    logFocus(t.id);
+    queueFollowTab(t.id);
+  }).catch(() => {});
 });
 
 // A navigation tears the old page (and its recorder) down: drop the dot now,
@@ -406,6 +413,7 @@ chrome.tabs.onUpdated.addListener((tabId, info) => {
 chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
   chrome.windows.getLastFocused().then((w) => { if (w.id === windowId) logFocus(tabId); }).catch(() => {});
   chrome.tabs.get(tabId).then((t) => syncReplayTab(tabId, t.url)).catch(() => {});
+  queueFollowTab(tabId);
 });
 chrome.tabs.onRemoved.addListener((tabId) => { setReplayLive(tabId, false); });
 chrome.storage.onChanged.addListener((changes, area) => {
@@ -522,6 +530,110 @@ async function setRecSession(s) {
     else await chrome.storage.session.remove(REC_KEY);
   } catch {}
 }
+// Read-modify-write, one at a time: a tab switch, a mute and a page load can
+// land together, and the last write would otherwise drop the others' changes.
+let recSessionChain = Promise.resolve();
+function updateRecSession(fn) {
+  const run = recSessionChain.then(async () => {
+    const s = await getRecSession();
+    if (!s) return null;
+    const next = fn(s);
+    if (next) await setRecSession(next);
+    return next;
+  });
+  recSessionChain = run.catch(() => {});
+  return run;
+}
+
+// ---------- Window recording: the bar and the log follow the active tab ----------
+// A window recording (capture 'window') films whatever tab is in front. Every
+// tab it can film has the bar from the start (put up when it starts, or as a
+// page begins to load: BAR_CHECK), so switching or loading a page never waits
+// for one; the bar of the tab in front is the one in charge (`tabId`). Every
+// tab visited gets the same event capture as the first one (`tabs` in the
+// session: the ones to disarm at the end). A window picked in Chrome's picker
+// only shows its own tabs; a whole screen shows every window; a tab picked
+// there is just a tab recording.
+const RECORDABLE_PAGE = /^(https?|file):/i;
+
+function barInScope(s, tab) {
+  if (!s || !tab) return false;
+  if (tab.id === s.tabId) return true;
+  return s.capture === 'window' && s.surface !== 'browser' && (s.surface === 'monitor' || tab.windowId === s.windowId);
+}
+
+function barResume(s) {
+  return { itemId: s.briefId, startedAt: s.startedAt, muted: !!s.muted, intent: s.intent || 'brief', capture: s.capture || 'tab' };
+}
+
+// Put the bar up in every tab the recording can film (the ones open when it
+// starts; pages loaded later ask for theirs).
+async function showBars(s) {
+  const tabs = await chrome.tabs.query(s.surface === 'monitor' ? {} : { windowId: s.windowId }).catch(() => []);
+  for (const t of tabs) {
+    if (t.id === s.tabId || t.discarded || !RECORDABLE_PAGE.test(t.url || '') || !barInScope(s, t)) continue;
+    chrome.scripting.executeScript({ target: { tabId: t.id }, files: ['content.js'] }).catch(() => {})
+      .then(() => chrome.tabs.sendMessage(t.id, { type: 'INJECT_BAR', streamId: '', intent: s.intent || 'brief', mode: 'inbox', itemId: s.briefId, capture: s.capture, resume: { startedAt: s.startedAt, muted: !!s.muted } }))
+      .catch(() => {});
+  }
+}
+
+// ...and take them all down when it ends (the bar that ended it closes itself).
+async function closeBars(exceptTabId) {
+  const tabs = await chrome.tabs.query({}).catch(() => []);
+  await Promise.all(tabs.filter((t) => t.id !== exceptTabId && RECORDABLE_PAGE.test(t.url || ''))
+    .map((t) => chrome.tabs.sendMessage(t.id, { type: 'CLOSE_BAR' }).catch(() => {})));
+}
+
+async function followTab(tabId) {
+  const s = await getRecSession();
+  if (!s || s.capture !== 'window' || s.surface === 'browser' || s.tabId === tabId) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab?.active || !RECORDABLE_PAGE.test(tab.url || '')) return; // no bar on chrome:// pages
+  if (s.surface === 'window' ? tab.windowId !== s.windowId
+    : (await chrome.windows.getLastFocused().catch(() => null))?.id !== tab.windowId) return;
+  const next = await updateRecSession((x) => x.tabId === tabId ? null
+    : { ...x, tabId, tabs: [...new Set([...(x.tabs || [x.tabId]), tabId])] });
+  if (!next) return;
+  ACTIVE_BAR_TAB_ID = tabId;
+  // In the log as "went to <page>", so the ticket reads in the order seen.
+  const now = Date.now();
+  recordEvent({ type: 'nav', tMs: now - next.startedAt, at: now, url: tab.url, title: tab.title || '' });
+  await armTab(tabId, next);
+  // Normally already there; a no-op then.
+  chrome.tabs.sendMessage(tabId, {
+    type: 'INJECT_BAR', streamId: '', intent: next.intent || 'brief', mode: 'inbox', itemId: next.briefId,
+    capture: 'window', resume: { startedAt: next.startedAt, muted: !!next.muted },
+  }).catch(() => {});
+}
+let followChain = Promise.resolve();
+function queueFollowTab(tabId) {
+  followChain = followChain.then(() => followTab(tabId)).catch((err) => console.warn('[brief/background] follow tab:', err));
+  return followChain;
+}
+
+// The page's console + network capture first, THEN the content script's
+// switch: the capture announces the page as it installs, and on a tab we only
+// switched to that would read as the page being opened again.
+async function armTab(tabId, s) {
+  try { await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] }); } catch {}
+  try { await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: installPageCapture }); } catch {}
+  await chrome.tabs.sendMessage(tabId, { type: 'BRIEF_START', startedAt: s.startedAt }).catch(() => {});
+}
+
+// Every tab the recording armed stops logging (a tab left armed would feed
+// the next recording its events).
+function disarmTabs(s) {
+  for (const id of new Set([...(s?.tabs || []), s?.tabId].filter((x) => x != null))) {
+    chrome.tabs.sendMessage(id, { type: 'BRIEF_STOP' }).catch(() => {});
+  }
+}
+
+// An event the worker itself adds to the recording's log.
+function recordEvent(ev) {
+  if (STATE.recording) STATE.events.push(ev);
+  persistRecEvent(ev);
+}
 
 // The recording's event log (clicks, page changes, network calls, console) -
 // what becomes the ticket's technical logs. It used to live only in STATE, so a
@@ -573,7 +685,9 @@ async function recPage() {
 async function stopRecordingFromBackground() {
   const s = await getRecSession();
   if (!s) return;
+  disarmTabs(s);
   await setRecSession(null);
+  if (s.capture === 'window') closeBars();
   STATE.recording = false;
   if (!(await hasOffscreenDocument())) return;
   let res = null;
@@ -582,7 +696,8 @@ async function stopRecordingFromBackground() {
   } catch (err) {
     console.warn('[brief/background] stop from worker:', err);
   }
-  if (!res?.ok) { closeOffscreenDocument().catch(() => {}); return; }
+  // (not_recording: a bar already stopped it, and may still be uploading)
+  if (!res?.ok) { if ((await getUploadsPending()) === 0) closeOffscreenDocument().catch(() => {}); return; }
   await bumpUploadsPending(1);
   try {
     let d = await getDraft();
@@ -597,10 +712,16 @@ async function stopRecordingFromBackground() {
 
 // The recorded tab went away. Mid-recording: stop + save what we have. During
 // the countdown (streams prepared, GO never sent): drop the prepared capture so
-// it doesn't hold the tab-capture stream hostage.
+// it doesn't hold the tab-capture stream hostage. A window recording goes on:
+// the bar moves to the tab Chrome shows next, and closing the window ends the
+// capture itself (CAPTURE_ENDED).
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   try {
     const s = await getRecSession();
+    if (s?.capture === 'window') {
+      await updateRecSession((x) => (x.tabs || []).includes(tabId) ? { ...x, tabs: x.tabs.filter((id) => id !== tabId) } : null);
+      return;
+    }
     if (s && s.tabId === tabId) { await stopRecordingFromBackground(); return; }
     if (tabId === ACTIVE_BAR_TAB_ID && (await hasOffscreenDocument()) && (await getUploadsPending()) === 0) {
       try { await chrome.runtime.sendMessage({ target: 'offscreen', viaBackground: true, type: 'CANCEL' }); } catch {}
@@ -698,10 +819,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // document (cloud-only) - guard it from teardown until OFFSCREEN_DONE.
         if (message.type === 'STOP' && res?.ok) await bumpUploadsPending(1);
         // Remember mute so a bar resumed after a page reload shows the right state.
-        if (message.type === 'MUTE') {
-          const s = await getRecSession();
-          if (s) await setRecSession({ ...s, muted: !!message.muted });
-        }
+        if (message.type === 'MUTE') await updateRecSession((s) => ({ ...s, muted: !!message.muted }));
         sendResponse(res);
       } catch (err) {
         console.error('[brief/background] offscreen relay:', err);
@@ -745,7 +863,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             STATE.activeTabAtStart = tab;
             if (tab?.id) {
               ACTIVE_BAR_TAB_ID = tab.id;
-              await setRecSession({ briefId: message.briefId, tabId: tab.id, startedAt: STATE.startedAt, muted: false, intent: 'brief', pageUrl: tab.url || null, pageTitle: tab.title || null });
+              const capture = message.capture === 'window' ? 'window' : 'tab';
+              const session = {
+                briefId: message.briefId, tabId: tab.id, startedAt: STATE.startedAt, muted: false, intent: 'brief', pageUrl: tab.url || null, pageTitle: tab.title || null,
+                capture, surface: message.surface || null, windowId: sender.tab.windowId, tabs: [tab.id],
+              };
+              await setRecSession(session);
+              if (capture === 'window') showBars(session);
               // The bar's runtime.sendMessage never reaches content scripts (only
               // tabs.sendMessage lands there) - arm the page's click/key/error
               // capture from here, or the event log stays empty.
@@ -759,6 +883,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               } catch (err) {
                 console.warn('[brief/background] console capture inject:', err);
               }
+              // A window recording: the user may have switched tabs during the countdown.
+              if (capture === 'window') {
+                chrome.tabs.query({ active: true, lastFocusedWindow: true })
+                  .then(([t]) => { if (t?.id != null) queueFollowTab(t.id); }).catch(() => {});
+              }
             }
           } catch {
             STATE.activeTabAtStart = null;
@@ -766,9 +895,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
 
-        case 'BRIEF_STOP':
+        case 'BRIEF_STOP': {
           STATE.recording = false;
+          const ended = await getRecSession();
+          disarmTabs(ended);
           await setRecSession(null);
+          if (ended?.capture === 'window') closeBars(sender?.tab?.id);
           if (ACTIVE_BAR_TAB_ID != null) chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'BRIEF_STOP' }).catch(() => {});
           // Close the offscreen document UNLESS it's still uploading to
           // Brief Cloud in the background (the pending-uploads count was bumped
@@ -779,6 +911,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if ((await getUploadsPending()) === 0) closeOffscreenDocument().catch(() => {});
           sendResponse({ ok: true });
           break;
+        }
 
         case 'RENDER_REPLAY':
           // The replay editor saved: render the replay to a video in the
@@ -893,7 +1026,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               .catch((err) => console.warn('[brief/background] replay sync:', err));
           }
           const s = await getRecSession();
-          if (!s || tabId == null || s.tabId !== tabId) { sendResponse({ ok: true }); break; }
+          if (!s || tabId == null) { sendResponse({ ok: true }); break; }
+          if (s.tabId !== tabId) {
+            if (s.capture === 'window' && (s.tabs || []).includes(tabId)) {
+              // A tab this window recording visited reloaded: keep logging it.
+              try { await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: installPageCapture }); } catch {}
+              sendResponse({ ok: true, arm: { startedAt: s.startedAt } });
+            } else {
+              sendResponse({ ok: true });
+            }
+            // The page in front loaded (a new tab that just got its address):
+            // the bar goes there if the recording can see it.
+            if (s.capture === 'window' && sender.tab?.active) queueFollowTab(tabId);
+            break;
+          }
           STATE.recording = true;
           STATE.briefId = s.briefId;
           STATE.startedAt = s.startedAt;
@@ -903,7 +1049,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           } catch (err) {
             console.warn('[brief/background] console capture re-inject:', err);
           }
-          sendResponse({ ok: true, resume: { itemId: s.briefId, startedAt: s.startedAt, muted: !!s.muted, intent: s.intent || 'brief' } });
+          sendResponse({ ok: true, resume: { itemId: s.briefId, startedAt: s.startedAt, muted: !!s.muted, intent: s.intent || 'brief', capture: s.capture || 'tab' } });
           break;
         }
 
@@ -923,6 +1069,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               chrome.action.openPopup(message.windowId != null ? { windowId: message.windowId } : undefined).catch(() => {});
             }, 200);
           }, Math.max(0, Number(message.delay) || 0));
+          break;
+        }
+
+        case 'BAR_CHECK': {
+          // A page is starting to load (content.js runs at document_start):
+          // does it get the recording bar? The tab in charge does, and during
+          // a window recording so does every tab the recording can film.
+          const s = await getRecSession();
+          sendResponse({ ok: true, resume: barInScope(s, sender?.tab) ? barResume(s) : null });
+          break;
+        }
+
+        case 'CAPTURE_ENDED': {
+          // A window recording's capture ended on Chrome's side ("Stop sharing",
+          // the window closed). The bar saves it like a Stop; with no bar on
+          // screen (the tab in front can't host one), save it from here.
+          const s = await getRecSession();
+          const barTab = s?.tabId ?? ACTIVE_BAR_TAB_ID;
+          let handled = false;
+          if (barTab != null) {
+            try { handled = !!(await chrome.tabs.sendMessage(barTab, { target: 'bar', type: 'CAPTURE_ENDED' }))?.ok; } catch {}
+          }
+          if (!handled) await stopRecordingFromBackground();
+          sendResponse({ ok: true });
           break;
         }
 
@@ -1098,7 +1268,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // live session (session storage) says whether this tab is recording.
           if (!STATE.recording && message.payload) {
             const s = await getRecSession();
-            if (s && sender?.tab?.id === s.tabId) {
+            if (s && (sender?.tab?.id === s.tabId || (s.tabs || []).includes(sender?.tab?.id))) {
               STATE.recording = true;
               STATE.briefId = s.briefId;
               STATE.startedAt = s.startedAt;

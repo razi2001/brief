@@ -14,6 +14,9 @@ const streamId = params.get('streamId');
 const intent = params.get('intent') || 'brief';
 const mode = params.get('mode') || 'ship'; // 'ship' | 'inbox'
 const itemId = params.get('itemId') || '';
+// 'tab' (this tab, tabCapture) or 'window' (Chrome's picker; the bar follows the
+// active tab, so a window recording's bar is often a resumed one).
+const capture = params.get('capture') === 'window' ? 'window' : 'tab';
 // Resume: the page reloaded mid-recording. The offscreen recorder never stopped;
 // this bar just picks the UI back up (timer from the original start, mute state).
 const resume = params.get('resume') === '1';
@@ -34,6 +37,7 @@ const errTextEl = document.getElementById('errText');
 // ---------- State ----------
 const briefId = itemId || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 let recordingStartMs = 0;
+let surface = null;         // what the window picker gave: 'window' | 'monitor' | 'browser'
 let timerInterval = null;
 let muted = false;
 let savedDismissTimer = null;
@@ -134,13 +138,18 @@ async function init() {
     }
     return;
   }
-  if (!streamId) { showError('Missing stream ID.'); return; }
+  if (!streamId && capture === 'tab') { showError('Missing stream ID.'); return; }
   setView('loading');
   try {
-    const res = await sendToOffscreen('START', { streamId });
+    const res = await sendToOffscreen('START', { streamId, capture });
     if (!res?.ok) {
       const err = res?.error || 'unknown_error';
-      if (/NotAllowedError|not allowed|permission/i.test(err)) {
+      if (err === 'picker_cancelled') {
+        // Closed Chrome's window picker: nothing to say.
+        chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
+        closeParent();
+        return;
+      } else if (/NotAllowedError|not allowed|permission/i.test(err)) {
         // Mic denied at the extension origin level. Open the permission
         // page in a new tab so the user can grant it there (Jam-style),
         // and close the bar - no point keeping it on screen.
@@ -157,6 +166,7 @@ async function init() {
     // Streams are prepared (not yet capturing). Run the 3-2-1 pre-roll, then
     // tell offscreen to GO - recording starts clean at zero. A cancel during
     // the countdown sets `cancelled` and we never send GO.
+    surface = res.surface || null;
     await runCountdown();
     if (cancelled) return;
     await sendToOffscreen('GO');
@@ -173,10 +183,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'RECORDING_STARTED') {
     recordingStartMs = message.startedAt || Date.now();
-    chrome.runtime.sendMessage({ type: 'BRIEF_START', briefId, startedAt: recordingStartMs }).catch(() => {});
+    chrome.runtime.sendMessage({ type: 'BRIEF_START', briefId, startedAt: recordingStartMs, capture, surface }).catch(() => {});
     setView('recording');
     startTimer();
     startWave();
+  } else if (message.type === 'CAPTURE_ENDED') {
+    // Chrome's "Stop sharing", or the recorded window closed.
+    if (recordingStartMs) stopAndSave('Sharing stopped. Saving…');
+    else cancelAll();
   } else if (message.type === 'AUDIO_LEVELS') {
     waveFreq = message.bins;
     waveLastMsgMs = Date.now();
@@ -197,7 +211,8 @@ function startTimer() {
     const total = Math.max(0, Math.floor((Date.now() - recordingStartMs) / 1000));
     timerEl.textContent =
       `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-    if (total >= MAX_RECORDING_SECONDS) {
+    // Only the bar on screen stops it: a window recording has one in every tab.
+    if (total >= MAX_RECORDING_SECONDS && document.visibilityState === 'visible') {
       stopAndSave('2 min limit reached — saving…');
     }
   };
@@ -231,8 +246,8 @@ function runCountdown() {
 // frequency levels as AUDIO_LEVELS messages; we just draw. Before the first
 // message lands (startup handshake / silence) a gentle idle shimmer keeps the
 // bar feeling alive.
-const WAVE_BARS = 24;
-const WAVE_MAX_H = 22;        // px, tallest a bar gets at full volume
+const WAVE_BARS = 18;
+const WAVE_MAX_H = 20;        // px, tallest a bar gets at full volume
 const SPEAK_LEVEL = 55;       // 0..255 mic peak above this counts as "speaking"
 const SILENCE_MS = 900;       // keep the wave up this long after the last peak
 const waveBarsContainer = document.getElementById('waveBars');
@@ -258,14 +273,14 @@ function startWave() {
   const draw = () => {
     const now = Date.now();
     const live = waveFreq && now - waveLastMsgMs < 400;
-    // Crossfade the silence-hint and the bars: stay "speaking" for SILENCE_MS
-    // after the last voice peak so pauses between words don't flicker the hint.
+    // Light the bars while speaking: stay "speaking" for SILENCE_MS after the
+    // last voice peak so pauses between words don't flicker them.
     // (No startup dwell needed - the 3-2-1 countdown already showed the prompt.)
     const speaking = now - waveLastLoudMs < SILENCE_MS;
     if (waveEl) waveEl.classList.toggle('speaking', speaking);
     for (let i = 0; i < WAVE_BARS; i++) {
       // Mirror around centre, sampling the low-mid voice bins - punchy. When
-      // there's no live data the bars rest flat (hidden behind the hint).
+      // there's no live data the bars rest flat (and dim).
       let target = 3;
       if (live) {
         const dist = Math.abs(i - mid);
@@ -295,12 +310,22 @@ muteBtn?.addEventListener('click', async () => {
   await sendToOffscreen('MUTE', { muted });
   muteBtn.classList.toggle('active', muted);
 });
+// A window recording has a bar in every tab: muted in one, muted in all (the
+// worker keeps it in the live session).
+chrome.storage.onChanged.addListener((changes, area) => {
+  const s = area === 'session' ? changes.recSession?.newValue : null;
+  if (!s || s.briefId !== briefId || !!s.muted === muted) return;
+  muted = !!s.muted;
+  muteBtn?.classList.toggle('active', muted);
+});
 
 // ---------- Drag-to-move ----------
-const dragGrip = document.getElementById('dragGrip');
+// The whole pill is the handle, its buttons excepted.
+const dragHandle = document.querySelector('.bar');
 let dragging = false;
 
-dragGrip?.addEventListener('mousedown', (e) => {
+dragHandle?.addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || e.target.closest('button, a')) return;
   e.preventDefault();
   dragging = true;
   document.body.classList.add('dragging');

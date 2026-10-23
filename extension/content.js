@@ -20,7 +20,10 @@
       return false;
     }
     if (message?.type === 'INJECT_BAR') {
-      injectBar(message.streamId, message.intent || 'brief', message.mode || 'ship', message.itemId || '');
+      // `resume`: the bar of a recording already running (a window recording
+      // puts one in every tab). Only the bar: logging starts with BRIEF_START,
+      // on the tabs the user actually visits.
+      injectBar(message.streamId, message.intent || 'brief', message.mode || 'ship', message.itemId || '', message.resume, message.capture);
     } else if (message?.type === 'INJECT_SHOT') {
       injectShot(message.itemId || '', message.dataUrl || '', message.pageUrl || '', message.pageTitle || '',
         message.shotId || '', message.strokes || []);
@@ -107,8 +110,9 @@
 
   // ---------- Iframe injection ----------
   // `resume` ({ startedAt, muted }) puts the bar back for a recording that is
-  // already running in the offscreen document (this page reloaded mid-recording).
-  function injectBar(streamId, intent, mode, itemId, resume) {
+  // already running in the offscreen document (this page reloaded mid-recording,
+  // or a window recording followed the user to this tab).
+  function injectBar(streamId, intent, mode, itemId, resume, capture) {
     // If a bar is already on-screen, ignore - recording's in progress
     if (iframeEl) return;
     const hashParts = [
@@ -116,6 +120,7 @@
       `intent=${encodeURIComponent(intent)}`,
       `mode=${encodeURIComponent(mode || 'ship')}`,
       `itemId=${encodeURIComponent(itemId || '')}`,
+      `capture=${encodeURIComponent(capture || 'tab')}`,
     ];
     if (resume) {
       hashParts.push('resume=1', `startedAt=${encodeURIComponent(String(resume.startedAt || ''))}`);
@@ -132,11 +137,12 @@
     // zoom-scaled measurements, which was the source of the drift. The bar lays
     // out bottom-anchored inside; the small amount of extra height above it is
     // transparent + click-through (body is pointer-events:none, the bar is auto).
+    // Bottom right until dragged: the bottom center is where Chrome puts its
+    // own "sharing a window" bar during a recording.
     Object.assign(iframeEl.style, {
       position: 'fixed',
       bottom: '0',
-      left: '50%',
-      transform: 'translateX(-50%)',
+      right: '8px',
       width: '400px',
       height: '84px',
       border: '0',
@@ -367,18 +373,38 @@
     }
   });
 
+  // ---------- The bar, as soon as the page starts ----------
+  // This script runs at document_start, so a page that loads mid-recording
+  // (a reload, a link, a new tab) gets its bar before the page itself has
+  // loaded, not seconds later: the bar is only UI, the log waits below.
+  try {
+    chrome.runtime.sendMessage({ type: 'BAR_CHECK' }).then((res) => {
+      const r = res?.resume;
+      if (r) injectBar('', r.intent || 'brief', 'inbox', r.itemId || '', { startedAt: r.startedAt, muted: !!r.muted }, r.capture);
+    }).catch(() => {});
+  } catch {}
+
   // ---------- Resume after a reload ----------
   // The bar lives inside this page, so reloading mid-recording destroyed it while
   // the offscreen recorder kept going - the recording just vanished. Ask the
   // worker whether a recording is live for THIS tab; if so, put the bar back
   // (timer continuing from the original start) and keep capturing events.
-  try {
-    chrome.runtime.sendMessage({ type: 'CONTENT_READY' }).then((res) => {
-      const r = res?.resume;
-      if (!r) return;
-      active = true;
-      startedAt = r.startedAt || Date.now();
-      injectBar('', r.intent || 'brief', 'inbox', r.itemId || '', { startedAt: r.startedAt, muted: !!r.muted });
-    }).catch(() => {});
-  } catch {}
+  // A window recording also logs the other tabs it visited: `arm` keeps this
+  // page's events coming after a reload, without the bar. Sent once the DOM is
+  // in, as when this script ran at document_idle (the replay recorder that the
+  // worker arms from here needs the page).
+  const contentReady = () => {
+    try {
+      chrome.runtime.sendMessage({ type: 'CONTENT_READY' }).then((res) => {
+        if (res?.arm) { active = true; startedAt = res.arm.startedAt || Date.now(); }
+        const r = res?.resume;
+        if (!r) return;
+        active = true;
+        startedAt = r.startedAt || Date.now();
+        injectBar('', r.intent || 'brief', 'inbox', r.itemId || '', { startedAt: r.startedAt, muted: !!r.muted }, r.capture);
+      }).catch(() => {});
+    } catch {}
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(contentReady, 0), { once: true });
+  else contentReady();
 })();

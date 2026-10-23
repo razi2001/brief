@@ -1,34 +1,30 @@
-/* Brief - floating overlay (launcher + bar)
-   Bottom-centered. Single iframe hosts all states. */
+/* Brief - the recording bar
+   One small glass pill at the bottom of the page (an iframe, see content.js),
+   kept short on purpose: it is in the video too. */
 
 :root {
   --cream: #f5f1e8;
-  --cream-2: #ece6d6;
-  --ink: #1a1612;
-  --ink-2: #3a3530;
-  --muted: #8a8378;
-  --muted-cream: rgba(245, 241, 232, 0.55);
-  --muted-cream-2: rgba(245, 241, 232, 0.7);
   --accent: #dd6936;
-  --accent-2: #c95c2c;
-  --success: #168a5c;
-  --warn: #d68a1a;
-  --hairline: rgba(26, 22, 18, 0.12);
-  /* On-brand dark surface for the floating overlays (warm near-black, not cold
-     black) so the bar reads as the same product as the cream popup. */
-  --surface: rgba(28, 24, 20, 0.97);
-  --surface-line: rgba(245, 241, 232, 0.08);
-  --display: 'Instrument Serif', Georgia, serif;
+  --accent-hi: #f08350;
+  --rec: #ff4d4f;
+  --ok: #3ccf8e;
+  --warn: #f0b23a;
+  --text: rgba(245, 241, 232, 0.94);
+  --text-2: rgba(245, 241, 232, 0.6);
+  --line: rgba(255, 255, 255, 0.09);
+  --glass: linear-gradient(180deg, rgba(42, 38, 34, 0.94), rgba(18, 16, 14, 0.96));
+  --ui: system-ui, 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --t: 160ms cubic-bezier(.2, .7, .2, 1);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
   background: transparent !important;
   background-color: transparent !important;
   color-scheme: only light; /* prevent Chrome from painting dark in OS dark mode */
-  font-family: var(--mono);
+  font-family: var(--ui);
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.3;
   -webkit-font-smoothing: antialiased;
 }
 html { width: 100%; height: 100%; overflow: hidden; }
@@ -37,7 +33,7 @@ body {
   overflow: hidden;
   display: flex;
   align-items: flex-end;
-  justify-content: center;
+  justify-content: flex-end; /* the frame sits bottom right: the pill hugs its right edge */
   pointer-events: none;
   padding: 14px;
 }
@@ -47,17 +43,10 @@ body.state-saving,
 body.state-saved,
 body.state-inboxed,
 body.state-cancelled { align-items: center; }
-.bar { pointer-events: auto; }
-#root {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
+#root { display: flex; flex-direction: column; align-items: center; }
 
 /* ---------- State routing ---------- */
 .bar { display: none !important; }
-
 body.state-loading .bar,
 body.state-countdown .bar,
 body.state-recording .bar,
@@ -65,485 +54,143 @@ body.state-saving .bar,
 body.state-saved .bar,
 body.state-inboxed .bar,
 body.state-cancelled .bar,
-body.state-error .bar { display: flex !important; align-items: center; }
+body.state-error .bar { display: flex !important; }
 
-.state-inner { display: none; width: 100%; height: 100%; align-items: center; gap: 10px; padding: 6px 16px 6px 6px; user-select: none; }
-body.state-loading   [data-state='loading']   { display: flex; justify-content: center; }
-body.state-countdown [data-state='countdown'] { display: flex; }
-body.state-recording [data-state='recording'] { display: flex; }
-body.state-saving    [data-state='saving']    { display: flex; justify-content: center; }
-body.state-saved     [data-state='saved']     { display: flex; }
-body.state-inboxed   [data-state='inboxed']   { display: flex; }
-body.state-cancelled [data-state='cancelled'] { display: flex; }
-body.state-error     [data-state='error']     { display: flex; }
+.state-inner { display: none; align-items: center; gap: 10px; user-select: none; }
+body.state-loading   [data-state='loading'],
+body.state-countdown [data-state='countdown'],
+body.state-recording [data-state='recording'],
+body.state-saving    [data-state='saving'],
+body.state-saved     [data-state='saved'],
+body.state-inboxed   [data-state='inboxed'],
+body.state-cancelled [data-state='cancelled'],
+body.state-error     [data-state='error'] { display: flex; }
 
-/* ---------- LAUNCHER (light cream card, wide+short, anchored to icon) ---------- */
-.launcher-card {
-  position: relative;
-  width: 520px;
-  padding: 14px 18px 12px;
-  background: var(--cream);
-  color: var(--ink);
-  border-radius: 14px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(26, 22, 18, 0.08);
-  gap: 12px;
-  user-select: none;
-  /* Slide-down + fade-in from the icon - visually links the card to the
-     extension button it just popped out of. */
-  animation: launcher-enter 0.22s cubic-bezier(0.18, 0.89, 0.32, 1.18) both;
-  transform-origin: top right;
-}
-@keyframes launcher-enter {
-  0%   { opacity: 0; transform: translateY(-14px) scale(0.97); }
-  100% { opacity: 1; transform: translateY(0)    scale(1); }
-}
-/* Tail: small upward-pointing triangle that anchors the card to the icon */
-.launcher-card::before {
-  content: '';
-  position: absolute;
-  top: -7px;
-  right: 28px;
-  width: 0;
-  height: 0;
-  border-left: 8px solid transparent;
-  border-right: 8px solid transparent;
-  border-bottom: 8px solid var(--cream);
-  filter: drop-shadow(0 -1px 0 rgba(26, 22, 18, 0.08));
-}
-.launcher-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--hairline);
-}
-.brand {
-  display: flex; align-items: center; gap: 9px;
-  color: var(--ink);
-  flex-shrink: 0;
-}
-.mark {
-  flex-shrink: 0;
-  display: block;
-}
-.wordmark {
-  font-family: var(--display);
-  font-size: 22px;
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  color: var(--ink);
-}
-.launcher-title {
-  flex: 1;
-  font-family: var(--display);
-  font-size: 17px;
-  font-style: italic;
-  letter-spacing: -0.01em;
-  color: var(--muted);
-  text-align: right;
-  padding-right: 8px;
-}
-.launcher-title em { font-style: italic; color: var(--accent); font-weight: 400; }
-
-.intent-row {
-  display: flex;
-  gap: 10px;
-}
-.intent {
-  flex: 1;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.45);
-  cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
-}
-.intent:hover { background: rgba(255, 255, 255, 0.75); }
-.intent input[type='radio'] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 14px; height: 14px;
-  border: 1.5px solid var(--muted);
-  border-radius: 50%;
-  background: transparent;
-  flex-shrink: 0;
-  cursor: pointer;
-  transition: border-color 0.12s;
-  position: relative;
-}
-.intent input[type='radio']:checked { border-color: var(--accent); }
-.intent input[type='radio']:checked::after {
-  content: '';
-  position: absolute;
-  inset: 2px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-.intent:has(input:checked) {
-  border-color: var(--ink);
-  background: var(--cream-2);
-}
-.intent-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.intent-title {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--ink);
-}
-.intent-desc {
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 11.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.launcher-foot {
-  display: flex;
-  align-items: stretch;
-  gap: 10px;
-}
-.control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 11px;
-  border: 1px solid var(--hairline);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.45);
-  min-width: 140px;
-}
-.control-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--muted);
-}
-.control select {
-  flex: 1;
-  background: transparent;
-  border: 0;
-  font-family: var(--mono);
-  font-size: 12.5px;
-  color: var(--ink);
-  outline: none;
-  cursor: pointer;
-}
-.primary {
-  flex: 1;
-  display: flex; align-items: center; justify-content: center;
-  gap: 10px;
-  padding: 10px 14px;
-  background: var(--ink);
-  color: var(--cream);
-  border: 0;
-  border-radius: 8px;
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s, transform 0.08s;
-}
-.primary:hover:not(:disabled) { background: var(--ink-2); }
-.primary:active { transform: translateY(1px); }
-.primary:disabled { opacity: 0.6; cursor: default; }
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-
-.launcher-perm-row {
-  text-align: center;
-  font-size: 10.5px;
-}
-.launcher-perm-row a {
-  color: var(--muted);
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-}
-.launcher-perm-row a:hover { color: var(--ink); }
-
-/* ---------- BAR (on-brand dark) ---------- */
+/* ---------- the pill ---------- */
 .bar {
-  width: 380px;
-  height: 52px;
-  background: var(--surface);
-  border-radius: 999px;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--surface-line);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  overflow: hidden;
-}
-
-.stop-btn {
-  width: 38px; height: 38px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--accent);
-  border: 0;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.08s;
-}
-.stop-btn:hover { background: var(--accent-2); }
-.stop-btn:active { transform: scale(0.94); }
-.stop-square { width: 11px; height: 11px; background: var(--cream); border-radius: 2px; }
-/* Subtle brightness pulse so the bar always reads as live while recording.
-   (A box-shadow halo would be clipped by the bar's overflow:hidden, so we
-   pulse the button's own fill instead - clip-safe.) */
-.stop-btn { animation: rec-pulse 2.4s ease-in-out infinite; }
-@keyframes rec-pulse {
-  0%, 100% { filter: brightness(1); }
-  50%      { filter: brightness(1.16); }
-}
-
-/* Live voice waveform - thin bars that follow the user's mic. Heights are
-   driven by bar.js from levels relayed by the offscreen analyser. Fills the
-   flexible middle of the recording bar. */
-.wave {
-  flex: 1;
-  min-width: 0;
-  height: 26px;
-  position: relative;
-  overflow: hidden;
-}
-/* Bars + hint are stacked; we crossfade between them. While silent the hint
-   shows ("Describe your brief…"); as soon as the voice comes through the bars
-   fade in and the hint fades out (.speaking toggled by bar.js). */
-.wave-bars {
-  position: absolute;
-  inset: 0;
-  display: flex;
+  pointer-events: auto;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.35s ease;
+  height: 44px;
+  max-width: 372px;
+  padding: 0 6px 0 14px;
+  border-radius: 14px;
+  background: var(--glass);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 0 0 1px var(--line),
+    0 12px 32px -6px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  cursor: grab;
+  animation: bar-in 0.22s cubic-bezier(.2, .9, .3, 1.2) both;
+}
+@keyframes bar-in { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+body.dragging .bar { cursor: grabbing; }
+/* the pills that only say something sit centered in themselves */
+body.state-loading .bar, body.state-saving .bar, body.state-cancelled .bar { padding-right: 16px; }
+
+/* ---------- recording ---------- */
+.rec { display: inline-flex; align-items: center; gap: 9px; }
+.rec-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--rec);
+  animation: rec-ping 1.6s ease-out infinite;
+}
+@keyframes rec-ping {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(255, 77, 79, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0); }
+}
+.timer {
+  min-width: 40px;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+/* Live voice: thin bars that follow the mic (heights set by bar.js from the
+   offscreen analyser). Dim while silent, lit while you speak. */
+.wave { width: 76px; height: 24px; position: relative; overflow: hidden; }
+.wave-bars {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  opacity: 0.35;
+  transition: opacity 0.3s ease;
 }
 .wave-bars i {
-  display: block;
-  width: 2.5px;
-  height: 3px;
-  flex: none;
-  border-radius: 99px;
-  background: linear-gradient(180deg, #f3925a, var(--accent));
-  transform-origin: center;
+  display: block; flex: none;
+  width: 2px; height: 3px; border-radius: 99px;
+  background: linear-gradient(180deg, #ffd2b8, var(--accent-hi));
   transition: height 0.06s linear;
 }
-.wave-hint {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 14.5px;
-  color: var(--muted-cream-2);
-  white-space: nowrap;
-  transition: opacity 0.35s ease;
-  pointer-events: none;
-}
 .wave.speaking .wave-bars { opacity: 1; }
-.wave.speaking .wave-hint { opacity: 0; }
-
-/* COUNTDOWN (pre-roll) - a ticking 3·2·1 chip + the "Describe your brief" prompt */
-.cd-num {
-  width: 38px; height: 38px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: rgba(245, 241, 232, 0.08);
-  color: var(--cream);
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 17px;
-}
-.cd-prompt {
-  font-family: var(--display);
-  font-style: italic;
-  font-size: 15px;
-  color: var(--muted-cream-2);
-  white-space: nowrap;
-  margin-left: 2px;
-}
 
 .icon-btn {
-  width: 28px; height: 28px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 0;
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: 0; border-radius: 10px;
   background: transparent;
-  color: var(--cream);
-  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2);
+  display: grid; place-items: center;
   cursor: pointer;
-  transition: background 0.15s, transform 0.12s ease-out;
+  transition: background var(--t), color var(--t), transform 80ms;
 }
-.icon-btn:hover {
-  background: rgba(245, 241, 232, 0.12);
-  transform: scale(1.18);
-}
+.icon-btn:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
 .icon-btn:active { transform: scale(0.94); }
-.icon-btn.active { background: rgba(199, 62, 29, 0.3); color: var(--accent); }
-.icon-btn.dark-on-cream {
-  color: var(--muted);
-}
-.icon-btn.dark-on-cream:hover { background: var(--hairline); color: var(--ink); }
+.icon-btn.mic .off { display: none; }
+.icon-btn.mic.active { color: var(--accent-hi); background: rgba(221, 105, 54, 0.16); }
+.icon-btn.mic.active .on { display: none; }
+.icon-btn.mic.active .off { display: block; }
 
-/* Drag grip - Notion-style 6-dot handle on the left of the recording bar */
-.drag-grip {
-  flex-shrink: 0;
-  width: 18px;
-  height: 36px;
-  border: 0;
-  background: transparent;
-  color: rgba(245, 241, 232, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: grab;
-  padding: 0;
-  margin-left: 2px;
-  margin-right: -2px;
-  border-radius: 4px;
-  transition: color 0.15s, background 0.15s;
-  /* the bar element is itself the drag handle target - see bar.js */
-}
-.drag-grip:hover {
-  color: rgba(245, 241, 232, 0.85);
-  background: rgba(245, 241, 232, 0.08);
-}
-.drag-grip:active { cursor: grabbing; }
-body.dragging .drag-grip { cursor: grabbing; color: var(--cream); }
-
-.timer {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  letter-spacing: -0.01em;
-  color: var(--cream);
-}
-.spacer { flex: 1; }
-
-.state-text {
-  font-family: var(--display);
-  font-size: 14.5px;
-  color: var(--cream);
-  line-height: 1.2;
-}
-.state-text strong {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 500;
-  letter-spacing: 0;
-  margin-right: 2px;
-}
-.state-text em {
-  font-style: italic;
-  color: var(--muted-cream-2);
-  font-size: 13.5px;
-}
-.state-text.err {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-style: normal;
-}
-.state-text .ticket-link {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  color: var(--cream);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+.stop-btn {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: 0; border-radius: 10px;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 18px -2px rgba(240, 131, 80, 0.65);
+  display: grid; place-items: center;
   cursor: pointer;
+  transition: transform 80ms, box-shadow var(--t);
 }
-.state-text .ticket-link:hover {
-  color: var(--success);
-}
+.stop-btn:hover { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 0 24px 0 rgba(240, 131, 80, 0.8); }
+.stop-btn:active { transform: scale(0.94); }
+.stop-btn:disabled { opacity: 0.5; cursor: default; }
+.stop-square { width: 10px; height: 10px; border-radius: 2.5px; background: #fff; }
 
-/* Clean "Sent" confirmation: a bold title row + a subtle dashboard link
-   beneath it, sitting to the right of the green check pill. */
-.state-text.sent {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  line-height: 1.25;
+/* ---------- countdown: the number inside a ring that runs out ---------- */
+.cd { position: relative; width: 32px; height: 32px; display: grid; place-items: center; }
+.cd-ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+.cd-ring circle {
+  fill: none; stroke: var(--accent-hi); stroke-width: 2.5; stroke-linecap: round;
+  stroke-dasharray: 100.5; stroke-dashoffset: 0;
+  filter: drop-shadow(0 0 3px rgba(240, 131, 80, 0.6));
+  animation: cd-run 2.1s linear forwards;
 }
-.state-text.sent .sent-title {
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--cream);
-}
-.state-text.sent .ticket-link {
-  font-size: 11.5px;
-  color: var(--muted-cream-2);
-  text-decoration: none;
-}
-.state-text.sent .ticket-link:hover {
-  color: var(--success);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
+@keyframes cd-run { to { stroke-dashoffset: 100.5; } }
+.cd-num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 500; color: var(--text); }
+body.state-countdown .bar { padding-left: 6px; }
 
-/* The saving pill lays the check + text block in a tidy row. */
-[data-state='saving'] { gap: 10px; }
+/* ---------- one-line states ---------- */
+.state-text { font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; }
+.state-text.err { font-weight: 400; white-space: normal; max-width: 260px; }
+.state-text .ticket-link { color: var(--text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.state-text .ticket-link:hover { color: var(--ok); }
 
-.check-pill {
-  width: 26px; height: 26px; flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--success);
-  color: var(--cream);
-  display: flex; align-items: center; justify-content: center;
+.badge {
+  width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.1); color: var(--text);
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
 }
-
-.cancel-pill {
-  width: 26px; height: 26px; flex-shrink: 0;
-  border-radius: 50%;
-  background: rgba(245, 241, 232, 0.15);
-  color: var(--cream);
-  display: flex; align-items: center; justify-content: center;
-}
-.alert-pill {
-  width: 26px; height: 26px; flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--warn);
-  color: var(--ink);
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--mono);
-  font-size: 14px;
-  font-weight: 600;
-}
-.retry-link {
-  background: transparent;
-  border: 0;
-  color: var(--accent);
-  font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 500;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
-  cursor: pointer;
-  padding: 0 4px;
-  margin-left: 4px;
-}
-.retry-link:hover { color: var(--cream); }
-.retry-link:disabled { opacity: 0.5; cursor: default; }
+.badge.ok { background: var(--ok); color: #08130d; box-shadow: 0 0 14px -2px rgba(60, 207, 142, 0.6); }
+.badge.warn { background: var(--warn); color: #1a1206; }
+body.state-saved .bar, body.state-inboxed .bar, body.state-error .bar { padding-left: 11px; }
 
 .spinner {
-  width: 18px; height: 18px;
-  border: 2px solid rgba(245, 241, 232, 0.18);
-  border-top-color: var(--accent);
+  width: 14px; height: 14px; flex-shrink: 0;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  border-top-color: var(--accent-hi);
   border-radius: 50%;
-  animation: spin 0.9s linear infinite;
-  flex-shrink: 0;
+  animation: spin 0.8s linear infinite;
 }
-.spinner.small { width: 14px; height: 14px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-

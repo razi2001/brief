@@ -7,7 +7,7 @@
 
 import { APP_URL, TICKETS_URL as TICKETS_URL_BASE, getCloudToken, fetchAccountStatus, transcribeNote, TRACKER_ACTIONS, briefPageUrl, newShareId } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft } from './draft.js';
-import { putFile, hasFile, deleteFile, recKey, shotKey, replayKey, replayVoiceKey, draftKeys } from './filestore.js';
+import { putFile, getFile, deleteFile, recKey, shotKey, replayKey, replayVoiceKey, draftKeys } from './filestore.js';
 import { syncReplaySites } from './replay-sites.js';
 
 const $ = (s, r) => (r || document).querySelector(s);
@@ -183,8 +183,7 @@ function render() {
 const X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 const REFRESH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>';
 const PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
-const CROP_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>';
-const PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const EDIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SHEET_X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 const SHEET_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
 function renderGallery() {
@@ -489,27 +488,14 @@ function openShot(id) {
   const idx = (draft.screenshots || []).findIndex((s) => s.id === id);
   if (idx < 0) return;
   const s = draft.screenshots[idx];
+  // The picture with Edit on it, like the recording's: it opens the screenshot
+  // editor (draw, crop) in its own tab, every mark still editable.
   const body =
-    `<button class="shot-preview shot-open" id="shotCrop" type="button" title="Crop" aria-label="Crop the screenshot"><img src="${s.dataUrl}" alt="Screenshot ${idx + 1}"><span class="shot-crop">${CROP_SVG}</span></button>` +
+    `<button class="shot-preview shot-open" id="shotEdit" type="button" title="Edit" aria-label="Edit the screenshot"><img src="${s.dataUrl}" alt="Screenshot ${idx + 1}"><span class="rec-edit">${EDIT_SVG}Edit</span></button>` +
     `<div class="field-label">Note</div>` +
     `<div class="ai-wrap" id="shotNoteWrap"><textarea class="ai-field has-mic" id="shotNote" placeholder="Add a note for this screenshot">${esc(s.description || '')}</textarea></div>`;
-  // Reopen the annotator on THIS screenshot's clean capture with its strokes
-  // restored, so Undo and Clear act on the marks already made. Runs on the page
-  // (like capturing), so the popup closes.
-  const editDrawing = async () => {
-    clearInlineError();
-    let res = null;
-    try { res = await chrome.runtime.sendMessage({ type: 'EDIT_SHOT', shotId: id }); }
-    catch (err) { res = { ok: false, error: String(err?.message || err) }; }
-    if (res?.ok) { window.close(); return; }
-    closeSheet();
-    showInlineError(
-      res?.error === 'original_missing' ? 'This screenshot can no longer be edited.'
-      : res?.error === 'unsupported_page' ? 'Switch to a regular web page to edit the drawing.'
-      : `Couldn't open the drawing: ${res?.error || 'unknown error'}`);
-  };
   openSheet(`Screenshot <em>${idx + 1}</em>`, body, (root) => {
-    $('#shotCrop', root).addEventListener('click', async () => {
+    $('#shotEdit', root).addEventListener('click', async () => {
       await openEditorTab(chrome.runtime.getURL(`image.html#${encodeURIComponent(id)}`)).catch(() => {});
       window.close();
     });
@@ -519,7 +505,7 @@ function openShot(id) {
     let t = null;
     ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistNote, 250); });
     attachVoiceDictation(ta, $('#shotNoteWrap', root), persistNote);
-  }, 'shot:' + id, { html: PENCIL_SVG, title: 'Edit drawing', onClick: editDrawing }, true);
+  }, 'shot:' + id, null, true);
 }
 
 // ---------- recording sheet ----------
@@ -548,17 +534,19 @@ async function openRec() {
   const r = draft.recording;
   if (!r) return;
   const poster = r.poster || REC_FALLBACK;
-  // The still, with a play badge that opens the recording full size in its own
-  // tab. Playing it inside the popup is a dead end: the popup is a fixed little
-  // window with no working fullscreen, and it dies the moment it loses focus.
-  // A brief whose video is no longer on this device just shows the still.
-  let playable = false;
-  try { playable = await hasFile(recKey(draft.id)); } catch {}
-  const preview = playable
-    ? `<button class="rec-open" id="recPlay" type="button" title="Watch and edit" aria-label="Watch and edit the recording">` +
-        `<img class="rec-poster" src="${poster}" alt="Recording preview">` +
-        `<span class="rec-play">${PLAY_SVG}</span>` +
-      `</button>`
+  // The recording itself, playing muted on a loop (sharp, unlike the still),
+  // with Edit on it: that opens it full size in its own tab to watch, trim,
+  // crop or voice over. The popup is no place for that: a fixed little window
+  // with no working fullscreen that dies the moment it loses focus. A brief
+  // whose video is no longer on this device just shows the still.
+  let blob = null;
+  try { blob = await getFile(recKey(draft.id)); } catch {}
+  const preview = blob
+    ? `<div class="rec-preview" id="recPlay" role="button" tabindex="0" title="Edit" aria-label="Edit the recording">` +
+        `<video class="rec-vid" muted playsinline loop autoplay preload="auto" poster="${poster}"></video>` +
+        (r.durationMs ? `<span class="rec-dur">${fmtDur(r.durationMs)}</span>` : '') +
+        `<span class="rec-edit">${EDIT_SVG}Edit</span>` +
+      `</div>`
     : `<img class="rec-poster" src="${poster}" alt="Recording preview">`;
   const body =
     preview +
@@ -568,9 +556,11 @@ async function openRec() {
       `<button class="switch${draft.includeVideo ? ' on' : ''}" id="recAttach" role="switch" aria-checked="${!!draft.includeVideo}"><span class="knob"></span></button></div>`;
   openSheet('Recording', body, (root) => {
     wireTranscript(root);
-    $('#recPlay', root)?.addEventListener('click', () => {
-      openEditorTab(chrome.runtime.getURL(`player.html#${encodeURIComponent(draft.id)}`)).catch(() => {});
-    });
+    const vid = $('.rec-vid', root);
+    if (vid && blob) vid.src = URL.createObjectURL(blob);
+    const edit = () => { openEditorTab(chrome.runtime.getURL(`player.html#${encodeURIComponent(draft.id)}`)).catch(() => {}); };
+    $('#recPlay', root)?.addEventListener('click', edit);
+    $('#recPlay', root)?.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); edit(); } });
     const sw = $('#recAttach', root);
     sw.addEventListener('click', async () => {
       await persist((d) => { d.includeVideo = !d.includeVideo; });
@@ -596,9 +586,9 @@ function openRep() {
   if (!r) return;
   const attach = r.attach !== false;
   const body =
-    `<button class="rec-open" id="repPlay" type="button" title="Watch and edit" aria-label="Watch and edit the replay">` +
-      (r.poster ? `<img class="rec-poster" src="${r.poster}" alt="Replay preview">` : `<div class="rec-poster"></div>`) +
-      `<span class="rec-play">${PLAY_SVG}</span>` +
+    `<button class="rec-preview" id="repPlay" type="button" title="Edit" aria-label="Edit the replay">` +
+      (r.poster ? `<img class="rec-vid" src="${r.poster}" alt="Replay preview">` : '') +
+      `<span class="rec-edit">${EDIT_SVG}Edit</span>` +
     `</button>` +
     `<div class="field-label">Note</div>` +
     `<div class="ai-wrap" id="repNoteWrap"><textarea class="ai-field has-mic" id="repNote" placeholder="Add a note for this replay">${esc(r.note || '')}</textarea></div>` +
@@ -694,6 +684,9 @@ function openReset() {
 }
 
 // ---------- capture ----------
+// Video records the window picked in Chrome's picker, so it films whichever
+// tab is in front, browser around it included (the bar and the event log
+// follow the tabs too, see followTab in background.js).
 async function recordBrief() {
   clearInlineError();
   let token = null; try { token = await getCloudToken(); } catch {}
@@ -703,12 +696,7 @@ async function recordBrief() {
     if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) { showInlineError('Switch to a regular web page to record.'); return; }
     try { await chrome.runtime.sendMessage({ type: 'RESET_BEFORE_NEW_RECORDING' }); } catch {}
     await ensureContentScript(tab.id);
-    const streamId = await new Promise((resolve, reject) => {
-      chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-        if (chrome.runtime.lastError || !id) reject(new Error(chrome.runtime.lastError?.message || 'no_stream_id')); else resolve(id);
-      });
-    });
-    await chrome.tabs.sendMessage(tab.id, { type: 'INJECT_BAR', streamId, intent: 'brief', mode: 'inbox', itemId: draft.id });
+    await chrome.tabs.sendMessage(tab.id, { type: 'INJECT_BAR', streamId: '', intent: 'brief', mode: 'inbox', itemId: draft.id, capture: 'window' });
     window.close();
   } catch (err) { console.error('[brief/popup] start failed:', err); showInlineError(`Could not start: ${err?.message || err}`); }
 }
@@ -1376,6 +1364,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
         if (tf && document.activeElement !== tf && draft.transcript && draft.transcript.trim()) tf.value = draft.transcript;
         const pf = document.querySelector('#sheetBody .rec-poster');
         if (pf && draft.recording?.poster) pf.src = draft.recording.poster;
+        const pv = document.querySelector('#sheetBody video.rec-vid');
+        if (pv && draft.recording?.poster) pv.poster = draft.recording.poster;
       }
     }
   });

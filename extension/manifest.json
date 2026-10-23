@@ -42,7 +42,7 @@
       "js": [
         "content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "host_permissions": [
@@ -63,7 +63,7 @@
         "filestore.js",
         "shot.html",
         "shot.js",
-        "shot.css",
+        "editor/*",
         "fonts.css",
         "fonts/*"
       ],

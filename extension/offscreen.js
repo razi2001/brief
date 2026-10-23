@@ -29,6 +29,7 @@ let levelTimer = null;
 let levelAnalyser = null;
 let levelFreq = null;
 let overrunTimer = null;
+let stopRequested = false;
 
 const KEYFRAME_INTERVAL_MS = 2000;
 // The bar stops a recording at its 2-minute cap. If the bar is gone (the recorded
@@ -53,13 +54,13 @@ function blobToDataUrl(blob) {
 async function makePoster(blob) {
   try {
     const bmp = await createImageBitmap(blob);
-    const maxW = 320;
+    const maxW = 960; // sharp in the popup at 2x, not just as a tile
     const scale = Math.min(1, maxW / bmp.width);
     const w = Math.max(1, Math.round(bmp.width * scale));
     const h = Math.max(1, Math.round(bmp.height * scale));
     const canvas = new OffscreenCanvas(w, h);
     canvas.getContext('2d').drawImage(bmp, 0, 0, w, h);
-    const out = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.72 });
+    const out = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.82 });
     return await blobToDataUrl(out);
   } catch (err) {
     log('poster gen failed:', err?.message || err);
@@ -113,8 +114,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         case 'START':
           // Phase 1: acquire streams + build recorders (don't start yet).
-          await prepareRecording(message.streamId);
-          sendResponse({ ok: true });
+          await prepareRecording(message.streamId, message.capture);
+          sendResponse({ ok: true, surface: tabStream?.getVideoTracks()[0]?.getSettings().displaySurface || null });
           break;
         case 'GO':
           // Phase 2: the bar's countdown finished - start capturing now.
@@ -126,6 +127,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // "saved" and close, then upload in the background (cloud-only - no
           // local zip; a missing pairing surfaces as uploadFailed and the
           // popup gates recording on pairing so it shouldn't happen).
+          // Once per recording: a window recording has a bar in every tab, and
+          // a second STOP would upload an empty video.
+          if (!mediaRecorder || stopRequested) { sendResponse({ ok: false, error: 'not_recording' }); break; }
+          stopRequested = true;
           const data = await collectRecording();
           sendResponse({ ok: true });
           uploadAndFinish({
@@ -232,26 +237,49 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // so the bar can run its 3-2-1 countdown while this (slow) capture setup
 // happens. beginRecording() starts everything at "go" for a clean start with
 // no clipped first word and no captured dead-time.
-async function prepareRecording(streamId) {
-  log('prepareRecording', { streamId });
+async function prepareRecording(streamId, capture = 'tab') {
+  log('prepareRecording', { streamId, capture });
   recordedChunks = [];
   audioChunks = [];
+  stopRequested = false;
 
-  // 1. Tab stream from the streamId we were handed
-  tabStream = await navigator.mediaDevices.getUserMedia({
-    audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
-    video: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
-  });
-  // Re-route tab audio to speakers (tabCapture mutes the source by default)
-  try {
-    const ctx = new AudioContext();
-    ctx.createMediaStreamSource(new MediaStream(tabStream.getAudioTracks()))
-      .connect(ctx.destination);
-    // AudioContexts can start suspended (autoplay policy); a suspended
-    // context silently drops audio until it spins up.
-    await ctx.resume().catch(() => {});
-  } catch (err) {
-    log('tab audio routing failed:', err);
+  if (capture === 'window') {
+    // 1. A window (or a screen) from Chrome's picker: whatever tab is in front
+    //    is what gets recorded. A window has no audio; a tab or a screen picked
+    //    here may share its own, which plays on as usual (nothing to re-route).
+    try {
+      tabStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'window', frameRate: { max: 30 }, width: { max: 1920 }, height: { max: 1080 } },
+        audio: true,
+        systemAudio: 'exclude',
+        surfaceSwitching: 'exclude',
+      });
+    } catch (err) {
+      // The user closed the picker (the mic is asked for only after this).
+      if (err?.name === 'NotAllowedError') throw new Error('picker_cancelled');
+      throw err;
+    }
+    // "Stop sharing" in Chrome's bar, or the window closed: save what we have.
+    tabStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      chrome.runtime.sendMessage({ type: 'CAPTURE_ENDED' }).catch(() => {});
+    });
+  } else {
+    // 1. Tab stream from the streamId we were handed
+    tabStream = await navigator.mediaDevices.getUserMedia({
+      audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
+      video: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
+    });
+    // Re-route tab audio to speakers (tabCapture mutes the source by default)
+    try {
+      const ctx = new AudioContext();
+      ctx.createMediaStreamSource(new MediaStream(tabStream.getAudioTracks()))
+        .connect(ctx.destination);
+      // AudioContexts can start suspended (autoplay policy); a suspended
+      // context silently drops audio until it spins up.
+      await ctx.resume().catch(() => {});
+    } catch (err) {
+      log('tab audio routing failed:', err);
+    }
   }
 
   // 2. Mic stream - THIS is the one that fails inside page iframes.

@@ -2,7 +2,7 @@
 //
 //   header   title · Cancel · Save
 //   stage    the media (recording, replay, screenshot)
-//   tools    a small pill (Crop, Voice) with its options popping above it
+//   tools    a small pill (Draw, Crop, Voice) with its options popping above it
 //   time     play · trim strip · clock          (timed media only)
 //
 // Timed media plug in as an adapter { duration, time(), playing(), play(),
@@ -21,7 +21,9 @@ export const ICON = {
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6"/></svg>',
 };
 
-export function buildPage({ title, timed = true }) {
+// `onCancel`: what Cancel does when the editor isn't a tab of its own (the
+// screenshot editor over a page); a tab closes itself.
+export function buildPage({ title, timed = true, onCancel }) {
   document.body.innerHTML = `
     <header class="ed-head">
       <h1 class="ed-title">${title}</h1>
@@ -37,7 +39,7 @@ export function buildPage({ title, timed = true }) {
       <button class="speed" id="edSpeed" type="button" title="Playback speed">1\u00d7</button>
     </div>` : ''}`;
   const $ = (id) => document.getElementById(id);
-  $('edCancel').addEventListener('click', () => closeEditor());
+  $('edCancel').addEventListener('click', () => (onCancel ? onCancel() : closeEditor()));
   // A clicked button keeping focus would swallow the next Space (it "presses"
   // the button instead of playing): buttons here never take focus.
   document.addEventListener('mousedown', (e) => { if (e.target.closest('button')) e.preventDefault(); }, true);
@@ -151,9 +153,19 @@ export function voiceButtons(page, voice, { withSound, start }) {
   draw();
 }
 
-export function emptyStage(stage, text) {
-  stage.innerHTML = '<p class="empty"></p>';
-  stage.firstChild.textContent = text;
+// `action` ({ label, href }, optional): a way out, opened in a new tab.
+export function emptyStage(stage, text, action) {
+  stage.innerHTML = '<div class="empty-box"><p class="empty"></p></div>';
+  stage.querySelector('.empty').textContent = text;
+  if (action) {
+    const a = document.createElement('a');
+    a.className = 'empty-act';
+    a.href = action.href;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = action.label;
+    stage.firstChild.appendChild(a);
+  }
 }
 
 // Size a box of the media's aspect ratio to fit the stage, with room around it.

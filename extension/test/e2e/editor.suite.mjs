@@ -139,8 +139,20 @@
   const I = await open(`chrome-extension://${extId}/image.html#s1`);
   await b.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false }, I.sid);
   await b.send('Page.reload', {}, I.sid); await focus(I); await sleep(2000);
-  const i0 = await evalIn(I.sid, `({ tools: [...document.querySelectorAll('.tool')].map(t => t.textContent.trim()), cropOn: document.querySelector('.tool').classList.contains('on'), timeline: !!document.querySelector('.tl') })`);
-  check('screenshot editor: just Crop, open from the start, no timeline', JSON.stringify(i0.tools) === '["Crop"]' && i0.cropOn && !i0.timeline, JSON.stringify(i0));
+  const i0 = await evalIn(I.sid, `({ tools: [...document.querySelectorAll('.tool')].map(t => t.textContent.trim()), drawOn: document.querySelector('.tool').classList.contains('on'), opts: [...document.querySelectorAll('#edOpts .opt')].map((o) => o.title), timeline: !!document.querySelector('.tl') })`);
+  check('screenshot editor: Draw (shapes, colors, undo, clear) and Crop, the pen in hand, no timeline',
+    JSON.stringify(i0.tools) === '["Draw","Crop"]' && i0.drawOn && JSON.stringify(i0.opts) === '["Pen","Arrow","Box","Red","Yellow","Blue","Green","Undo","Clear"]' && !i0.timeline, JSON.stringify(i0));
+  // an arrow in blue, dragged across the picture
+  await clickText(I.sid, '#edOpts .opt', 'Arrow');
+  await evalIn(I.sid, `document.querySelector('#edOpts .opt[title="Blue"]').click()`);
+  const ink = await evalIn(I.sid, `(() => { const r = document.querySelector('.ink').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const pt = (fx, fy) => ({ x: ink.x + ink.w * fx, y: ink.y + ink.h * fy });
+  const a0 = pt(0.2, 0.5), a1 = pt(0.4, 0.5);
+  await b.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: a0.x, y: a0.y, button: 'left', clickCount: 1 }, I.sid);
+  for (let k = 1; k <= 5; k++) await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a0.x + (a1.x - a0.x) * k / 5, y: a0.y, button: 'left', buttons: 1 }, I.sid);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: a1.x, y: a1.y, button: 'left', clickCount: 1 }, I.sid);
+  await sleep(300);
+  await clickText(I.sid, '.tool', 'Crop');
   await clickText(I.sid, '#edOpts .opt', '16:9');
   await shot(I.sid, 'ed2-image.png');
   await clickSel(I.sid, '#edSave'); await sleep(1500);
@@ -148,9 +160,10 @@
     const d = (await chrome.storage.local.get('draft')).draft; const s = d.screenshots[0];
     const im = new Image(); im.src = s.dataUrl; await im.decode();
     const fsm = await import('./filestore.js'); const cb = await createImageBitmap(await fsm.getFile('shot:s1'));
-    return { w: im.naturalWidth, h: im.naturalHeight, cw: cb.width, ch: cb.height, p: s.strokes[0].points[0], cropped: s.cropped };
+    return { w: im.naturalWidth, h: im.naturalHeight, cw: cb.width, ch: cb.height, p: s.strokes[0].points[0], arrow: s.strokes[1] && { tool: s.strokes[1].tool, color: s.strokes[1].color, x: Math.round(s.strokes[1].points[0].x), y: Math.round(s.strokes[1].points[0].y) }, cropped: s.cropped, annotated: s.annotated };
   })()`);
   check('screenshot cropped to 16:9, clean capture too, drawing moved with it', img.w === 800 && img.h === 450 && img.cw === 800 && img.ch === 450 && img.p.x === 400 && img.p.y === 225 && img.cropped, JSON.stringify(img));
+  check('the arrow drawn is kept, blue, where it was put (moved with the crop)', img.arrow?.tool === 'arrow' && img.arrow.color === '#2f7bff' && Math.abs(img.arrow.x - 160) <= 3 && Math.abs(img.arrow.y - 225) <= 3 && img.annotated, JSON.stringify(img.arrow));
 
   {
   // ================= Replay: instant, same editor =================

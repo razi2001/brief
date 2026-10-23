@@ -18,6 +18,26 @@ import { buildPage, emptyStage, mountPlayback, marksTool, voiceButtons, fitBox, 
 import { cropControl, renderFormats } from './editor/crop.js';
 import { voiceState } from './editor/voice.js';
 import { clock } from './editor/timeline.js';
+import { isWatched } from './replay-sites.js';
+import { APP_URL } from './config.js';
+
+// Nothing in the buffer: say for which page (the tab this editor was opened
+// from), and whether Replay is on for its site at all - the sites are set in
+// Brief Cloud, Connections > Replay.
+async function nothingRecorded(page) {
+  page.save.hidden = true;
+  const settings = { label: 'Set up Replay', href: `${APP_URL}/connections#replay` };
+  let url = '';
+  try {
+    const me = await chrome.tabs.getCurrent();
+    url = me?.openerTabId != null ? (await chrome.tabs.get(me.openerTabId)).url || '' : '';
+  } catch {}
+  let host = '';
+  try { host = /^https?:/i.test(url) ? new URL(url).host : ''; } catch {}
+  if (!host) emptyStage(page.stage, 'Nothing recorded in the last minute.', settings);
+  else if (!(await isWatched(url))) emptyStage(page.stage, `Replay isn’t on for ${host}.`, { ...settings, label: 'Turn on Replay' });
+  else emptyStage(page.stage, `Nothing recorded on ${host} in the last minute.`);
+}
 
 const WINDOW_MS = 60_000;
 const THUMBS = 8;
@@ -162,7 +182,7 @@ function captureShade(box) {
     await flushLiveTabs();
     const [tabs, { replayFocus = [] }] = await Promise.all([readAll(), chrome.storage.session.get('replayFocus')]);
     const built = buildTimeline({ focus: completeFocus(replayFocus, tabs, start), tabs, start, end: at });
-    if (built.events.length < 2) { emptyStage(page.stage, 'Nothing recorded in the last minute.'); page.save.hidden = true; return; }
+    if (built.events.length < 2) { await nothingRecorded(page); return; }
     view = skipIdle(built.events, built.segments, { end: at }); // idle squeezed out
     // images the page drew from blob: URLs, back in place (they died with the page)
     view.events = inlineBlobImages(view.events);

@@ -10,122 +10,86 @@
   </head>
   <body class="state-loading">
     <div id="root">
-      <!-- The dark pill - single container, content swaps per state -->
+      <!-- One small glass pill; its content swaps per state. The whole pill
+           drags (its buttons excepted). -->
       <div class="bar">
-        <!-- LOADING -->
+        <!-- LOADING (Chrome's picker is up) -->
         <div data-state="loading" class="state-inner">
-          <div class="spinner small"></div>
-          <span class="state-text">Starting…</span>
+          <div class="spinner"></div>
+          <span class="state-text">Starting</span>
         </div>
 
-        <!-- COUNTDOWN (pre-roll: prompt + 3·2·1, before capture begins) -->
+        <!-- COUNTDOWN (pre-roll: 3·2·1, before capture begins) -->
         <div data-state="countdown" class="state-inner">
-          <div class="cd-num" id="cdNum">3</div>
-          <span class="cd-prompt">Describe your brief</span>
-          <span class="spacer"></span>
-          <button id="cdCancelBtn" class="icon-btn" title="Cancel">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-              <line x1="6" y1="6" x2="18" y2="18"/>
-              <line x1="18" y1="6" x2="6" y2="18"/>
-            </svg>
+          <div class="cd">
+            <svg class="cd-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="16" /></svg>
+            <span class="cd-num" id="cdNum">3</span>
+          </div>
+          <button id="cdCancelBtn" class="icon-btn" title="Cancel" aria-label="Cancel">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </div>
 
         <!-- RECORDING -->
         <div data-state="recording" class="state-inner">
-          <button id="dragGrip" class="drag-grip" title="Drag to move">
-            <svg viewBox="0 0 10 16" width="10" height="16" aria-hidden="true">
-              <circle cx="2" cy="3"  r="1.2" fill="currentColor"/>
-              <circle cx="8" cy="3"  r="1.2" fill="currentColor"/>
-              <circle cx="2" cy="8"  r="1.2" fill="currentColor"/>
-              <circle cx="8" cy="8"  r="1.2" fill="currentColor"/>
-              <circle cx="2" cy="13" r="1.2" fill="currentColor"/>
-              <circle cx="8" cy="13" r="1.2" fill="currentColor"/>
-            </svg>
-          </button>
-          <button id="stopBtn" class="stop-btn" title="Stop &amp; copy">
-            <span class="stop-square"></span>
-          </button>
+          <span class="rec"><i class="rec-dot"></i><span class="timer" id="timer">00:00</span></span>
           <div class="wave" id="wave">
             <div class="wave-bars" id="waveBars" aria-hidden="true"></div>
-            <span class="wave-hint" id="waveHint">Describe your brief…</span>
           </div>
-          <span class="timer" id="timer">00:00</span>
-          <button id="muteBtn" class="icon-btn" title="Mute mic">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 1.5a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0v-7a3 3 0 0 0-3-3z"/>
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
-              <line x1="12" y1="18" x2="12" y2="22"/>
-            </svg>
+          <button id="muteBtn" class="icon-btn mic" title="Mute mic" aria-label="Mute mic">
+            <svg class="on" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+            <svg class="off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M15 9.3V5.5a3 3 0 0 0-5.7-1.3M9 9v2.5a3 3 0 0 0 4.6 2.5M18.5 11a6.5 6.5 0 0 1-1.1 3.6M5.5 11a6.5 6.5 0 0 0 10 5.5M12 17.5V21M3 3l18 18"/></svg>
+          </button>
+          <button id="stopBtn" class="stop-btn" title="Stop" aria-label="Stop">
+            <span class="stop-square"></span>
           </button>
         </div>
 
         <!-- SAVING -->
         <div data-state="saving" class="state-inner">
-          <div class="spinner small"></div>
-          <span class="state-text">Building brief…</span>
+          <div class="spinner"></div>
+          <span class="state-text">Saving</span>
         </div>
 
         <!-- SAVED - auto-dismiss after 5s -->
         <div data-state="saved" class="state-inner">
-          <span class="check-pill">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
+          <span class="badge ok">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
           </span>
-          <span class="state-text"><strong>Copied.</strong><em> Paste into your agent.</em></span>
-          <span class="spacer"></span>
-          <button id="closeBtn" class="icon-btn" title="Dismiss">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-              <line x1="6" y1="6" x2="18" y2="18"/>
-              <line x1="18" y1="6" x2="6" y2="18"/>
-            </svg>
+          <span class="state-text">Copied</span>
+          <button id="closeBtn" class="icon-btn" title="Dismiss" aria-label="Dismiss">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </div>
 
-        <!-- INBOXED - added to inbox, no Claude prompt yet -->
+        <!-- INBOXED - landed on the brief -->
         <div data-state="inboxed" class="state-inner">
-          <span class="check-pill">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M5 12l5 5L20 7"/>
-            </svg>
+          <span class="badge ok">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
           </span>
-          <span class="state-text"><strong>Recorded.</strong><em> Saved to your briefs.</em></span>
-          <span class="spacer"></span>
-          <button id="inboxCloseBtn" class="icon-btn" title="Done">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-              <line x1="6" y1="6" x2="18" y2="18"/>
-              <line x1="18" y1="6" x2="6" y2="18"/>
-            </svg>
+          <span class="state-text">Saved</span>
+          <button id="inboxCloseBtn" class="icon-btn" title="Done" aria-label="Done">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </div>
 
         <!-- CANCELLED - auto-dismiss after 2s -->
         <div data-state="cancelled" class="state-inner">
-          <span class="cancel-pill">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-              <line x1="6" y1="6" x2="18" y2="18"/>
-              <line x1="18" y1="6" x2="6" y2="18"/>
-            </svg>
+          <span class="badge">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </span>
-          <span class="state-text"><strong>Cancelled.</strong><em> Nothing was saved.</em></span>
-          <span class="spacer"></span>
+          <span class="state-text">Discarded</span>
         </div>
 
         <!-- ERROR -->
         <div data-state="error" class="state-inner">
-          <span class="alert-pill">!</span>
+          <span class="badge warn">!</span>
           <span class="state-text err" id="errText">-</span>
-          <span class="spacer"></span>
-          <button id="errCloseBtn" class="icon-btn" title="Dismiss">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-              <line x1="6" y1="6" x2="18" y2="18"/>
-              <line x1="18" y1="6" x2="6" y2="18"/>
-            </svg>
+          <button id="errCloseBtn" class="icon-btn" title="Dismiss" aria-label="Dismiss">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
           </button>
         </div>
       </div>
-
     </div>
 
     <video id="preview" autoplay muted playsinline style="display:none"></video>
