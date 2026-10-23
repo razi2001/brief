@@ -58,6 +58,15 @@ a {
   color: inherit;
 }
 
+/* Tailwind v4 gives buttons the arrow cursor; every clickable one gets the
+   hand again (disabled ones keep the arrow, or .btn's not-allowed). */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor: pointer;
+  }
+}
+
 /* Reusable component classes */
 @layer components {
   .hairline {

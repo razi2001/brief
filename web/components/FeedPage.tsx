@@ -44,7 +44,13 @@ export default async function FeedPage({ view }: { view: "tickets" | "drafts" })
   };
 
   return (
-    <BriefsFeed view={view} briefs={dashboardBriefs} counts={counts} isProcessing={isProcessing} />
+    <BriefsFeed
+      view={view}
+      briefs={dashboardBriefs}
+      counts={counts}
+      isProcessing={isProcessing}
+      renderId={crypto.randomUUID()}
+    />
   );
 }
 

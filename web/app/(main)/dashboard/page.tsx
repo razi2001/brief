@@ -98,9 +98,10 @@ export default async function Dashboard() {
   return (
     <>
       {/* Live status: a fast poll while anything is filing, a slow one
-          otherwise, a refresh on tab focus; the button for impatient moments. */}
+          otherwise, a refresh on tab focus or when the page comes back from
+          the client cache; the button for impatient moments. */}
       <div className="mx-auto -mb-8 flex w-full max-w-[960px] items-center justify-end gap-2">
-        <AutoRefresh active={processing.length > 0} />
+        <AutoRefresh active={processing.length > 0} renderId={crypto.randomUUID()} />
         <RefreshButton />
       </div>
       <DashboardView

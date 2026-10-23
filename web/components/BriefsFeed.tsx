@@ -174,12 +174,15 @@ export default function BriefsFeed({
   briefs,
   counts,
   isProcessing,
+  renderId,
 }: {
   /** Tickets (filed, filing, didn't file) or Drafts (written up, never filed). */
   view?: "tickets" | "drafts";
   briefs: DashboardBrief[];
   counts: Counts;
   isProcessing: boolean;
+  /** This server render's id (see AutoRefresh). */
+  renderId?: string;
 }) {
   // Optimistic state for this session. Archive is the ONLY removal action and
   // it behaves like a delete: the row swipes out and is gone (archived briefs
@@ -488,7 +491,7 @@ export default function BriefsFeed({
               Clear filters
             </button>
           )}
-          <AutoRefresh active={isProcessing} />
+          <AutoRefresh active={isProcessing} renderId={renderId} />
           <RefreshButton />
           {view === "drafts" && <NewDraftButton />}
         </div>
