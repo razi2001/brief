@@ -39,6 +39,7 @@ Rules:
 - <find> must match the current body exactly (copy it verbatim, include enough surrounding lines to be unique). Keep it as short as uniqueness allows.
 - To add content, <find> the neighboring text and repeat it in <replace> together with the addition.
 - To delete content, use an empty <replace></replace>.
+- If the current body is empty, there is nothing to <find>: write the whole ticket with <ticket>.
 - If the user only asks a question, reply with the <note> alone - no operations.
 - Body markdown: "##" section headings, "-" lists, \`inline code\`, fenced blocks for logs. No H1 in the body (the title is the H1).
 - Never output anything outside the tags. Never wrap the answer in code fences.`;

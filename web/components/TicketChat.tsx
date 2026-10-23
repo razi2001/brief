@@ -51,6 +51,8 @@ type Chip = { label: string; prompt: string };
 /** What the ticket could use, read from the ticket itself (short label, precise prompt). */
 function suggestionsFor(doc: Doc | null): Chip[] {
   const body = doc?.body ?? "";
+  // A blank draft: nothing to improve yet.
+  if (!body.trim()) return [];
   const out: Chip[] = [];
   if (body && !/steps to reproduce|repro/i.test(body))
     out.push({ label: "Add repro steps", prompt: "Add a short numbered 'Steps to reproduce' section, inferred from what the ticket already says. Don't invent facts that aren't implied." });
@@ -560,7 +562,9 @@ export default function TicketChat({
                       ? "Filing to your tracker…"
                       : quote
                         ? "What should change in this passage?"
-                        : "Ask AI to edit the ticket…"
+                        : doc && !doc.body.trim()
+                          ? "Ask AI to write the ticket…"
+                          : "Ask AI to edit the ticket…"
                 }
                 className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-muted disabled:opacity-70"
               />

@@ -19,6 +19,7 @@ const EditableBody = memo(
   function EditableBody({
     html,
     editable,
+    placeholder,
     innerRef,
     onInput,
     onBlur,
@@ -26,8 +27,9 @@ const EditableBody = memo(
   }: {
     html: string;
     editable: boolean;
+    placeholder?: string;
     innerRef: React.RefObject<HTMLDivElement | null>;
-    onInput?: () => void;
+    onInput?: (e: React.FormEvent<HTMLElement>) => void;
     onBlur?: () => void;
     onKeyDown?: (e: React.KeyboardEvent) => void;
   }) {
@@ -36,6 +38,7 @@ const EditableBody = memo(
         ref={innerRef}
         contentEditable={editable}
         suppressContentEditableWarning
+        data-placeholder={placeholder}
         onInput={onInput}
         onBlur={onBlur}
         onKeyDown={onKeyDown}
@@ -138,6 +141,12 @@ export default function TicketDoc({
   // the rendered DOM once to set the save baseline.
   useEffect(() => {
     if (bodyRef.current) savedHtml.current = bodyRef.current.innerHTML;
+  }, []);
+
+  // A blank draft opens ready to type its title.
+  useEffect(() => {
+    if (canEdit && !initialTitle.trim() && !initialBody.trim()) titleRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on arrival
   }, []);
 
   // ── Chat assistant bridge ──────────────────────────────────────────────
@@ -344,6 +353,14 @@ export default function TicketDoc({
     else if (k === "e") { e.preventDefault(); format("code"); }
   }
 
+  // Erasing everything leaves a stray <br> behind; drop it so the field is
+  // :empty again and its placeholder comes back.
+  function onFieldInput(e: React.FormEvent<HTMLElement>) {
+    const el = e.currentTarget;
+    if (!el.textContent?.trim() && el.innerHTML) el.innerHTML = "";
+    scheduleSave();
+  }
+
   function scheduleSave() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void save(), 900);
@@ -353,7 +370,9 @@ export default function TicketDoc({
     void save();
   }
   async function save() {
-    const title = (titleRef.current?.innerText || "").trim() || "Untitled";
+    // Empty stays empty (the heading shows its placeholder), so leaving a
+    // blank title doesn't save the word "Untitled" into it.
+    const title = (titleRef.current?.innerText || "").trim();
     const html = bodyRef.current?.innerHTML ?? "";
     if (title === savedTitle.current && html === savedHtml.current) return;
     const body = bodyRef.current ? htmlToMarkdown(bodyRef.current) : "";
@@ -395,7 +414,8 @@ export default function TicketDoc({
         ref={titleRef}
         contentEditable={canEdit}
         suppressContentEditableWarning
-        onInput={canEdit ? scheduleSave : undefined}
+        data-placeholder="Untitled"
+        onInput={canEdit ? onFieldInput : undefined}
         onBlur={canEdit ? flushSave : undefined}
         onKeyDown={(e) => {
           if (e.key === "Enter") { e.preventDefault(); bodyRef.current?.focus(); }
@@ -463,8 +483,9 @@ export default function TicketDoc({
       <EditableBody
         html={initialHtml}
         editable={canEdit}
+        placeholder={canEdit ? "Add description…" : undefined}
         innerRef={bodyRef}
-        onInput={canEdit ? scheduleSave : undefined}
+        onInput={canEdit ? onFieldInput : undefined}
         onBlur={canEdit ? flushSave : undefined}
         onKeyDown={canEdit ? onBodyKeyDown : undefined}
       />

@@ -11,6 +11,7 @@ import {
 import AutoRefresh from "./AutoRefresh";
 import BrandMark from "./BrandMark";
 import RefreshButton from "./RefreshButton";
+import NewDraftButton from "./NewDraftButton";
 import { type FilterOption } from "./FilterPopover";
 import ColumnFilter from "./ColumnFilter";
 import BriefListRow from "./BriefListRow";
@@ -489,6 +490,7 @@ export default function BriefsFeed({
           )}
           <AutoRefresh active={isProcessing} />
           <RefreshButton />
+          {view === "drafts" && <NewDraftButton />}
         </div>
       </header>
       <div className="mt-3">

@@ -328,6 +328,10 @@ export default async function BriefView({ shareId, section }: { shareId: string;
   // Deleted in the tracker → no tracker link anywhere on the page.
   const ticketUrl = live?.deleted ? null : live?.url || brief.ticket_url;
   const ticketTitle = (live?.title || brief.ticket_title || brief.title || "Bug report").trim() || "Bug report";
+  // A draft started blank has no title yet: the heading stays empty to type
+  // into, and the breadcrumb names it the way the Drafts list does.
+  const draftTitle = (brief.ticket_title || brief.title || "").trim();
+  const docTitle = isDraft ? draftTitle : ticketTitle;
   const stateName = filing
     ? "Filing…"
     : isDraft
@@ -347,7 +351,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
         is a floating panel (below), so it reserves no column and leaves no empty
         space beside the doc. Extra bottom padding on owner drafts clears the
         floating panel. */}
-    <Frame home={inApp ? home : undefined} signedIn={!!viewerId} identifier={shortId} title={ticketTitle}>
+    <Frame home={inApp ? home : undefined} signedIn={!!viewerId} identifier={shortId} title={docTitle || "Untitled draft"}>
       <ReadingColumn className={withRail ? "pb-44 sm:pb-48" : ""}>
       {/* The writing state doesn't fade in - only the resolved ticket does, so
           the writing→ready hand-off is ONE gentle settle, not two page fades
@@ -418,7 +422,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
             ticketUrl={ticketUrl}
             provider={provider}
             providerName={providerLabel}
-            initialTitle={ticketTitle}
+            initialTitle={docTitle}
             initialBody={brief.ticket_body || ""}
             assets={assets.flatMap((a) => (a.kind === "replay" ? [] : [{ filename: a.filename, kind: a.kind }]))}
             connected={connected}

@@ -67,7 +67,15 @@ async function runLater() {
 
 beforeEach(() => {
   later.tasks = [];
-  row.brief = { id: "b1", status: "drafted", ticket_url: null, ticket_body: "Body", filing_started_at: null };
+  row.brief = {
+    id: "b1",
+    status: "drafted",
+    title: null,
+    ticket_title: "Title",
+    ticket_url: null,
+    ticket_body: "Body",
+    filing_started_at: null,
+  };
   filing.claimFiling.mockClear();
   filing.releaseFiling.mockClear();
   registry.resolveTrackerOrError.mockReset();
@@ -129,6 +137,25 @@ describe("exporting a draft", () => {
       status: "drafted",
       error: "network down",
     });
+  });
+
+  it("refuses a draft with no title before asking the tracker", async () => {
+    row.brief = { ...row.brief, ticket_title: "  ", title: null };
+
+    const res = await exportTo("azure");
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "no_title", message: "Add a title first." });
+    expect(registry.resolveTrackerOrError).not.toHaveBeenCalled();
+    expect(filing.claimFiling).not.toHaveBeenCalled();
+  });
+
+  it("files under the capture's own name when the draft has no written title", async () => {
+    row.brief = { ...row.brief, ticket_title: null, title: "Checkout button" };
+
+    const res = await exportTo("azure");
+
+    expect(await res.json()).toEqual({ queued: true });
   });
 
   it("refuses a brief that already has a ticket without asking the tracker", async () => {

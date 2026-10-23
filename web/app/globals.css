@@ -683,6 +683,13 @@ a {
   letter-spacing: -0.003em;
 }
 .ticket-prose > * + * { margin-top: 0.85rem; }
+
+/* An empty title or body (a draft started blank) shows what goes there. */
+[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-muted);
+  pointer-events: none;
+}
 .ticket-prose strong { font-weight: 700; color: var(--color-ink); }
 .ticket-prose em { font-style: italic; }
 .ticket-prose a {

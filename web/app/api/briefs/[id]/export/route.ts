@@ -45,7 +45,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const admin = createAdminSupabase();
   const { data: brief } = await admin
     .from("briefs")
-    .select("id, status, ticket_url, ticket_body, filing_started_at")
+    .select("id, status, title, ticket_title, ticket_url, ticket_body, filing_started_at")
     .eq("id", id)
     .eq("user_id", userId)
     .maybeSingle();
@@ -66,6 +66,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   }
   if (phase !== "draft") {
     return Response.json({ error: "not_ready", message: "This brief isn't ready to export." }, { status: 409 });
+  }
+  // Filed verbatim, and a tracker won't take a ticket without a title. Only a
+  // draft started blank can get here without one.
+  if (!(brief.ticket_title || brief.title || "").trim()) {
+    return Response.json({ error: "no_title", message: "Add a title first." }, { status: 409 });
   }
 
   // Only the reason is used here; processBriefById resolves the tracker again
