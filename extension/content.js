@@ -153,7 +153,7 @@
       pointerEvents: 'auto',
       overflow: 'hidden',
       boxShadow: 'none',
-      transition: 'opacity 0.18s ease',
+      transition: 'opacity 0.14s ease-out',
     });
     (document.body || document.documentElement).appendChild(iframeEl);
 
@@ -257,7 +257,7 @@
   function fadeOutAndRemove() {
     if (!iframeEl) return;
     iframeEl.style.opacity = '0';
-    setTimeout(removeBar, 280);
+    setTimeout(removeBar, 160); // just past the fade: closing feels instant
   }
 
   function removeBar() {

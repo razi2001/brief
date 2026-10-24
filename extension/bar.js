@@ -359,10 +359,17 @@ async function stopAndSave(savingMessage) {
   if (cancelBtn) cancelBtn.disabled = true;
   stopTimer();
   stopWave();
-  if (savingMessage) setSavingText(savingMessage);
-  setView('saving'); // show feedback immediately while the recorder flushes
+  // The bar goes as soon as the recorder takes the stop (it finishes the file
+  // in the background). "Saving" shows only if that takes a moment, or when
+  // there is a reason to read (the 2-minute cap, Chrome's Stop sharing).
+  let slow = null;
+  if (savingMessage) { setSavingText(savingMessage); setView('saving'); }
+  else slow = setTimeout(() => setView('saving'), 400);
+  const shown = Date.now();
   const res = await sendToOffscreen('STOP', { briefId, intent });
+  clearTimeout(slow);
   chrome.runtime.sendMessage({ type: 'BRIEF_STOP' }).catch(() => {});
+  if (res?.ok && savingMessage) await new Promise((r) => setTimeout(r, Math.max(0, 1500 - (Date.now() - shown))));
   if (res?.ok) {
     // Cloud-only: the offscreen document uploads the draft in the BACKGROUND
     // (it holds the blob and outlives this bar). Mark the inbox entry as

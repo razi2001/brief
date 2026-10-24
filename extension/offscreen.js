@@ -31,6 +31,7 @@ let levelFreq = null;
 let overrunTimer = null;
 let stopRequested = false;
 let preparing = false; // START is running (the picker may be open)
+let collecting = null;  // the stopped recording's file being finished
 
 const KEYFRAME_INTERVAL_MS = 2000;
 // The bar stops a recording at its 2-minute cap. If the bar is gone (the recorded
@@ -121,7 +122,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'START':
           // Phase 1: acquire streams + build recorders (don't start yet).
           preparing = true;
-          try { await prepareRecording(message.streamId, message.capture); } finally { preparing = false; }
+          // the last recording's file first (its stop doesn't wait for it)
+          try { if (collecting) await collecting.catch(() => {}); await prepareRecording(message.streamId, message.capture); } finally { preparing = false; }
           sendResponse({ ok: true, surface: tabStream?.getVideoTracks()[0]?.getSettings().displaySurface || null });
           break;
         case 'GO':
@@ -130,21 +132,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
         case 'STOP': {
-          // Stop + collect synchronously, ACK right away so the bar can show
-          // "saved" and close, then upload in the background (cloud-only - no
+          // Stop, then collect and upload in the background (cloud-only - no
           // local zip; a missing pairing surfaces as uploadFailed and the
           // popup gates recording on pairing so it shouldn't happen).
           // Once per recording: a window recording has a bar in every tab, and
           // a second STOP would upload an empty video.
           if (!mediaRecorder || stopRequested) { sendResponse({ ok: false, error: 'not_recording' }); break; }
           stopRequested = true;
-          const data = await collectRecording();
+          // ACK at once: the bar closes on it. The recorder's last flush (a
+          // moment for a whole window) and the upload happen after; a flush
+          // that fails is reported like a failed upload.
           sendResponse({ ok: true });
-          uploadAndFinish({
-            briefId: message.briefId,
-            intent: message.intent || 'brief',
-            ...data,
-          });
+          const briefId = message.briefId;
+          collecting = collectRecording();
+          collecting.then(
+            (data) => uploadAndFinish({ briefId, intent: message.intent || 'brief', ...data }),
+            (err) => {
+              log('collect failed:', err);
+              chrome.runtime.sendMessage({ type: 'UPLOAD_RESULT', briefId, error: String(err?.message || err) }).catch(() => {});
+              chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
+            },
+          );
           break;
         }
         case 'UPLOAD_FILE': {

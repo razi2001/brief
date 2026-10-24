@@ -37,12 +37,6 @@ body {
   pointer-events: none;
   padding: 14px 14px 34px; /* the shadow below the pill stays inside the frame */
 }
-/* After recording, center the confirmation pill in the iframe so it lands
-   where the eye was instead of pinned to the bottom. */
-body.state-saving,
-body.state-saved,
-body.state-inboxed,
-body.state-cancelled { align-items: center; }
 #root { display: flex; flex-direction: column; align-items: center; }
 
 /* ---------- State routing ---------- */
@@ -87,8 +81,11 @@ body.state-error     [data-state='error'] { display: flex; }
 }
 @keyframes bar-in { from { opacity: 0; transform: translateY(6px) scale(.97); } }
 body.dragging .bar { cursor: grabbing; }
-/* the pills that only say something sit centered in themselves */
+/* the pills that only say something sit centered in themselves; the ones
+   that follow a recording keep its size and place (no jump on Stop) */
 body.state-loading .bar, body.state-saving .bar, body.state-cancelled .bar { padding-right: 16px; }
+body.state-saving .bar, body.state-cancelled .bar { width: 252px; padding-left: 16px; }
+body.state-saving [data-state='saving'], body.state-cancelled [data-state='cancelled'] { width: 100%; justify-content: center; }
 
 /* ---------- recording ---------- */
 .rec { display: inline-flex; align-items: center; gap: 9px; }
