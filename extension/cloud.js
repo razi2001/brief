@@ -103,6 +103,25 @@ export async function transcribeNote(blob, tokenOverride) {
   return (body?.text || "").trim();
 }
 
+// The description the popup pre-fills, written from a recording's transcript
+// ("" when there was nothing to sum up). Throws like transcribeNote.
+export async function describeNarration(transcript, tokenOverride) {
+  const token = tokenOverride || (await getCloudToken());
+  if (!token) throw new Error("Not connected to Brief Cloud");
+  const res = await fetchOrThrow(
+    `${APP_URL}/api/describe`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: transcript }),
+    },
+    "describe",
+  );
+  if (!res.ok) throw new Error(`describe failed: ${res.status}${await errorDetail(res)}`);
+  const body = await res.json().catch(() => ({}));
+  return (body?.description || "").trim();
+}
+
 // Create a brief row + upload its files. Does NOT file the ticket - the brief
 // sits as an "uploaded" draft until processBrief() is called. Returns the cloud
 // brief id. Used for recordings: we upload on stop to preserve the video, but

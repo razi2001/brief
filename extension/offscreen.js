@@ -12,7 +12,7 @@
 // the bar shows "saved" right away and the upload runs in the background.
 // Background keeps this document alive until it reports OFFSCREEN_DONE.
 
-import { uploadDraft, transcribeNote } from './cloud.js';
+import { uploadDraft, transcribeNote, describeNarration } from './cloud.js';
 import { getFile, putFile, recKey, replayKey, replayVoiceKey, replayVideoKey, replayVideoStateKey } from './filestore.js';
 
 let micStream = null;
@@ -671,9 +671,11 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
 }
 
 // Transcribe a recording's narration and land it on the draft, so the popup
-// shows it, editable, as soon as it is back. Independent of the upload result;
-// the server still transcribes at file time if we send nothing. Never rejects,
-// and reports nothing once a newer upload of the brief has taken over.
+// shows it, editable, as soon as it is back. Then the description written from
+// it, which the popup pre-fills: a second call, so the transcript never waits
+// for it. Independent of the upload result; the server still transcribes at
+// file time if we send nothing. Never rejects, and reports nothing once a newer
+// upload of the brief has taken over.
 async function reportNarration(briefId, blob, token, current) {
   let said;
   try {
@@ -682,7 +684,18 @@ async function reportNarration(briefId, blob, token, current) {
     log('transcription failed:', err?.message || err);
     said = { error: String(err?.message || err) };
   }
-  if (current()) await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, ...said }).catch(() => {});
+  if (!current()) return;
+  // nothing said, nothing to sum up
+  const describing = !!said.transcript;
+  await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, ...said, describing }).catch(() => {});
+  if (!describing) return;
+  let description = '';
+  try {
+    description = await describeNarration(said.transcript, token);
+  } catch (err) {
+    log('description failed:', err?.message || err);
+  }
+  if (current()) await chrome.runtime.sendMessage({ type: 'DESCRIPTION_RESULT', briefId, description }).catch(() => {});
 }
 
 // ---------- Uploaded video file ----------
