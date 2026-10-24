@@ -84,11 +84,11 @@ export function paintStrokes(ctx, strokes, natW) {
 export function mountShotEditor(page, { image, strokes: initial = [], onSave, onCancel }) {
   const natW = image.naturalWidth, natH = image.naturalHeight;
   let strokes = (initial || []).filter((s) => s && Array.isArray(s.points)).map((s) => ({ ...s, points: s.points.map((p) => ({ ...p })) }));
+  // Always the pen to start with; the last color picked comes back.
   let tool = 'pen';
   let color = PEN_RED;
-  // the last pick comes back next time
-  try { const s = JSON.parse(localStorage.getItem('briefPen') || '{}'); if (SHAPES.some(([k]) => k === s.tool)) tool = s.tool; if (COLORS.some(([c]) => c === s.color)) color = s.color; } catch {}
-  const remember = () => { try { localStorage.setItem('briefPen', JSON.stringify({ tool, color })); } catch {} };
+  try { const s = JSON.parse(localStorage.getItem('briefPen') || '{}'); if (COLORS.some(([c]) => c === s.color)) color = s.color; } catch {}
+  const remember = () => { try { localStorage.setItem('briefPen', JSON.stringify({ color })); } catch {} };
 
   // ---- the stage: the capture, the marks over it, the crop over both ----
   const box = document.createElement('div');
@@ -167,7 +167,7 @@ export function mountShotEditor(page, { image, strokes: initial = [], onSave, on
       opts.appendChild(b);
     };
     const sep = () => opts.insertAdjacentHTML('beforeend', '<span class="vsep"></span>');
-    for (const [k, label, icon] of SHAPES) add(`${icon}<span>${label}</span>`, label, tool === k, () => { tool = k; remember(); drawTool.refresh(); });
+    for (const [k, label, icon] of SHAPES) add(`${icon}<span>${label}</span>`, label, tool === k, () => { tool = k; drawTool.refresh(); });
     sep();
     for (const [c, label] of COLORS) add(`<i class="swatch" style="background:${c}"></i>`, label, color === c, () => { color = c; remember(); drawTool.refresh(); });
     sep();

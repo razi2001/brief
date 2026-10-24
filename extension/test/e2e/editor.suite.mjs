@@ -164,6 +164,11 @@
   })()`);
   check('screenshot cropped to 16:9, clean capture too, drawing moved with it', img.w === 800 && img.h === 450 && img.cw === 800 && img.ch === 450 && img.p.x === 400 && img.p.y === 225 && img.cropped, JSON.stringify(img));
   check('the arrow drawn is kept, blue, where it was put (moved with the crop)', img.arrow?.tool === 'arrow' && img.arrow.color === '#2f7bff' && Math.abs(img.arrow.x - 160) <= 3 && Math.abs(img.arrow.y - 225) <= 3 && img.annotated, JSON.stringify(img.arrow));
+  // opened again: the pen in hand whatever was used last, the color kept
+  const I2 = await open(`chrome-extension://${extId}/image.html#s1`); await focus(I2); await sleep(1500);
+  const again = await evalIn(I2.sid, `[...document.querySelectorAll('#edOpts .opt.on')].map((o) => o.title)`);
+  check('the screenshot editor always opens on the pen, in the last color', JSON.stringify(again) === '["Pen","Blue"]', JSON.stringify(again));
+  await b.send('Target.closeTarget', { targetId: I2.targetId }).catch(() => {});
 
   {
   // ================= Replay: instant, same editor =================
