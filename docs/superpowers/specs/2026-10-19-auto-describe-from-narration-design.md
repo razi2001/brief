@@ -1,6 +1,11 @@
 # Auto-describe a brief from its narration
 
-Date: 2026-10-19. Status: design approved by Razi.
+Date: 2026-10-19. Status: design approved by Razi. **Removed from the extension on
+2026-10-24, before any release, at Razi's call:** the summary in "Additional data" read like
+the transcript in the wrong place, and the ticket writer took it for the reporter's own
+typed words. The description field stays empty unless the reporter types; the narration
+stays the transcript, in the recording's sheet. The server side (`POST /api/describe`,
+`lib/agent/describe-narration.ts`) is still deployed, unused.
 
 **Shipped differently (2026-10-24), after #100 made the transcript go out at Stop:**
 `/api/transcribe` stays transcript-only, and the description is its own call,

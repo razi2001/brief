@@ -26,11 +26,6 @@ export function emptyDraft() {
     transcribing: false,
     transcriptFailed: false,
     description: '',
-    // true while `description` is the AI's summary of the narration, untouched
-    // by the reporter: only then may a newer summary replace it.
-    descriptionAuto: false,
-    // true from the transcript landing until that summary does
-    describing: false,
     extra: [],         // [{ key, value }]
     pageUrl: null,
     pageTitle: null,
@@ -69,26 +64,7 @@ export function landRecording(d, { uploading = true, durationMs = 0, poster = nu
     d.cloudBriefId = null;
     d.transcript = '';
     d.transcriptFailed = false;
-    d.describing = false;
-    // An AI description summed up the old recording's narration.
-    clearAutoDescription(d);
   }
-}
-
-// The AI's description (from the narration) lands only in an empty field or
-// over its own untouched text: what the reporter wrote always wins.
-export function applyAutoDescription(d, text) {
-  const t = typeof text === 'string' ? text.trim() : '';
-  if (!t) return false;
-  if ((d.description || '').trim() && !d.descriptionAuto) return false;
-  d.description = t;
-  d.descriptionAuto = true;
-  return true;
-}
-export function clearAutoDescription(d) {
-  if (!d.descriptionAuto) return;
-  d.description = '';
-  d.descriptionAuto = false;
 }
 
 export async function getDraft() {

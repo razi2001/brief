@@ -250,12 +250,6 @@ body.sheet-open { overflow:hidden; }
 .ai-field::-webkit-scrollbar-track { background:transparent; margin:6px 0; }
 .ai-field::-webkit-scrollbar-thumb { background:rgba(26,22,18,.28); border-radius:999px; border:3px solid transparent; background-clip:padding-box; }
 .ai-field::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:padding-box; }
-/* writing: the description is being written from the narration - a shimmer over the (still editable) field */
-.ai-wrap.writing::after { content:''; position:absolute; inset:0; border-radius:16px; pointer-events:none;
-  background:linear-gradient(100deg, transparent 30%, rgba(221,105,54,.10) 50%, transparent 70%) no-repeat;
-  background-size:200% 100%; animation:desc-shimmer 1.5s ease-in-out infinite; }
-.ai-wrap.writing:focus-within::after { display:none; }
-@keyframes desc-shimmer { from { background-position:150% 0; } to { background-position:-50% 0; } }
 /* transcribing: a non-editable, animated placeholder shown in place of the field */
 .transcribing { position:relative; height:110px; border:1px solid var(--hairline); border-radius:16px;
   background:rgba(255,255,255,.7); overflow:hidden; display:flex; align-items:center; justify-content:center; gap:9px;

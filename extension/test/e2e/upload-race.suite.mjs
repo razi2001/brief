@@ -7,15 +7,15 @@
   const APP = 'https://cloud.get-brief.app';
   const calls = [];
   let briefs = 0;
-  let transcribes = 0;
   const held = []; // [sid, requestId] of the uploads being held back
   let holding = null; // the brief id whose uploads are held
+  let transcribes = 0;
   let heldTake = null; // [sid, requestId] of the original take's transcription
   const reply = (sid, requestId, res) => b.send('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(JSON.stringify(res)).toString('base64') }, sid).catch(() => {});
   const answer = async (sid, p) => {
     const url = p.request.url;
     let body = p.request.postData || '';
-    if (!body && p.request.hasPostData && /\/api\/(briefs|describe)$/.test(url)) body = (await b.send('Fetch.getRequestPostData', { requestId: p.requestId }, sid).catch(() => ({ postData: '' }))).postData;
+    if (!body && p.request.hasPostData && url.endsWith('/api/briefs')) body = (await b.send('Fetch.getRequestPostData', { requestId: p.requestId }, sid).catch(() => ({ postData: '' }))).postData;
     calls.push({ url, method: p.request.method });
     if (url.endsWith('/api/briefs')) {
       const id = ++briefs === 1 ? 'b-orig' : 'b-edit';
@@ -30,8 +30,6 @@
       if (transcribes++ === 0) { heldTake = [sid, p.requestId]; return; }
       return reply(sid, p.requestId, { text: 'the trimmed take' });
     }
-    // and the description written from it
-    if (url.endsWith('/api/describe')) return reply(sid, p.requestId, { description: `About ${JSON.parse(body || '{}').text}.` });
     return reply(sid, p.requestId, { ok: true });
   };
   const release = async () => {
@@ -83,7 +81,6 @@
   const d = await draftNow();
   check('the original finishing later does not take the brief back', d.cloudBriefId === 'b-edit' && !d.uploading && !d.uploadFailed, JSON.stringify({ cloudBriefId: d.cloudBriefId, uploading: d.uploading }));
   check('nor its narration', d.transcript === 'the trimmed take', JSON.stringify(d.transcript));
-  check('and the description is written from the trimmed take', d.description === 'About the trimmed take.' && d.descriptionAuto === true, JSON.stringify({ description: d.description, auto: d.descriptionAuto }));
 
   // the other order: the original lands while the trimmed one is still going
   // (here: while its frames are sampled, before its upload even starts) - the

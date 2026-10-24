@@ -12,7 +12,6 @@
   const calls = [];
   const held = []; // [sid, requestId] of the file uploads being held back
   let holding = true;
-  let heldDescribe = null; // the description's call, held until the transcript is checked
   const reply = (sid, requestId, res) => b.send('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(JSON.stringify(res)).toString('base64') }, sid).catch(() => {});
   const answer = async (sid, p) => {
     const url = p.request.url;
@@ -25,7 +24,6 @@
     }
     if (holding && url.startsWith('https://up.test/')) { held.push([sid, p.requestId]); return; }
     if (url.endsWith('/api/transcribe')) return reply(sid, p.requestId, { text: 'the cart total is wrong' });
-    if (url.endsWith('/api/describe')) { heldDescribe = [sid, p.requestId]; return; }
     return reply(sid, p.requestId, { ok: true });
   };
   const watch = (sid) => b.send('Fetch.enable', { patterns: [{ urlPattern: APP + '/*' }, { urlPattern: 'https://up.test/*' }] }, sid).catch(() => {});
@@ -72,12 +70,9 @@
   const later = await draftNow();
   check('and it is still there once the bar has closed', later?.transcript === 'the cart total is wrong' && !later.transcribing && later.uploading === true,
     JSON.stringify({ transcript: later?.transcript, transcribing: later?.transcribing, uploading: later?.uploading }));
-  check('the transcript did not wait for the description written from it', !!heldDescribe && later?.describing === true && !later.description,
-    JSON.stringify({ describeAsked: !!heldDescribe, describing: later?.describing, description: later?.description }));
-  if (heldDescribe) await reply(heldDescribe[0], heldDescribe[1], { description: 'The cart total is wrong.' });
-  const described = await until(async () => { const d = await draftNow(); return d?.description ? d : null; }, 5000);
-  check('then the description lands in the empty field', described?.description === 'The cart total is wrong.' && described.descriptionAuto === true && !described.describing,
-    JSON.stringify({ description: described?.description, auto: described?.descriptionAuto, describing: described?.describing }));
+  // the narration stays the transcript: nothing writes the description field
+  check('the description stays empty: only the reporter writes there', later?.description === '' && !calls.some((c) => c.url.endsWith('/api/describe')),
+    JSON.stringify({ description: later?.description, describeCalls: calls.filter((c) => c.url.endsWith('/api/describe')).length }));
 
   // what was sent: the audio-only track, opus, mono, small
   const b64 = await evalIn(oS, `(async () => { const b = window.__sent; if (!b) return null; const u = new Uint8Array(await b.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); })()`);

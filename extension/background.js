@@ -4,7 +4,7 @@
 
 import { installPageCapture } from './page-capture.js';
 import { APP_URL } from "./config.js";
-import { getDraft, setDraft, updateDraft, emptyDraft, genId, landRecording, migrateInboxToDraft, applyAutoDescription } from "./draft.js";
+import { getDraft, setDraft, updateDraft, emptyDraft, genId, landRecording, migrateInboxToDraft } from "./draft.js";
 import { fileDraft, fileDraftObject, resumeFiling, filingKeys } from "./filing.js";
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
@@ -1025,33 +1025,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'TRANSCRIPT_RESULT': {
           // The offscreen doc transcribed the recording's audio (alongside the
           // upload, so this often lands first). Land it on the draft (id-matched)
-          // so the popup shows it, editable. `describing`: the description
-          // written from it follows (DESCRIPTION_RESULT).
+          // so the popup shows it, editable.
           try {
             await updateDraft(message.briefId, (d) => {
               d.transcribing = false;
-              d.describing = !!message.describing;
               if (typeof message.transcript === 'string' && message.transcript.trim()) {
                 d.transcript = message.transcript.trim();
                 d.transcriptFailed = false;
               } else if (message.error) {
                 d.transcriptFailed = true;
               } // empty + no error = genuinely no speech; leave transcript ''
-            });
-            sendResponse({ ok: true });
-          } catch (err) {
-            sendResponse({ ok: false, error: String(err?.message || err) });
-          }
-          break;
-        }
-
-        case 'DESCRIPTION_RESULT': {
-          // The narration summed up for the description field, unless the
-          // reporter already wrote there ("" when there was nothing to sum up).
-          try {
-            await updateDraft(message.briefId, (d) => {
-              d.describing = false;
-              applyAutoDescription(d, message.description);
             });
             sendResponse({ ok: true });
           } catch (err) {

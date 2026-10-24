@@ -6,7 +6,7 @@
 // actions close the popup and it reopens when the capture lands.
 
 import { APP_URL, TICKETS_URL as TICKETS_URL_BASE, getCloudToken, fetchAccountStatus, transcribeNote, TRACKER_ACTIONS, briefPageUrl, newShareId } from './cloud.js';
-import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft, clearAutoDescription } from './draft.js';
+import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft, landRecording, migrateInboxToDraft } from './draft.js';
 import { putFile, getFile, deleteFile, recKey, shotKey, replayKey, replayVoiceKey, draftKeys } from './filestore.js';
 import { syncReplaySites } from './replay-sites.js';
 
@@ -156,9 +156,7 @@ function sig(d) {
     (d.screenshots || []).length,
     !!d.recording, d.recording?.poster ? 1 : 0,
     d.uploading, d.uploadFailed, d.cloudBriefId || '',
-    d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()), !!d.describing,
-    // only the AI's text: the reporter's own typing must not rebuild the popup on every save
-    d.descriptionAuto ? (d.description || '') : '',
+    d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()),
     !!d.filing, d.fileError ? 1 : 0,
     d.replay?.addedAt || 0, d.recording?.durationMs || 0,
   ].join('|');
@@ -178,7 +176,6 @@ async function readTicketsInFlight() {
 function render() {
   renderGallery();
   updateCreate();
-  renderDescState();
   setBrandSpin(!!draft.filing || !!draft.uploading);
   lastSig = sig(draft);
 }
@@ -253,41 +250,14 @@ function renderKvRows() {
 }
 // Reflect the current draft into the inline fields (boot + after reset). Kept out
 // of render() so background updates never clobber what the user is typing.
-// shownDesc is what the field last showed from storage: a background change (the
-// AI's description) only replaces it while the reporter has nothing unsaved in it.
-let shownDesc = '';
 function syncAdditionalData() {
   descField.value = draft.description || '';
-  shownDesc = descField.value;
   renderKvRows();
-  renderDescState();
-}
-// The AI's description arrived (or was cleared) in the background: show it,
-// unless the reporter is in the field or has typed something unsaved.
-function syncDescriptionFromDraft() {
-  const stored = draft.description || '';
-  if (stored === shownDesc || document.activeElement === descField || descField.value !== shownDesc) return;
-  descField.value = stored;
-  shownDesc = stored;
-  renderDescState();
-}
-// While a narrated recording is being transcribed and summed up, the empty
-// field says the description is on its way. It stays editable: typing takes over.
-function renderDescState() {
-  const writing = (!!draft.transcribing || !!draft.describing) && !!draft.recording && !descField.value.trim() && !(draft.description || '').trim();
-  descWrap.classList.toggle('writing', writing);
-  descField.placeholder = writing ? 'Writing…' : 'Describe the brief…';
 }
 function initAdditionalData() {
-  const persistDesc = () => {
-    const value = descField.value;
-    shownDesc = value;
-    // Any change of the reporter's own makes the text theirs: no AI summary
-    // replaces it after this.
-    return persist((d) => { if (d.description !== value) d.descriptionAuto = false; d.description = value; }).then(updateCreate);
-  };
+  const persistDesc = () => persist((d) => { d.description = descField.value; }).then(updateCreate);
   let dt = null;
-  descField.addEventListener('input', () => { renderDescState(); clearTimeout(dt); dt = setTimeout(persistDesc, 250); });
+  descField.addEventListener('input', () => { clearTimeout(dt); dt = setTimeout(persistDesc, 250); });
   descField.addEventListener('blur', () => { clearTimeout(dt); persistDesc(); });
   attachVoiceDictation(descField, descWrap, persistDesc);
   kvList.addEventListener('input', persistKv);
@@ -1258,7 +1228,7 @@ gallery.addEventListener('click', async (e) => {
       deleteFile(replayVoiceKey(draft.id)).catch(() => {});
       toast('Replay removed');
     } else if (id === 'rec') {
-      await persist((d) => { clearAutoDescription(d); d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.describing = false; d.transcriptFailed = false; d.includeVideo = false; });
+      await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.includeVideo = false; });
       deleteFile(recKey(draft.id)).catch(() => {});
       toast('Recording removed');
     } else {
@@ -1266,7 +1236,7 @@ gallery.addEventListener('click', async (e) => {
       deleteFile(shotKey(id)).catch(() => {});
       toast('Screenshot removed');
     }
-    renderGallery(); updateCreate(); syncDescriptionFromDraft(); renderDescState(); lastSig = sig(draft);
+    renderGallery(); updateCreate(); lastSig = sig(draft);
     return;
   }
   if (e.target.closest('[data-add]')) return openAddChooser();
@@ -1376,7 +1346,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
     draft = d;
     render();
     if (fresh) syncAdditionalData();
-    else syncDescriptionFromDraft();
     // If the recording sheet is open, patch it IN PLACE so a freshly-arrived
     // transcript or poster shows without re-opening the sheet (which glitched).
     if (currentSheet === 'rec') {
