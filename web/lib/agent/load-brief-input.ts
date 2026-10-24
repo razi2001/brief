@@ -1,7 +1,7 @@
 import { cleanUrl } from "@/lib/clean-url";
 import { selectDistinctFrames } from "@/lib/agent/frame-hash";
 import type { BriefInput } from "@/lib/agent/process-brief";
-import { transcribeAudio, transcriptionHint } from "@/lib/agent/transcribe";
+import { transcribeAudio, transcribeTimed, transcriptionHint } from "@/lib/agent/transcribe";
 import { mergeBriefOverrides, captionForScreenshot, type BriefOverrides, type ReplayFrame } from "@/lib/agent/overrides";
 import { techFromReplay, techFromRecording, isEmpty as isTechEmpty, type VideoLogs } from "@/lib/agent/tech-details";
 import { summarizeReplay, type ReplaySummary } from "@/lib/agent/replay-steps";
@@ -22,16 +22,45 @@ export function nearestFrame<F extends { timestampMs?: number }>(frames: F[], tM
 }
 
 /** The page a recording was on at `tMs`: the last captured event at or before
- *  it that carries a URL (clicks, keys, scrolls, navigations), else the brief's. */
+ *  it that carries a URL (clicks, keys, scrolls, navigations - a network
+ *  event's url is the request's, not the page's), else the brief's. */
 export function urlAt(json: unknown, tMs?: number): string | undefined {
-  const j = (json ?? {}) as { events?: Array<{ tMs?: number; url?: string }>; pageUrl?: string };
+  const j = (json ?? {}) as { events?: Array<{ tMs?: number; url?: string; type?: string }>; pageUrl?: string };
   let url: string | undefined;
   if (typeof tMs === "number") {
     for (const e of Array.isArray(j.events) ? j.events : []) {
+      if (e?.type === "network" || e?.type === "network-error") continue;
       if (typeof e?.tMs === "number" && e.tMs <= tMs && typeof e.url === "string" && e.url) url = e.url;
     }
   }
   return url ?? (typeof j.pageUrl === "string" && j.pageUrl ? j.pageUrl : undefined);
+}
+
+/**
+ * The keyframes to show however much they look like the one before: the
+ * first on each new page, and the first after each thing the reporter did or
+ * that went wrong (a click, Enter, a failed or slow call, a console error) -
+ * where what the reporter talks about shows. A perceptual hash can't tell two
+ * pages of one app apart, or see a total change. Frames in time order.
+ */
+export function keyMomentFrames<F extends { timestampMs?: number }>(frames: F[], json: unknown): Set<F> {
+  const td = techFromRecording(json);
+  const moments = [
+    ...td.actions.filter((a) => a.kind === "click" || a.kind === "key").map((a) => a.t),
+    ...td.network.filter((c) => !c.status || c.status >= 400 || (c.ms ?? 0) >= 1000).map((c) => c.t + (c.ms ?? 0)),
+    ...td.console.filter((c) => c.level === "error").map((c) => c.t),
+  ];
+  const keep = new Set<F>();
+  let prev: F | undefined;
+  for (const f of frames) {
+    const t = f.timestampMs;
+    if (typeof t !== "number") continue;
+    const p = prev?.timestampMs ?? -1;
+    if (prev && urlAt(json, t) !== urlAt(json, p)) keep.add(f);
+    if (moments.some((m) => m > p && m <= t && t - m <= 4000)) keep.add(f);
+    prev = f;
+  }
+  return keep;
 }
 
 /**
@@ -86,6 +115,13 @@ export async function loadBriefInput(
   // agent copies them into the ticket, where they read as italic gibberish.
   if (typeof json.pageUrl === "string") json.pageUrl = cleanUrl(json.pageUrl);
   if (Array.isArray(json.events)) json.events = json.events.map((e) => (typeof e?.url === "string" ? { ...e, url: cleanUrl(e.url) } : e));
+  // A video uploaded from a file can come from anywhere: the page behind the
+  // popup and the last capture's event log say nothing about it.
+  if (json.recording?.source === "upload") {
+    delete json.pageUrl;
+    delete json.pageTitle;
+    json.events = [];
+  }
   // An attached replay (rrweb events) reaches the agent as plain steps (with
   // the URL at each), plus its stills and narration below.
   // A recording's capture events give the same details when there's no replay.
@@ -135,21 +171,29 @@ export async function loadBriefInput(
   const names = (await store.list(`${prefix}/keyframes`)).sort();
 
   if (!opts.lean) {
-    // Transcribe only when the popup didn't give us an edited transcript. Fail-soft.
-    if (!(typeof json.transcript === "string" && json.transcript.trim())) {
-      let audioInput: { bytes: Buffer; filename: string; contentType: string } | null = null;
-      const audioBuf = await dl(`${prefix}/audio.webm`);
-      if (audioBuf) {
-        audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
-      } else if (recName && isTranscribableRecording(recName)) {
-        const recBuf = await dl(`${prefix}/${recName}`);
-        if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
-          audioInput = { bytes: recBuf, filename: recName, contentType: recordingContentType(recName) };
-        }
+    // The recording's voice: the mic track, else the video's own sound.
+    let audioInput: { bytes: Buffer; filename: string; contentType: string } | null = null;
+    const audioBuf = await dl(`${prefix}/audio.webm`);
+    if (audioBuf) {
+      audioInput = { bytes: audioBuf, filename: "audio.webm", contentType: "audio/webm" };
+    } else if (recName && isTranscribableRecording(recName)) {
+      const recBuf = await dl(`${prefix}/${recName}`);
+      if (recBuf && recBuf.length <= 25 * 1024 * 1024) {
+        audioInput = { bytes: recBuf, filename: recName, contentType: recordingContentType(recName) };
       }
-      const transcript = await transcribeAudio(audioInput && { ...audioInput, prompt: transcriptionHint(json) });
-      if (transcript) json.transcript = transcript;
     }
+    // the words they likely say: the pages they went through, the buttons they clicked
+    const rec = techFromRecording(json);
+    const seen = [
+      ...rec.pages.map((p) => p.title ?? ""),
+      ...rec.actions.filter((a) => a.kind === "click").map((a) => a.what.replace(/^"|"$/g, "")),
+    ].slice(0, 30);
+    const hinted = audioInput && { ...audioInput, prompt: transcriptionHint(json, seen) };
+    // Both run alongside the downloads below. The words: only when the popup
+    // didn't give us an edited transcript. The timing (when the reporter said
+    // what, to line it up with the pages, clicks and frames): always. Fail-soft.
+    const plain = typeof json.transcript === "string" && json.transcript.trim() ? Promise.resolve(null) : transcribeAudio(hinted);
+    const timed = transcribeTimed(hinted);
 
     // Keyframe storyboard (vision): download all, keep the perceptually-distinct.
     const tsByFile = new Map<string, number>();
@@ -165,7 +209,8 @@ export async function loadBriefInput(
       }),
     );
     const usable = downloaded.filter((f): f is NonNullable<typeof f> => !!f);
-    frames = selectDistinctFrames(usable);
+    const keyMoments = keyMomentFrames(usable, json);
+    frames = selectDistinctFrames(usable, { keep: (f) => keyMoments.has(f) });
     // The reporter's marks: the frame nearest each one is always shown, and
     // says it was marked (with the note), however similar it looks.
     const marks = (json as { recordingMarks?: Array<{ t: number; note?: string }> }).recordingMarks ?? [];
@@ -222,6 +267,12 @@ export async function loadBriefInput(
         if (narration) replayMeta.narration = narration;
       }
     }
+
+    const [transcript, said] = await Promise.all([plain, timed]);
+    if (transcript) json.transcript = transcript;
+    // Whisper makes words up over silence: its timing counts only when the
+    // better model (or the reporter, in the popup) heard someone speak.
+    if (said.length && typeof json.transcript === "string" && json.transcript.trim()) json.narrationTimed = said;
   }
 
   // Screenshots: attachable evidence (always); shown to the model as vision only

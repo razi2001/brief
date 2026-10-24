@@ -149,7 +149,7 @@ describe("one-click reports", () => {
 });
 
 describe("buildContextBlock - what only the raw json had", () => {
-  it("lists a screen recording's steps, each click with the page it was on", () => {
+  it("lists a screen recording's steps after the page they were on", () => {
     const block = buildContextBlock({
       events: [
         { type: "nav", load: true, tMs: 0, url: "https://app.x/cases/42" },
@@ -157,10 +157,8 @@ describe("buildContextBlock - what only the raw json had", () => {
         { type: "key", tMs: 4100, url: "https://app.x/cases/42", key: "Enter" },
       ],
     });
-    expect(block).toContain("RECORDING STEPS");
-    expect(block).toContain("- 0:00 Opened app.x/cases/42");
-    expect(block).toContain('- 0:03 Clicked "Save" (on https://app.x/cases/42)');
-    expect(block).toContain("- 0:04 Pressed Enter (on https://app.x/cases/42)");
+    expect(block).toContain("RECORDING TIMELINE (what the reporter did");
+    expect(block).toContain('0:00 on https://app.x/cases/42\n0:03 clicked "Save"\n0:04 pressed Enter');
   });
 
   it("shows the reporter's own title", () => {
@@ -178,5 +176,73 @@ describe("buildContextBlock - what only the raw json had", () => {
     const block = buildContextBlock({ replay: { steps: ["0:01 Typed into \"Email\""], frames: [], marks: [] } });
     expect(block).toMatch(/asterisks/);
     expect(block).toMatch(/privacy/);
+  });
+});
+
+describe("buildContextBlock - where it happened", () => {
+  const events = [
+    { type: "click", tMs: 1000, url: "https://app.x/dashboard", element: { text: "Settings" } },
+    { type: "nav", tMs: 1400, url: "https://app.x/settings", title: "Settings - Acme" },
+    { type: "click", tMs: 6000, url: "https://app.x/settings", element: { text: "Save" } },
+    { type: "nav", tMs: 9000, url: "https://app.x/projects", title: "Projects - Acme" },
+  ];
+
+  it("lists every page a recording went through, and says the first is only where it started", () => {
+    const block = buildContextBlock({ pageUrl: "https://app.x/dashboard", pageTitle: "Dashboard - Acme", events, recordingMarks: [{ t: 7000 }] });
+    expect(block).toContain("PAGES (the capture went through several pages");
+    expect(block).toContain("often NOT the first page");
+    expect(block).toContain("- 0:00 Dashboard - Acme (https://app.x/dashboard) - the recording started here");
+    expect(block).toContain("- 0:01 Settings - Acme (https://app.x/settings)\n");
+    expect(block).toContain("- 0:09 Projects - Acme (https://app.x/projects) - the recording ended here");
+    expect(block).toContain("The reporter marked the problem on: Settings - Acme (https://app.x/settings)");
+    expect(block).not.toContain("PAGE (where this happened");
+  });
+
+  it("keeps the single-page block when the capture stayed on one page", () => {
+    const block = buildContextBlock({ pageUrl: "https://app.x/settings", pageTitle: "Settings", events: events.slice(2, 3) });
+    expect(block).toContain("PAGE (where this happened - link it in the ticket's Context):\n- Page URL: https://app.x/settings\n- Page title: Settings");
+    expect(block).not.toContain("PAGES (");
+  });
+
+  it("an uploaded video has no known page and no event log of ours", () => {
+    const block = buildContextBlock({ pageUrl: "https://app.x/dashboard", recording: { source: "upload" }, events });
+    expect(block).toContain("PAGE: not known");
+    expect(block).not.toContain("https://app.x/dashboard");
+    expect(block).not.toContain("RECORDING TIMELINE");
+  });
+
+  it("lines up what the reporter said with the pages and clicks", () => {
+    const block = buildContextBlock({
+      pageUrl: "https://app.x/dashboard",
+      transcript: "I go to settings, I click save, see it is still the old name",
+      narrationTimed: [{ t: 500, text: "I go to settings." }, { t: 7200, text: "See, it is still the old name." }],
+      events,
+    });
+    expect(block).toMatch(/RECORDING TIMELINE \(the screen recording moment by moment[^]*A "says" line is the reporter's voice/);
+    const at = (s: string) => block.indexOf(s);
+    expect(at('0:01 says: "I go to settings."')).toBeGreaterThan(-1);
+    expect(at('0:06 clicked "Save"')).toBeLessThan(at('0:07 says: "See, it is still the old name."'));
+    expect(at('0:07 says: "See')).toBeLessThan(at("0:09 now on Projects - Acme"));
+  });
+});
+
+describe("buildContextBlock - the reporter's spoken words", () => {
+  it("with nothing typed, what they say is the report", () => {
+    const block = buildContextBlock({ transcript: "the total should be 120 but it shows 100" });
+    expect(block).toContain("WHAT THE REPORTER SAYS (while recording the screen, transcribed audio - they typed nothing, so this is the report");
+    expect(block).not.toContain("SPOKEN NARRATION");
+  });
+
+  it("with a description, the narration fleshes it out and still counts", () => {
+    const block = buildContextBlock({ description: "Wrong total", transcript: "it should be 120" });
+    expect(block).toContain("SPOKEN NARRATION (while recording the screen, transcribed audio - said while showing it");
+    expect(block.indexOf("REPORTER'S DESCRIPTION")).toBeLessThan(block.indexOf("SPOKEN NARRATION"));
+  });
+
+  it("a replay voice-over is the report too when nothing was typed", () => {
+    const block = buildContextBlock({ replay: { steps: [], narration: "nothing happens when I click pay" } });
+    expect(block).toContain("WHAT THE REPORTER SAYS (their voice-over on the replay");
+    const typed = buildContextBlock({ description: "Pay", replay: { steps: [], narration: "nothing happens" } });
+    expect(typed).toContain("REPLAY NARRATION (their voice-over on the replay");
   });
 });

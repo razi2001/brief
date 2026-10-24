@@ -1,0 +1,13 @@
+{
+  "kind": "none",
+  "bug": "Nothing is wrong: adding a to-do and ticking it both work; the reporter only says something felt off.",
+  "facts": [
+    "POST /api/todos returns 201 and the item appears; PATCH /api/todos/7 returns 200 and it shows ticked.",
+    "No request fails and no error is logged."
+  ],
+  "variants": [
+    {
+      "name": "narrated"
+    }
+  ]
+}

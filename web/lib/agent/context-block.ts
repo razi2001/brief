@@ -1,30 +1,12 @@
 import { techFromRecording, videoLogsForAgent } from "./tech-details";
+import { clockOf, distinctPages, pageAt, pageName, pageTrail, recordingTimeline } from "./timeline";
 import type { BriefJson, CaptureEvent } from "./overrides";
+import type { SaidLine } from "./transcribe";
 // Pure helper: distil the high-signal context out of brief.json into a compact,
 // prominent text block for the filing agent. No SDK/IO deps, so it's unit-tested
 // directly (context-block.test.ts).
 
-/** ms -> "M:SS" */
-const clockOf = (ms: number) => {
-  const s = Math.max(0, Math.round(ms / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-};
-
-const VERB: Record<string, string> = { open: "Opened", reload: "Reloaded", "go to": "Went to", click: "Clicked", key: "Pressed" };
-
-/** A screen recording's clicks and page changes as steps, each click with the page it was on. */
-function recordingStepLines(json: unknown): string[] {
-  const td = techFromRecording(json);
-  const pageAt = (t: number) => {
-    let url = "";
-    for (const p of td.pages) if (p.t <= t) url = p.url;
-    return url;
-  };
-  return td.actions.slice(0, 40).map((a) => {
-    const page = a.kind === "click" || a.kind === "key" ? pageAt(a.t) : "";
-    return `- ${clockOf(a.t)} ${VERB[a.kind] ?? a.kind} ${a.what}${page ? ` (on ${page})` : ""}`;
-  });
-}
+const SPEECH = "Fix obvious mis-hearings and never quote it word for word";
 
 /**
  * Extract the high-signal context (page URL/title, browser, console/runtime/
@@ -37,10 +19,10 @@ export function buildContextBlock(json: unknown): string {
   if (!json || typeof json !== "object") return "";
   const j = (json ?? {}) as BriefJson;
 
-  // Sections are assembled in priority order: the reporter's typed description
-  // leads (it defines what the ticket is about), then page context, the spoken
-  // narration (a rough draft of intent), the per-shot screenshot notes, and
-  // finally console/network errors as SUPPORTING context only - never the headline.
+  // Sections are assembled in priority order: the reporter's own words lead
+  // (typed, then spoken - they define what the ticket is about), then where it
+  // happened, what happened when, the per-shot screenshot notes, and finally
+  // console/network errors as SUPPORTING context only - never the headline.
   const sections: string[] = [];
 
   // One key press, nothing typed: the bug has to be found, not just written up.
@@ -63,11 +45,59 @@ export function buildContextBlock(json: unknown): string {
     sections.push("REPORTER'S TITLE (their working title for the report):\n" + j.name.trim().slice(0, 200));
   }
 
-  const lines: string[] = [];
-  if (j.pageUrl) lines.push(`- Page URL: ${j.pageUrl}`);
-  if (j.pageTitle) lines.push(`- Page title: ${j.pageTitle}`);
-  if (j.userAgent) lines.push(`- Browser (user agent): ${j.userAgent}`);
-  if (lines.length) sections.push("PAGE CONTEXT (ground truth - put the URL in the ticket):\n" + lines.join("\n"));
+  // What the reporter SAYS is as much the report as what they type: people
+  // talk through a video instead of typing. With nothing typed, it IS the report.
+  const typed = typeof j.description === "string" && !!j.description.trim();
+  const transcript = typeof j.transcript === "string" ? j.transcript.trim() : "";
+  const replayVoice = typeof j.replay?.narration === "string" ? j.replay.narration.trim() : "";
+  const spoken = (title: string, what: string) =>
+    typed
+      ? `${title} (${what}, transcribed audio - said while showing it: it fleshes out the description, and whatever they point out as wrong is part of the report. ${SPEECH}):`
+      : `WHAT THE REPORTER SAYS (${what}, transcribed audio - they typed nothing, so this is the report: what they point out as wrong is the bug, what they say should happen is the Expected, what they do before it are the steps. ${SPEECH}):`;
+  if (transcript) sections.push(spoken("SPOKEN NARRATION", "while recording the screen") + "\n" + transcript.slice(0, 4000));
+  if (replayVoice) sections.push(spoken("REPLAY NARRATION", "their voice-over on the replay") + "\n" + replayVoice.slice(0, 4000));
+
+  // Where it happened. A video can cross pages, and the page it started on is
+  // only that: the ticket's Context is the page the problem shows on.
+  const browser = j.userAgent ? `- Browser (user agent): ${j.userAgent}` : "";
+  const uploaded = j.recording?.source === "upload";
+  const rec = techFromRecording(j);
+  const start = { url: j.pageUrl, title: j.pageTitle };
+  const recMarks = (Array.isArray(j.recordingMarks) ? j.recordingMarks : []).filter((m) => typeof m?.t === "number");
+  const replayTd = (Array.isArray(j.techLogs) ? j.techLogs : []).find((v) => v?.label === "Replay")?.td;
+  const replayMarks = (Array.isArray(j.replay?.marks) ? j.replay.marks : []).filter((m) => typeof m?.t === "number" && !m.auto);
+  const trails = [
+    { video: "recording", pages: uploaded ? [] : pageTrail(rec, start), marks: recMarks },
+    { video: "replay", pages: pageTrail(replayTd, start), marks: replayMarks },
+  ].filter((v) => v.pages.length);
+  if (uploaded) {
+    sections.push(
+      "PAGE: not known. The reporter uploaded this video from a file, so it can come from any app or page. If the video shows an address, use it; otherwise name the screen in words. Never make up an address." +
+        (browser ? `\n${browser}` : ""),
+    );
+  } else if (trails.some((v) => distinctPages(v.pages) > 1)) {
+    const parts = trails.map((v) => {
+      const shown = v.pages.slice(0, 25);
+      const list = shown.map((p, i) => {
+        const end = i === 0 ? ` - the ${v.video} started here` : i === v.pages.length - 1 ? ` - the ${v.video} ended here` : "";
+        return `- ${clockOf(p.t)} ${pageName(p)}${end}`;
+      });
+      const marked = [...new Set(v.marks.map((m) => pageAt(v.pages, m.t)).filter((p) => !!p).map((p) => pageName(p!)))];
+      if (marked.length) list.push(`The reporter marked the problem on: ${marked.join(", ")}`);
+      return (trails.length > 1 ? `The ${v.video} (times into it):\n` : "") + list.join("\n");
+    });
+    sections.push(
+      "PAGES (the capture went through several pages, in order, times into it. The ticket's Context is the page where the problem shows: where the reporter says or marks that something is wrong, or where it fails. That is often NOT the first page, which is only where the capture started):\n" +
+        parts.join("\n") +
+        (browser ? `\n${browser}` : ""),
+    );
+  } else {
+    const lines: string[] = [];
+    if (j.pageUrl) lines.push(`- Page URL: ${j.pageUrl}`);
+    if (j.pageTitle) lines.push(`- Page title: ${j.pageTitle}`);
+    if (browser) lines.push(browser);
+    if (lines.length) sections.push("PAGE (where this happened - link it in the ticket's Context):\n" + lines.join("\n"));
+  }
 
   // The instant replay the reporter attached: what they actually did in the
   // browser just before reporting, read off a DOM recording (run-processing
@@ -81,12 +111,16 @@ export function buildContextBlock(json: unknown): string {
         replaySteps.map((s) => `- ${s.slice(0, 300)}`).join("\n"),
     );
   }
-  // A screen recording's own steps (its event log), listed like the replay's.
-  const recSteps = recordingStepLines(j);
-  if (recSteps.length) {
+  // A screen recording, moment by moment: its pages, clicks, failures, marks
+  // and, when the narration is timed, what the reporter said at each moment.
+  const said: SaidLine[] = Array.isArray(j.narrationTimed) ? j.narrationTimed : [];
+  const timeline = uploaded ? [] : recordingTimeline(rec, { said, marks: recMarks, startUrl: j.pageUrl, startTitle: j.pageTitle });
+  if (timeline.length) {
     sections.push(
-      "RECORDING STEPS (what the reporter did during the screen recording, from its event log - use it for accurate steps to reproduce; typed values are not known):\n" +
-        recSteps.join("\n"),
+      (said.length
+        ? "RECORDING TIMELINE (the screen recording moment by moment, times into it - the same clock as the frames. A \"says\" line is the reporter's voice at that moment: the page, the frames and the calls at the time they say something is wrong show what they mean. Use it for the steps to reproduce; typed values are not known):\n"
+        : "RECORDING TIMELINE (what the reporter did during the screen recording, from its event log, times into it - the same clock as the frames. Use it for the steps to reproduce; typed values are not known):\n") +
+        timeline.slice(0, 160).join("\n"),
     );
   }
 
@@ -125,13 +159,6 @@ export function buildContextBlock(json: unknown): string {
     );
   }
 
-  if (typeof j.replay?.narration === "string" && j.replay.narration.trim()) {
-    sections.push(
-      "REPLAY NARRATION (the reporter's voice-over on the replay, transcribed - their account of what the replay shows; correct obvious mis-transcriptions):\n" +
-        j.replay.narration.trim().slice(0, 4000),
-    );
-  }
-
   // Console errors come through as events of type "console-error" (args[]),
   // plus window "error"/"unhandledrejection", and failed requests as
   // "network-error" (method/url/status/reason). Surface them verbatim.
@@ -158,15 +185,6 @@ export function buildContextBlock(json: unknown): string {
         : String(e?.message || e?.reason || (typeof e?.payload === "string" ? e.payload : JSON.stringify(e)));
     }
     if (msg && msg.trim()) errs.push(msg.trim().slice(0, 500));
-  }
-
-  // Narration is the reporter's spoken intent - a rough draft to corroborate
-  // against the description and the visual/console ground truth, not quoted.
-  if (typeof j.transcript === "string" && j.transcript.trim()) {
-    sections.push(
-      "SPOKEN NARRATION (transcribed audio - the reporter's rough-draft intent; corroborate against the description and the screenshots, and correct obvious mis-transcriptions):\n" +
-        j.transcript.trim().slice(0, 4000),
-    );
   }
 
   // Per-screenshot notes the reporter typed in the popup - their intent for each

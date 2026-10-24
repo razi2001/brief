@@ -22,6 +22,16 @@
   check('after a worker restart the log keeps what came before, and goes on', after.pays >= 2 && after.trace === 'x-request-id: req-7f3a9c' && after.at && after.cons >= 2, JSON.stringify(after));
   const meta = await W(`chrome.runtime.sendMessage({ type: 'GET_BRIEF_META' })`);
   check('the upload gets them, with the page it started on', (meta.events || []).filter((e) => e.type === 'network').length >= 2 && meta.pageUrl === `http://app.brief.localhost:${WEB}/`, JSON.stringify({ n: meta.events?.length, pageUrl: meta.pageUrl }));
+
+  // ---- a video picked from a file doesn't inherit that recording's page and log ----
+  const ask = (source) => W(`(async () => {
+    await chrome.storage.local.set({ draft: { id: 'd-file', screenshots: [], recording: { recordedAt: Date.now(), durationMs: 1000, poster: null, source: '${source}' } } });
+    return chrome.runtime.sendMessage({ type: 'GET_UPLOAD_CONTEXT', briefId: 'd-file' });
+  })()`);
+  const uploaded = (await ask('upload')).meta;
+  check('an uploaded video gets no page and no event log, and says it was uploaded', uploaded.events.length === 0 && uploaded.pageUrl === null && uploaded.source === 'upload', JSON.stringify(uploaded));
+  const captured = (await ask('capture')).meta;
+  check('an edited capture still gets the recording\'s log and page', captured.events.length >= 2 && captured.pageUrl === `http://app.brief.localhost:${WEB}/` && !captured.source, JSON.stringify({ n: captured.events?.length, pageUrl: captured.pageUrl }));
 }
 
 main().catch((e) => { console.error(e); results.push({ ok: false }); }).finally(() => {

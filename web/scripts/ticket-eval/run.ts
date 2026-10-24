@@ -3,6 +3,7 @@
 //
 //   cd web && npx tsx scripts/ticket-eval/run.ts [--case save-500] [--runs 3]
 //     [--effort low|medium] [--label baseline] [--model gpt-5.6-luna] [--env <file>]
+//     [--context]  (print what the writer reads for each case, write nothing)
 //
 // OPENAI_API_KEY comes from the environment, else from --env (default web/.env.local).
 import { readFileSync } from "node:fs";
@@ -12,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import OpenAI from "openai";
 import { loadBriefInput } from "../../lib/agent/load-brief-input";
 import { composeDraftTicket } from "../../lib/agent/compose-draft";
+import { buildContextBlock } from "../../lib/agent/context-block";
+import { storyboardParts } from "../../lib/agent/storyboard";
 import type { BriefOverrides } from "../../lib/agent/overrides";
 import { folderStore } from "./folder-store";
 import { codeChecks, type Checks, type Kind, type Ticket } from "./score";
@@ -21,7 +24,8 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const JUDGE_MODEL = "gpt-5.6-luna";
 
 type Variant = { name: string; description?: string };
-type Expect = { bug: string; kind: Kind; facts?: string[]; variants?: Variant[] };
+// page: the path the Context should link (the bug's page); also: a second problem the reporter raised
+type Expect = { bug: string; kind: Kind; facts?: string[]; variants?: Variant[]; page?: string; also?: string };
 type Job = { name: string; root: string; prefix: string; expect: Expect; variant: Variant; run: number };
 type Row = {
   case: string;
@@ -114,6 +118,17 @@ async function main() {
 
   const cases = (await findCases(path.join(here, "cases"))).filter((c) => !only || c.name === only);
   if (!cases.length) throw new Error("no cases (record them: extension/test/e2e/record-cases.mjs)");
+
+  // --context: what the writer would read for each case (no ticket written)
+  if (process.argv.includes("--context")) {
+    for (const c of cases) {
+      const overrides = JSON.parse(await readFile(path.join(c.root, c.prefix, "overrides.json"), "utf8").catch(() => "{}")) as BriefOverrides;
+      const { input } = await loadBriefInput(folderStore(c.root), c.prefix, { overrides });
+      const labels = storyboardParts(input.images).flatMap((p) => (p.type === "input_text" ? [p.text] : []));
+      console.log(`\n===== ${c.name}\n${labels.join("\n")}\n\n${buildContextBlock(input.json)}`);
+    }
+    return;
+  }
   const jobs: Job[] = [];
   for (const c of cases) {
     const expect = JSON.parse(await readFile(path.join(c.root, c.prefix, "expect.json"), "utf8")) as Expect;
@@ -141,7 +156,7 @@ async function main() {
       row.ms = Date.now() - t0;
       row.usage = draft.usage;
       row.ticket = { title: draft.title, body: draft.descriptionMarkdown };
-      row.checks = codeChecks(row.ticket, j.expect.kind);
+      row.checks = codeChecks(row.ticket, j.expect.kind, j.expect);
       row.verdict = await judge(client, JUDGE_MODEL, j.expect, row.ticket);
     } catch (e) {
       row.error = e instanceof Error ? e.message : String(e);
@@ -166,6 +181,8 @@ async function main() {
       plainCode: rate(ok.map((r) => r.checks?.plainSummary)),
       sections: rate(ok.map((r) => r.checks?.sections)),
       notes: rate(ok.map((r) => r.checks?.techNotes)),
+      page: rate(ok.map((r) => r.checks?.contextPage)),
+      also: rate(ok.map((r) => r.checks?.alsoNoticed)),
       rules: rate(ok.map((r) => !!r.checks && r.checks.contextLink && r.checks.noBannedWords && r.checks.noDashes)),
       s: (median(ok.map((r) => r.ms ?? 0)) / 1000).toFixed(1),
       tokens: Math.round(avg(ok.map((r) => (r.usage ? r.usage.input + r.usage.output : 0)))),
@@ -183,6 +200,7 @@ async function main() {
     ` | invented anywhere ${ok.filter((r) => r.verdict?.inventedBug).length}/${ok.length}` +
     ` | plain (judge) ${rate(ok.map((r) => r.verdict?.plainSummary))} (code) ${rate(ok.map((r) => r.checks?.plainSummary))}` +
     ` | sections ${rate(ok.map((r) => r.checks?.sections))} | tech notes ${rate(ok.map((r) => r.checks?.techNotes))}` +
+    ` | bug page ${rate(ok.map((r) => r.checks?.contextPage))} | also noticed ${rate(ok.map((r) => r.checks?.alsoNoticed))}` +
     ` | median ${(median(ok.map((r) => r.ms ?? 0)) / 1000).toFixed(1)} s | errors ${rows.length - ok.length}`;
   console.log(total);
 

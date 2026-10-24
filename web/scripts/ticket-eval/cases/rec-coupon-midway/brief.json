@@ -1,0 +1,155 @@
+{
+  "id": "rec-coupon-midway",
+  "schemaVersion": 2,
+  "createdAt": "2026-10-20T09:14:05.000Z",
+  "durationMs": 34720,
+  "intent": "brief",
+  "pageUrl": "https://shop.acme.test/products",
+  "pageTitle": "Products - Acme Shop",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "transcript": null,
+  "transcriptChunks": [],
+  "keyframes": [
+    {
+      "index": 0,
+      "timestamp": 0,
+      "file": "keyframes/keyframe-000.png"
+    },
+    {
+      "index": 3,
+      "timestamp": 6000,
+      "file": "keyframes/keyframe-003.png"
+    },
+    {
+      "index": 5,
+      "timestamp": 10000,
+      "file": "keyframes/keyframe-005.png"
+    },
+    {
+      "index": 7,
+      "timestamp": 14000,
+      "file": "keyframes/keyframe-007.png"
+    },
+    {
+      "index": 8,
+      "timestamp": 16000,
+      "file": "keyframes/keyframe-008.png"
+    },
+    {
+      "index": 15,
+      "timestamp": 30000,
+      "file": "keyframes/keyframe-015.png"
+    }
+  ],
+  "events": [
+    {
+      "type": "click",
+      "tMs": 4514,
+      "at": 1792487649514,
+      "url": "https://shop.acme.test/products",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Cart"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "nav",
+      "tMs": 5264,
+      "at": 1792487650264,
+      "url": "https://shop.acme.test/cart",
+      "title": "Your cart - Acme Shop",
+      "load": false
+    },
+    {
+      "type": "click",
+      "tMs": 8072,
+      "at": 1792487653072,
+      "url": "https://shop.acme.test/cart",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Checkout"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "nav",
+      "tMs": 8822,
+      "at": 1792487653822,
+      "url": "https://shop.acme.test/checkout",
+      "title": "Checkout - Acme Shop",
+      "load": false
+    },
+    {
+      "type": "click",
+      "tMs": 12228,
+      "at": 1792487657228,
+      "url": "https://shop.acme.test/checkout",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Enter a code"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "click",
+      "tMs": 13228,
+      "at": 1792487658228,
+      "url": "https://shop.acme.test/checkout",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Apply"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "network",
+      "tMs": 14308,
+      "at": 1792487659308,
+      "method": "POST",
+      "url": "https://shop.acme.test/api/coupons/apply",
+      "status": 500,
+      "ms": 640,
+      "response": "{\"error\":\"coupon service unavailable\"}"
+    },
+    {
+      "type": "click",
+      "tMs": 29131,
+      "at": 1792487674131,
+      "url": "https://shop.acme.test/checkout",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Products"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "nav",
+      "tMs": 29881,
+      "at": 1792487674881,
+      "url": "https://shop.acme.test/products",
+      "title": "Products - Acme Shop",
+      "load": false
+    }
+  ],
+  "description": "",
+  "hasScreenshot": false,
+  "screenshots": [],
+  "includeVideo": true,
+  "extra": [],
+  "recording": {
+    "file": "recording.webm",
+    "mimeType": "video/webm",
+    "durationMs": 34720
+  }
+}

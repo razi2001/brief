@@ -1,0 +1,92 @@
+{
+  "id": "rec-invoice-total-fr",
+  "schemaVersion": 2,
+  "createdAt": "2026-10-20T09:14:05.000Z",
+  "durationMs": 31404,
+  "intent": "brief",
+  "pageUrl": "https://app.facturo.test/invoices",
+  "pageTitle": "Factures - Facturo",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "transcript": null,
+  "transcriptChunks": [],
+  "keyframes": [
+    {
+      "index": 0,
+      "timestamp": 0,
+      "file": "keyframes/keyframe-000.png"
+    },
+    {
+      "index": 4,
+      "timestamp": 8000,
+      "file": "keyframes/keyframe-004.png"
+    },
+    {
+      "index": 15,
+      "timestamp": 30000,
+      "file": "keyframes/keyframe-015.png"
+    }
+  ],
+  "events": [
+    {
+      "type": "click",
+      "tMs": 5946,
+      "at": 1792487650946,
+      "url": "https://app.facturo.test/invoices",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "F-1042"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "nav",
+      "tMs": 6696,
+      "at": 1792487651696,
+      "url": "https://app.facturo.test/invoices/1042",
+      "title": "Facture F-1042 - Facturo",
+      "load": false
+    },
+    {
+      "type": "network",
+      "tMs": 7026,
+      "at": 1792487652026,
+      "method": "GET",
+      "url": "https://app.facturo.test/api/invoices/1042",
+      "status": 200,
+      "ms": 120
+    },
+    {
+      "type": "click",
+      "tMs": 28802,
+      "at": 1792487673802,
+      "url": "https://app.facturo.test/invoices/1042",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Factures"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "nav",
+      "tMs": 29552,
+      "at": 1792487674552,
+      "url": "https://app.facturo.test/invoices",
+      "title": "Factures - Facturo",
+      "load": false
+    }
+  ],
+  "description": "",
+  "hasScreenshot": false,
+  "screenshots": [],
+  "includeVideo": true,
+  "extra": [],
+  "recording": {
+    "file": "recording.webm",
+    "mimeType": "video/webm",
+    "durationMs": 31404
+  }
+}

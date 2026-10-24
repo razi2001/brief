@@ -6,7 +6,7 @@ driven over the DevTools protocol, against a small test site served locally.
 | Suite | What it covers |
 |---|---|
 | `editor` | the editor for recordings, replays and screenshots (trim, crop, voice, marks, Space), Replay recording across tabs, saving a replay and its key-moment stills, the replay rendered to a video, technical logs (network calls with timings and trace ids, masked bodies, console), blob: images kept, filing uploads |
-| `recording-logs` | a recording keeps its event log when the service worker is recycled mid-recording |
+| `recording-logs` | a recording keeps its event log when the service worker is recycled mid-recording; a video uploaded from a file doesn't inherit that recording's page and log (an edited capture still does) |
 | `filing-restart` | a ticket filed in the background survives the worker being shut down mid-filing: its files are kept, it resumes, it's filed once |
 | `auto-report` | "Brief it" (Alt+Shift+B, or right-click): the last minute becomes a draft with nothing opened - suspects found (a failed call), stills taken there, uploaded, the toolbar icon says it; an unrecorded page is explained in the popup |
 | `replay-trim` | a trimmed replay opens on the part kept, not the start of the recording: its video's first frame (a ticket's thumbnail) and the editor reopening it |

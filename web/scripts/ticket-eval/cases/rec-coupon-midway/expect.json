@@ -1,0 +1,19 @@
+{
+  "kind": "failure",
+  "page": "/checkout",
+  "bug": "Applying a coupon at checkout does nothing: the coupon request fails with a server error, the page shows no message and the total stays $84.00.",
+  "facts": [
+    "The reporter typed the code SPRING10 and clicked Apply on /checkout.",
+    "POST /api/coupons/apply returns 500 with the body {\"error\":\"coupon service unavailable\"} after about 0.6 s.",
+    "The recording starts on /products, goes to /cart and /checkout, and ends back on /products."
+  ],
+  "variants": [
+    {
+      "name": "narrated"
+    },
+    {
+      "name": "described",
+      "description": "coupon not applied"
+    }
+  ]
+}

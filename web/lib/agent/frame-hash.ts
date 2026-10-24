@@ -149,7 +149,16 @@ export function hamming(a: bigint, b: bigint): number {
  */
 export function selectDistinctFrames<T extends { bytes: Buffer }>(
   frames: T[],
-  opts: { threshold?: number; maxFrames?: number } = {},
+  opts: {
+    threshold?: number;
+    maxFrames?: number;
+    /**
+     * Frames to keep however alike they look (a new page, the screen after a
+     * click): a 9x8 hash can't tell two pages of one app apart, or see a
+     * total change. They also win the slots when there are too many.
+     */
+    keep?: (frame: T, index: number) => boolean;
+  } = {},
 ): T[] {
   const threshold = opts.threshold ?? 10;
   const maxFrames = opts.maxFrames ?? 12;
@@ -161,15 +170,23 @@ export function selectDistinctFrames<T extends { bytes: Buffer }>(
   });
   const changed = (x: bigint | string, y: bigint | string): boolean =>
     typeof x === "bigint" && typeof y === "bigint" ? hamming(x, y) > threshold : x !== y;
+  const must = frames.map((f, i) => !!opts.keep?.(f, i));
 
   const kept: number[] = [0];
   for (let i = 1; i < frames.length; i++) {
-    if (changed(fp[i], fp[kept[kept.length - 1]])) kept.push(i);
+    if (must[i] || changed(fp[i], fp[kept[kept.length - 1]])) kept.push(i);
   }
 
+  // `n` of them, evenly, first and last included
+  const sample = (xs: number[], n: number) =>
+    n <= 0 ? [] : n === 1 ? [xs[0]] : Array.from({ length: n }, (_, i) => xs[Math.round((i * (xs.length - 1)) / (n - 1))]);
   let chosen = kept;
   if (kept.length > maxFrames) {
-    chosen = Array.from({ length: maxFrames }, (_, i) => kept[Math.round((i * (kept.length - 1)) / (maxFrames - 1))]);
+    const forced = kept.filter((i) => must[i]);
+    const rest = kept.filter((i) => !must[i]);
+    chosen = forced.length >= maxFrames
+      ? sample(forced, maxFrames)
+      : [...forced, ...sample(rest, maxFrames - forced.length)].sort((a, b) => a - b);
   }
   return chosen.map((i) => frames[i]);
 }

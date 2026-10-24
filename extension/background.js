@@ -1295,10 +1295,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const { briefCloudToken } = await chrome.storage.local.get('briefCloudToken');
             const d = await getDraft();
             const entry = d && d.id === message.briefId ? d : null;
+            // A video picked from a file (or that file, edited) was not
+            // captured here: the last recording's page and event log are not
+            // its own.
+            const uploaded = entry?.recording?.source === 'upload';
             sendResponse({
               token: briefCloudToken || null,
               entry,
-              meta: { events: await getRecEvents(), ...(await recPage()) },
+              meta: uploaded
+                ? { events: [], pageUrl: null, pageTitle: null, source: 'upload' }
+                : { events: await getRecEvents(), ...(await recPage()) },
             });
           } catch (err) {
             sendResponse({ token: null, entry: null, meta: { events: [], pageUrl: null, pageTitle: null }, error: String(err?.message || err) });

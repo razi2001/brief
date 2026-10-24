@@ -3,6 +3,7 @@
 
 import type { ReplaySummary } from "./replay-steps";
 import type { VideoLogs } from "./tech-details";
+import type { SaidLine } from "./transcribe";
 
 /** One event of a capture's log, as brief.json records it (click, network, console, page). */
 export type CaptureEvent = { type?: string; tMs?: number; at?: number; url?: string; [key: string]: unknown };
@@ -28,7 +29,10 @@ export interface BriefJson {
   replayNote?: string;
   recordingMarks?: Array<{ t: number; note?: string }>;
   keyframes?: Array<{ file?: string; timestamp?: number }>;
-  recording?: { file?: unknown };
+  /** `source` "upload": a video picked from a file, not captured here. */
+  recording?: { file?: unknown; source?: unknown };
+  /** When the reporter said what, sentence by sentence (set by processing). */
+  narrationTimed?: SaidLine[];
   replay?: ReplaySummary & { frames?: ReplayFrame[]; marks?: Array<{ t: number; note?: string; auto?: boolean }> };
   techLogs?: VideoLogs[];
   /** One-click report: nothing typed, the replay and what Brief noticed in it are all there is. */

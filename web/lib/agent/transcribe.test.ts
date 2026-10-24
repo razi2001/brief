@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { transcribeAudio, transcriptionHint } from "./transcribe";
+import { saidLines, transcribeAudio, transcribeTimed, transcriptionHint } from "./transcribe";
 
 const audio = () => ({ bytes: Buffer.from("fake-opus-bytes"), filename: "audio.webm", contentType: "audio/webm" });
 
@@ -79,5 +79,61 @@ describe("transcriptionHint", () => {
     const h = transcriptionHint({ description: "word ".repeat(100) }, ["label ".repeat(200)]);
     expect(h.length).toBeLessThanOrEqual(800);
     expect(h.endsWith("label") || h.endsWith("word")).toBe(true);
+  });
+});
+
+describe("saidLines", () => {
+  const w = (word: string, start: number) => ({ word, start, end: start + 0.2 });
+
+  it("gives each sentence the time of its first word, even mid-segment", () => {
+    const res = {
+      segments: [
+        { start: 0, text: " I go to settings. I click save." },
+        { start: 4, text: " See, it is still the old name." },
+      ],
+      words: [w("I", 0.2), w("go", 0.4), w("to", 0.5), w("settings", 0.7), w("I", 2.1), w("click", 2.3), w("save", 2.6),
+        w("See", 4.5), w("it", 4.9), w("is", 5), w("still", 5.2), w("the", 5.4), w("old", 5.5), w("name", 5.7)],
+    };
+    expect(saidLines(res)).toEqual([
+      { t: 200, text: "I go to settings." },
+      { t: 2100, text: "I click save." },
+      { t: 4500, text: "See, it is still the old name." },
+    ]);
+  });
+
+  it("joins a sentence a segment cut in two", () => {
+    const res = {
+      segments: [{ start: 0, text: " The name up here is" }, { start: 3, text: " still the old one. Weird." }],
+      words: [w("The", 0.1), w("name", 0.3), w("up", 0.5), w("here", 0.6), w("is", 0.8), w("still", 3.1), w("the", 3.3), w("old", 3.4), w("one", 3.6), w("Weird", 4.2)],
+    };
+    expect(saidLines(res)).toEqual([
+      { t: 100, text: "The name up here is still the old one." },
+      { t: 4200, text: "Weird." },
+    ]);
+  });
+
+  it("falls back to the segment's start without word times, and ignores junk", () => {
+    expect(saidLines({ segments: [{ start: 1.5, text: "Hello there." }, { start: "x", text: "no" }, { start: 3 }] })).toEqual([
+      { t: 1500, text: "Hello there." },
+    ]);
+    expect(saidLines(null)).toEqual([]);
+  });
+});
+
+describe("transcribeTimed", () => {
+  it("asks Whisper for word and segment times and returns sentences", async () => {
+    const create = vi.fn().mockResolvedValue({ segments: [{ start: 0.5, text: "Nothing happens." }], words: [{ word: "Nothing", start: 0.6 }] });
+    expect(await transcribeTimed({ ...audio(), prompt: "Settings" }, { create })).toEqual([{ t: 600, text: "Nothing happens." }]);
+    expect(create.mock.calls[0][0]).toMatchObject({
+      model: "whisper-1",
+      response_format: "verbose_json",
+      timestamp_granularities: ["word", "segment"],
+      prompt: "Settings",
+    });
+  });
+
+  it("returns [] (never throws) on a failure or no audio", async () => {
+    expect(await transcribeTimed(audio(), { create: vi.fn().mockRejectedValue(new Error("boom")) })).toEqual([]);
+    expect(await transcribeTimed(null)).toEqual([]);
   });
 });

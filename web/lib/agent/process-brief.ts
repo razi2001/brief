@@ -3,9 +3,10 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest, pickEvidence, type EvidenceItem } from "./evidence";
 import { buildContextBlock } from "./context-block";
+import { correlateNote, storyboardParts } from "./storyboard";
 import { videoLogSections, type VideoLogs } from "./tech-details";
 import { agentModel } from "./model";
-import { runToolLoop, text, image, type FunctionDef, type Part } from "./responses";
+import { runToolLoop, text, type FunctionDef, type Part } from "./responses";
 import type { Tracker, IssueResult, TrackerPriority } from "../tracker";
 import { providerName } from "../trackers/registry";
 
@@ -36,7 +37,7 @@ export interface BriefInput {
 // sentence in the ticket). Normalized to **Label**, which every adapter turns
 // into its heading (GitHub ###, Jira h3, Notion heading_3).
 const SECTION_LABEL =
-  /^\s{0,3}(?:\*\*)?(steps to reproduce|steps|expected(?: behaviou?r| result)?|actual(?: behaviou?r| result)?|context|environment|impact|workaround|notes?|errors?|console errors|network errors|summary|technical notes)(?:\*\*)?\s*:?\s*(?:\*\*)?\s*$/i;
+  /^\s{0,3}(?:\*\*)?(steps to reproduce|steps|expected(?: behaviou?r| result)?|actual(?: behaviou?r| result)?|context|environment|impact|workaround|notes?|errors?|console errors|network errors|summary|technical notes|also noticed)(?:\*\*)?\s*:?\s*(?:\*\*)?\s*$/i;
 export function normalizeSectionLabels(markdown: string): string {
   return (markdown ?? "")
     .split("\n")
@@ -375,64 +376,15 @@ export async function processBrief(
   const ctxBlock = buildContextBlock(brief.json);
   if (ctxBlock) tail.push(text(ctxBlock));
 
-  // How many sampled video frames the images contain (so the model knows the
-  // stills are a time-ordered sequence to correlate, not unrelated pictures).
-  const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
-  const replayCount = brief.images.filter((i) => i.name.includes("replay-frame")).length;
-  tail.push(
-    text(
-        "CORRELATE EVERYTHING before writing, led by the reporter's description. " +
-        "Start from what the reporter said the problem is, then use the rest to confirm and flesh it out: " +
-        (frameCount ? `the ${frameCount} time-ordered screen frames (a storyboard), ` : "") +
-        (replayCount ? `the ${replayCount} replay stills (what the browser showed just before the report, in order, each with its page URL), ` : "") +
-        "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the URL, and finally the console/network errors as supporting detail. " +
-        "Build a single coherent account of what the user did, what they expected, and what actually happened. The description defines what the ticket is about; the screenshots/frames are ground truth for what is on screen; treat the narration as a rough draft and the console/network errors as extra context, not the headline. " +
-        "Account for EVERY screenshot the reporter attached: explain what each one shows and weave in the reporter's note for it, so the evidence is described in the ticket, not just attached. Likewise fold any reporter-provided details (the structured fields) into the body. " +
-        "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present, as a Markdown link with the page title as its text, never a bare URL.",
-    ),
-  );
+  tail.push(text(correlateNote(brief.images)));
 
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
   if (manifest) tail.push(text(manifest));
   tail.push(text(`Available ${noun}s (use search_issues first to learn routing precedent, then pick the most appropriate one and pass its id as targetId):\n${targetList}`));
   tail.push(text(`File exactly one ticket for this. Call search_issues for precedent, pick the best ${noun}, then create the issue.`));
 
-  // Present the images as a labelled, ordered storyboard: each keyframe gets a
-  // "Frame i of N - M:SS into the capture" caption so the model reads them as a
-  // timed sequence, and the annotated screenshot is called out explicitly.
-  const mmss = (ms?: number): string | null => {
-    if (typeof ms !== "number" || !isFinite(ms) || ms < 0) return null;
-    const s = Math.round(ms / 1000);
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-  };
-  const shotCount = brief.images.filter((i) => i.name.includes("screenshot")).length;
-  let frameIdx = 0;
-  let replayIdx = 0;
-  let shotIdx = 0;
-  const onPage = (u?: string) => (u ? ` on ${u}` : "");
-  const storyboard: Part[] = [];
-  for (const img of brief.images) {
-    let label: string;
-    if (img.name.includes("keyframe")) {
-      frameIdx++;
-      const t = mmss(img.timestampMs);
-      const marked = img.caption && img.caption.trim() ? ` - ${img.caption.trim()}` : "";
-      label = `Frame ${frameIdx} of ${frameCount}${t ? ` (${t} into the capture)` : ""}${onPage(img.url)}${marked}:`;
-    } else if (img.name.includes("replay-frame")) {
-      replayIdx++;
-      const t = mmss(img.timestampMs);
-      const what = img.caption && img.caption.trim() ? ` - ${img.caption.trim()}` : "";
-      label = `Replay still ${replayIdx} of ${replayCount}${t ? ` (${t} into the replay)` : ""}${onPage(img.url)}${what}:`;
-    } else if (img.name.includes("screenshot")) {
-      shotIdx++;
-      const base = shotCount > 1 ? `Screenshot ${shotIdx} of ${shotCount}` : "Annotated screenshot";
-      const note = img.caption && img.caption.trim() ? ` - the reporter's note on it: "${img.caption.trim()}"` : "";
-      label = `${base} (red marks, if any, = where the reporter is pointing)${note}:`;
-    } else {
-      label = `${img.name}:`;
-    }
-    storyboard.push(text(label), image(img.dataUrl));
-  }
+  // The images as a labelled, ordered storyboard (times, pages, notes).
+  const storyboard = storyboardParts(brief.images);
   const withImages = [...storyboard, ...tail];
   const textOnly = [...tail];
 

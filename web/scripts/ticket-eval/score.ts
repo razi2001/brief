@@ -14,6 +14,10 @@ export interface Checks {
   plainSummary: boolean;
   /** Technical notes when something failed, none when nothing is wrong (null: either is fine). */
   techNotes: boolean | null;
+  /** The Context links the page the bug is on, not just where the capture started (null: no page expected). */
+  contextPage: boolean | null;
+  /** An Also noticed section for the other problem the reporter raised (null: none expected). */
+  alsoNoticed: boolean | null;
 }
 
 const LABEL_LINE = /^\s*\*\*[^*\n]{2,40}\*\*/;
@@ -36,7 +40,27 @@ export function summaryOf(body: string): string {
   return out.join("\n").trim();
 }
 
-export function codeChecks(t: Ticket, kind: Kind): Checks {
+/** The addresses the Context section links to (the whole body's when it has no Context label). */
+export function contextLinks(body: string): string[] {
+  const at = body.search(/\*\*context\b/i);
+  let part = body;
+  if (at >= 0) {
+    const rest = body.slice(at + 2);
+    const next = rest.search(/\n\s*\*\*[^*\n]{2,40}\*\*/);
+    part = next >= 0 ? rest.slice(0, next) : rest;
+  }
+  return [...part.matchAll(/\]\((https?:\/\/[^)\s]+)\)/g)].map((m) => m[1]);
+}
+
+const pathOf = (u: string) => {
+  try {
+    return new URL(u).pathname.replace(/\/+$/, "") || "/";
+  } catch {
+    return "";
+  }
+};
+
+export function codeChecks(t: Ticket, kind: Kind, expect: { page?: string; also?: string } = {}): Checks {
   const body = t.body ?? "";
   // the words the reader reads: link targets and bare URLs (a host can be anything) left out
   const prose = `${t.title ?? ""}\n${body}`.replace(/\]\([^)]*\)/g, "]").replace(/https?:\/\/\S+/g, "");
@@ -48,5 +72,7 @@ export function codeChecks(t: Ticket, kind: Kind): Checks {
     noDashes: !/[–—]/.test(prose),
     plainSummary: !TECHNICAL.test(`${t.title ?? ""}\n${summaryOf(body)}`),
     techNotes: kind === "failure" ? has("technical notes") : kind === "none" ? !has("technical notes") : null,
+    contextPage: expect.page ? contextLinks(body).some((u) => pathOf(u) === pathOf(`http://x${expect.page}`)) : null,
+    alsoNoticed: expect.also ? has("also noticed") : null,
   };
 }

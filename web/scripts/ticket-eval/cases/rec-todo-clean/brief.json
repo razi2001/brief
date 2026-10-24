@@ -1,0 +1,124 @@
+{
+  "id": "rec-todo-clean",
+  "schemaVersion": 2,
+  "createdAt": "2026-10-20T09:14:05.000Z",
+  "durationMs": 20945,
+  "intent": "brief",
+  "pageUrl": "https://todo.acme.test/todos",
+  "pageTitle": "To-dos - Tasks",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "transcript": null,
+  "transcriptChunks": [],
+  "keyframes": [
+    {
+      "index": 0,
+      "timestamp": 0,
+      "file": "keyframes/keyframe-000.png"
+    },
+    {
+      "index": 4,
+      "timestamp": 8000,
+      "file": "keyframes/keyframe-004.png"
+    },
+    {
+      "index": 7,
+      "timestamp": 14000,
+      "file": "keyframes/keyframe-007.png"
+    },
+    {
+      "index": 10,
+      "timestamp": 20000,
+      "file": "keyframes/keyframe-010.png"
+    }
+  ],
+  "events": [
+    {
+      "type": "click",
+      "tMs": 5860,
+      "at": 1792487650860,
+      "url": "https://todo.acme.test/todos",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "New to-do"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "click",
+      "tMs": 6360,
+      "at": 1792487651360,
+      "url": "https://todo.acme.test/todos",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Add"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "network",
+      "tMs": 6940,
+      "at": 1792487651940,
+      "method": "POST",
+      "url": "https://todo.acme.test/api/todos",
+      "status": 201,
+      "ms": 90
+    },
+    {
+      "type": "click",
+      "tMs": 11399,
+      "at": 1792487656399,
+      "url": "https://todo.acme.test/todos",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Buy milk"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "network",
+      "tMs": 11979,
+      "at": 1792487656979,
+      "method": "PATCH",
+      "url": "https://todo.acme.test/api/todos/7",
+      "status": 200,
+      "ms": 70
+    },
+    {
+      "type": "click",
+      "tMs": 18430,
+      "at": 1792487663430,
+      "url": "https://todo.acme.test/todos",
+      "element": {
+        "tag": "button",
+        "selector": "button",
+        "text": "Settings"
+      },
+      "x": 400,
+      "y": 300
+    },
+    {
+      "type": "nav",
+      "tMs": 19180,
+      "at": 1792487664180,
+      "url": "https://todo.acme.test/settings",
+      "title": "Settings - Tasks",
+      "load": false
+    }
+  ],
+  "description": "",
+  "hasScreenshot": false,
+  "screenshots": [],
+  "includeVideo": true,
+  "extra": [],
+  "recording": {
+    "file": "recording.webm",
+    "mimeType": "video/webm",
+    "durationMs": 20945
+  }
+}

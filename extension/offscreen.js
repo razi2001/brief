@@ -575,7 +575,8 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
     extra: Array.isArray(entry?.extra)
       ? entry.extra.filter((p) => (p.key || '').trim() || (p.value || '').trim())
       : [],
-    recording: { file: fileName, mimeType, durationMs },
+    // source "upload": a video from a file, with no page or event log of ours
+    recording: { file: fileName, mimeType, durationMs, ...(meta.source ? { source: meta.source } : {}) },
   };
 
   try {

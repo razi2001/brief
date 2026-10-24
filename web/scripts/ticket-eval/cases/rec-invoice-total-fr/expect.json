@@ -1,0 +1,16 @@
+{
+  "kind": "ui",
+  "page": "/invoices/1042",
+  "also": "The due date is shown in English (\"Due: March 3, 2026\") while the rest of the page is in French.",
+  "bug": "Invoice F-1042 shows a total of 100,00 € although its three lines at 40,00 € add up to 120,00 €.",
+  "facts": [
+    "GET /api/invoices/1042 returns 200; no request fails and nothing is logged.",
+    "The invoice list also shows 100,00 € for F-1042.",
+    "The due date line reads \"Due: March 3, 2026\" in English while the rest of the page is in French."
+  ],
+  "variants": [
+    {
+      "name": "narrated"
+    }
+  ]
+}

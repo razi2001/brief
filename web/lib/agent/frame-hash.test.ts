@@ -201,6 +201,14 @@ describe("selectDistinctFrames", () => {
     expect(out[out.length - 1].name).toBe("4");
   });
 
+  it("keeps the frames it is told to however alike they look, and gives them the slots", () => {
+    const frames = [inc, inc, inc, dec, inc, inc].map((g, i) => frame(String(i), g));
+    expect(selectDistinctFrames(frames, { keep: (f) => f.name === "2" }).map((f) => f.name)).toEqual(["0", "2", "3", "4"]);
+    // three slots: the kept one survives the cut, the rest are sampled
+    const many = [inc, dec, inc, dec, inc, dec].map((g, i) => frame(String(i), g));
+    expect(selectDistinctFrames(many, { maxFrames: 3, keep: (f) => f.name === "2" }).map((f) => f.name)).toEqual(["0", "2", "5"]);
+  });
+
   it("falls back to exact-byte de-dup for undecodable frames", () => {
     const g1 = { name: "g1", bytes: Buffer.from("garbage-one") };
     const g2 = { name: "g2", bytes: Buffer.from("garbage-two") };

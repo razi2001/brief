@@ -3,8 +3,9 @@ import OpenAI from "openai";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { buildEvidenceManifest } from "./evidence";
 import { buildContextBlock } from "./context-block";
+import { correlateNote, storyboardParts } from "./storyboard";
 import { agentModel } from "./model";
-import { respondJson, text, image, type Part, type Usage } from "./responses";
+import { respondJson, text, type Part, type Usage } from "./responses";
 import type { BriefInput } from "./process-brief";
 
 export interface DraftResult {
@@ -32,19 +33,12 @@ export function buildStreamMessages(brief: BriefInput, instructions?: string): {
   const tail: Part[] = [];
   const ctxBlock = buildContextBlock(brief.json);
   if (ctxBlock) tail.push(text(ctxBlock));
-  const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
-  tail.push(
-    text(
-      "CORRELATE EVERYTHING before writing. Cross-reference every signal you have - " +
-        (frameCount ? `the ${frameCount} time-ordered screen frames, ` : "") +
-        "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the console errors, and the URL. Build one coherent account; trust the screenshots/console/events over the narration. ALWAYS include the page URL in the ticket (an Environment/Context line) when present.",
-    ),
-  );
+  tail.push(text(correlateNote(brief.images)));
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
   if (manifest) tail.push(text(manifest));
   tail.push(text("Write the ticket now as Markdown, starting with the # title line."));
 
-  const user = brief.images.length ? [...brief.images.map((img) => image(img.dataUrl)), ...tail] : [...tail];
+  const user = [...storyboardParts(brief.images), ...tail];
   return { system, user };
 }
 
@@ -101,22 +95,13 @@ export async function composeDraftTicket(
   const ctxBlock = buildContextBlock(brief.json);
   if (ctxBlock) tail.push(text(ctxBlock));
 
-  const frameCount = brief.images.filter((i) => i.name.includes("keyframe")).length;
-  tail.push(
-    text(
-      "CORRELATE EVERYTHING before writing. Cross-reference every signal you have - " +
-        (frameCount ? `the ${frameCount} time-ordered screen frames, ` : "") +
-        "any annotated screenshot (red marks = where the reporter is pointing), the spoken narration, the page events, the console errors, and the URL. " +
-        "Build a single coherent account of what the user did, what they expected, and what actually happened; resolve disagreements in favor of the screenshots/console/events over the narration. " +
-        "ALWAYS include the page URL in the ticket (an Environment/Context line) when one is present, as a Markdown link with the page title as its text, never a bare URL.",
-    ),
-  );
+  tail.push(text(correlateNote(brief.images)));
 
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
   if (manifest) tail.push(text(manifest));
   tail.push(text("Write the ticket now."));
 
-  const withImages = [...brief.images.map((img) => image(img.dataUrl)), ...tail];
+  const withImages = [...storyboardParts(brief.images), ...tail];
   const textOnly = [...tail];
 
   const run = async (content: Part[]): Promise<DraftResult> => {

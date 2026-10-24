@@ -37,7 +37,7 @@ export type NetCall = {
   response?: string;
 };
 export type ConsoleLine = { t: number; at?: number; level: "error" | "warn"; text: string };
-export type PageLine = { t: number; at?: number; url: string };
+export type PageLine = { t: number; at?: number; url: string; title?: string };
 /** what the user did: "open", "reload", "click", "type", "key", ... */
 export type Action = { t: number; at?: number; kind: string; what: string };
 export type TechDetails = { pages: PageLine[]; network: NetCall[]; console: ConsoleLine[]; actions: Action[] };
@@ -49,14 +49,15 @@ const num = (v: unknown) => (typeof v === "number" && isFinite(v) ? v : undefine
 const opt = (v: unknown) => str(v) || undefined;
 const empty = (): TechDetails => ({ pages: [], network: [], console: [], actions: [] });
 
-function addPage(pages: PageLine[], t: number, url: string, at?: number) {
+function addPage(pages: PageLine[], t: number, url: string, at?: number, title?: string) {
   if (!url) return;
   const last = pages[pages.length - 1];
   if (last && last.url === url) {
     if (last.at == null && at != null && Math.abs(last.t - t) < 2000) last.at = at;
+    if (!last.title && title) last.title = title;
     return;
   }
-  pages.push({ t: Math.max(0, t), at, url });
+  pages.push({ t: Math.max(0, t), at, url, ...(title ? { title } : {}) });
 }
 
 function consoleText(kind: string, d: Record<string, unknown>): string {
@@ -116,7 +117,7 @@ export function techFromReplay(file: unknown): TechDetails {
     const kind = str(p.kind);
     const at = num(p.at);
     if (kind === "nav") {
-      addPage(out.pages, t, str(p.url), at);
+      addPage(out.pages, t, str(p.url), at, str(p.title).trim());
       // an address change inside the app (a page load is the Meta's "open")
       if (p.load) loads.push({ t, at });
       else out.actions.push({ t, at, kind: "go to", what: shortUrl(str(p.url), 140) });
@@ -157,7 +158,7 @@ export function techFromRecording(json: unknown): TechDetails {
     const at = num(e.at);
     // on a network event `url` is the request; on every other one, the page
     const isNet = type === "network" || type === "network-error";
-    if (!isNet) addPage(out.pages, t, str(e.url), type === "nav" ? at : undefined);
+    if (!isNet) addPage(out.pages, t, str(e.url), type === "nav" ? at : undefined, type === "nav" ? str(e.title).trim() : undefined);
     if (type === "network" || (type === "network-error" && !hasAllCalls)) out.network.push(callOf(t, e));
     else if (type === "console-warn") out.console.push({ t, at, level: "warn", text: consoleText(type, e) });
     else if (type === "console-error" || type === "js-error" || type === "promise-rejection") {

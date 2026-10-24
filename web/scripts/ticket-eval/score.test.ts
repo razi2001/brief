@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { codeChecks, summaryOf } from "./score";
+import { codeChecks, contextLinks, summaryOf } from "./score";
 
 const good = {
   title: "Saving a test case does nothing",
@@ -26,6 +26,7 @@ const good = {
 test("a ticket that follows every rule passes every check (the Technical notes may be technical)", () => {
   expect(codeChecks(good, "failure")).toEqual({
     sections: true, contextLink: true, noBannedWords: true, noDashes: true, plainSummary: true, techNotes: true,
+    contextPage: null, alsoNoticed: null,
   });
 });
 
@@ -59,3 +60,21 @@ test("a page address is not prose: a host named brief.localhost is no banned wor
   const t = { ...good, body: good.body.replace("https://app.x/cases/42", "http://cases.brief.localhost:3997/save-500") };
   expect(codeChecks(t, "failure").noBannedWords).toBe(true);
 });
+
+test("the Context must link the page the bug is on, read from the Context section", () => {
+  expect(codeChecks(good, "failure", { page: "/cases/42" }).contextPage).toBe(true);
+  expect(codeChecks(good, "failure", { page: "/cases" }).contextPage).toBe(false);
+  const elsewhere = good.body.replace(
+    "**Context:** [Edit test case - Acme QA](https://app.x/cases/42)",
+    "**Context:** [Home](https://app.x/home)\n\n**Notes**\n[Case](https://app.x/cases/42)",
+  );
+  expect(contextLinks(elsewhere)).toEqual(["https://app.x/home"]);
+  expect(codeChecks({ ...good, body: elsewhere }, "failure", { page: "/cases/42" }).contextPage).toBe(false);
+});
+
+test("an Also noticed section is expected only when the reporter raised a second problem", () => {
+  expect(codeChecks(good, "ui", { also: "the date is in English" }).alsoNoticed).toBe(false);
+  const withAlso = { ...good, body: good.body + "\n\n**Also noticed**\n- The due date is in English." };
+  expect(codeChecks(withAlso, "ui", { also: "the date is in English" }).alsoNoticed).toBe(true);
+});
+
