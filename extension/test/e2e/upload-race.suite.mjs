@@ -9,6 +9,8 @@
   let briefs = 0;
   const held = []; // [sid, requestId] of the uploads being held back
   let holding = null; // the brief id whose uploads are held
+  let transcribes = 0;
+  let heldTake = null; // [sid, requestId] of the original take's transcription
   const reply = (sid, requestId, res) => b.send('Fetch.fulfillRequest', { requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(JSON.stringify(res)).toString('base64') }, sid).catch(() => {});
   const answer = async (sid, p) => {
     const url = p.request.url;
@@ -21,12 +23,20 @@
       return reply(sid, p.requestId, { briefId: id, uploads: Object.fromEntries(files.map((f) => [f, { signedUrl: `https://up.test/${id}/${encodeURIComponent(f)}` }])) });
     }
     if (holding && url.startsWith(`https://up.test/${holding}/`)) { held.push([sid, p.requestId]); return; }
-    // what each upload's narration says (first case: the trimmed one is
-    // transcribed while the original is held, the original's after its release)
-    if (url.endsWith('/api/transcribe')) return reply(sid, p.requestId, { text: holding === 'b-orig' ? 'the trimmed take' : 'the whole original take' });
+    // what each upload's narration says. Transcription starts with the upload,
+    // so the first call is the original take: held back with its upload, so it
+    // comes back after the trimmed one's
+    if (url.endsWith('/api/transcribe')) {
+      if (transcribes++ === 0) { heldTake = [sid, p.requestId]; return; }
+      return reply(sid, p.requestId, { text: 'the trimmed take' });
+    }
     return reply(sid, p.requestId, { ok: true });
   };
-  const release = async () => { holding = null; for (const [sid, id] of held.splice(0)) await reply(sid, id, { ok: true }); };
+  const release = async () => {
+    holding = null;
+    for (const [sid, id] of held.splice(0)) await reply(sid, id, { ok: true });
+    if (heldTake) { const [sid, id] = heldTake; heldTake = null; await reply(sid, id, { text: 'the whole original take' }); }
+  };
   const watch = (sid) => b.send('Fetch.enable', { patterns: [{ urlPattern: APP + '/*' }, { urlPattern: 'https://up.test/*' }] }, sid).catch(() => {});
   b.on((m) => {
     if (m.method === 'Fetch.requestPaused') answer(m.sessionId, m.params);
@@ -51,6 +61,7 @@
   holding = 'b-orig';
   const r1 = await W(`chrome.runtime.sendMessage({ type: 'UPLOAD_VIDEO_FILE', briefId: 'd-race', key: 'rec:d-race', name: 'recording.webm', mimeType: 'video/webm' })`);
   check('the original starts uploading', r1?.ok === true && !!(await until(() => held.length > 0)), JSON.stringify(r1));
+  check('its narration is sent with the upload, not after it', !!(await until(() => heldTake)) && held.length > 0, `transcribe calls: ${transcribes}`);
 
   // trimmed in the editor and saved (what player.js does): the new file uploads
   await W(`(async () => {
@@ -107,6 +118,30 @@
   await release();
   const done = await until(async () => (await draftNow())?.cloudBriefId === 'b-edit');
   check('then the trimmed one becomes the brief', !!done, JSON.stringify(await draftNow()));
+
+  // the narration and the upload coming back at the same moment: the worker
+  // lands both on the draft, neither write undoes the other
+  let both = 0;
+  const seen = [];
+  for (let i = 0; i < 5; i++) {
+    const id = `d-both${i}`;
+    briefs = 0; transcribes = 0; holding = 'b-orig';
+    await W(`(async () => {
+      const fsm = await import('./filestore.js');
+      await fsm.putFile('rec:${id}', new Blob([new Uint8Array(50000)], { type: 'video/webm' }));
+      await chrome.storage.local.set({ draft: { id: '${id}', createdAt: Date.now(), screenshots: [], description: '', includeVideo: true,
+        recording: { recordedAt: Date.now(), durationMs: 20000, poster: null, source: 'capture' }, uploading: true, transcribing: true, cloudBriefId: null, transcript: '' } });
+    })()`);
+    await W(`chrome.runtime.sendMessage({ type: 'UPLOAD_VIDEO_FILE', briefId: '${id}', key: 'rec:${id}', name: 'recording.webm', mimeType: 'video/webm' })`);
+    await until(() => heldTake && held.length >= 2); // brief.json + the video
+    holding = null;
+    const take = heldTake; heldTake = null;
+    await Promise.all([...held.splice(0).map(([sid, rid]) => reply(sid, rid, { ok: true })), reply(take[0], take[1], { text: 'both stick' })]);
+    const d = await until(async () => { const x = await draftNow(); return x && !x.uploading && !x.transcribing ? x : null; }, 8000) || await draftNow();
+    seen.push({ cloudBriefId: d?.cloudBriefId, transcript: d?.transcript, uploading: d?.uploading, transcribing: d?.transcribing });
+    if (d?.cloudBriefId === 'b-orig' && d?.transcript === 'both stick') both++;
+  }
+  check('the narration and the upload landing together both stick', both === 5, JSON.stringify(seen));
 }
 
 main().catch((e) => { console.error(e); results.push({ ok: false }); }).finally(() => {

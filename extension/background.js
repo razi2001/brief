@@ -710,16 +710,25 @@ async function stopRecordingFromBackground() {
   }
   // (not_recording: a bar already stopped it, and may still be uploading)
   if (!res?.ok) { closeOffscreenIfIdle().catch(() => {}); return; }
+  const landed = landStoppedRecording(s.briefId);
   await bumpUploadsPending(1);
   try {
-    let d = await getDraft();
-    if (!d) { d = emptyDraft(); d.id = s.briefId; }
-    if (d.id === s.briefId) { landRecording(d, { uploading: true }); await setDraft(d); }
+    await landed;
     await chrome.storage.local.set({ pendingOpen: { kind: 'rec', at: Date.now() } });
   } catch (err) {
     console.warn('[brief/background] draft write after worker stop:', err);
   }
   await refreshBadge();
+}
+
+// The recorder took a STOP, from the bar or from the worker: land the recording
+// on the draft (a fresh one if there is none), its upload and transcription
+// pending. Both start at once in the offscreen document and report back through
+// updateDraft too, so queueing this first means it can't wipe what they bring
+// back.
+function landStoppedRecording(briefId) {
+  return updateDraft(briefId, (d) => landRecording(d, { uploading: true }), { create: true })
+    .catch((err) => console.warn('[brief/background] land the recording:', err));
 }
 
 // The recorded tab went away. Mid-recording: stop + save what we have. During
@@ -829,7 +838,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const res = await chrome.runtime.sendMessage({ ...message, viaBackground: true });
         // A successful STOP starts a BACKGROUND upload in the offscreen
         // document (cloud-only) - guard it from teardown until OFFSCREEN_DONE.
-        if (message.type === 'STOP' && res?.ok) await bumpUploadsPending(1);
+        if (message.type === 'STOP' && res?.ok) {
+          const landed = landStoppedRecording(message.briefId);
+          await bumpUploadsPending(1);
+          await landed;
+        }
         // Remember mute so a bar resumed after a page reload shows the right state.
         if (message.type === 'MUTE') await updateRecSession((s) => ({ ...s, muted: !!message.muted }));
         sendResponse(res);
@@ -1006,8 +1019,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'TRANSCRIPT_RESULT': {
-          // The offscreen doc transcribed the recording's audio after upload.
-          // Land it on the draft (id-matched) so the popup shows it, editable.
+          // The offscreen doc transcribed the recording's audio (alongside the
+          // upload, so this often lands first). Land it on the draft (id-matched)
+          // so the popup shows it, editable.
           try {
             await updateDraft(message.briefId, (d) => {
               d.transcribing = false;

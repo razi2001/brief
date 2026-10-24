@@ -306,11 +306,14 @@ async function prepareRecording(streamId, capture = 'tab') {
   for (const t of tabStream.getVideoTracks()) tracks.push(t);
   const audioCtx = new AudioContext();
   const dest = audioCtx.createMediaStreamDestination();
-  for (const t of tabStream.getAudioTracks()) {
-    audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
-  }
-  for (const t of micStream.getAudioTracks()) {
-    audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
+  // The same mix in mono, for transcription: speech needs no stereo, and the
+  // smaller the file the sooner it is sent once the recording stops.
+  const speech = audioCtx.createMediaStreamDestination();
+  speech.channelCount = 1;
+  for (const t of [...tabStream.getAudioTracks(), ...micStream.getAudioTracks()]) {
+    const src = audioCtx.createMediaStreamSource(new MediaStream([t]));
+    src.connect(dest);
+    src.connect(speech);
   }
   // CRITICAL for the first seconds of voice: a suspended mixing context
   // records silence until it starts. Make sure it's actually running BEFORE
@@ -334,14 +337,15 @@ async function prepareRecording(streamId, capture = 'tab') {
     if (e.data && e.data.size > 0) recordedChunks.push(e.data);
   };
 
-  // Audio-only recorder for server-side transcription. Records JUST the mixed
-  // tab+mic audio (dest.stream) as a small opus webm (~1-2 MB for 2 min), so it
-  // always fits under OpenAI's 25 MB transcription cap - no video bloat.
+  // Audio-only recorder for transcription. Records JUST the mixed tab+mic audio
+  // (the mono `speech` mix) as opus at 32 kbps: ~0.5 MB for 2 min, a quarter of
+  // Chrome's default, so it goes up in a moment beside the video's upload. No
+  // video bloat, and always far under OpenAI's 25 MB transcription cap.
   const audioMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
     ? 'audio/webm;codecs=opus'
     : 'audio/webm';
   try {
-    audioRecorder = new MediaRecorder(new MediaStream(dest.stream.getAudioTracks()), { mimeType: audioMime });
+    audioRecorder = new MediaRecorder(new MediaStream(speech.stream.getAudioTracks()), { mimeType: audioMime, audioBitsPerSecond: 32_000 });
     audioRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
   } catch (err) {
     // Non-fatal: if the audio recorder can't start we just upload without a
@@ -537,6 +541,13 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
     }
   } catch {}
 
+  // The narration goes first, alongside the upload rather than after it: the
+  // reporter is watching "Transcribing" in the popup, and the audio is small
+  // while the video and its frames can take a long while to go up. Without a
+  // token there is no upload either (reported below).
+  const tBlob = transcribeBlob !== undefined ? transcribeBlob : audioBlob;
+  const narration = token ? reportNarration(briefId, tBlob, token, current) : null;
+
   // Keep the video where the popup can play it back, BEFORE uploading: the
   // reporter can rewatch it while the upload runs, and still rewatch it if the
   // upload fails. The worker prunes it once the brief is filed or reset.
@@ -646,19 +657,6 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
     if (!cloudBriefId) throw lastErr || new Error('upload failed');
     log('background upload done', cloudBriefId);
     await chrome.runtime.sendMessage({ type: 'UPLOAD_RESULT', briefId, cloudBriefId }).catch(() => {});
-
-    // Transcribe the audio-only track now so the popup can show + let the user
-    // correct the narration immediately. Independent of the upload result; the
-    // server still transcribes at file time if we send nothing.
-    const tBlob = transcribeBlob !== undefined ? transcribeBlob : audioBlob;
-    let said;
-    try {
-      said = { transcript: tBlob && tBlob.size && token ? (await transcribeNote(tBlob, token)) || '' : '' };
-    } catch (err) {
-      log('transcription failed:', err?.message || err);
-      said = { error: String(err?.message || err) };
-    }
-    if (current()) await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, ...said }).catch(() => {});
   } catch (err) {
     if (!current()) return;
     console.warn('[brief/offscreen] cloud upload failed:', err);
@@ -666,8 +664,25 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
       .sendMessage({ type: 'UPLOAD_RESULT', briefId, error: String(err?.message || err) })
       .catch(() => {});
   } finally {
+    // the document stays up until the narration is reported too
+    if (narration) await narration;
     chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' }).catch(() => {});
   }
+}
+
+// Transcribe a recording's narration and land it on the draft, so the popup
+// shows it, editable, as soon as it is back. Independent of the upload result;
+// the server still transcribes at file time if we send nothing. Never rejects,
+// and reports nothing once a newer upload of the brief has taken over.
+async function reportNarration(briefId, blob, token, current) {
+  let said;
+  try {
+    said = { transcript: blob && blob.size ? (await transcribeNote(blob, token)) || '' : '' };
+  } catch (err) {
+    log('transcription failed:', err?.message || err);
+    said = { error: String(err?.message || err) };
+  }
+  if (current()) await chrome.runtime.sendMessage({ type: 'TRANSCRIPT_RESULT', briefId, ...said }).catch(() => {});
 }
 
 // ---------- Uploaded video file ----------

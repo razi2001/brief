@@ -4,8 +4,6 @@
 // immune to page Permissions-Policy). The bar sends control messages via
 // background.js; the offscreen document uploads the finished draft itself.
 
-import { getDraft, setDraft, emptyDraft, landRecording } from './draft.js';
-
 const SAVED_AUTODISMISS_MS = 5000;
 
 // ---------- Params ----------
@@ -372,9 +370,10 @@ async function stopAndSave(savingMessage) {
   if (res?.ok && savingMessage) await new Promise((r) => setTimeout(r, Math.max(0, 1500 - (Date.now() - shown))));
   if (res?.ok) {
     // Cloud-only: the offscreen document uploads the draft in the BACKGROUND
-    // (it holds the blob and outlives this bar). Mark the inbox entry as
-    // uploading and close immediately - no waiting, no local zip.
-    await finishToInbox(briefId, intent, undefined, { uploading: true });
+    // (it holds the blob and outlives this bar), and the worker landed the
+    // recording on the draft when the recorder took the STOP. Close now - no
+    // waiting, no local zip.
+    finishToInbox();
   } else {
     showError(res?.error || 'Could not save the recording.');
   }
@@ -408,34 +407,16 @@ closeBtn?.addEventListener('click', closeParent);
 errCloseBtn?.addEventListener('click', closeParent);
 document.getElementById('inboxCloseBtn')?.addEventListener('click', closeParent);
 
-// ---------- Inbox: mark this ticket recorded ----------
-// `cloudBriefId` (optional): when the recording was uploaded to Brief Cloud as a
-// draft, we stash its cloud id on the entry so the popup's "Create ticket" can
-// file THIS already-uploaded brief instead of re-uploading.
-// `opts.uploading`: the upload is running in the BACKGROUND (offscreen) - the
-// entry is flagged so the popup shows progress and defers filing until the
-// cloud id lands (background clears the flag via UPLOAD_RESULT).
-async function finishToInbox(id, intent, cloudBriefId, opts = {}) {
-  try {
-    // One brief at a time: the recording belongs to the CURRENT draft (the popup
-    // started it with this id). Mark the recording landed; the upload +
-    // transcription run in the background and report back via the worker.
-    let d = await getDraft();
-    if (!d) { d = emptyDraft(); d.id = id; }
-    if (d.id === id) {
-      // Shared with the worker-driven stop (tab closed mid-recording) so both
-      // produce the same draft: recording landed, upload + transcription pending.
-      landRecording(d, { uploading: !!opts.uploading });
-      if (cloudBriefId && !opts.uploading) d.cloudBriefId = cloudBriefId;
-      await setDraft(d);
-    }
-    // Best-effort: bring the user back to the brief to review. Chrome only allows
-    // openPopup in some versions/contexts; it silently no-ops otherwise (the
-    // toolbar badge still nudges).
-    chrome.runtime.sendMessage({ type: 'REOPEN_POPUP', briefId: id }).catch(() => {});
-  } catch (err) {
-    console.warn('[brief/bar] draft write failed:', err);
-  }
+// ---------- Saved: back to the brief ----------
+// The recording is already on the draft: the worker landed it when the recorder
+// took the STOP, before its upload and transcription (running in the
+// background) could report back. Writing the draft here as well, after the
+// "Saving" pause, could wipe a transcript that came back first.
+function finishToInbox() {
+  // Best-effort: bring the user back to the brief to review. Chrome only allows
+  // openPopup in some versions/contexts; it silently no-ops otherwise (the
+  // toolbar badge still nudges).
+  chrome.runtime.sendMessage({ type: 'REOPEN_POPUP', briefId }).catch(() => {});
   // No confirmation toast - just close the bar. The badge updates and (where
   // allowed) the popup reopens, so the user already sees the saved brief.
   closeParent();

@@ -84,12 +84,23 @@ export async function clearDraft() {
 // apply when they still target the CURRENT draft (the user may have filed and
 // started a fresh one while a background task was in flight). patch(d) mutates in
 // place. Returns the saved draft, or null if the id no longer matches.
-export async function updateDraft(briefId, patch) {
-  const d = await getDraft();
-  if (!d || (briefId && d.id !== briefId)) return null;
-  patch(d);
-  await setDraft(d);
-  return d;
+// `create`: with no draft at all, start a fresh one with this id.
+//
+// One at a time in this context: two results landing together (the narration
+// and the upload, which run side by side) would each read the draft, and the
+// second write would undo the first.
+let updating = Promise.resolve();
+export function updateDraft(briefId, patch, { create = false } = {}) {
+  const run = updating.then(async () => {
+    let d = await getDraft();
+    if (!d && create && briefId) { d = emptyDraft(); d.id = briefId; }
+    if (!d || (briefId && d.id !== briefId)) return null;
+    patch(d);
+    await setDraft(d);
+    return d;
+  });
+  updating = run.catch(() => {});
+  return run;
 }
 
 export function isReadyDraft(d) {
