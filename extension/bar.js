@@ -185,10 +185,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     recordingStartMs = message.startedAt || Date.now();
     chrome.runtime.sendMessage({ type: 'BRIEF_START', briefId, startedAt: recordingStartMs, capture, surface }).catch(() => {});
     setView('recording');
-    // the bar arrives with a red pulse: recording
+    // a red glow pulses out of the bar twice: recording
     const pill = document.querySelector('.bar');
     pill?.classList.add('pop');
-    setTimeout(() => pill?.classList.remove('pop'), 2600);
+    setTimeout(() => pill?.classList.remove('pop'), 2300);
     startTimer();
     startWave();
   } else if (message.type === 'CAPTURE_ENDED') {
