@@ -831,8 +831,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       try {
         await ensureOffscreenDocument();
-        // Remember which tab to relay results back to
-        if (sender?.tab?.id) ACTIVE_BAR_TAB_ID = sender.tab.id;
+        // Remember which tab to relay results back to (the mic levels, every
+        // 40ms). Only a bar on screen: a window recording has a bar in every
+        // tab it visited, and one starting up behind (a reload, or the bars
+        // shown when the recording starts) asks GET_REC_STATE too - it took
+        // the levels, and the bar on screen went flat.
+        if (sender?.tab?.id && sender.tab.active) ACTIVE_BAR_TAB_ID = sender.tab.id;
         // Tag the forwarded copy - offscreen ignores untagged (direct
         // broadcast) copies so each command runs exactly once.
         const res = await chrome.runtime.sendMessage({ ...message, viaBackground: true });

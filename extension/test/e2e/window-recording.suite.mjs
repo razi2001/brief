@@ -22,6 +22,15 @@
     }
     return out;
   };
+  // the bar on screen's waveform over 1.5s: its tallest bar (3px = flat, no
+  // mic levels reaching it; the fake mic beeps, so live bars reach ~20px)
+  const shownWave = async () => {
+    const on = (await bars()).filter((x) => x.visible);
+    if (on.length !== 1) return { visibleBars: on.length };
+    return evalIn(on[0].sid, `new Promise((r) => { let max = 0; const t0 = Date.now(); const iv = setInterval(() => {
+      for (const i of document.querySelectorAll('#waveBars i')) max = Math.max(max, parseFloat(i.style.height) || 0);
+      if (Date.now() - t0 > 1500) { clearInterval(iv); r({ max: +max.toFixed(1) }); } }, 50); })`).catch((e) => ({ error: String(e) }));
+  };
   const shownBar = async () => {
     const on = (await bars()).filter((x) => x.visible);
     if (on.length !== 1) return { visibleBars: on.length };
@@ -48,6 +57,9 @@
   check('once it records, every tab of the window has the bar', !!both, '');
   const bar1 = await shownBar();
   check('the bar on screen is recording', bar1.view === 'state-recording' && bar1.ticking, JSON.stringify(bar1));
+  // the other tab's bar starts up behind it: the voice still moves this one
+  const wave1 = await shownWave();
+  check('its waveform follows the voice, though the other tab got a bar too', wave1.max > 8, JSON.stringify(wave1));
 
   // to the second tab: its bar is already there, and the tab is logged
   await focus(B);
@@ -74,11 +86,16 @@
   check('the first tab still logs its network calls', ev.some((e) => e.type === 'network' && String(e.url).includes('/api/pay')), JSON.stringify(ev.map((e) => `${e.type} ${e.url}`)));
 
   // a tab visited earlier keeps its bar and its log, even after a reload
+  // (unmuted first: a muted mic rightly flattens the wave checked after it)
+  const onA = (await bars()).find((x) => x.visible);
+  if (onA?.muted) { await evalIn(onA.sid, `document.getElementById('muteBtn').click()`); await sleep(800); }
   await W(`chrome.tabs.reload(${tb.id})`); await sleep(2500);
   await evalIn(B.sid, `document.getElementById('add').click()`); await sleep(1200);
   ev = await events();
   const lateB = ev.filter((e) => e.type === 'click' && e.url === `${base}/settings`).length;
   check('a visited tab reloaded in the background keeps its bar and is still logged', lateB >= 2 && await hasBar(B), `clicks on the second tab: ${lateB}`);
+  const wave2 = await shownWave();
+  check('and the bar on screen keeps the voice, the reloaded bar behind does not take it', wave2.max > 8, JSON.stringify(wave2));
 
   // a page that is still loading already has its bar
   const C = await open(`${base}/slow`);
