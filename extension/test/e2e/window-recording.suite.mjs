@@ -133,6 +133,23 @@
   const s4 = await until(async () => { const s = await sess(); return s?.briefId === 'd-win2' && s.tabId === tb.id ? s : null; });
   await sleep(1000);
   check('a tab switch during the countdown: that tab is in charge, with its bar', !!s4 && await hasBar(B), JSON.stringify(s4 && { tabId: s4.tabId, tabs: s4.tabs }));
+
+  // the last recording's upload finishing while Chrome's picker is still open
+  // (held 6s here) must not close the document the new capture lives in
+  await focus(A);
+  await W(`chrome.runtime.sendMessage({ type: 'RESET_BEFORE_NEW_RECORDING' })`);
+  await W(`chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: ['USER_MEDIA', 'DISPLAY_MEDIA'], justification: 'test' })`).catch(() => {});
+  await sleep(500);
+  const off2 = (await b.send('Target.getTargets')).targetInfos.find((t) => t.url.includes(`${extId}/offscreen.html`));
+  const o2 = await attach(off2.targetId);
+  await evalIn(o2, `(() => { const real = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices); navigator.mediaDevices.getDisplayMedia = async (c) => { await new Promise((r) => setTimeout(r, 6000)); return real(c); }; return true; })()`);
+  await b.send('Target.detachFromTarget', { sessionId: o2 }).catch(() => {});
+  await W(`(async () => { const { emptyDraft, setDraft } = await import('./draft.js'); await setDraft({ ...emptyDraft(), id: 'd-win3' }); })()`);
+  await W(`chrome.tabs.sendMessage(${ta.id}, { type: 'INJECT_BAR', streamId: '', intent: 'brief', mode: 'inbox', itemId: 'd-win3', capture: 'window' })`);
+  await sleep(2000);
+  await W(`chrome.runtime.sendMessage({ type: 'OFFSCREEN_DONE' })`);
+  const s5 = await until(async () => { const s = await sess(); return s?.briefId === 'd-win3' ? s : null; }, 20000);
+  check('an upload finishing while the picker is open doesn’t break the new recording', !!s5, JSON.stringify(s5 && { briefId: s5.briefId }));
   check('no exceptions', exceptions.length === 0, exceptions.join(' | '));
 }
 

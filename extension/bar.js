@@ -185,6 +185,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     recordingStartMs = message.startedAt || Date.now();
     chrome.runtime.sendMessage({ type: 'BRIEF_START', briefId, startedAt: recordingStartMs, capture, surface }).catch(() => {});
     setView('recording');
+    // the bar arrives with a red pulse: recording
+    const pill = document.querySelector('.bar');
+    pill?.classList.add('pop');
+    setTimeout(() => pill?.classList.remove('pop'), 2600);
     startTimer();
     startWave();
   } else if (message.type === 'CAPTURE_ENDED') {
@@ -222,8 +226,8 @@ function startTimer() {
 function stopTimer() { if (timerInterval) clearInterval(timerInterval); timerInterval = null; }
 
 // ---------- Countdown (pre-roll before recording starts) ----------
-// Shows "Describe your brief" + 3 → 2 → 1 (~0.7s each), then resolves so init()
-// sends GO and offscreen actually starts capturing. Resolves early if cancelled.
+// 3 → 2 → 1 (~0.7s each) in the pill, then resolves so init() sends GO and
+// offscreen actually starts capturing. Resolves early if cancelled.
 function runCountdown() {
   setView('countdown');
   const numEl = document.getElementById('cdNum');

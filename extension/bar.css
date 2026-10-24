@@ -33,9 +33,9 @@ body {
   overflow: hidden;
   display: flex;
   align-items: flex-end;
-  justify-content: flex-end; /* the frame sits bottom right: the pill hugs its right edge */
+  justify-content: center;
   pointer-events: none;
-  padding: 14px;
+  padding: 14px 14px 34px; /* the shadow below the pill stays inside the frame */
 }
 /* After recording, center the confirmation pill in the iframe so it lands
    where the eye was instead of pinned to the bottom. */
@@ -169,6 +169,17 @@ body.state-loading .bar, body.state-saving .bar, body.state-cancelled .bar { pad
 @keyframes cd-run { to { stroke-dashoffset: 100.5; } }
 .cd-num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 500; color: var(--text); }
 body.state-countdown .bar { padding-left: 6px; }
+
+/* recording starts: the bar arrives with a red pulse */
+.bar { position: relative; }
+.bar.pop { animation: pop-in 0.45s cubic-bezier(.2, .9, .3, 1.3); }
+@keyframes pop-in { from { transform: scale(0.8); } }
+.bar.pop::after {
+  content: ''; position: absolute; inset: -2px; border-radius: 16px; pointer-events: none;
+  border: 2px solid var(--rec);
+  animation: rec-ring 1.2s ease-out 2;
+}
+@keyframes rec-ring { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(1.18, 1.4); } }
 
 /* ---------- one-line states ---------- */
 .state-text { font-size: 12.5px; font-weight: 500; color: var(--text); white-space: nowrap; }

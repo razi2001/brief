@@ -30,6 +30,7 @@ let levelAnalyser = null;
 let levelFreq = null;
 let overrunTimer = null;
 let stopRequested = false;
+let preparing = false; // START is running (the picker may be open)
 
 const KEYFRAME_INTERVAL_MS = 2000;
 // The bar stops a recording at its 2-minute cap. If the bar is gone (the recorded
@@ -112,9 +113,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'PING':
           sendResponse({ ok: true });
           break;
+        case 'BUSY':
+          // Is a capture being set up (Chrome's picker can stay open a long
+          // while) or running? Then the worker must not close this document.
+          sendResponse({ ok: true, busy: preparing || !!tabStream || !!micStream || (!!mediaRecorder && mediaRecorder.state !== 'inactive') });
+          break;
         case 'START':
           // Phase 1: acquire streams + build recorders (don't start yet).
-          await prepareRecording(message.streamId, message.capture);
+          preparing = true;
+          try { await prepareRecording(message.streamId, message.capture); } finally { preparing = false; }
           sendResponse({ ok: true, surface: tabStream?.getVideoTracks()[0]?.getSettings().displaySurface || null });
           break;
         case 'GO':

@@ -137,14 +137,15 @@
     // zoom-scaled measurements, which was the source of the drift. The bar lays
     // out bottom-anchored inside; the small amount of extra height above it is
     // transparent + click-through (body is pointer-events:none, the bar is auto).
-    // Bottom right until dragged: the bottom center is where Chrome puts its
-    // own "sharing a window" bar during a recording.
+    // Bottom center until dragged, lifted clear of where Chrome puts its own
+    // "sharing a window" bar during a recording (a corner went unnoticed).
     Object.assign(iframeEl.style, {
       position: 'fixed',
-      bottom: '0',
-      right: '8px',
+      bottom: '52px',
+      left: '50%',
+      transform: 'translateX(-50%)',
       width: '400px',
-      height: '84px',
+      height: '104px', // room under the pill for its shadow, now off the window's edge
       border: '0',
       background: 'transparent',
       zIndex: '2147483647',

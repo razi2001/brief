@@ -482,6 +482,18 @@ async function ensureOffscreenDocument() {
   });
 }
 
+// Close it unless it still has work: an upload or a render (uploadsPending),
+// or a capture being set up or running. A recording now starts in Chrome's
+// picker, which can stay open a long while; the last recording's upload
+// finishing meanwhile used to take the document - and the new capture - down
+// with it ("the message channel closed before a response was received").
+async function closeOffscreenIfIdle() {
+  if ((await getUploadsPending()) > 0) return;
+  let busy = false;
+  try { busy = !!(await chrome.runtime.sendMessage({ target: 'offscreen', viaBackground: true, type: 'BUSY' }))?.busy; } catch {}
+  if (!busy) await closeOffscreenDocument();
+}
+
 async function closeOffscreenDocument() {
   if (await hasOffscreenDocument()) {
     try { await chrome.offscreen.closeDocument(); } catch {}
@@ -697,7 +709,7 @@ async function stopRecordingFromBackground() {
     console.warn('[brief/background] stop from worker:', err);
   }
   // (not_recording: a bar already stopped it, and may still be uploading)
-  if (!res?.ok) { if ((await getUploadsPending()) === 0) closeOffscreenDocument().catch(() => {}); return; }
+  if (!res?.ok) { closeOffscreenIfIdle().catch(() => {}); return; }
   await bumpUploadsPending(1);
   try {
     let d = await getDraft();
@@ -907,8 +919,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // by the STOP relay before the bar could send BRIEF_STOP). This
           // also covers the legacy-relay and cancel paths, where the
           // OFFSCREEN_DONE message arrives while recording is still flagged
-          // and therefore skips the close.
-          if ((await getUploadsPending()) === 0) closeOffscreenDocument().catch(() => {});
+          // and therefore skips the close. A NEW capture being set up (a bar
+          // from an older recording can send this late) keeps it too.
+          closeOffscreenIfIdle().catch(() => {});
           sendResponse({ ok: true });
           break;
         }
@@ -940,11 +953,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'OFFSCREEN_DONE':
           // Offscreen finished its post-recording work (upload, relay, or
           // cancel). Tear it down unless something still needs it: another
-          // pending upload, or a NEW recording that reused the document.
+          // pending upload, or a NEW recording that reused the document -
+          // already recording, or still in Chrome's picker or its countdown.
           {
             const remaining = await bumpUploadsPending(-1);
             if (remaining === 0 && !STATE.recording) {
-              closeOffscreenDocument().catch(() => {});
+              closeOffscreenIfIdle().catch(() => {});
             }
           }
           sendResponse({ ok: true });
