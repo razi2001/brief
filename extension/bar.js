@@ -226,7 +226,7 @@ function startTimer() {
 function stopTimer() { if (timerInterval) clearInterval(timerInterval); timerInterval = null; }
 
 // ---------- Countdown (pre-roll before recording starts) ----------
-// 3 → 2 → 1 (~0.7s each) in the pill, then resolves so init() sends GO and
+// 3 → 2 → 1 (~0.7s each) in the recording bar's own pill, then resolves so init() sends GO and
 // offscreen actually starts capturing. Resolves early if cancelled.
 function runCountdown() {
   setView('countdown');
@@ -236,7 +236,12 @@ function runCountdown() {
     let n = 3;
     const step = () => {
       if (cancelled || n === 0) { resolve(); return; }
-      if (numEl) numEl.textContent = String(n);
+      if (numEl) {
+        numEl.textContent = String(n);
+        numEl.classList.remove('tick');
+        void numEl.offsetWidth; // restart the pop
+        numEl.classList.add('tick');
+      }
       n -= 1;
       countdownTimer = setTimeout(step, 700);
     };

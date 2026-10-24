@@ -113,7 +113,7 @@ body.state-loading .bar, body.state-saving .bar, body.state-cancelled .bar { pad
 
 /* Live voice: thin bars that follow the mic (heights set by bar.js from the
    offscreen analyser). Dim while silent, lit while you speak. */
-.wave { width: 76px; height: 24px; position: relative; overflow: hidden; }
+.wave { flex: 1; min-width: 0; height: 24px; position: relative; overflow: hidden; }
 .wave-bars {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center; gap: 2px;
@@ -159,17 +159,24 @@ body.state-loading .bar, body.state-saving .bar, body.state-cancelled .bar { pad
 .stop-square { width: 10px; height: 10px; border-radius: 2.5px; background: #fff; }
 
 /* ---------- countdown: the number inside a ring that runs out ---------- */
-.cd { position: relative; width: 32px; height: 32px; display: grid; place-items: center; }
-.cd-ring { position: absolute; inset: 0; transform: rotate(-90deg); }
-.cd-ring circle {
-  fill: none; stroke: var(--accent-hi); stroke-width: 2.5; stroke-linecap: round;
-  stroke-dasharray: 100.5; stroke-dashoffset: 0;
-  filter: drop-shadow(0 0 3px rgba(240, 131, 80, 0.6));
-  animation: cd-run 2.1s linear forwards;
+/* The countdown is the recording bar's own pill, same size: the number where
+   the timer goes, a track filling over the 3 seconds, cancel at the end. */
+body.state-countdown .bar, body.state-recording .bar { width: 252px; }
+body.state-countdown [data-state='countdown'], body.state-recording [data-state='recording'] { width: 100%; }
+.cd-num {
+  min-width: 57px; text-align: center; /* the dot + timer's width: the track starts where the wave does */
+  font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; color: var(--text);
 }
-@keyframes cd-run { to { stroke-dashoffset: 100.5; } }
-.cd-num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 500; color: var(--text); }
-body.state-countdown .bar { padding-left: 6px; }
+.cd-num.tick { animation: tick 0.4s cubic-bezier(.2, .9, .3, 1.3); }
+@keyframes tick { from { transform: scale(1.45); opacity: 0.2; } }
+.cd-track { flex: 1; height: 4px; border-radius: 99px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
+.cd-track i {
+  display: block; height: 100%; width: 0; border-radius: 99px;
+  background: linear-gradient(90deg, var(--accent-hi), var(--rec));
+  box-shadow: 0 0 8px rgba(255, 77, 79, 0.6);
+  animation: cd-fill 2.1s linear forwards;
+}
+@keyframes cd-fill { to { width: 100%; } }
 
 /* recording starts: a red glow pulses out of the bar's edge, twice. Kept to
    a few px (the frame around the bar is small) and listed with bar-in, so
