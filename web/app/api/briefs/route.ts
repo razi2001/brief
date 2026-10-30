@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { bearerFromHeader, userIdForToken } from "@/lib/extauth";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import { detectSourceKind } from "@/lib/brief";
+import { briefVia, detectSourceKind } from "@/lib/brief";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import { isShareId, isUniqueViolation } from "@/lib/share-id";
 import { track } from "@/lib/events";
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   const userId = token ? await userIdForToken(token) : null;
   if (!userId) return jsonCors({ error: "unauthorized" }, { status: 401 });
 
-  const body = await req.json(); // { meta, files: string[], shareId? }
+  const body = await req.json(); // { meta, files: string[], shareId?, via? }
   const admin = createAdminSupabase();
   const sourceKind = detectSourceKind(body.meta ?? {});
   // User-given brief name, shown on the dashboard while the ticket is filing.
@@ -41,7 +41,9 @@ export async function POST(req: NextRequest) {
     if (isUniqueViolation(error)) ({ data: brief, error } = await insert(row));
   }
   if (error || !brief) return jsonCors({ error: error?.message }, { status: 500 });
-  track(userId, "brief.created", { kind: sourceKind ?? "unknown" });
+  // `via: "nudge"`: started from the extension's "Seen a bug?" card.
+  const via = briefVia(body.via);
+  track(userId, "brief.created", { kind: sourceKind ?? "unknown", ...(via ? { via } : {}) });
 
   const prefix = `${userId}/${brief.id}`;
   await admin.from("briefs").update({ storage_prefix: prefix }).eq("id", brief.id);

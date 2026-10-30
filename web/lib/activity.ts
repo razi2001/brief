@@ -118,7 +118,10 @@ export function lineOf(e: Pick<EventRow, "name" | "props">): Line | null {
     case "extension.opened":
       return { kind: "extension", text: "Opened the extension popup" };
     case "brief.created":
-      return { kind: "brief", text: `Created a brief${str(p.kind) ? ` (${str(p.kind)})` : ""}` };
+      return {
+        kind: "brief",
+        text: `Created a brief${str(p.kind) ? ` (${str(p.kind)})` : ""}${p.via === "nudge" ? " from the “Seen a bug?” card" : ""}`,
+      };
     case "brief.file_refused":
       return { kind: "brief", text: "Tried to file with no tracker", bad: true };
     case "brief.filed":

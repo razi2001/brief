@@ -18,6 +18,14 @@ export function detectSourceKind(b: BriefMeta): SourceKind {
   return "text";
 }
 
+/**
+ * What started a brief, when the extension says: "nudge" is its "Seen a bug?"
+ * card. Anything else is dropped (the body is the client's word).
+ */
+export function briefVia(v: unknown): "nudge" | null {
+  return v === "nudge" ? "nudge" : null;
+}
+
 // The recording sits at the brief's storage root as `recording.<ext>`. Captures
 // made by the extension are always webm; a video the reporter uploaded keeps its
 // own container (mp4 / mov), so every consumer resolves the name instead of

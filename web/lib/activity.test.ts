@@ -68,6 +68,13 @@ describe("lineOf", () => {
     });
     expect(lineOf({ name: "unknown.thing", props: {} })).toBeNull();
   });
+
+  it("says when the extension's card brought a brief", () => {
+    expect(lineOf({ name: "brief.created", props: { kind: "text", via: "nudge" } })?.text).toBe(
+      "Created a brief (text) from the “Seen a bug?” card",
+    );
+    expect(lineOf({ name: "brief.created", props: { kind: "text" } })?.text).toBe("Created a brief (text)");
+  });
 });
 
 describe("timelineOf", () => {

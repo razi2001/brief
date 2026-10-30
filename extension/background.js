@@ -9,6 +9,7 @@ import { fileDraft, fileDraftObject, resumeFiling, filingKeys } from "./filing.j
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
 import { putChunk, prune as pruneReplay, allMeta, deleteChunks, clearAll as clearReplay } from "./replay-store.js";
+import { claimNudge, markUsed, markClosed } from "./nudge.js";
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
@@ -51,6 +52,7 @@ async function startShot(itemId) {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return { ok: false, error: 'unsupported_page' };
+    markUsed().catch(() => {});
     const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
     // Mint the screenshot's id HERE and keep the clean capture in the blob
     // store under it, so "Edit drawing" can later reopen the annotator on the
@@ -214,7 +216,9 @@ async function askOffscreen(message, tries = 4) {
   throw last || new Error('the offscreen document did not answer');
 }
 
-async function startAutoReport(tab) {
+// `via`: 'nudge' when the "Seen a bug?" card asked for it (the create request
+// says so, for the activity log).
+async function startAutoReport(tab, { via } = {}) {
   const page = (() => { try { return new URL(tab?.url || '').host; } catch { return ''; } })();
   try {
     await startup;
@@ -225,6 +229,7 @@ async function startAutoReport(tab) {
       return;
     }
     if (!tab?.url) return;
+    markUsed().catch(() => {});
     // Only Replay sites are recorded.
     if (!(await isWatched(tab.url))) {
       await reportLog({ ok: false, error: `${page || 'This page'} isn’t recorded: add it under Settings, Replay`, page });
@@ -234,7 +239,7 @@ async function startAutoReport(tab) {
     const at = Date.now();
     const draftId = genId();
     const { autoReports = {} } = await chrome.storage.local.get('autoReports');
-    autoReports[draftId] = { at, tabId: tab.id, page };
+    autoReports[draftId] = { at, tabId: tab.id, page, ...(via ? { via } : {}) };
     await chrome.storage.local.set({ autoReports });
     iconBusy(true);
 
@@ -280,7 +285,7 @@ async function autoReportBuilt(draftId, result) {
     await reportLog({ ok: false, error: result?.error === 'Nothing recorded in the last minute' ? 'Nothing was recorded in the last minute' : 'Couldn’t build the report', detail: result?.error, page: entry.page });
     return;
   }
-  const d = { ...emptyDraft(), id: draftId, createdAt: entry.at, autoReport: true, replay: result.replay };
+  const d = { ...emptyDraft(), id: draftId, createdAt: entry.at, autoReport: true, replay: result.replay, ...(entry.via ? { via: entry.via } : {}) };
   const res = await fileDraftObject(d, 'draft');
   iconResult(res.ok);
   await reportLog(res.ok
@@ -297,6 +302,37 @@ chrome.commands?.onCommand.addListener(async (command, tab) => {
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'brief-report') await startAutoReport(tab);
 });
+
+// ---------- "Seen a bug?" (nudge.js) ----------
+// A page loaded in front: the card goes there if this browser has made
+// nothing for a week. Pairing starts the week.
+chrome.storage.onChanged.addListener((changes, area) => {
+  const t = area === 'local' && changes.briefCloudToken;
+  if (t && t.newValue && t.newValue !== t.oldValue) markUsed().catch(() => {});
+});
+
+async function maybeNudge(tab) {
+  const [{ briefCloudToken }, sites, rec] = await Promise.all([
+    chrome.storage.local.get('briefCloudToken'), getReplaySites(), getRecSession(),
+  ]);
+  const show = await claimNudge({
+    url: tab.url, paired: !!briefCloudToken, recording: !!rec || STATE.recording, sites, appUrl: APP_URL,
+  });
+  if (show) await chrome.tabs.sendMessage(tab.id, { type: 'NUDGE_SHOW' }, { frameId: 0 }).catch(() => {});
+}
+
+// Brief it on the card: the last minute on a Replay site, like the right-click
+// item. Anywhere else there's no last minute to send, so a screenshot, like the
+// popup's (it lands on the current draft, which the popup then shows).
+async function nudgeBriefIt(tab) {
+  if (!tab?.id || !tab.url) return;
+  if (await isWatched(tab.url)) { await startAutoReport(tab, { via: 'nudge' }); return; }
+  await startup;
+  let d = await getDraft();
+  if (!d) { d = emptyDraft(); await setDraft(d); }
+  await chrome.storage.session.set({ nudgeShot: { itemId: d.id, at: Date.now() } });
+  await startShot(d.id);
+}
 
 // ---------- Draft badge ----------
 // No badge for a brief simply being in progress - that shows in the popup, and a
@@ -880,6 +916,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       switch (message?.type) {
         case 'BRIEF_START':
+          markUsed().catch(() => {});
           STATE.recording = true;
           STATE.briefId = message.briefId;
           STATE.startedAt = message.startedAt || Date.now();
@@ -1056,6 +1093,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               .catch(() => {})
               .then(() => syncReplayTab(tabId, sender.tab.url))
               .catch((err) => console.warn('[brief/background] replay sync:', err));
+            if (sender.tab.active) maybeNudge(sender.tab).catch((err) => console.warn('[brief/background] nudge:', err));
           }
           const s = await getRecSession();
           if (!s || tabId == null) { sendResponse({ ok: true }); break; }
@@ -1135,6 +1173,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
 
+        case 'NUDGE_BRIEF_IT':
+          await nudgeBriefIt(sender?.tab);
+          sendResponse({ ok: true });
+          break;
+
+        case 'NUDGE_CLOSED':
+          await markClosed();
+          sendResponse({ ok: true });
+          break;
+
         case 'REPORT_NOW': {
           // One-click report for a given tab (the e2e suite sends this; a
           // popup button could too).
@@ -1155,6 +1203,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // the flow survives the popup closing. The brief page opens after a
           // beat so the popup's confirmation can play if it's still around.
           await startup;
+          markUsed().catch(() => {});
           const result = await fileDraft(message.mode === 'ticket' ? 'ticket' : 'draft', {
             openTab: (url) => setTimeout(() => { openOrFocusTab(url); }, 1200),
           });
@@ -1167,6 +1216,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // The popup picked a video file and parked it in IndexedDB. The
           // offscreen document uploads it (it outlives the popup) through the
           // same path as a captured recording - keyframes, poster, transcript.
+          markUsed().catch(() => {});
           try {
             await ensureOffscreenDocument();
             const res = await chrome.runtime.sendMessage({
@@ -1209,7 +1259,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const shotId = message.shotId || genId();
             const strokes = Array.isArray(message.strokes) ? message.strokes : [];
             let added = false;
+            // a screenshot the "Seen a bug?" card started: its brief says so
+            const { nudgeShot } = await chrome.storage.session.get('nudgeShot');
+            const viaNudge = nudgeShot?.itemId === message.itemId && Date.now() - nudgeShot.at < 15 * 60_000;
+            if (nudgeShot) await chrome.storage.session.remove('nudgeShot');
             await updateDraft(message.itemId, (d) => {
+              if (viaNudge && !d.cloudBriefId) d.via = 'nudge';
               if (!Array.isArray(d.screenshots)) d.screenshots = [];
               const existing = d.screenshots.find((s) => s.id === shotId);
               if (existing) {

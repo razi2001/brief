@@ -134,7 +134,7 @@ async function ensureUploaded(d, opts = {}) {
   if (!d.cloudBriefId) {
     const page = await activePageContext();
     const { files, meta } = buildBriefJsonAndMeta(d, page);
-    const id = await uploadDraft([...files, ...shotFiles], meta, undefined, { shareId: opts.shareId });
+    const id = await uploadDraft([...files, ...shotFiles], meta, undefined, { shareId: opts.shareId, via: d.via });
     d.cloudBriefId = id;
     await updateDraft(d.id, (x) => { x.cloudBriefId = id; });
     // a filing that resumes after a worker restart goes on with this upload

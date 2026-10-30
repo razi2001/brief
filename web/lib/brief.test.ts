@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { detectSourceKind, isRecordingName, recordingContentType, findRecordingName, isTranscribableRecording } from "./brief";
+import { briefVia, detectSourceKind, isRecordingName, recordingContentType, findRecordingName, isTranscribableRecording } from "./brief";
+
+describe("briefVia", () => {
+  it("keeps the extension's card, drops anything else", () => {
+    expect(briefVia("nudge")).toBe("nudge");
+    for (const v of [undefined, null, "", "NUDGE", "popup", 1, { via: "nudge" }]) expect(briefVia(v)).toBeNull();
+  });
+});
 
 describe("detectSourceKind", () => {
   it("recording when keyframes/transcript present", () => {

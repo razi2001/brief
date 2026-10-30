@@ -113,13 +113,15 @@ export async function transcribeNote(blob, tokenOverride) {
 //
 // `shareId`: the link Public link or Fix prompt already copied - the brief takes it
 // as it's created, so the link works from here on.
-export async function uploadDraft(files, meta, tokenOverride, { shareId } = {}) {
+//
+// `via`: 'nudge' for a brief the "Seen a bug?" card started (the server logs it).
+export async function uploadDraft(files, meta, tokenOverride, { shareId, via } = {}) {
   const token = tokenOverride || (await getCloudToken());
   if (!token) throw new Error("Not connected to Brief Cloud");
   const create = await fetchOrThrow(`${APP_URL}/api/briefs`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ meta, files: files.map((f) => f.name), ...(shareId ? { shareId } : {}) }),
+    body: JSON.stringify({ meta, files: files.map((f) => f.name), ...(shareId ? { shareId } : {}), ...(via === "nudge" ? { via } : {}) }),
   }, "create brief");
   if (!create.ok) throw new Error(`create brief failed: ${create.status}${await errorDetail(create)}`);
   const { briefId, uploads } = await create.json();
