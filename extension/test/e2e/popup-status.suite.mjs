@@ -274,6 +274,38 @@
   check('the fix in the menu opens Connections\' tracker row', went8 === `${APP}/connections#tracker`, JSON.stringify(went8));
   await b.send('Target.closeTarget', { targetId: P8.targetId }).catch(() => {});
 
+  // No microphone: the popup opens like any other, and a screenshot works. The
+  // browser's fake media UI hands out the mic whatever the permission says, so
+  // the popup's getUserMedia fails the way a denied mic does, from before its
+  // scripts run. It sits in a background tab: the test page is the tab in
+  // front, the one a screenshot takes.
+  me = { ok: true, tracker: 'linear', trackerName: 'Linear', trackerIssue: null, trackerAction: null };
+  await reset({ tracker: 'linear', trackerName: 'Linear' });
+  await W(`chrome.storage.local.remove(['micGrantedAt', 'createDefault'])`);
+  const site = await open(`http://localhost:${WEB}/`); await focus(site);
+  const { targetId: noMicT } = await b.send('Target.createTarget', { url: 'about:blank', background: true });
+  const PM = { targetId: noMicT, sid: await attach(noMicT) };
+  await b.send('Runtime.enable', {}, PM.sid); await b.send('Page.enable', {}, PM.sid);
+  await b.send('Page.addScriptToEvaluateOnNewDocument', { source: `navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('Permission denied', 'NotAllowedError'));` }, PM.sid);
+  await b.send('Page.navigate', { url: `chrome-extension://${extId}/popup.html` }, PM.sid);
+  await sleep(2000);
+  const after = (await b.send('Target.getTargets')).targetInfos;
+  const open1 = after.some((t) => t.targetId === noMicT);
+  const mic = open1 ? await evalIn(PM.sid, `navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => { s.getTracks().forEach((t) => t.stop()); return 'granted'; }, (e) => e.name)`) : null;
+  const pm = open1 ? await evalIn(PM.sid, `({ ready: document.body.classList.contains('ready'), button: document.querySelector('#createBtn').textContent.trim() })`) : null;
+  const setupTabs = after.filter((t) => t.url.includes('/permission.html')).length;
+  check('mic denied: the popup opens as usual, no setup tab',
+    open1 && mic === 'NotAllowedError' && pm.ready && pm.button === 'Create in Linear' && setupTabs === 0,
+    JSON.stringify({ open: open1, mic, pm, setupTabs }));
+  if (!open1) throw new Error('the popup closed itself');
+  await evalIn(PM.sid, `window.close = () => {}; document.querySelector('[data-add]').click()`); await sleep(400);
+  await evalIn(PM.sid, `document.querySelector('#chShot').click()`); await sleep(1500);
+  const annotator = await evalIn(site.sid, `!!document.getElementById('__brief_shot__')`);
+  const shotErr = await evalIn(PM.sid, `document.querySelector('#errBar').textContent`);
+  check('mic denied: Screenshot captures the page and opens the annotator on it', annotator && !shotErr, JSON.stringify({ annotator, shotErr }));
+  await b.send('Target.closeTarget', { targetId: noMicT }).catch(() => {});
+  await b.send('Target.closeTarget', { targetId: site.targetId }).catch(() => {});
+
   const thrown = exceptions.filter(Boolean);
   check('the popup threw nothing', thrown.length === 0, thrown.join(' | '));
 }

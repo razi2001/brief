@@ -90,36 +90,16 @@ async function persist(patch) {
 }
 
 // ---------- reveal ----------
-// The popup starts at opacity 0 and is shown only once it is genuinely ready:
-// the mic pre-flight passed AND the first render has replaced the static markup
-// with real state. Revealing on the mic check alone flashed the markup's guesses
-// for a beat - the Create button read "Create ticket" before the account's
-// tracker was known, then corrected itself.
-let micPassed = false;
+// The popup starts at opacity 0 and is shown only once the first render has
+// replaced the static markup with real state - otherwise the Create button
+// read "Create ticket" for a beat before the account's tracker was known.
+// No microphone check here: screenshots, Replay, uploads and filing don't need
+// one, and a recording asks for it when it starts (the bar opens the setup
+// page on a denied mic; the voice note asks on its own).
 let firstRender = false;
-function reveal() { if (micPassed && firstRender) document.body.classList.add('ready'); }
+function reveal() { if (firstRender) document.body.classList.add('ready'); }
 // Whatever happens, never leave the user staring at an invisible popup.
 setTimeout(() => document.body.classList.add('ready'), 1200);
-
-// ---------- mic pre-flight ----------
-const MIC_CACHE_KEY = 'micGrantedAt';
-const MIC_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-(async () => {
-  const { [MIC_CACHE_KEY]: grantedAt } = await chrome.storage.local.get(MIC_CACHE_KEY);
-  if (grantedAt && Date.now() - grantedAt < MIC_CACHE_TTL_MS) {
-    micPassed = true; reveal();
-    probeMic().then((ok) => ok ? chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() }) : chrome.storage.local.remove(MIC_CACHE_KEY));
-    return;
-  }
-  const ok = await probeMic();
-  if (!ok) { await chrome.tabs.create({ url: chrome.runtime.getURL('permission.html') }); window.close(); return; }
-  await chrome.storage.local.set({ [MIC_CACHE_KEY]: Date.now() });
-  micPassed = true; reveal();
-})();
-async function probeMic() {
-  try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach((t) => t.stop()); return true; }
-  catch (err) { console.warn('[brief/popup] mic probe failed:', err?.name); return false; }
-}
 async function ensureContentScript(tabId) {
   try { const r = await chrome.tabs.sendMessage(tabId, { type: 'PING' }); if (r?.ok) return; } catch {}
   await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
