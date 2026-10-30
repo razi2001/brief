@@ -31,9 +31,9 @@ const latest = (...dates: (string | null | undefined)[]) =>
   dates.filter((d): d is string => !!d).sort().at(-1) ?? null;
 
 type Rows = {
-  tokens: { user_id: string; last_used_at: string | null; revoked_at: string | null }[];
+  tokens: { user_id: string; revoked_at: string | null }[];
   owned: { user_id: string }[];
-  briefs: { user_id: string; ticket_url: string | null }[];
+  briefs: { user_id: string; ticket_url: string | null; created_at: string }[];
   seen: { user_id: string; at: string }[];
 };
 
@@ -56,12 +56,11 @@ function factsOf(u: User, rows: Rows): PersonFacts {
     extension: tokens.some((t) => !t.revoked_at),
     briefs: briefs.length,
     filed: briefs.filter((b) => b.ticket_url).length,
-    lastSeen: latest(
-      iso(u.lastActiveAt),
-      iso(u.lastSignInAt),
-      ...tokens.map((t) => t.last_used_at),
-      mine(rows.seen)[0]?.at,
-    ),
+    // Things the person did. Not the token's last_used_at: the extension
+    // touches it in the background as they browse (the Replay sites sync on
+    // page loads). Not Clerk's lastActiveAt either: an open tab keeps it
+    // fresh. Page views and popup opens are events.
+    lastSeen: latest(iso(u.lastSignInAt), mine(rows.seen)[0]?.at, ...briefs.map((b) => b.created_at)),
   };
 }
 
@@ -72,7 +71,7 @@ async function loadRows(userId?: string): Promise<Rows> {
   const ids = userId ? [userId] : null;
   const [tokens, owned, briefs, seen] = await Promise.all([
     allRows<Rows["tokens"][number]>((a, b) => {
-      const q = db.from("extension_tokens").select("user_id, last_used_at, revoked_at");
+      const q = db.from("extension_tokens").select("user_id, revoked_at");
       return (ids ? q.in("user_id", ids) : q).range(a, b);
     }),
     allRows<Rows["owned"][number]>((a, b) => {
@@ -80,7 +79,7 @@ async function loadRows(userId?: string): Promise<Rows> {
       return (ids ? q.in("user_id", ids) : q).range(a, b);
     }),
     allRows<Rows["briefs"][number]>((a, b) => {
-      const q = db.from("briefs").select("user_id, ticket_url");
+      const q = db.from("briefs").select("user_id, ticket_url, created_at");
       return (ids ? q.in("user_id", ids) : q).range(a, b);
     }),
     allRows<Rows["seen"][number]>((a, b) => {
