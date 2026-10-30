@@ -17,7 +17,7 @@ import {
   type PatchOp,
 } from "@/lib/azure";
 import { splitAtEvidenceEnd } from "@/lib/ticket-body";
-import { BRIEF_URL, STATUS_COLOR, type IssueInput } from "@/lib/tracker";
+import { BRIEF_SITE_URL, STATUS_COLOR, type IssueInput } from "@/lib/tracker";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -446,11 +446,11 @@ describe("buildAzureBody", () => {
   });
 
   it("always ends with the attribution, exactly once", () => {
-    const html = buildAzureBody(`x\n\n---\n\nReported with [Brief](${BRIEF_URL})`, [img(1)], [
+    const html = buildAzureBody(`x\n\n---\n\nReported with [Brief](${BRIEF_SITE_URL})`, [img(1)], [
       { title: "Console", markdown: "`TypeError`" },
     ]);
     expect(count(html, /Reported with/g)).toBe(1);
-    expect(html.endsWith(`<a href="${BRIEF_URL}" target="_blank" rel="noreferrer noopener">Brief</a></p>`)).toBe(true);
+    expect(html.endsWith(`<a href="${BRIEF_SITE_URL}" target="_blank" rel="noreferrer noopener">Brief</a></p>`)).toBe(true);
     expect(html.indexOf("Console")).toBeLessThan(html.indexOf("<hr />"));
     expect(html).not.toContain("<p>---</p>");
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BRIEF_ATTRIBUTION, BRIEF_URL, resolveName, withBriefAttribution } from "./tracker";
+import { BRIEF_ATTRIBUTION, BRIEF_SITE_URL, BRIEF_URL, resolveName, withBriefAttribution } from "./tracker";
 
 describe("resolveName", () => {
   const states = ["Backlog", "Todo", "In Progress", "In Review", "Done", "Triage"];
@@ -34,13 +34,15 @@ describe("resolveName", () => {
 describe("withBriefAttribution", () => {
   it("appends the attribution under a divider at the very end", () => {
     expect(withBriefAttribution("The save button does nothing.")).toBe(
-      "The save button does nothing.\n\n---\n\nReported with [Brief](https://cloud.get-brief.app/)",
+      "The save button does nothing.\n\n---\n\nReported with [Brief](https://get-brief.app/?utm_source=ticket)",
     );
   });
 
-  it("links Brief to the app so the reader can get there", () => {
+  it("links Brief to the site, tagged so those visits can be counted", () => {
+    expect(BRIEF_SITE_URL).toBe("https://get-brief.app/?utm_source=ticket");
+    expect(BRIEF_ATTRIBUTION).toBe(`Reported with [Brief](${BRIEF_SITE_URL})`);
+    // Evidence links still fall back to the app.
     expect(BRIEF_URL).toBe("https://cloud.get-brief.app/");
-    expect(BRIEF_ATTRIBUTION).toBe(`Reported with [Brief](${BRIEF_URL})`);
   });
 
   it("sits below the Evidence section, not above it", () => {

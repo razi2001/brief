@@ -531,7 +531,7 @@ describe("fileIssue", () => {
     expect(body.match(/Evidence/g)).toHaveLength(1);
     expect(body).toContain("<li><strong>Screenshot 1:</strong> The cart shows zero items</li>");
     expect(body).toContain("<li><strong>Screen recording</strong></li>");
-    expect(body).toMatch(/<hr>\n<p>Reported with <a href="https:\/\/cloud\.get-brief\.app\/"[^>]*>Brief<\/a><\/p>$/);
+    expect(body).toMatch(/<hr>\n<p>Reported with <a href="https:\/\/get-brief\.app\/\?utm_source=ticket"[^>]*>Brief<\/a><\/p>$/);
     // Neither the capture's file names nor the logs file are ever mentioned.
     expect(body).not.toContain("shot-0");
     expect(body).not.toContain("rec-1699");

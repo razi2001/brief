@@ -264,7 +264,7 @@ describe("fileIssue", () => {
     await tracker().fileIssue(base);
     const notes = creates(calls)[0].json?.data?.html_notes as string;
     expect(notes).toBe(
-      '<body>Saving fails.<h2>Steps to reproduce</h2><ol><li>Open settings</li><li>Save</li></ol><hr/>Reported with <a href="https://cloud.get-brief.app/">Brief</a></body>',
+      '<body>Saving fails.<h2>Steps to reproduce</h2><ol><li>Open settings</li><li>Save</li></ol><hr/>Reported with <a href="https://get-brief.app/?utm_source=ticket">Brief</a></body>',
     );
   });
 
@@ -338,7 +338,7 @@ describe("fileIssue", () => {
       name: base.title,
       // No raw markdown: "**Steps to reproduce**" reads as a plain label.
       notes:
-        "Saving fails.\n\nSteps to reproduce\n1. Open settings\n2. Save\n\nReported with Brief (https://cloud.get-brief.app/)",
+        "Saving fails.\n\nSteps to reproduce\n1. Open settings\n2. Save\n\nReported with Brief (https://get-brief.app/?utm_source=ticket)",
       projects: [PROJECT],
       // The notes were the problem, not the assignee.
       assignee: "1600000000000001",
@@ -404,7 +404,7 @@ describe("fileIssue", () => {
         "Saving, start to end\n" +
         '<strong>Screen recording:</strong> <a href="https://app.asana.com/app/asana/-/get_asset?asset_id=1800000000000002">Watch the screen recording</a>' +
         "<h2>Environment</h2>Chrome 140" +
-        '<hr/>Reported with <a href="https://cloud.get-brief.app/">Brief</a></body>',
+        '<hr/>Reported with <a href="https://get-brief.app/?utm_source=ticket">Brief</a></body>',
     );
     // One Evidence heading, and nothing that says how the report was captured.
     expect(notes.match(/Evidence/g)).toHaveLength(1);

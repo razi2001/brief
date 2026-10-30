@@ -14,7 +14,7 @@ import {
 } from "@/lib/notion";
 import { buildNotionBody } from "@/lib/notion-body";
 import { blockText, type NotionBlock } from "@/lib/notion-blocks";
-import { BRIEF_URL, STATUS_COLOR } from "@/lib/tracker";
+import { BRIEF_SITE_URL, STATUS_COLOR } from "@/lib/tracker";
 
 const prop = (name: string, type: string, options?: string[]): NotionProperty => ({
   id: name,
@@ -406,13 +406,13 @@ describe("buildNotionBody", () => {
   });
 
   it("ends with the attribution under a divider, once, even if the agent copied it in", () => {
-    const blocks = buildNotionBody(`It hangs.\n\n---\n\nReported with [Brief](${BRIEF_URL})`, []);
+    const blocks = buildNotionBody(`It hangs.\n\n---\n\nReported with [Brief](${BRIEF_SITE_URL})`, []);
     expect(types(blocks)).toEqual(["paragraph", "divider", "paragraph"]);
     const last = blocks[2].paragraph as {
       rich_text: Array<{ text: { content: string; link?: { url: string } } }>;
     };
     expect(last.rich_text.map((t) => t.text.content).join("")).toBe("Reported with Brief");
-    expect(last.rich_text[1].text.link).toEqual({ url: BRIEF_URL });
+    expect(last.rich_text[1].text.link).toEqual({ url: BRIEF_SITE_URL });
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { markdownToAdf, buildSearchJql, mapJiraSearchIssue, normalizeJiraPriority, type AdfNode } from "./jira";
-import { BRIEF_URL, withBriefAttribution } from "./tracker";
+import { BRIEF_SITE_URL, withBriefAttribution } from "./tracker";
 
 const types = (n: AdfNode): string[] => [n.type, ...(n.content ?? []).flatMap(types)];
 
@@ -229,7 +229,7 @@ describe("the Brief attribution in ADF", () => {
     const last = doc.content![doc.content!.length - 1];
     const link = last.content!.find((n) => n.marks?.some((m) => m.type === "link"));
     expect(link?.text).toBe("Brief");
-    expect(link?.marks?.[0].attrs?.href).toBe(BRIEF_URL);
+    expect(link?.marks?.[0].attrs?.href).toBe(BRIEF_SITE_URL);
     expect(JSON.stringify(doc)).not.toContain("](");
   });
 });

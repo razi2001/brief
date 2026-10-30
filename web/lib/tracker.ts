@@ -307,8 +307,15 @@ export function resolveName(want: string, candidates: string[]): string | undefi
   return idx === -1 ? undefined : candidates[idx];
 }
 
-/** Where the attribution link points - the app itself. */
+/** The app itself: the fallback origin for evidence links. */
 export const BRIEF_URL = "https://cloud.get-brief.app/";
+
+/**
+ * Where the attribution link points: the site, which says what Brief is, and
+ * not the app's sign-in. The utm tag lets the site's counts tell these visits
+ * apart, and it rides along to the sign-up.
+ */
+export const BRIEF_SITE_URL = "https://get-brief.app/?utm_source=ticket";
 
 /**
  * The attribution line every filed ticket carries. The reader should be able to
@@ -316,7 +323,7 @@ export const BRIEF_URL = "https://cloud.get-brief.app/";
  * agent can't write it itself ("brief" is banned vocabulary in the body), so the
  * adapters append it.
  */
-export const BRIEF_ATTRIBUTION = `Reported with [Brief](${BRIEF_URL})`;
+export const BRIEF_ATTRIBUTION = `Reported with [Brief](${BRIEF_SITE_URL})`;
 
 /**
  * Put the attribution at the very END of the description, under a divider -

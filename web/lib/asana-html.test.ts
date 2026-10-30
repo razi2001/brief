@@ -276,7 +276,7 @@ describe("asanaHtml images", () => {
 describe("asanaHtml attribution", () => {
   it("renders the attribution under a rule, linked", () => {
     expect(asanaHtml(withBriefAttribution("Body"))).toBe(
-      '<body>Body<hr/>Reported with <a href="https://cloud.get-brief.app/">Brief</a></body>',
+      '<body>Body<hr/>Reported with <a href="https://get-brief.app/?utm_source=ticket">Brief</a></body>',
     );
   });
 });
@@ -314,7 +314,7 @@ describe("asanaPlainText (the fallback when rich text is refused)", () => {
         // Code is kept exactly as written.
         "POST /api/save **500**",
         "",
-        "Reported with Brief (https://cloud.get-brief.app/)",
+        "Reported with Brief (https://get-brief.app/?utm_source=ticket)",
       ].join("\n"),
     );
   });
