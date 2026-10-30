@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
+import { EXTENSION_ID } from "@/lib/chrome-store";
 import {
   EXT_PAIRED_EVENT,
   clearPendingExt,
@@ -12,12 +13,31 @@ import {
 
 type ChromeRuntime = {
   sendMessage?: (id: string, msg: unknown, cb?: (res?: { ok?: boolean }) => void) => void;
-  lastError?: unknown;
+  lastError?: { message?: string };
 };
 
 function chromeRuntime(): ChromeRuntime | undefined {
   return (window as unknown as { chrome?: { runtime?: ChromeRuntime } }).chrome?.runtime;
 }
+
+/**
+ * Whether extension `extId` is installed and hears this page. It doesn't
+ * answer a ping, but only a missing extension can't be reached at all.
+ */
+function installed(rt: ChromeRuntime, extId: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      rt.sendMessage!(extId, { type: "brief-cloud-ping" }, () => {
+        resolve(!/receiving end does not exist/i.test(rt.lastError?.message ?? ""));
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
+/** An extension this tab offered a token to and that turned it down. */
+const DECLINED_KEY = "briefExtDeclined";
 
 /**
  * Mints a token and hands it to extension `extId`. When the extension takes
@@ -40,13 +60,15 @@ async function pair(
     const { token } = await res.json();
     rt.sendMessage!(extId, { type: "brief-cloud-token", token }, (r) => {
       void rt.lastError; // avoid "Unchecked runtime.lastError" noise
-      if (r?.ok) {
-        try {
+      try {
+        if (r?.ok) {
           localStorage.setItem("briefExtId", extId);
           localStorage.setItem("briefExtSyncedUser", userId);
-        } catch {}
-        window.dispatchEvent(new Event(EXT_PAIRED_EVENT));
-      }
+        } else {
+          sessionStorage.setItem(DECLINED_KEY, extId);
+        }
+      } catch {}
+      if (r?.ok) window.dispatchEvent(new Event(EXT_PAIRED_EVENT));
       answered?.(!!r?.ok);
     });
   } catch {
@@ -62,7 +84,8 @@ async function pair(
  *    the token, so "disconnected on the web" means disconnected everywhere.
  * It also finishes a pairing asked for before sign-up: an extension that sent
  * a signed-out visitor to /connect is remembered from the sign-in redirect and
- * paired once they're signed in (lib/extension-handoff).
+ * paired once they're signed in (lib/extension-handoff). And it pairs the Web
+ * Store extension when it's installed but this browser never paired it.
  *
  * The /connect page records the extension id (localStorage "briefExtId") at
  * first pairing; "briefExtSyncedUser" tracks who the extension is paired as.
@@ -127,6 +150,45 @@ export default function ExtensionTokenSync() {
     // Signed in as someone the extension isn't paired with → re-pair.
     if (!extId || !rt?.sendMessage || syncedUser === user.id) return;
     void pair(rt, extId, user.id);
+  }, [authLoaded, isSignedIn, user]);
+
+  // Never paired in this browser, yet the Web Store extension is installed:
+  // its setup tab only opens /connect once the microphone is granted, so
+  // someone who denied it, has none, or closed the tab stays unpaired. Pair it
+  // here, on load and whenever this page comes back into view (installing
+  // happens in other tabs, and the page hears a new extension without a reload).
+  useEffect(() => {
+    if (!authLoaded || !isSignedIn || !user) return;
+    const userId = user.id;
+    let busy = false;
+    const check = async () => {
+      if (busy || document.visibilityState === "hidden") return;
+      // /connect pairs its own ?ext=.
+      if (window.location.pathname === "/connect") return;
+      try {
+        // A known extension: the effect above keeps it in sync.
+        if (localStorage.getItem("briefExtId") || readPendingExt(localStorage)) return;
+        // Turned a token down: not one per focus.
+        if (sessionStorage.getItem(DECLINED_KEY) === EXTENSION_ID) return;
+      } catch {
+        return;
+      }
+      const rt = chromeRuntime();
+      if (!rt?.sendMessage) return;
+      busy = true;
+      try {
+        if (await installed(rt, EXTENSION_ID)) await pair(rt, EXTENSION_ID, userId);
+      } finally {
+        busy = false;
+      }
+    };
+    void check();
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
   }, [authLoaded, isSignedIn, user]);
 
   return null;

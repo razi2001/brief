@@ -3,11 +3,14 @@
 // This page exists only to fire Chrome's native mic prompt reliably (a
 // top-level extension tab is the one context where it works). Once mic is
 // granted, we hand off to the Brief Cloud connect page so the user can pair the
-// extension (the old settings/options page has been removed).
+// extension (the old settings/options page has been removed). A blocked or
+// missing mic must not stop the pairing: after a failure, the user can go on
+// without it.
 
 import { APP_URL } from './cloud.js';
 
 const grantBtn = document.getElementById('grantBtn');
+const skipBtn = document.getElementById('skipBtn');
 const statusEl = document.getElementById('status');
 
 function setStatus(kind, message) {
@@ -27,9 +30,11 @@ async function checkMic() {
 }
 
 function goToOnboarding() {
-  // Mic granted - send the user to Brief Cloud to pair the extension.
+  // Send the user to Brief Cloud to pair the extension.
   location.href = `${APP_URL}/connect?ext=${chrome.runtime.id}`;
 }
+
+skipBtn.addEventListener('click', goToOnboarding);
 
 (async () => {
   const state = await checkMic();
@@ -55,6 +60,7 @@ grantBtn.addEventListener('click', async () => {
   } catch (err) {
     grantBtn.disabled = false;
     grantBtn.textContent = 'Try again';
+    skipBtn.hidden = false;
     if (err?.name === 'NotAllowedError') {
       setStatus('err', "Blocked. Click the mic/camera icon in Chrome's address bar to allow, then try again.");
     } else if (err?.name === 'NotFoundError') {
