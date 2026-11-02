@@ -2,6 +2,7 @@
 // person's timeline and the website's numbers. lib/activity-server.ts loads
 // the rows; nothing here touches Clerk or the database.
 
+import { channelOf } from "@/lib/channels";
 import { PROVIDER_LABELS, type ProviderKey } from "@/lib/provider-labels";
 import type { SignupSource } from "@/lib/signup-source";
 
@@ -23,6 +24,8 @@ export type PersonFacts = {
   briefs: number;
   filed: number;
   lastSeen: string | null;
+  /** The owner: listed, but left out of the charts. */
+  admin: boolean;
 };
 
 export const FUNNEL = [
@@ -73,8 +76,8 @@ export function sourceLine(s: SignupSource | null): string {
   if (!s) return "";
   return [
     s.src && `${s.src} button`,
-    s.ref && `from ${s.ref}`,
-    s.utm_source && `utm ${[s.utm_source, s.utm_medium, s.utm_campaign].filter(Boolean).join(" / ")}`,
+    (s.ref || s.utm_source) && `from ${channelOf(s.ref, s.utm_source)}`,
+    (s.utm_medium || s.utm_campaign) && `utm ${[s.utm_medium, s.utm_campaign].filter(Boolean).join(" / ")}`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -191,15 +194,23 @@ export function timelineOf(input: {
 }
 
 export type Counted = [string, number][];
+/** The website's pages, buttons and demo. Where visits came from is in lib/activity-stats. */
 export type SiteSummary = {
   views: number;
   mobile: number;
   pages: Counted;
-  referrers: Counted;
-  sources: Counted;
   clicks: Counted;
   /** Page loads that reached each demo button, in the demo's order. */
   demo: Counted;
+};
+
+// What get-brief.app's tracked buttons do.
+const CLICK_TARGETS: Record<string, string> = {
+  signup: "Sign up",
+  chrome: "Add to Chrome",
+  video: "Watch video",
+  demo: "Try the demo",
+  sandbox: "Sandbox",
 };
 
 // The hero demo's buttons in the order a visitor meets them.
@@ -233,9 +244,12 @@ export function siteSummary(events: EventRow[], sinceMs: number): SiteSummary {
     views: views.length,
     mobile: views.filter((e) => e.props.device === "mobile").length,
     pages: tally(views.map((e) => str(e.props.path) || "/")),
-    referrers: tally(views.map((e) => str(e.props.ref) || "direct")),
-    sources: tally(views.map((e) => str(e.props.utm_source)).filter(Boolean)),
-    clicks: tally(clicks.map((e) => [str(e.props.target), str(e.props.where)].filter(Boolean).join(" · "))),
+    clicks: tally(
+      clicks.map((e) => {
+        const target = str(e.props.target);
+        return [CLICK_TARGETS[target] ?? target, str(e.props.where)].filter(Boolean).join(" · ");
+      }),
+    ),
     demo,
   };
 }

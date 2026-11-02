@@ -1,15 +1,17 @@
 import ActivityView from "@/components/ActivityView";
 import { loadActivity } from "@/lib/activity-server";
+import { RANGES } from "@/lib/activity-stats";
 import { requireAdmin } from "@/lib/admin-server";
 
-/** Who signed up, how far they got, and what get-brief.app visitors did. 404 for anyone but the owner. */
+/** Day by day: visits and where they came from, sign-ups, who is active, how far people got. 404 for anyone but the owner. */
 export default async function ActivityPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requireAdmin();
-  const days = (await searchParams).days === "30" ? 30 : 7;
-  const { people, site, now } = await loadActivity(days);
-  return <ActivityView people={people} site={site} days={days} now={now} />;
+  const asked = Number((await searchParams).days);
+  const days = (RANGES as readonly number[]).includes(asked) ? asked : 30;
+  const { people, site, dashboard, now } = await loadActivity(days);
+  return <ActivityView people={people} site={site} dashboard={dashboard} days={days} now={now} />;
 }

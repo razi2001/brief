@@ -15,6 +15,7 @@ const person = (over: Partial<PersonFacts> = {}): PersonFacts => ({
   briefs: 0,
   filed: 0,
   lastSeen: null,
+  admin: false,
   ...over,
 });
 
@@ -49,8 +50,9 @@ describe("ago", () => {
 
 describe("sourceLine", () => {
   it("names the button, the site and the campaign", () => {
-    expect(sourceLine({ src: "hero", ref: "www.linkedin.com", utm_source: "linkedin" })).toBe(
-      "hero button · from www.linkedin.com · utm linkedin",
+    expect(sourceLine({ src: "hero", ref: "com.linkedin.android" })).toBe("hero button · from LinkedIn");
+    expect(sourceLine({ src: "nav", utm_source: "ticket", utm_campaign: "fall" })).toBe(
+      "nav button · from Brief tickets · utm fall",
     );
     expect(sourceLine(null)).toBe("");
   });
@@ -125,7 +127,7 @@ describe("timelineOf", () => {
 describe("siteSummary", () => {
   const ev = (name: string, props: Record<string, unknown>, at = "2026-10-20T12:00:00Z") => ({ at, name, props });
 
-  it("counts views, sources, clicks and how far the demo got", () => {
+  it("counts views, pages, clicks and how far the demo got", () => {
     const s = siteSummary(
       [
         ev("site.view", { path: "/", ref: "www.linkedin.com", utm_source: "linkedin", device: "mobile", pv: "a" }),
@@ -142,9 +144,7 @@ describe("siteSummary", () => {
     expect(s.views).toBe(3);
     expect(s.mobile).toBe(1);
     expect(s.pages).toEqual([["/", 2], ["/privacy", 1]]);
-    expect(s.referrers).toEqual([["direct", 2], ["www.linkedin.com", 1]]);
-    expect(s.sources).toEqual([["linkedin", 1]]);
-    expect(s.clicks).toEqual([["signup · hero", 1]]);
+    expect(s.clicks).toEqual([["Sign up · hero", 1]]);
     expect(s.demo).toEqual([["start", 2], ["brief", 1]]);
   });
 });

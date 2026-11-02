@@ -1,16 +1,13 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import Avatar from "./Avatar";
 import RefreshButton from "./RefreshButton";
-import {
-  FUNNEL,
-  ago,
-  funnelCounts,
-  funnelOf,
-  sourceLine,
-  type Counted,
-  type PersonFacts,
-  type SiteSummary,
-} from "@/lib/activity";
+import DailyChart from "./DailyChart";
+import { BarList, SourcesTable, StatTile } from "./ActivityCharts";
+import { ACCENT, NONE } from "./activity-colors";
+import { FUNNEL, ago, funnelCounts, funnelOf, type Counted, type PersonFacts, type SiteSummary } from "@/lib/activity";
+import { RANGES, type Dashboard, type DayPoint, type Metric } from "@/lib/activity-stats";
+import { signupChannel } from "@/lib/channels";
 
 // Person takes the slack; the rest are fixed so every row lines up.
 const GRID = "sm:grid sm:grid-cols-[minmax(0,1fr)_150px_84px_84px] sm:items-center sm:gap-x-4";
@@ -31,28 +28,8 @@ export function FunnelPills({ p }: { p: PersonFacts }) {
   );
 }
 
-function List({ title, rows, empty = "None yet" }: { title: string; rows: Counted; empty?: string }) {
-  return (
-    <div className="min-w-0">
-      <h3 className="text-xs font-medium text-muted">{title}</h3>
-      {rows.length > 0 ? (
-        <ul className="mt-1.5 space-y-1 text-[13px]">
-          {rows.slice(0, 8).map(([label, n]) => (
-            <li key={label} className="flex justify-between gap-3">
-              <span className="truncate text-ink-2">{label}</span>
-              <span className="tabular-nums text-ink">{n}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-1.5 text-[13px] text-muted">{empty}</p>
-      )}
-    </div>
-  );
-}
-
 function PersonRow({ p, now }: { p: PersonFacts; now: number }) {
-  const src = sourceLine(p.signup);
+  const via = signupChannel(p.signup);
   return (
     <li>
       <Link href={`/admin/activity/${p.id}`} className={`block px-4 py-2.5 hover:bg-surface-2/60 ${GRID}`}>
@@ -61,7 +38,9 @@ function PersonRow({ p, now }: { p: PersonFacts; now: number }) {
           <span className="min-w-0">
             <span className="block truncate text-[14px] font-medium text-ink">{p.name || p.email}</span>
             <span className="block truncate text-xs text-muted">
-              {[p.name && p.email, p.role, src].filter(Boolean).join(" · ")}
+              {[p.name && p.email, p.role, via && `via ${via}`, p.source && `heard from ${p.source}`]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
           </span>
         </span>
@@ -79,64 +58,106 @@ function PersonRow({ p, now }: { p: PersonFacts; now: number }) {
   );
 }
 
+const TILES: [Metric, string, (p: DayPoint) => number][] = [
+  ["visits", "Site visits", (p) => p.visits],
+  ["signups", "Sign-ups", (p) => p.signups],
+  ["active", "Active people", (p) => p.active],
+  ["briefs", "Briefs", (p) => p.briefs],
+  ["filed", "Tickets filed", (p) => p.filed],
+];
+
+function H2({ children }: { children: ReactNode }) {
+  return <h2 className="mt-9 text-[15px] font-semibold text-ink">{children}</h2>;
+}
+
 export default function ActivityView({
   people,
   site,
+  dashboard,
   days,
   now,
 }: {
   people: PersonFacts[];
   site: SiteSummary;
+  dashboard: Dashboard;
   days: number;
   now: number;
 }) {
-  const counts = funnelCounts(people);
+  const counted = people.filter((p) => !p.admin);
+  const counts = funnelCounts(counted);
+  const funnel: Counted = [["Signed up", counted.length], ...FUNNEL.map((s) => [s.label, counts[s.key]] as [string, number])];
+  const pct = (n: number) => `${counted.length ? Math.round((n / counted.length) * 100) : 0}%`;
   return (
     <section>
-      <header className="flex items-center justify-between gap-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Activity</h1>
-        <RefreshButton />
+        <div className="flex items-center gap-2">
+          <div className="inline-flex h-8 items-center rounded-lg border border-hairline bg-surface-2 p-0.5">
+            {RANGES.map((d) => (
+              <Link
+                key={d}
+                href={`/admin/activity?days=${d}`}
+                aria-current={d === days ? "page" : undefined}
+                className={`inline-flex h-full items-center rounded-md px-2.5 text-[13px] font-medium ${
+                  d === days ? "bg-surface text-ink shadow-[0_1px_2px_rgba(26,22,18,.08)]" : "text-ink-2/75 hover:text-ink"
+                }`}
+              >
+                {d} days
+              </Link>
+            ))}
+          </div>
+          <RefreshButton />
+        </div>
       </header>
 
-      <div className="mt-6 flex items-center justify-between gap-4">
-        <h2 className="text-[15px] font-semibold text-ink">get-brief.app</h2>
-        <div className="inline-flex h-8 items-center rounded-lg border border-hairline bg-surface-2 p-0.5">
-          {[7, 30].map((d) => (
-            <Link
-              key={d}
-              href={`/admin/activity?days=${d}`}
-              aria-current={d === days ? "page" : undefined}
-              className={`inline-flex h-full items-center rounded-md px-2.5 text-[13px] font-medium ${
-                d === days ? "bg-surface text-ink shadow-[0_1px_2px_rgba(26,22,18,.08)]" : "text-ink-2/75 hover:text-ink"
-              }`}
-            >
-              {d} days
-            </Link>
-          ))}
-        </div>
-      </div>
-      <div className="card mt-3 grid gap-x-6 gap-y-5 p-4 sm:grid-cols-3">
-        <div>
-          <h3 className="text-xs font-medium text-muted">Page views</h3>
-          <p className="mt-1 text-[26px] font-semibold tabular-nums leading-none text-ink">{site.views}</p>
-          <p className="mt-1.5 text-[13px] tabular-nums text-muted">{site.mobile} on mobile</p>
-        </div>
-        <List title="Pages" rows={site.pages} />
-        <List title="Came from" rows={site.referrers} />
-        <List title="utm source" rows={site.sources} />
-        <List title="Clicks" rows={site.clicks} />
-        <List title="Demo, page loads that reached" rows={site.demo} />
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {TILES.map(([key, label, of]) => (
+          <StatTile key={key} label={label} total={dashboard.totals[key]} days={days} series={dashboard.daily.map(of)} />
+        ))}
       </div>
 
-      <h2 className="mt-8 text-[15px] font-semibold text-ink">People</h2>
-      <p className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[13px] tabular-nums text-muted">
-        <span>{people.length} sign-ups</span>
-        {FUNNEL.map((s) => (
-          <span key={s.key}>
-            {counts[s.key]} {s.label.toLowerCase()}
-          </span>
-        ))}
+      <H2>Every day</H2>
+      <div className="mt-3">
+        <DailyChart daily={dashboard.daily} />
+      </div>
+
+      <H2>Where people come from</H2>
+      <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="card overflow-hidden p-0">
+          <h3 className="px-4 pt-3.5 text-xs font-medium text-muted">get-brief.app visits</h3>
+          <SourcesTable rows={dashboard.sources} />
+        </div>
+        <div className="card p-4">
+          <h3 className="mb-3 text-xs font-medium text-muted">Sign-ups said they heard from</h3>
+          <BarList rows={dashboard.heard} color={(l) => (l === "No answer" ? NONE : ACCENT)} empty="No sign-ups" />
+        </div>
+      </div>
+
+      <H2>get-brief.app</H2>
+      <p className="mt-1 text-[13px] tabular-nums text-muted">
+        {site.views} views · {site.mobile} on mobile
       </p>
+      <div className="card mt-3 grid gap-x-8 gap-y-6 p-4 sm:grid-cols-3">
+        <div className="min-w-0">
+          <h3 className="mb-3 text-xs font-medium text-muted">Pages</h3>
+          <BarList rows={site.pages} />
+        </div>
+        <div className="min-w-0">
+          <h3 className="mb-3 text-xs font-medium text-muted">Clicks</h3>
+          <BarList rows={site.clicks} />
+        </div>
+        <div className="min-w-0">
+          <h3 className="mb-3 text-xs font-medium text-muted">Demo, page loads that reached</h3>
+          <BarList rows={site.demo} limit={12} />
+        </div>
+      </div>
+
+      <H2>Setup</H2>
+      <div className="card mt-3 p-4">
+        <BarList rows={funnel} max={counted.length || 1} suffix={pct} />
+      </div>
+
+      <H2>People</H2>
       <div className="card mt-3 overflow-hidden p-0">
         <div className={`hidden border-b border-hairline px-4 py-2 text-xs font-medium text-muted ${GRID}`}>
           <span>Person</span>

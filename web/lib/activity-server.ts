@@ -3,6 +3,8 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 import { connectedProviders } from "@/lib/trackers/registry";
 import { signupSource } from "@/lib/signup-source";
 import { siteSummary, timelineOf, type EventRow, type PersonFacts, type SiteSummary, type TimelineItem } from "@/lib/activity";
+import { DAY_MS, dashboardOf, dayRange, type Dashboard } from "@/lib/activity-stats";
+import { isAdminEmail } from "@/lib/admin-view";
 
 // Reads for /admin/activity. Like lib/admin-server, these see EVERY user: the
 // pages call requireAdmin() before any of them.
@@ -33,7 +35,7 @@ const latest = (...dates: (string | null | undefined)[]) =>
 type Rows = {
   tokens: { user_id: string; revoked_at: string | null }[];
   owned: { user_id: string }[];
-  briefs: { user_id: string; ticket_url: string | null; created_at: string }[];
+  briefs: { user_id: string; ticket_url: string | null; created_at: string; status: string }[];
   seen: { user_id: string; at: string }[];
 };
 
@@ -61,6 +63,7 @@ function factsOf(u: User, rows: Rows): PersonFacts {
     // page loads). Not Clerk's lastActiveAt either: an open tab keeps it
     // fresh. Page views and popup opens are events.
     lastSeen: latest(iso(u.lastSignInAt), mine(rows.seen)[0]?.at, ...briefs.map((b) => b.created_at)),
+    admin: isAdminEmail(u.emailAddresses),
   };
 }
 
@@ -79,7 +82,7 @@ async function loadRows(userId?: string): Promise<Rows> {
       return (ids ? q.in("user_id", ids) : q).range(a, b);
     }),
     allRows<Rows["briefs"][number]>((a, b) => {
-      const q = db.from("briefs").select("user_id, ticket_url, created_at");
+      const q = db.from("briefs").select("user_id, ticket_url, created_at, status");
       return (ids ? q.in("user_id", ids) : q).range(a, b);
     }),
     allRows<Rows["seen"][number]>((a, b) => {
@@ -90,14 +93,14 @@ async function loadRows(userId?: string): Promise<Rows> {
   return { tokens, owned, briefs, seen };
 }
 
-/** Everyone, newest sign-up first. */
-async function loadPeople(): Promise<PersonFacts[]> {
+/** Everyone, newest sign-up first, and the rows their facts came from. */
+async function loadPeople(): Promise<{ people: PersonFacts[]; rows: Rows }> {
   const client = await clerkClient();
   const [list, rows] = await Promise.all([
     client.users.getUserList({ limit: MAX_USERS, orderBy: "-created_at" }),
     loadRows(),
   ]);
-  return list.data.map((u) => factsOf(u, rows));
+  return { people: list.data.map((u) => factsOf(u, rows)), rows };
 }
 
 /** One person's facts and timeline, or null for an unknown id. */
@@ -117,7 +120,7 @@ export async function loadPerson(
         db.from("events").select("at, name, props").eq("user_id", userId).order("at", { ascending: false }).range(a, b),
       5_000,
     ),
-    db.from("events").select("at").order("at", { ascending: true }).limit(1).maybeSingle(),
+    loadLogStart(),
   ]);
   const person = factsOf(user, rows);
   return {
@@ -129,7 +132,7 @@ export async function loadPerson(
       events,
       tokens: (tokens.data ?? []) as { created_at: string }[],
       briefs: (briefs.data ?? []) as Parameters<typeof timelineOf>[0]["briefs"],
-      since: (first.data as { at: string } | null)?.at ?? null,
+      since: first,
     }),
   };
 }
@@ -142,10 +145,44 @@ async function loadSiteEvents(since: string): Promise<EventRow[]> {
   );
 }
 
-/** The list page: everyone, and get-brief.app over the last `days` days. */
-export async function loadActivity(days: number): Promise<{ people: PersonFacts[]; site: SiteSummary; now: number }> {
+/** Who did something while signed in, from `since`. */
+async function loadSeen(since: string): Promise<{ user_id: string; at: string }[]> {
+  const db = createAdminSupabase();
+  return allRows<{ user_id: string; at: string }>((a, b) =>
+    db.from("events").select("user_id, at").not("user_id", "is", null).gte("at", since).order("at").range(a, b),
+  );
+}
+
+async function loadLogStart(): Promise<string | null> {
+  const { data } = await createAdminSupabase().from("events").select("at").order("at").limit(1).maybeSingle();
+  return (data as { at: string } | null)?.at ?? null;
+}
+
+/**
+ * The list page: everyone, get-brief.app over the last `days` days, and the
+ * charts. Charts read from the start of the period before, to compare.
+ */
+export async function loadActivity(
+  days: number,
+): Promise<{ people: PersonFacts[]; site: SiteSummary; dashboard: Dashboard; now: number }> {
   const now = Date.now();
-  const since = now - days * 86_400_000;
-  const [people, events] = await Promise.all([loadPeople(), loadSiteEvents(new Date(since).toISOString())]);
-  return { people, site: siteSummary(events, since), now };
+  const start = Date.parse(dayRange(now, days)[0]);
+  const from = new Date(start - days * DAY_MS).toISOString();
+  const [{ people, rows }, events, seen, logStart] = await Promise.all([
+    loadPeople(),
+    loadSiteEvents(from),
+    loadSeen(from),
+    loadLogStart(),
+  ]);
+  const owner = new Set(people.filter((p) => p.admin).map((p) => p.id));
+  const dashboard = dashboardOf({
+    now,
+    days,
+    site: events,
+    people: people.filter((p) => !owner.has(p.id)),
+    seen: seen.filter((s) => !owner.has(s.user_id)),
+    briefs: rows.briefs.filter((b) => !owner.has(b.user_id)),
+    logStart,
+  });
+  return { people, site: siteSummary(events, start), dashboard, now };
 }
