@@ -140,8 +140,8 @@
   await b.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false }, I.sid);
   await b.send('Page.reload', {}, I.sid); await focus(I); await sleep(2000);
   const i0 = await evalIn(I.sid, `({ tools: [...document.querySelectorAll('.tool')].map(t => t.textContent.trim()), drawOn: document.querySelector('.tool').classList.contains('on'), opts: [...document.querySelectorAll('#edOpts .opt')].map((o) => o.title), timeline: !!document.querySelector('.tl') })`);
-  check('screenshot editor: Draw (shapes, colors, undo, clear) and Crop, the pen in hand, no timeline',
-    JSON.stringify(i0.tools) === '["Draw","Crop"]' && i0.drawOn && JSON.stringify(i0.opts) === '["Pen","Arrow","Box","Red","Yellow","Blue","Green","Undo","Clear"]' && !i0.timeline, JSON.stringify(i0));
+  check('screenshot editor: Draw (shapes, text, colors, undo, clear) and Crop, the pen in hand, no timeline',
+    JSON.stringify(i0.tools) === '["Draw","Crop"]' && i0.drawOn && JSON.stringify(i0.opts) === '["Pen","Arrow","Box","Text","Red","Yellow","Blue","Green","Undo","Clear"]' && !i0.timeline, JSON.stringify(i0));
   // an arrow in blue, dragged across the picture
   await clickText(I.sid, '#edOpts .opt', 'Arrow');
   await evalIn(I.sid, `document.querySelector('#edOpts .opt[title="Blue"]').click()`);
@@ -152,6 +152,28 @@
   for (let k = 1; k <= 5; k++) await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: a0.x + (a1.x - a0.x) * k / 5, y: a0.y, button: 'left', buttons: 1 }, I.sid);
   await b.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: a1.x, y: a1.y, button: 'left', clickCount: 1 }, I.sid);
   await sleep(300);
+  // a text block: Text, a click on the picture, typed; Enter finishes the block, not the screenshot
+  await clickText(I.sid, '#edOpts .opt', 'Text');
+  const t0 = pt(0.6, 0.3);
+  await clickAt(I.sid, t0.x, t0.y);
+  const tOpen = await evalIn(I.sid, `!!document.activeElement?.classList.contains('text-edit')`);
+  await b.send('Input.insertText', { text: 'Total is wrong' }, I.sid);
+  await b.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, I.sid); await sleep(300);
+  const tDone = await evalIn(I.sid, `({ field: !!document.querySelector('.text-edit'), saving: document.querySelector('#edSave').disabled, on: [...document.querySelectorAll('#edOpts .opt.on')].map((o) => o.title) })`);
+  check('Text: a click on the picture opens a field there, Enter finishes the block and not the screenshot',
+    tOpen && !tDone.field && !tDone.saving && JSON.stringify(tDone.on) === '["Text","Blue"]', JSON.stringify({ tOpen, tDone }));
+  // a click on the block edits it; a click away finishes it and starts nothing
+  await clickAt(I.sid, t0.x + 10, t0.y);
+  const tAgain = await evalIn(I.sid, `document.querySelector('.text-edit')?.value ?? null`);
+  await b.send('Input.insertText', { text: ' here' }, I.sid);
+  const away = pt(0.1, 0.9);
+  await clickAt(I.sid, away.x, away.y);
+  const tAway = await evalIn(I.sid, `!!document.querySelector('.text-edit')`);
+  check('clicking a text block opens its text again; a click away finishes it without a new one', tAgain === 'Total is wrong' && !tAway, JSON.stringify({ tAgain, tAway }));
+  // dragged, it moves (160px left, 100px down on the 800x500 capture)
+  await dragTo(I.sid, t0.x + 10, t0.y, t0.x + 10 - ink.w * 0.2, t0.y + ink.h * 0.2);
+  const tDrag = await evalIn(I.sid, `!!document.querySelector('.text-edit')`);
+  await shot(I.sid, 'ed2-text.png');
   await clickText(I.sid, '.tool', 'Crop');
   await clickText(I.sid, '#edOpts .opt', '16:9');
   await shot(I.sid, 'ed2-image.png');
@@ -160,14 +182,30 @@
     const d = (await chrome.storage.local.get('draft')).draft; const s = d.screenshots[0];
     const im = new Image(); im.src = s.dataUrl; await im.decode();
     const fsm = await import('./filestore.js'); const cb = await createImageBitmap(await fsm.getFile('shot:s1'));
-    return { w: im.naturalWidth, h: im.naturalHeight, cw: cb.width, ch: cb.height, p: s.strokes[0].points[0], arrow: s.strokes[1] && { tool: s.strokes[1].tool, color: s.strokes[1].color, x: Math.round(s.strokes[1].points[0].x), y: Math.round(s.strokes[1].points[0].y) }, cropped: s.cropped, annotated: s.annotated };
+    const t = s.strokes[2];
+    // the flattened picture: the block's left padding is blue, its words are white
+    const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; const x = c.getContext('2d'); x.drawImage(im, 0, 0);
+    const px = (a, b) => [...x.getImageData(Math.round(a), Math.round(b), 1, 1).data].slice(0, 3);
+    const row = t && x.getImageData(Math.round(t.points[0].x), Math.round(t.points[0].y + t.size * 0.9), Math.round(t.size * 6), 1).data;
+    let white = 0; for (let i = 0; row && i < row.length; i += 4) if (row[i] > 230 && row[i + 1] > 230 && row[i + 2] > 230) white++;
+    return { w: im.naturalWidth, h: im.naturalHeight, cw: cb.width, ch: cb.height, p: s.strokes[0].points[0], arrow: s.strokes[1] && { tool: s.strokes[1].tool, color: s.strokes[1].color, x: Math.round(s.strokes[1].points[0].x), y: Math.round(s.strokes[1].points[0].y) },
+      text: t && { tool: t.tool, text: t.text, color: t.color, size: t.size, x: Math.round(t.points[0].x), y: Math.round(t.points[0].y), pad: px(t.points[0].x + t.size * 0.2, t.points[0].y + t.size * 0.8), white },
+      n: s.strokes.length, cropped: s.cropped, annotated: s.annotated };
   })()`);
   check('screenshot cropped to 16:9, clean capture too, drawing moved with it', img.w === 800 && img.h === 450 && img.cw === 800 && img.ch === 450 && img.p.x === 400 && img.p.y === 225 && img.cropped, JSON.stringify(img));
   check('the arrow drawn is kept, blue, where it was put (moved with the crop)', img.arrow?.tool === 'arrow' && img.arrow.color === '#2f7bff' && Math.abs(img.arrow.x - 160) <= 3 && Math.abs(img.arrow.y - 225) <= 3 && img.annotated, JSON.stringify(img.arrow));
+  // 16px on an 800px capture, its first line on the click (480,150): top left at 473,135; dragged by (-160,+100); cropped 25px off the top
+  const tx = img.text;
+  check('the text block is kept with its words, blue, where it was dragged (moved with the crop), painted into the picture',
+    !tDrag && img.n === 3 && tx?.tool === 'text' && tx.text === 'Total is wrong here' && tx.color === '#2f7bff' && tx.size === 16 && Math.abs(tx.x - 313) <= 4 && Math.abs(tx.y - 210) <= 4
+      && tx.pad[2] > 200 && tx.pad[0] < 90 && tx.white >= 6, JSON.stringify({ tDrag, n: img.n, tx }));
   // opened again: the pen in hand whatever was used last, the color kept
   const I2 = await open(`chrome-extension://${extId}/image.html#s1`); await focus(I2); await sleep(1500);
   const again = await evalIn(I2.sid, `[...document.querySelectorAll('#edOpts .opt.on')].map((o) => o.title)`);
   check('the screenshot editor always opens on the pen, in the last color', JSON.stringify(again) === '["Pen","Blue"]', JSON.stringify(again));
+  // and the text block is back on the marks, still editable
+  const back = await evalIn(I2.sid, `(() => { const c = document.querySelector('.ink'); return [...c.getContext('2d').getImageData(${tx?.x ?? 0} + 3, ${tx?.y ?? 0} + 11, 1, 1).data].slice(0, 3); })()`);
+  check('reopened, the text block is painted where it was', back[2] > 200 && back[0] < 90, JSON.stringify(back));
   await b.send('Target.closeTarget', { targetId: I2.targetId }).catch(() => {});
 
   {
