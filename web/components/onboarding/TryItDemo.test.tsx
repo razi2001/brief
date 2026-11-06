@@ -30,11 +30,11 @@ describe("TryItDemo", () => {
     expect(container.querySelector('a[href*="sign-up"]')).toBeNull();
   });
 
-  it("ends on Open the Guide and Play again", () => {
+  it("ends on How to use Brief and Play again", () => {
     const onOpenGuide = vi.fn();
     const { container } = render(<TryItDemo onOpenGuide={onOpenGuide} />);
     const guide = q(container, '[data-act="guide"]')!;
-    expect(guide.textContent).toBe("Open the Guide");
+    expect(guide.textContent).toBe("How to use Brief");
     expect(q(container, '[data-act="again"]')!.textContent).toBe("Play again");
     act(() => guide.click());
     expect(onOpenGuide).toHaveBeenCalledTimes(1);

@@ -7,7 +7,7 @@ import { Hatted } from "./PodiumHats";
 import { copyInviteLink } from "./DashboardFun";
 
 /**
- * "Top brief reporters" - the org leaderboard.
+ * "Quality competition" - the org leaderboard of top brief reporters.
  *
  * The joke is that every title is EARNED from real data (see lib/podium.ts):
  * "the night shift" really is the person filing at 2am, "the novelist" really
@@ -171,7 +171,7 @@ function SoloCard({
     <section className="card animate-rise px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-ink">top brief reporters</h2>
+          <h2 className="text-[15px] font-semibold text-ink">Quality competition</h2>
           <p className="mt-0.5 text-xs text-muted">{orgName} · just you so far</p>
         </div>
         <RangeToggle range={range} onChange={onRange} />
@@ -272,7 +272,7 @@ export default function Podium({
       <BoardSky />
       <div className="relative flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-[15px] font-semibold text-ink">top brief reporters</h2>
+          <h2 className="text-[15px] font-semibold text-ink">Quality competition</h2>
           <p className="mt-0.5 text-xs text-muted">
             {orgName} · {entries.length}{" "}
             {entries.length === 1 ? "person" : "people"} finding things wrong

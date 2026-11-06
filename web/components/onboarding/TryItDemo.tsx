@@ -169,7 +169,7 @@ function TryItDemo({ onOpenGuide }: { onOpenGuide: () => void }) {
                 <div className="tk-end">
                   <p className="tk-endp"></p>
                   <button className="btn btn-acc btn-sm tk-next" type="button" data-act="goal" data-arg="pay">Let&apos;s go<svg aria-hidden="true"><use href="#td-i-arrow" /></svg></button>
-                  <button className="btn btn-acc btn-sm tk-guide" type="button" data-act="guide">Open the Guide<svg className="arr" aria-hidden="true"><use href="#td-i-arrow" /></svg></button>
+                  <button className="btn btn-acc btn-sm tk-guide" type="button" data-act="guide">How to use Brief<svg className="arr" aria-hidden="true"><use href="#td-i-arrow" /></svg></button>
                   <button className="btn btn-ghost btn-sm tk-again" type="button" data-act="again"><svg aria-hidden="true"><use href="#td-i-reset" /></svg>Play again</button>
                 </div>
               </div>

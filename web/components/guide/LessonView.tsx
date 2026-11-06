@@ -41,7 +41,7 @@ export default function LessonView({ slug }: { slug: string }) {
     <div className="w-full">
       <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-[13px] text-muted">
         <Link href="/guide" className="no-underline hover:text-ink">
-          Guide
+          How to use Brief
         </Link>
         <span aria-hidden="true">›</span>
         <span>{group}</span>
@@ -122,7 +122,7 @@ export default function LessonView({ slug }: { slug: string }) {
         ) : (
           <Link href="/guide" className="flex items-center gap-2 text-[14px] text-muted no-underline hover:text-ink">
             <span aria-hidden="true">←</span>
-            Guide
+            How to use Brief
           </Link>
         )}
         {next ? (
@@ -132,7 +132,7 @@ export default function LessonView({ slug }: { slug: string }) {
           </Link>
         ) : (
           <Link href="/guide" className="btn-accent shrink-0">
-            Back to the Guide
+            Back to all lessons
           </Link>
         )}
       </nav>

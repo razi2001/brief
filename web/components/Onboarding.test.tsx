@@ -9,7 +9,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("./onboarding/TryItDemo", () => ({
   default: ({ onOpenGuide }: { onOpenGuide: () => void }) => (
     <button type="button" onClick={onOpenGuide}>
-      Open the Guide
+      How to use Brief
     </button>
   ),
 }));
@@ -231,9 +231,9 @@ describe("Onboarding's Try it step", () => {
     expect(router.replace).toHaveBeenCalledWith("/dashboard");
   });
 
-  it("Open the Guide: saves onboardedAt and goes to the Guide", async () => {
+  it("How to use Brief: saves onboardedAt and goes to /guide", async () => {
     await toTryIt();
-    const guide = await screen.findByRole("button", { name: "Open the Guide" });
+    const guide = await screen.findByRole("button", { name: "How to use Brief" });
     await act(async () => fireEvent.click(guide));
     expect(settingsPosts()).toContainEqual({ onboardedAt: true });
     expect(router.replace).toHaveBeenCalledWith("/guide");
@@ -255,7 +255,7 @@ describe("Onboarding's Try it step", () => {
     await toTryIt();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(await screen.findByRole("heading", { name: "Turn on Replay" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open the Guide" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "How to use Brief" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(await screen.findByText("Install the extension")).toBeTruthy();
   });

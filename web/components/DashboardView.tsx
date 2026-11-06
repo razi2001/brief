@@ -11,11 +11,12 @@ import { CHROME_STORE_URL } from "@/lib/chrome-store";
  *
  *  - Not set up yet: a three-step checklist - tracker, extension, first
  *    ticket - each ticked off as it happens, with the one action it needs.
- *  - The hero: the company's return on Brief - tickets filed all time, time
- *    saved (the one estimate, its basis on hover), high-quality tickets (with
- *    video or screenshot), this month - over every bug landing on a cloud.
- *  - The 3D podium, always: alone you stand on top and the open places are
- *    invite seats; while you're alone, an invite card says Brief is free.
+ *  - The 3D podium ("Quality competition"), always, and first on the page:
+ *    alone you stand on top and the open places are invite seats; while you're
+ *    alone, an invite card says Brief is free.
+ *  - The hero under it: the company's return on Brief - tickets filed all time,
+ *    time saved (the one estimate, its basis on hover), high-quality tickets
+ *    (with video or screenshot), this month - over every bug landing on a cloud.
  */
 export type DashboardViewProps = {
   hasTracker: boolean;
@@ -37,6 +38,7 @@ export default function DashboardView(p: DashboardViewProps) {
   const me = p.boards.month.find((e) => e.isYou);
   // nobody else has filed yet: the leaderboard would be you alone, so invite as well
   const alone = p.boards.all.length <= 1;
+  const hasBoard = p.boards.month.length > 0 || p.boards.all.length > 0;
   const thisMonth = p.boards.month.reduce((n, e) => n + e.filed, 0);
   const share = p.roi && p.roi.filed ? p.roi.withEvidence / p.roi.filed : 0;
   const workdays = p.roi ? Math.round(p.roi.hoursSaved / 8) : 0;
@@ -88,8 +90,23 @@ export default function DashboardView(p: DashboardViewProps) {
         </Link>
       </header>
 
+      {/* Quality competition, first thing on the page: the leaderboard from the
+          first person, open places are invite seats. */}
+      {hasBoard && (
+        <section className="mt-7">
+          <Podium month={p.boards.month} all={p.boards.all} orgName={p.org?.name ?? "Your team"} inviteSeats quipSeed={p.quipSeed} />
+          {p.filed > 0 && (
+            <p className="mt-2.5 px-1 text-xs text-muted">
+              You · <span className="text-ink">{p.filed}</span> filed
+              {p.thisWeek > 0 && <> · <span className="text-ink">{p.thisWeek}</span> this week</>}
+              {me && !alone && <> · <span className="text-accent">#{me.rank}</span> this month</>}
+            </p>
+          )}
+        </section>
+      )}
+
       {/* The company's return on Brief - from day one, zero and all. */}
-      <section className="card relative mt-7 overflow-hidden bg-[linear-gradient(180deg,#fdf6ec_0%,#fbf3e8_70%,#f8efe2_100%)]">
+      <section className={`card relative ${hasBoard ? "mt-4" : "mt-7"} overflow-hidden bg-[linear-gradient(180deg,#fdf6ec_0%,#fbf3e8_70%,#f8efe2_100%)]`}>
         <div className="relative z-10 px-7 pb-4 pt-6">
           <p className="text-[13px] font-medium text-ink-2">
             {p.org ? p.org.name : "You"} <span className="font-normal text-muted">with Brief</span>
@@ -114,20 +131,6 @@ export default function DashboardView(p: DashboardViewProps) {
       </section>
 
       {!setUp && <GettingStarted {...p} />}
-
-      {/* the leaderboard from the first person: open places are invite seats */}
-      {(p.boards.month.length > 0 || p.boards.all.length > 0) && (
-        <section className="mt-4">
-          <Podium month={p.boards.month} all={p.boards.all} orgName={p.org?.name ?? "Your team"} inviteSeats quipSeed={p.quipSeed} />
-          {p.filed > 0 && (
-            <p className="mt-2.5 px-1 text-xs text-muted">
-              You · <span className="text-ink">{p.filed}</span> filed
-              {p.thisWeek > 0 && <> · <span className="text-ink">{p.thisWeek}</span> this week</>}
-              {me && !alone && <> · <span className="text-accent">#{me.rank}</span> this month</>}
-            </p>
-          )}
-        </section>
-      )}
 
       {alone && <InviteCard orgName={p.org?.name} />}
     </div>

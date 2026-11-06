@@ -13,7 +13,8 @@ export function HomeSkeleton() {
         <div className={`h-7 w-24 ${bar}`} />
         <div className={`h-8 w-28 rounded-lg bg-surface-2`} />
       </div>
-      <div className="card mt-7 overflow-hidden px-7 pb-0 pt-6">
+      <div className="card mt-7 h-[300px]" />
+      <div className="card mt-4 overflow-hidden px-7 pb-0 pt-6">
         <div className={`h-3.5 w-36 ${bar}`} />
         <div className="mt-4 grid grid-cols-2 gap-6 pb-6 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
@@ -26,7 +27,6 @@ export function HomeSkeleton() {
         </div>
         <div className="-mx-7 h-[112px] bg-[linear-gradient(180deg,transparent_45%,#fff_45%)]" />
       </div>
-      <div className="card mt-4 h-[300px]" />
     </div>
   );
 }

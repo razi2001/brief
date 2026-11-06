@@ -73,7 +73,7 @@ export default function GuideHub() {
     <div className="mx-auto w-full max-w-[1000px]">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Guide</h1>
+          <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">How to use Brief</h1>
           <p className="mt-1 text-[15px] text-ink-2">
             From install to your first ticket, then the <em className="font-display text-[1.15em] text-accent">extras</em>.
           </p>
