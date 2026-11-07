@@ -303,9 +303,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // ---------- The reminder (nudge.js) ----------
 // A page loaded in front of a user who has made nothing for a week: the
-// extension's own popup opens under its toolbar icon, with "Seen a bug?" (or
-// the owner's text) on top. So does the owner's "show it now", once. Pairing
-// starts the week.
+// a small popup (reminder.html) opens under the extension's toolbar icon:
+// "Seen a bug?" (or the owner's text), Brief it, ×. So does the owner's "show
+// it now", once, on any page. Pairing starts the week.
 chrome.storage.onChanged.addListener((changes, area) => {
   const t = area === 'local' && changes.briefCloudToken;
   if (t && t.newValue && t.newValue !== t.oldValue) markUsed().catch(() => {});
@@ -315,7 +315,7 @@ async function maybeNudge(tab) {
   const [{ briefCloudToken, lastBriefAt }, sites, rec, win, cfg] = await Promise.all([
     chrome.storage.local.get(['briefCloudToken', 'lastBriefAt']), getReplaySites(), getRecSession(),
     chrome.windows.get(tab.windowId).catch(() => null),
-    syncNudgeIfStale(5 * 60_000).catch(() => null),
+    syncNudgeIfStale(2 * 60_000).catch(() => null),
   ]);
   // Chrome only opens a popup in the focused window.
   if (!win?.focused) return;
@@ -325,11 +325,13 @@ async function maybeNudge(tab) {
   });
   if (!show) return;
   const push = show === 'push' ? cfg.push.id : null;
-  // the popup reads it as it opens (popup.js), like pendingExpandBriefId:
-  // the line on top is the owner's text, or "Seen a bug?"
+  // the small reminder (reminder.html) reads it as it opens: the owner's text,
+  // or "Seen a bug?". Only this one opening uses it: the icon goes back to
+  // Brief's own popup at once.
   openedFor = push;
   await chrome.storage.local.set({ nudgeReminder: { at: Date.now(), text: cfg?.message || '' } });
   try {
+    await chrome.action.setPopup({ popup: 'reminder.html' });
     await chrome.action.openPopup({ windowId: tab.windowId });
     cardEvent('nudge.shown', { replay: sites.some((p) => patternMatches(p, tab.url)), push });
   } catch (err) {
@@ -339,32 +341,54 @@ async function maybeNudge(tab) {
     console.warn('[brief/background] reminder popup:', err?.message || err);
     await chrome.storage.local.remove('nudgeReminder').catch(() => {});
     await missedNudge();
+  } finally {
+    await chrome.action.setPopup({ popup: 'popup.html' }).catch(() => {});
   }
 }
 
-// The reminder popup holds a port open while it is up (popup.js). A capture
-// started meanwhile is "Brief it", and its brief says it came from the
-// reminder; the popup closing with none is "closed".
+// The small reminder holds a port open while it is up, and Brief's popup takes
+// it over when Brief it turns one into the other (reminder.js, popup.js): one
+// reminder, however many ports. Brief it is logged when pressed; a capture
+// started while it is up says it came from the reminder; closed with neither
+// is "closed".
 // `openedFor`: the owner's push that opened it, if any, carried on its events.
 let reminder = null;
 let openedFor = null;
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'nudge-reminder') return;
-  const r = { acted: false, push: openedFor };
-  openedFor = null;
-  reminder = r;
+  if (!reminder) {
+    reminder = { acted: false, push: openedFor, ports: 0 };
+    openedFor = null;
+  }
+  const r = reminder;
+  r.ports++;
+  port.onMessage.addListener((m) => {
+    if (m?.type === 'brief_it' && !r.acted) {
+      r.acted = true;
+      cardEvent('nudge.brief_it', { push: r.push });
+    }
+  });
   port.onDisconnect.addListener(() => {
-    if (!r.acted) cardEvent('nudge.closed', { push: r.push });
-    if (reminder === r) reminder = null;
+    r.ports--;
+    // Brief it reconnects from popup.html right away: wait for it
+    setTimeout(() => {
+      if (r.ports > 0 || reminder !== r) return;
+      if (!r.acted) cardEvent('nudge.closed', { push: r.push });
+      reminder = null;
+    }, 1500);
   });
 });
 
-/** A capture is starting on the current draft: from the reminder popup, mark it. */
+/** A capture is starting on the current draft: from the reminder, mark it. */
 async function captureStarted() {
   markUsed().catch(() => {});
-  if (!reminder || reminder.acted) return;
-  reminder.acted = true;
-  cardEvent('nudge.brief_it', { push: reminder.push });
+  const r = reminder;
+  if (!r || r.ports === 0 || r.captured) return;
+  r.captured = true;
+  if (!r.acted) {
+    r.acted = true;
+    cardEvent('nudge.brief_it', { push: r.push });
+  }
   await updateDraft(null, (d) => { if (!d.cloudBriefId) d.via = 'nudge'; }).catch(() => {});
 }
 

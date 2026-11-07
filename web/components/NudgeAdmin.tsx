@@ -11,16 +11,31 @@ export function whenParis(iso: string): string {
   return new Date(iso).toLocaleString("en-GB", { timeZone: "Europe/Paris", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
-/** The top of Brief's popup as it opens under the toolbar icon: the reminder line over the popup. */
+/** The small reminder as it opens under the toolbar icon (extension/reminder.html). */
 export function CardPreview({ message }: { message: string }) {
   return (
-    <div aria-label="Card preview" className="w-[300px] overflow-hidden rounded-xl border hairline bg-surface shadow-[0_12px_32px_rgba(0,0,0,0.12)]">
-      <p className="bg-[#fdf1ea] px-3.5 py-2 text-[13px] font-medium text-[#b4501f]">{message}</p>
-      <div className="space-y-2 p-3.5" aria-hidden>
-        <div className="h-2.5 w-24 rounded bg-hairline" />
-        <div className="h-8 rounded-lg bg-hairline/60" />
-        <div className="h-8 rounded-lg bg-hairline/60" />
+    <div aria-label="Card preview" className="w-[260px] rounded-xl bg-[#f5f1e8] p-3 shadow-[0_12px_32px_rgba(0,0,0,0.14)]">
+      <div className="flex items-center gap-2.5">
+        <svg viewBox="0 0 128 128" className="h-[26px] w-[26px] shrink-0" aria-hidden>
+          <rect width="128" height="128" rx="28" fill="#dd6936" />
+          <path
+            fill="#f5f1e8"
+            d="M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z M26 90 Q26 102 38 102 L52 102 L52 94 L40 94 Q34 94 34 88 L34 76 L26 76 Z M102 90 Q102 102 90 102 L76 102 L76 94 L88 94 Q94 94 94 88 L94 76 L102 76 Z"
+          />
+          <path fill="#f5f1e8" d="M64 40 C67 52, 76 61, 88 64 C76 67, 67 76, 64 88 C61 76, 52 67, 40 64 C52 61, 61 52, 64 40 Z" />
+          <g fill="#ffffff">
+            <ellipse cx="84" cy="40" rx="8" ry="7" />
+            <ellipse cx="95" cy="35" rx="10" ry="9" />
+            <ellipse cx="104" cy="40" rx="7" ry="6" />
+            <rect x="80" y="38" width="28" height="9" rx="4" />
+          </g>
+        </svg>
+        <span className="min-w-0 flex-1 break-words font-serif text-[19px] italic leading-tight text-[#dd6936]">{message}</span>
+        <span className="text-[14px] text-[#8a8378]" aria-hidden>
+          ×
+        </span>
       </div>
+      <span className="mt-2.5 block rounded-full bg-[#dd6936] py-2 text-center font-mono text-[12.5px] font-medium text-white">Brief it</span>
     </div>
   );
 }

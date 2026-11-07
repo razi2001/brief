@@ -1,10 +1,10 @@
 // Brief - the reminder for a user who stopped using Brief
 //
-// A paired browser whose user has made nothing for a week gets the extension's
-// own popup, opened under its toolbar icon on a page they use, with a line on
-// top ("Seen a bug?", or the owner's text from /admin/card). At most once a
-// week, plus once for each "show it now" the owner sends (GET /api/nudge,
-// syncNudge). The worker decides, on each page load (claimNudge) and opens it
+// A paired browser whose user has made nothing for a week gets a small popup
+// under the extension's toolbar icon (reminder.html) on a page they use:
+// "Seen a bug?" or the owner's text from /admin/card, Brief it, ×. At most once
+// a week, plus once for each "show it now" the owner sends (GET /api/nudge,
+// syncNudge), on any web page. The worker decides, on each page load (claimNudge) and opens it
 // (background.js maybeNudge). The state stays in chrome.storage.local under
 // `nudge`:
 //   usedAt       the user's last brief (here, or as the server knows it from
@@ -89,11 +89,13 @@ export async function claimNudge({ url, paired, recording, sites, appUrl, lastBr
     if (!paired) return n;
     const usedAt = Math.max(n.usedAt || 0, lastBriefAt || 0);
     const known = usedAt && usedAt !== n.usedAt ? { ...n, usedAt } : n;
-    if (recording || !nudgePageOk(url, { sites, appUrl })) return known;
+    // the owner's push: any web page; the weekly one: a Replay site when there are some
+    const pushDue = !!push?.id && push.id !== n.pushSeen;
+    if (recording || !nudgePageOk(url, { sites: pushDue ? [] : sites, appUrl })) return known;
     if (n.tries?.day === dayOf(now) && n.tries.n >= TRIES_PER_DAY) return known;
     const { prevShownAt, prevPushSeen, ...rest } = known;
     const shown = { ...rest, shownAt: now, ...(n.shownAt ? { prevShownAt: n.shownAt } : {}) };
-    if (push?.id && push.id !== n.pushSeen) {
+    if (pushDue) {
       why = 'push';
       return { ...shown, pushSeen: push.id, prevPushSeen: n.pushSeen ?? null };
     }

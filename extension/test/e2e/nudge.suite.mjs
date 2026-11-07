@@ -45,8 +45,10 @@
   const storage = (key) => W(`chrome.storage.local.get(${JSON.stringify(key)}).then((r) => r[${JSON.stringify(key)}] ?? null)`);
   const setNudge = (n) => W(`chrome.storage.local.set({ nudge: ${JSON.stringify(n)} })`);
   const setSites = (s) => { replaySites = s; return W(`chrome.storage.local.set({ replaySites: ${JSON.stringify(s)}, replaySitesSyncedAt: Date.now() })`); };
-  // the popup Chrome opens under the toolbar icon is a page target of its own
-  const popup = async () => (await b.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page' && t.url === `chrome-extension://${extId}/popup.html`) || null;
+  // the popup Chrome opens under the toolbar icon is a page target of its own:
+  // the small reminder, or Brief's popup once Brief it turned it into that
+  const popup = async () => (await b.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page' && /^chrome-extension:\/\/[a-z]+\/(reminder|popup)\.html$/.test(t.url) && t.url.includes(extId)) || null;
+  const popupUrl = async () => (await popup())?.url || '';
   const waitPopup = async (want, ms = 4000) => {
     for (let t = 0; t < ms; t += 250) { if (!!(await popup()) === want) return true; await sleep(250); }
     return false;
@@ -57,8 +59,9 @@
     await b.send('Runtime.enable', {}, sid);
     return evalIn(sid, expr);
   };
-  const closePopup = async () => { const t = await popup(); if (t) await b.send('Target.closeTarget', { targetId: t.targetId }); await sleep(600); };
-  const reminderLine = () => inPopup(`(async () => { for (let i = 0; i < 20 && document.getElementById('reminderLine').hidden; i++) await new Promise((r) => setTimeout(r, 100)); const el = document.getElementById('reminderLine'); return el.hidden ? null : el.textContent.trim(); })()`);
+  const closePopup = async () => { const t = await popup(); if (t) await b.send('Target.closeTarget', { targetId: t.targetId }); await sleep(1800); }; // the worker waits 1.5 s before it calls it closed
+  // the small reminder's text, once its storage read has landed
+  const reminderLine = () => inPopup(`(async () => { await new Promise((r) => setTimeout(r, 400)); return location.pathname === '/reminder.html' ? document.getElementById('text').textContent.trim() : null; })()`);
   const reload = async (P) => { await b.send('Page.reload', {}, P.sid); await sleep(2000); };
   const openSite = async () => {
     const { targetId } = await b.send('Target.createTarget', { url: 'about:blank' });
@@ -91,7 +94,8 @@
   lastBriefAt = new Date(Date.now() - 10 * DAY).toISOString();
   await open(`http://app.brief.localhost:${WEB}/settings`);
   check('an existing user quiet for 10 days gets the popup on the first page load', await waitPopup(true));
-  check('it opens with "Seen a bug?" on top', (await reminderLine()) === 'Seen a bug?');
+  check('it opens as the small reminder, with "Seen a bug?"', (await popupUrl()).endsWith('/reminder.html') && (await reminderLine()) === 'Seen a bug?');
+  check('the icon goes back to Brief’s own popup at once', (await W(`chrome.action.getPopup({})`)).endsWith('/popup.html'));
   const seeded = await storage('nudge');
   check('its week counts from the server’s last brief, and it counts as shown', Math.abs(seeded.usedAt - Date.parse(lastBriefAt)) < 1000 && Date.now() - seeded.shownAt < 10_000, JSON.stringify(seeded));
   await closePopup();
@@ -107,6 +111,10 @@
   const A = await open(`http://app.brief.localhost:${WEB}/`);
   check('due again on a Replay site: it opens', await waitPopup(true));
   check('with the reminder line', (await reminderLine()) === 'Seen a bug?');
+  await inPopup(`document.getElementById('go').click()`);
+  for (let i = 0; i < 20 && !(await popupUrl()).endsWith('/popup.html'); i++) await sleep(150);
+  check('Brief it turns it into Brief’s own popup, in place', (await popupUrl()).endsWith('/popup.html'));
+  await sleep(800);
   await inPopup(`(async () => {
     const f = document.getElementById('descField');
     f.value = 'Export CSV fails with a 500';
@@ -144,7 +152,7 @@
 
   // ---- a popup opened by hand never carries the line ----
   const P0 = await open(`chrome-extension://${extId}/popup.html`); await sleep(1200);
-  check('opening the popup yourself shows no reminder', await evalIn(P0.sid, `document.getElementById('reminderLine').hidden`));
+  check('opening the popup yourself is Brief’s own popup', (await evalIn(P0.sid, 'location.pathname')) === '/popup.html');
   await b.send('Target.closeTarget', { targetId: P0.targetId }); await sleep(400);
 
   // ---- no Replay sites: any page, never get-brief.app ----
@@ -163,9 +171,10 @@
   const PUSH = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b';
   nudgeCfg = { message: 'Found a <b>glitch</b>?', button: '', push: { id: PUSH, at: new Date().toISOString() } };
   await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);
+  await setSites(['*.brief.localhost']); // 127.0.0.1 is not one: a push opens anyway
   const Q = await open(`http://127.0.0.1:${WEB}/?push`);
-  check('a push opens the popup, even inside the quiet week', await waitPopup(true));
-  check('with the owner’s text on top, as text (no HTML)', (await reminderLine()) === 'Found a <b>glitch</b>?');
+  check('a push opens the reminder, inside the quiet week and off the Replay sites', await waitPopup(true));
+  check('with the owner’s text, as text (no HTML)', (await reminderLine()) === 'Found a <b>glitch</b>?');
   check('the push is remembered', (await storage('nudge')).pushSeen === PUSH);
   await closePopup();
   await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);

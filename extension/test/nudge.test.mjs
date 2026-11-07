@@ -242,3 +242,13 @@ test('syncNudge: pulls the text and the push with the pairing token, keeps the l
   globalThis.fetch = async () => { throw new Error('should not fetch'); };
   assert.equal(await syncNudge(), null);
 });
+
+test("the owner's push opens on any web page, not only a Replay site; still never on Brief", async () => {
+  store.nudge = { usedAt: NOW - DAY };
+  const push = { id: 'p7', at: '' };
+  assert.equal(await claim({ push, url: 'https://cloud.get-brief.app/tickets', sites: ['app.acme.com'] }), false);
+  assert.equal(await claim({ push, url: 'https://news.example/', sites: ['app.acme.com'] }), 'push');
+  // the weekly one keeps the Replay sites rule
+  store.nudge = { usedAt: NOW - 8 * DAY };
+  assert.equal(await claim({ url: 'https://news.example/', sites: ['app.acme.com'] }), false);
+});
