@@ -9,7 +9,7 @@ import { fileDraft, fileDraftObject, resumeFiling, filingKeys } from "./filing.j
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
 import { putChunk, prune as pruneReplay, allMeta, deleteChunks, clearAll as clearReplay } from "./replay-store.js";
-import { claimNudge, missedNudge, markUsed, cardEvent, syncNudgeIfStale } from "./nudge.js";
+import { claimNudge, missedNudge, cardEvent, syncNudgeIfStale } from "./nudge.js";
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
@@ -227,7 +227,6 @@ async function startAutoReport(tab) {
       return;
     }
     if (!tab?.url) return;
-    markUsed().catch(() => {});
     // Only Replay sites are recorded.
     if (!(await isWatched(tab.url))) {
       await reportLog({ ok: false, error: `${page || 'This page'} isn’t recorded: add it under Settings, Replay`, page });
@@ -302,29 +301,23 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 // ---------- The reminder (nudge.js) ----------
-// A page loaded in front of a user who has made nothing for a week: the
-// a small popup (reminder.html) opens under the extension's toolbar icon:
-// "Seen a bug?" (or the owner's text), Brief it, ×. So does the owner's "show
-// it now", once, on any page. Pairing starts the week.
-chrome.storage.onChanged.addListener((changes, area) => {
-  const t = area === 'local' && changes.briefCloudToken;
-  if (t && t.newValue && t.newValue !== t.oldValue) markUsed().catch(() => {});
-});
-
+// Only when the owner sends it (/admin/card): a page loaded in front opens a
+// small popup under the extension's toolbar icon (reminder.html): "Seen a
+// bug?" or the owner's text, Brief it, ×. Once per push, on any web page.
 async function maybeNudge(tab) {
-  const [{ briefCloudToken, lastBriefAt }, sites, rec, win, cfg] = await Promise.all([
-    chrome.storage.local.get(['briefCloudToken', 'lastBriefAt']), getReplaySites(), getRecSession(),
+  const [{ briefCloudToken }, sites, rec, win, cfg] = await Promise.all([
+    chrome.storage.local.get('briefCloudToken'), getReplaySites(), getRecSession(),
     chrome.windows.get(tab.windowId).catch(() => null),
     syncNudgeIfStale(2 * 60_000).catch(() => null),
   ]);
   // Chrome only opens a popup in the focused window.
   if (!win?.focused) return;
   const show = await claimNudge({
-    url: tab.url, paired: !!briefCloudToken, recording: !!rec || STATE.recording, sites, appUrl: APP_URL, lastBriefAt,
+    url: tab.url, paired: !!briefCloudToken, recording: !!rec || STATE.recording, appUrl: APP_URL,
     push: cfg?.push ?? null,
   });
   if (!show) return;
-  const push = show === 'push' ? cfg.push.id : null;
+  const push = cfg.push.id;
   // the small reminder (reminder.html) reads it as it opens: the owner's text,
   // or "Seen a bug?". Only this one opening uses it: the icon goes back to
   // Brief's own popup at once.
@@ -335,9 +328,8 @@ async function maybeNudge(tab) {
     await chrome.action.openPopup({ windowId: tab.windowId });
     cardEvent('nudge.shown', { replay: sites.some((p) => patternMatches(p, tab.url)), push });
   } catch (err) {
-    // Not shown (an older Chrome, the window lost focus): the week isn't used
-    // up, a push isn't either, and a later page load tries again, a few times
-    // a day at most.
+    // Not shown (an older Chrome, the window lost focus): a later page load
+    // tries again, a few times a day at most.
     console.warn('[brief/background] reminder popup:', err?.message || err);
     await chrome.storage.local.remove('nudgeReminder').catch(() => {});
     await missedNudge();
@@ -381,7 +373,6 @@ chrome.runtime.onConnect.addListener((port) => {
 
 /** A capture is starting on the current draft: from the reminder, mark it. */
 async function captureStarted() {
-  markUsed().catch(() => {});
   const r = reminder;
   if (!r || r.ports === 0 || r.captured) return;
   r.captured = true;
@@ -974,7 +965,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       switch (message?.type) {
         case 'BRIEF_START':
-          markUsed().catch(() => {});
           STATE.recording = true;
           STATE.briefId = message.briefId;
           STATE.startedAt = message.startedAt || Date.now();
@@ -1151,7 +1141,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             synced
               .then(() => syncReplayTab(tabId, sender.tab.url))
               .catch((err) => console.warn('[brief/background] replay sync:', err));
-            // after the sync: it brings the user's last brief (lastBriefAt)
+            // after the sync: the reminder's `replay` flag reads the sites
             if (sender.tab.active) synced.then(() => maybeNudge(sender.tab)).catch((err) => console.warn('[brief/background] nudge:', err));
           }
           const s = await getRecSession();

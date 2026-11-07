@@ -154,10 +154,10 @@ export default function PrivacyPage() {
             it uses no cookies and no third-party analytics. The extension itself
             sends no analytics: the log is made from the requests it already sends
             to our backend, with one exception. When the extension opens its
-            popup to remind you it is there (after a quiet week, or because
-            we asked it to), it records that it opened, whether the page behind
-            it is one of your Replay sites, and whether you started a brief from
-            it or closed it, and nothing else about the page.
+            small popup to remind you it is there (only when we ask it to), it
+            records that it opened, whether the page behind it is one of your
+            Replay sites, and whether you pressed Brief it or closed it, and
+            nothing else about the page.
           </p>
         </Section>
 

@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// a chrome.storage.local in memory, for claimNudge / markUsed / markClosed
+// a chrome.storage.local in memory, for claimNudge / missedNudge
 const store = {};
 globalThis.chrome = {
   storage: {
@@ -12,33 +12,14 @@ globalThis.chrome = {
     },
   },
 };
-const { nudgeDue, nudgePageOk, claimNudge, missedNudge, markUsed, cardEvent, syncNudge, syncNudgeIfStale, QUIET_MS, EVERY_MS } = await import('../nudge.js');
+const { nudgePageOk, claimNudge, missedNudge, cardEvent, syncNudge, syncNudgeIfStale, TRIES_PER_DAY } = await import('../nudge.js');
 
 const DAY = 86_400_000;
-const NOW = Date.UTC(2026, 9, 30, 12);
-const due = (o) => nudgeDue({ now: NOW, paired: true, recording: false, ...o });
+const NOW = Date.UTC(2026, 10, 7, 12);
+const claim = (o) => claimNudge({ url: 'https://app.acme.com/', paired: true, recording: false, appUrl: 'https://cloud.get-brief.app', now: NOW, ...o });
+const push = { id: 'p1', at: '' };
 
-test('due after 7 days without a brief, never before', () => {
-  assert.equal(QUIET_MS, 7 * DAY);
-  assert.equal(due({ usedAt: NOW - 8 * DAY }), true);
-  assert.equal(due({ usedAt: NOW - 7 * DAY }), true);
-  assert.equal(due({ usedAt: NOW - 7 * DAY + 1 }), false);
-  assert.equal(due({ usedAt: NOW - DAY }), false);
-});
-
-test('at most once a week', () => {
-  assert.equal(EVERY_MS, 7 * DAY);
-  assert.equal(due({ usedAt: NOW - 30 * DAY, shownAt: NOW - 2 * DAY }), false);
-  assert.equal(due({ usedAt: NOW - 30 * DAY, shownAt: NOW - 7 * DAY }), true);
-});
-
-test('never unpaired, never while recording, never without a start to count from', () => {
-  assert.equal(due({ usedAt: NOW - 8 * DAY, paired: false }), false);
-  assert.equal(due({ usedAt: NOW - 8 * DAY, recording: true }), false);
-  assert.equal(due({}), false);
-});
-
-test('the page: a Replay site when there are some, any web page otherwise', () => {
+test('the page: any web page, or the sites given', () => {
   const sites = ['app.acme.com', '*.thunders.ai'];
   assert.equal(nudgePageOk('https://app.acme.com/settings', { sites }), true);
   assert.equal(nudgePageOk('https://x.thunders.ai/', { sites }), true);
@@ -61,91 +42,53 @@ test('the page: never Brief itself, never a browser page', () => {
   }
 });
 
-// 'weekly' reads as true here; a push answers 'push'
-const claim = async (o) => { const r = await claimNudge({ url: 'https://app.acme.com/', paired: true, recording: false, sites: [], appUrl: 'https://cloud.get-brief.app', now: NOW, ...o }); return r === 'weekly' ? true : r; };
 
-test('a browser paired before this version: the server says when they last made a brief, no week to wait', async () => {
-  delete store.nudge;
-  assert.equal(await claim({ lastBriefAt: NOW - 30 * DAY }), true);
-  assert.deepEqual(store.nudge, { usedAt: NOW - 30 * DAY, shownAt: NOW });
-});
-
-test('…and one that made a brief 2 days ago waits the rest of its week', async () => {
-  delete store.nudge;
-  assert.equal(await claim({ lastBriefAt: NOW - 2 * DAY }), false);
-  assert.equal(store.nudge.usedAt, NOW - 2 * DAY);
-  assert.equal(await claim({ now: NOW + 4 * DAY }), false);
-  assert.equal(await claim({ now: NOW + 5 * DAY }), true);
-});
-
-test('a brief made in another browser moves the week forward; an older one does not move it back', async () => {
-  store.nudge = { usedAt: NOW - 20 * DAY };
-  assert.equal(await claim({ lastBriefAt: NOW - DAY }), false);
-  assert.equal(store.nudge.usedAt, NOW - DAY);
-  store.nudge = { usedAt: NOW - DAY };
-  assert.equal(await claim({ lastBriefAt: NOW - 20 * DAY }), false);
-  assert.equal(store.nudge.usedAt, NOW - DAY);
-});
-
-test('with nothing to count from yet (the server has not answered), no card and nothing stored', async () => {
+test('nothing opens on its own: no push, no reminder, however long the user has been quiet', async () => {
+  store.nudge = { usedAt: NOW - 60 * DAY, shownAt: NOW - 30 * DAY };
+  assert.equal(await claim({}), false);
+  assert.equal(await claim({ push: null }), false);
   delete store.nudge;
   assert.equal(await claim({}), false);
   assert.equal(store.nudge, undefined);
 });
 
-test('an unpaired browser keeps no clock', async () => {
+test("the owner's push opens once, even on another tab at the same moment", async () => {
   delete store.nudge;
-  assert.equal(await claim({ paired: false, lastBriefAt: NOW - 30 * DAY }), false);
-  assert.equal(store.nudge, undefined);
-});
-
-test('shown once, then not again for a week, even on another tab at the same moment', async () => {
-  store.nudge = { usedAt: NOW - 8 * DAY };
-  const [a, b] = await Promise.all([claim({}), claim({})]);
+  const [a, b] = await Promise.all([claim({ push }), claim({ push })]);
   assert.deepEqual([a, b].sort(), [false, true]);
-  assert.equal(store.nudge.shownAt, NOW);
-  assert.equal(await claim({ now: NOW + 6 * DAY }), false);
-  assert.equal(await claim({ now: NOW + 7 * DAY }), true);
+  assert.equal(store.nudge.pushSeen, 'p1');
+  assert.equal(await claim({ push, now: NOW + DAY }), false);
+  assert.equal(await claim({ push: { id: 'p2', at: '' }, now: NOW + DAY }), true);
 });
 
-test('not on the wrong page, and a page that does not get it does not use up the week', async () => {
-  store.nudge = { usedAt: NOW - 8 * DAY };
-  assert.equal(await claim({ url: 'https://cloud.get-brief.app/tickets' }), false);
-  assert.equal(await claim({ url: 'https://other.com/', sites: ['app.acme.com'] }), false);
-  assert.equal(await claim({ recording: true }), false);
-  assert.equal(store.nudge.shownAt, undefined);
-  assert.equal(await claim({ sites: ['app.acme.com'] }), true);
+test('a push opens on any web page, never on Brief, unpaired or while recording, and waits for a page that can carry it', async () => {
+  delete store.nudge;
+  assert.equal(await claim({ push, url: 'https://cloud.get-brief.app/tickets' }), false);
+  assert.equal(await claim({ push, url: 'https://get-brief.app/' }), false);
+  assert.equal(await claim({ push, url: 'chrome://extensions' }), false);
+  assert.equal(await claim({ push, paired: false }), false);
+  assert.equal(await claim({ push, recording: true }), false);
+  assert.equal(store.nudge?.pushSeen, undefined);
+  assert.equal(await claim({ push, url: 'https://news.example/' }), true);
 });
 
-test('a brief made here starts the week over', async () => {
-  store.nudge = { usedAt: NOW - 8 * DAY };
-  await markUsed(NOW);
-  assert.equal(await claim({ now: NOW + 6 * DAY }), false);
-  assert.equal(await claim({ now: NOW + 7 * DAY }), true);
+test('Chrome refused to open it: tried again on a later page load, a few times a day', async () => {
+  store.nudge = { pushSeen: 'p0' };
+  for (let i = 0; i < TRIES_PER_DAY; i++) {
+    assert.equal(await claim({ push, now: NOW + i }), true, `try ${i + 1}`);
+    await missedNudge(NOW + i);
+    assert.equal(store.nudge.pushSeen, 'p0');
+  }
+  assert.equal(await claim({ push, now: NOW + 10 }), false, 'out of tries today');
+  assert.equal(await claim({ push, now: NOW + DAY }), true, 'tomorrow it tries again');
 });
 
-test('Chrome refused to open it: not shown, the last showing comes back, a few tries a day', async () => {
-  store.nudge = { usedAt: NOW - 30 * DAY, shownAt: NOW - 10 * DAY };
-  assert.equal(await claim({}), true);
+test('refused the very first time: nothing to put back, still pending', async () => {
+  delete store.nudge;
+  assert.equal(await claim({ push }), true);
   await missedNudge(NOW);
-  assert.equal(store.nudge.shownAt, NOW - 10 * DAY, 'the week was not used up');
-  assert.deepEqual(store.nudge.tries, { day: Math.floor(NOW / DAY), n: 1 });
-  assert.equal(await claim({ now: NOW + 60_000 }), true);
-  await missedNudge(NOW + 60_000);
-  assert.equal(await claim({ now: NOW + 120_000 }), true);
-  await missedNudge(NOW + 120_000);
-  assert.equal(await claim({ now: NOW + 180_000 }), false, 'three refusals: done for today');
-  assert.equal(await claim({ now: NOW + DAY }), true, 'tomorrow it tries again');
-  assert.equal(store.nudge.shownAt, NOW + DAY);
-  assert.equal(store.nudge.prevShownAt, NOW - 10 * DAY);
-});
-
-test('refused the very first time: no showing to put back', async () => {
-  store.nudge = { usedAt: NOW - 30 * DAY };
-  assert.equal(await claim({}), true);
-  await missedNudge(NOW);
-  assert.equal('shownAt' in store.nudge, false);
-  assert.equal(await claim({ now: NOW + 1000 }), true);
+  assert.equal(store.nudge.pushSeen, undefined);
+  assert.equal(await claim({ push, now: NOW + 1 }), true);
 });
 
 test('the reminder logs only its three events, with nothing about the page', async () => {
@@ -175,49 +118,6 @@ test('the reminder logs only its three events, with nothing about the page', asy
   await cardEvent('nudge.closed'); // never throws
 });
 
-test("the owner's push shows once, whatever the week says", async () => {
-  store.nudge = { usedAt: NOW - DAY, shownAt: NOW - DAY };
-  const push = { id: 'p1', at: new Date(NOW).toISOString() };
-  assert.equal(await claim({ push }), 'push');
-  assert.equal(store.nudge.pushSeen, 'p1');
-  assert.equal(store.nudge.shownAt, NOW);
-  assert.equal(await claim({ push, now: NOW + 60_000 }), false);
-  // a new push shows again
-  assert.equal(await claim({ push: { id: 'p2', at: '' }, now: NOW + 120_000 }), 'push');
-});
-
-test("a push also reaches a browser with no clock yet (the server hasn't answered)", async () => {
-  delete store.nudge;
-  assert.equal(await claim({ push: { id: 'p1', at: '' } }), 'push');
-  assert.equal(store.nudge.pushSeen, 'p1');
-  assert.equal(store.nudge.usedAt, undefined);
-});
-
-test('Chrome refused a push: it is tried again on a later page load', async () => {
-  store.nudge = { usedAt: NOW - DAY, pushSeen: 'p0' };
-  const push = { id: 'p1', at: '' };
-  assert.equal(await claim({ push }), 'push');
-  await missedNudge(NOW);
-  assert.equal(store.nudge.pushSeen, 'p0');
-  assert.equal(await claim({ push, now: NOW + 60_000 }), 'push');
-  assert.equal(store.nudge.pushSeen, 'p1');
-  // a refused weekly one leaves the push it already showed alone
-  store.nudge = { usedAt: NOW - 8 * DAY, pushSeen: 'p1' };
-  assert.equal(await claim({ push }), true);
-  await missedNudge(NOW);
-  assert.equal(store.nudge.pushSeen, 'p1');
-});
-
-test("a push still never shows on Brief, unpaired, or while recording, and waits for a page that can carry it", async () => {
-  store.nudge = { usedAt: NOW - DAY };
-  const push = { id: 'p1', at: '' };
-  assert.equal(await claim({ push, url: 'https://cloud.get-brief.app/tickets' }), false);
-  assert.equal(await claim({ push, recording: true }), false);
-  assert.equal(await claim({ push, paired: false }), false);
-  assert.equal(store.nudge.pushSeen, undefined);
-  assert.equal(await claim({ push }), 'push');
-});
-
 test('syncNudge: pulls the text and the push with the pairing token, keeps the last answer offline', async () => {
   store.briefCloudToken = 'tok';
   let asked = null;
@@ -243,12 +143,3 @@ test('syncNudge: pulls the text and the push with the pairing token, keeps the l
   assert.equal(await syncNudge(), null);
 });
 
-test("the owner's push opens on any web page, not only a Replay site; still never on Brief", async () => {
-  store.nudge = { usedAt: NOW - DAY };
-  const push = { id: 'p7', at: '' };
-  assert.equal(await claim({ push, url: 'https://cloud.get-brief.app/tickets', sites: ['app.acme.com'] }), false);
-  assert.equal(await claim({ push, url: 'https://news.example/', sites: ['app.acme.com'] }), 'push');
-  // the weekly one keeps the Replay sites rule
-  store.nudge = { usedAt: NOW - 8 * DAY };
-  assert.equal(await claim({ url: 'https://news.example/', sites: ['app.acme.com'] }), false);
-});

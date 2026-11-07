@@ -1,4 +1,4 @@
-  // ---- the reminder: the extension's own popup, for a user quiet for a week ----
+  // ---- the reminder: a small popup under the toolbar icon, only when the owner sends it ----
   const DAY = 86_400_000;
 
   // Every Brief Cloud call is answered here (nothing leaves the machine) and
@@ -6,7 +6,6 @@
   const calls = [];
   const APP = 'https://cloud.get-brief.app';
   let replaySites = ['*.brief.localhost'];
-  let lastBriefAt = null;
   let nudgeCfg = { message: '', button: '', push: null };
   const answer = async (sid, p) => {
     const url = p.request.url;
@@ -18,7 +17,7 @@
       const files = JSON.parse(body || '{}').files || [];
       res = { briefId: 'b-nudge', uploads: Object.fromEntries(files.map((f) => [f, { signedUrl: 'https://up.test/' + encodeURIComponent(f) }])) };
     }
-    if (url.endsWith('/api/replay-sites')) res = { sites: replaySites, org: null, mode: null, lastBriefAt };
+    if (url.endsWith('/api/replay-sites')) res = { sites: replaySites, org: null, mode: null };
     if (url.endsWith('/api/nudge')) res = nudgeCfg;
     if (url.endsWith('/api/me')) res = { ok: true, tracker: 'linear', trackerName: 'Linear', trackerIssue: null, trackerAction: null };
     await b.send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(JSON.stringify(res)).toString('base64') }, sid).catch(() => {});
@@ -43,7 +42,6 @@
   }
 
   const storage = (key) => W(`chrome.storage.local.get(${JSON.stringify(key)}).then((r) => r[${JSON.stringify(key)}] ?? null)`);
-  const setNudge = (n) => W(`chrome.storage.local.set({ nudge: ${JSON.stringify(n)} })`);
   const setSites = (s) => { replaySites = s; return W(`chrome.storage.local.set({ replaySites: ${JSON.stringify(s)}, replaySitesSyncedAt: Date.now() })`); };
   // the popup Chrome opens under the toolbar icon is a page target of its own:
   // the small reminder, or Brief's popup once Brief it turned it into that
@@ -72,45 +70,47 @@
     await sleep(2000);
     return { targetId, sid };
   };
-  const old = Date.now() - 8 * DAY;
+  const P1 = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a61';
+  const P2 = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a62';
+  const P3 = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a63';
+  // the owner sends one: the next pull (every 2 minutes, forced here) brings it
+  const send = async (id, message = '') => {
+    nudgeCfg = { message, button: '', push: id ? { id, at: new Date().toISOString() } : null };
+    await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);
+  };
   await setSites(replaySites);
   await W(`chrome.storage.local.set({ bcTrackerCache: { tracker: 'linear', trackerName: 'Linear' } })`);
 
   // ---- an unpaired browser: never ----
   await W(`chrome.storage.local.remove('briefCloudToken')`);
-  await setNudge({ usedAt: old });
-  await open(`http://app.brief.localhost:${WEB}/settings`);
-  check('an unpaired browser never gets the reminder', !(await waitPopup(true, 2500)) && !(await storage('nudge')).shownAt);
+  await send(P1, 'Found a <b>glitch</b>?');
+  await open(`http://127.0.0.1:${WEB}/settings`);
+  check('an unpaired browser never gets it', !(await waitPopup(true, 2500)));
 
-  // ---- pairing starts the week ----
+  // ---- paired: nothing opens on its own ----
   await W(`chrome.storage.local.set({ briefCloudToken: 'bxt_test' })`);
-  await sleep(600);
-  const paired = await storage('nudge');
-  check('pairing starts the week', Date.now() - paired.usedAt < 5000, JSON.stringify(paired));
-
-  // ---- paired before this version, quiet for 10 days: the server says so, no week to wait ----
-  await W(`chrome.storage.local.remove('nudge')`);
-  await W(`chrome.storage.local.set({ replaySitesSyncedAt: 0 })`); // the next page load syncs
-  lastBriefAt = new Date(Date.now() - 10 * DAY).toISOString();
+  await send(null);
+  await W(`chrome.storage.local.set({ nudge: { usedAt: ${Date.now() - 60 * DAY} } })`);
   await open(`http://app.brief.localhost:${WEB}/settings`);
-  check('an existing user quiet for 10 days gets the popup on the first page load', await waitPopup(true));
-  check('it opens as the small reminder, with "Seen a bug?"', (await popupUrl()).endsWith('/reminder.html') && (await reminderLine()) === 'Seen a bug?');
+  check('no push, no reminder, however long the user has been quiet', !(await waitPopup(true, 2500)));
+
+  // ---- the owner's push: the small reminder, once, on any page ----
+  await send(P1, 'Found a <b>glitch</b>?');
+  const Q = await open(`http://127.0.0.1:${WEB}/?push`); // not one of the Replay sites
+  check('a push opens the small reminder, off the Replay sites too', await waitPopup(true) && (await popupUrl()).endsWith('/reminder.html'));
+  check('with the owner’s text, as text (no HTML)', (await reminderLine()) === 'Found a <b>glitch</b>?');
   check('the icon goes back to Brief’s own popup at once', (await W(`chrome.action.getPopup({})`)).endsWith('/popup.html'));
-  const seeded = await storage('nudge');
-  check('its week counts from the server’s last brief, and it counts as shown', Math.abs(seeded.usedAt - Date.parse(lastBriefAt)) < 1000 && Date.now() - seeded.shownAt < 10_000, JSON.stringify(seeded));
+  check('the push is remembered', (await storage('nudge')).pushSeen === P1);
   await closePopup();
+  await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);
+  await reload(Q);
+  check('the same push opens once', !(await waitPopup(true, 2500)));
+  check('the text and the push come from /api/nudge', calls.some((c) => c.url === `${APP}/api/nudge`));
 
-  // ---- once a week, and only on a Replay site when there are some ----
-  const A2 = await open(`http://app.brief.localhost:${WEB}/settings`);
-  check('once a week: the next page load doesn’t open it', !(await waitPopup(true, 2500)));
-  await setNudge({ usedAt: old });
-  await open(`http://127.0.0.1:${WEB}/`);
-  check('not over a page that isn’t a Replay site, when there are some', !(await waitPopup(true, 2500)) && !(await storage('nudge')).shownAt);
-
-  // ---- a brief started from it ----
-  const A = await open(`http://app.brief.localhost:${WEB}/`);
-  check('due again on a Replay site: it opens', await waitPopup(true));
-  check('with the reminder line', (await reminderLine()) === 'Seen a bug?');
+  // ---- Brief it: the same popup becomes Brief's, and its brief says so ----
+  await send(P2);
+  await open(`http://app.brief.localhost:${WEB}/`);
+  check('the next push opens it again, with "Seen a bug?" when no text is set', await waitPopup(true) && (await reminderLine()) === 'Seen a bug?');
   await inPopup(`document.getElementById('go').click()`);
   for (let i = 0; i < 20 && !(await popupUrl()).endsWith('/popup.html'); i++) await sleep(150);
   check('Brief it turns it into Brief’s own popup, in place', (await popupUrl()).endsWith('/popup.html'));
@@ -126,84 +126,41 @@
   for (let i = 0; i < 40 && !calls.some((c) => c.url.endsWith('/api/briefs')); i++) await sleep(500);
   const create = calls.find((c) => c.url.endsWith('/api/briefs'));
   const sent = create ? JSON.parse(create.body) : {};
-  check('Create from the reminder files the brief, and its create request says it came from the reminder', sent.via === 'nudge' && sent.meta?.description === 'Export CSV fails with a 500', JSON.stringify({ via: sent.via, description: sent.meta?.description }));
-  check('a brief made here starts the week over', Date.now() - (await storage('nudge')).usedAt < 60_000);
+  check('Create from it files the brief, and its create request says it came from the reminder', sent.via === 'nudge' && sent.meta?.description === 'Export CSV fails with a 500', JSON.stringify({ via: sent.via, description: sent.meta?.description }));
   await closePopup();
   const draftNow = await storage('draft');
   check('the next draft doesn’t inherit it', !draftNow?.via, JSON.stringify(draftNow?.via));
 
-  // ---- closed with nothing started, then quiet for a week ----
-  await setNudge({ usedAt: old });
-  await reload(A);
-  check('due again: it opens', await waitPopup(true));
-  await reminderLine();
-  await closePopup();
-  check('closed by clicking away', !(await popup()));
-  await reload(A);
-  check('closed: not back on the next load', !(await waitPopup(true, 2500)));
-  await setNudge({ usedAt: old, shownAt: Date.now() - 6 * DAY });
-  await reload(A);
-  check('shown 6 days ago: still quiet', !(await waitPopup(true, 2500)));
-  await setNudge({ usedAt: old, shownAt: old });
-  await reload(A);
-  check('a week later it opens again', await waitPopup(true));
-  await reminderLine();
-  await closePopup();
-
-  // ---- a popup opened by hand never carries the line ----
+  // ---- a popup opened by hand is Brief's own ----
   const P0 = await open(`chrome-extension://${extId}/popup.html`); await sleep(1200);
   check('opening the popup yourself is Brief’s own popup', (await evalIn(P0.sid, 'location.pathname')) === '/popup.html');
   await b.send('Target.closeTarget', { targetId: P0.targetId }); await sleep(400);
 
-  // ---- no Replay sites: any page, never get-brief.app ----
-  await setSites([]);
-  await setNudge({ usedAt: old });
+  // ---- never over Brief itself ----
+  await send(P3);
   const S = await openSite();
   const siteUrl = await evalIn(S.sid, 'location.href');
-  check('never over get-brief.app', siteUrl === SITE && !(await waitPopup(true, 2500)) && !(await storage('nudge')).shownAt, siteUrl);
+  check('never over get-brief.app', siteUrl === SITE && !(await waitPopup(true, 2500)) && (await storage('nudge')).pushSeen === P2, siteUrl);
   await open(`http://127.0.0.1:${WEB}/settings`);
-  check('with no Replay sites, any page gets it', await waitPopup(true));
+  check('the next page that can carry it gets it', await waitPopup(true));
   await reminderLine();
   await closePopup();
-
-  // ---- the owner's "show it now", with their text ----
-  // it just opened (shownAt now): the week alone would keep it quiet
-  const PUSH = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b';
-  nudgeCfg = { message: 'Found a <b>glitch</b>?', button: '', push: { id: PUSH, at: new Date().toISOString() } };
-  await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);
-  await setSites(['*.brief.localhost']); // 127.0.0.1 is not one: a push opens anyway
-  const Q = await open(`http://127.0.0.1:${WEB}/?push`);
-  check('a push opens the reminder, inside the quiet week and off the Replay sites', await waitPopup(true));
-  check('with the owner’s text, as text (no HTML)', (await reminderLine()) === 'Found a <b>glitch</b>?');
-  check('the push is remembered', (await storage('nudge')).pushSeen === PUSH);
-  await closePopup();
-  await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);
-  await reload(Q);
-  check('the same push opens once', !(await waitPopup(true, 2500)));
-  check('the text and the push come from /api/nudge', calls.some((c) => c.url === `${APP}/api/nudge`));
-
   check('no page errors', exceptions.length === 0, exceptions.join(' | '));
 
-  // ---- what reached Brief Cloud about it: three names, nothing about the page ----
+  // ---- what reached Brief Cloud about it: three names, the push, nothing about the page ----
   await sleep(1000);
   const logged = calls.filter((c) => c.url === `${APP}/api/extension-events`);
   const bodies = logged.map((c) => JSON.parse(c.body || '{}'));
-  check('each opening, brief started and close was logged, in order', JSON.stringify(bodies) === JSON.stringify([
-    { name: 'nudge.shown', props: { replay: true } }, // an existing user, first page load
-    { name: 'nudge.closed', props: {} },
-    { name: 'nudge.shown', props: { replay: true } }, // A
-    { name: 'nudge.brief_it', props: {} },
-    { name: 'nudge.shown', props: { replay: true } }, // due again
-    { name: 'nudge.closed', props: {} },
-    { name: 'nudge.shown', props: { replay: true } }, // a week later
-    { name: 'nudge.closed', props: {} },
-    { name: 'nudge.shown', props: { replay: false } }, // no Replay sites
-    { name: 'nudge.closed', props: {} },
-    { name: 'nudge.shown', props: { replay: false, push: PUSH } }, // the owner's push
-    { name: 'nudge.closed', props: { push: PUSH } },
+  check('each opening, Brief it and close was logged, in order, with its push', JSON.stringify(bodies) === JSON.stringify([
+    { name: 'nudge.shown', props: { replay: false, push: P1 } },
+    { name: 'nudge.closed', props: { push: P1 } },
+    { name: 'nudge.shown', props: { replay: true, push: P2 } },
+    { name: 'nudge.brief_it', props: { push: P2 } },
+    { name: 'nudge.shown', props: { replay: false, push: P3 } },
+    { name: 'nudge.closed', props: { push: P3 } },
   ]), JSON.stringify(bodies));
   const raw = logged.map((c) => c.body).join('\n');
-  check('no page data in them: no address, host, port or title', !/localhost|127\.0\.0\.1|\d{4}|get-brief\.app|Checkout|Settings|http/i.test(raw), raw);
+  check('no page data in them: no address, host, port or title', !/localhost|127\.0\.0\.1|get-brief\.app|Checkout|Settings|http/i.test(raw), raw);
   check('only name and props, as a POST with the pairing token', logged.every((c) => c.method === 'POST' && c.auth === 'Bearer bxt_test') && bodies.every((b) => Object.keys(b).every((k) => k === 'name' || k === 'props') && Object.keys(b.props || {}).every((k) => k === 'replay' || k === 'push')));
 }
 

@@ -1,5 +1,7 @@
 # The reminder: owner control
 
+**Update 2026-11-07 (1.7.7 / 1.7.8):** the reminder is a small popup (`extension/reminder.html`, opened with `chrome.action.setPopup` for that one opening): the Brief mark, the text, Brief it, ×. Brief it turns it into Brief's popup. There is **no automatic weekly reminder** any more: it opens only when the owner sends it, on any web page, and the extension pulls `/api/nudge` every 2 minutes. `lastBriefAt` and the quiet-week clock are gone.
+
 The owner wants to show the reminder on demand, to the people they pick,
 choose what it says, and see what each person did with it.
 Builds on 2026-10-30-inactivity-nudge-design.md (the reminder is Brief's own

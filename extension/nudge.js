@@ -1,33 +1,24 @@
-// Brief - the reminder for a user who stopped using Brief
+// Brief - the reminder, only when the owner sends it
 //
-// A paired browser whose user has made nothing for a week gets a small popup
-// under the extension's toolbar icon (reminder.html) on a page they use:
-// "Seen a bug?" or the owner's text from /admin/card, Brief it, ×. At most once
-// a week, plus once for each "show it now" the owner sends (GET /api/nudge,
-// syncNudge), on any web page. The worker decides, on each page load (claimNudge) and opens it
-// (background.js maybeNudge). The state stays in chrome.storage.local under
-// `nudge`:
-//   usedAt       the user's last brief (here, or as the server knows it from
-//                `lastBriefAt`), a capture started here, or the pairing
-//   shownAt      last time the reminder opened
-//   prevShownAt  the one before, put back if Chrome refuses to open it
+// The owner sends it from /admin/card ("show it now", to everyone or to the
+// people picked). The extension pulls the newest one meant for it (GET
+// /api/nudge, syncNudge) and opens a small popup under its toolbar icon
+// (reminder.html) on the next page load: "Seen a bug?" or the owner's text,
+// Brief it, ×. Once per push, on any web page, never on Brief's own site or
+// app, never while recording. There is no automatic reminder. The worker
+// decides on each page load (claimNudge) and opens it (background.js
+// maybeNudge). The state stays in chrome.storage.local under `nudge`:
 //   pushSeen     the owner's last push this browser opened
 //   prevPushSeen the one before, put back if Chrome refuses to open it
 //   tries        { day, n }: refused opens today
-// What people do with it is logged (cardEvent): it opened, a capture started
-// from it, it closed with none, with the push's id when the owner sent it.
-// Nothing about the page but whether it is a Replay site. See
-// docs/superpowers/specs/2026-10-30-inactivity-nudge-design.md and
-// 2026-11-07-nudge-admin-control-design.md.
+// What people do with it is logged (cardEvent): it opened, Brief it, closed,
+// with the push's id. Nothing about the page but whether it is a Replay site.
+// See docs/superpowers/specs/2026-11-07-nudge-admin-control-design.md.
 
 import { patternMatches } from './replay-sites.js';
 import { APP_URL, getCloudToken } from './cloud.js';
 
 const DAY = 86_400_000;
-/** How long without a brief before the card shows. */
-export const QUIET_MS = 7 * DAY;
-/** And how long between two reminders. */
-export const EVERY_MS = 7 * DAY;
 /** How many refused opens a day before waiting for tomorrow. */
 export const TRIES_PER_DAY = 3;
 
@@ -35,16 +26,9 @@ const dayOf = (t) => Math.floor(t / DAY);
 
 const KEY = 'nudge';
 
-/** Whether the card is due, from what this browser remembers. */
-export function nudgeDue({ now, paired, recording, usedAt, shownAt }) {
-  if (!paired || recording || !usedAt) return false;
-  if (now - usedAt < QUIET_MS) return false;
-  return !shownAt || now - shownAt >= EVERY_MS;
-}
-
 /**
- * Whether this page can carry the card: one of the Replay sites when there are
- * any, else any web page. Never Brief's own site or app.
+ * Whether this page can carry the reminder: any web page, or one of `sites`
+ * when given. Never Brief's own site or app.
  */
 export function nudgePageOk(url, { sites = [], appUrl = '' } = {}) {
   let u;
@@ -56,7 +40,7 @@ export function nudgePageOk(url, { sites = [], appUrl = '' } = {}) {
 }
 
 // One read-modify-write at a time: two tabs loading together must not both
-// get the card.
+// open it.
 let chain = Promise.resolve();
 function update(fn) {
   const run = chain.then(async () => {
@@ -70,55 +54,30 @@ function update(fn) {
   return run;
 }
 
-/** Something was made here, or the browser was just paired: the week starts over. */
-export function markUsed(now = Date.now()) {
-  return update((n) => ({ ...n, usedAt: now }));
-}
-
 /**
- * A page loaded in front: 'push' or 'weekly' when the reminder should open
- * now (and it is then counted as shown; missedNudge takes that back if Chrome
- * refuses), else false. `lastBriefAt` (from the server) moves `usedAt` forward
- * when the user made a brief elsewhere, and gives a browser paired before this
- * version its start. `push`: the owner's newest "show it now", opened once,
- * whatever the week says.
+ * A page loaded in front: true when the owner's newest push (`push`) should
+ * open now, and it is then counted as opened (missedNudge takes that back if
+ * Chrome refuses).
  */
-export async function claimNudge({ url, paired, recording, sites, appUrl, lastBriefAt, push = null, now = Date.now() }) {
-  let why = false;
+export async function claimNudge({ url, paired, recording, appUrl, push = null, now = Date.now() }) {
+  let show = false;
   await update((n) => {
-    if (!paired) return n;
-    const usedAt = Math.max(n.usedAt || 0, lastBriefAt || 0);
-    const known = usedAt && usedAt !== n.usedAt ? { ...n, usedAt } : n;
-    // the owner's push: any web page; the weekly one: a Replay site when there are some
-    const pushDue = !!push?.id && push.id !== n.pushSeen;
-    if (recording || !nudgePageOk(url, { sites: pushDue ? [] : sites, appUrl })) return known;
-    if (n.tries?.day === dayOf(now) && n.tries.n >= TRIES_PER_DAY) return known;
-    const { prevShownAt, prevPushSeen, ...rest } = known;
-    const shown = { ...rest, shownAt: now, ...(n.shownAt ? { prevShownAt: n.shownAt } : {}) };
-    if (pushDue) {
-      why = 'push';
-      return { ...shown, pushSeen: push.id, prevPushSeen: n.pushSeen ?? null };
-    }
-    if (!usedAt || !nudgeDue({ now, paired, recording, ...known })) return known;
-    why = 'weekly';
-    return shown;
+    if (!paired || recording || !push?.id || push.id === n.pushSeen) return n;
+    if (!nudgePageOk(url, { appUrl })) return n;
+    if (n.tries?.day === dayOf(now) && n.tries.n >= TRIES_PER_DAY) return n;
+    show = true;
+    return { ...n, pushSeen: push.id, prevPushSeen: n.pushSeen ?? null };
   });
-  return why;
+  return show;
 }
 
-/** Chrome refused to open it: not shown after all, and one try fewer today. */
+/** Chrome refused to open it: tried again on a later page load, a few times a day at most. */
 export function missedNudge(now = Date.now()) {
   return update((n) => {
-    const { shownAt, prevShownAt, prevPushSeen, pushSeen, tries, ...rest } = n;
+    const { prevPushSeen, pushSeen, tries, ...rest } = n;
     const today = tries?.day === dayOf(now) ? tries.n : 0;
-    // a refused push: try it again on a later page load
     const seen = prevPushSeen !== undefined ? prevPushSeen : pushSeen;
-    return {
-      ...rest,
-      ...(prevShownAt ? { shownAt: prevShownAt } : {}),
-      ...(seen ? { pushSeen: seen } : {}),
-      tries: { day: dayOf(now), n: today + 1 },
-    };
+    return { ...rest, ...(seen ? { pushSeen: seen } : {}), tries: { day: dayOf(now), n: today + 1 } };
   });
 }
 
