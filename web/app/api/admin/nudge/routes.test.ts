@@ -59,15 +59,18 @@ describe("POST /api/admin/nudge/push", () => {
     expect(server.createPush).not.toHaveBeenCalled();
   });
 
-  it("pushes to one person, or to everyone", async () => {
+  it("pushes to the people picked, or to everyone", async () => {
+    expect((await push(body("POST", { userIds: ["user_2abc", "user_3def", "user_2abc"] }))).status).toBe(200);
+    expect(server.createPush).toHaveBeenLastCalledWith(["user_2abc", "user_3def"]);
     expect((await push(body("POST", { userId: "user_2abc" }))).status).toBe(200);
-    expect(server.createPush).toHaveBeenLastCalledWith("user_2abc");
+    expect(server.createPush).toHaveBeenLastCalledWith(["user_2abc"]);
     expect((await push(body("POST", {}))).status).toBe(200);
     expect(server.createPush).toHaveBeenLastCalledWith(null);
   });
 
-  it("refuses an id that isn't a Clerk id", async () => {
-    expect((await push(body("POST", { userId: "a,user_id.is.null" }))).status).toBe(400);
+  it("refuses ids that aren't Clerk ids, and an empty pick", async () => {
+    expect((await push(body("POST", { userIds: ["a,user_id.is.null"] }))).status).toBe(400);
+    expect((await push(body("POST", { userIds: [] }))).status).toBe(400);
     expect(server.createPush).not.toHaveBeenCalled();
   });
 });

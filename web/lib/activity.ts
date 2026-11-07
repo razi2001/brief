@@ -120,10 +120,16 @@ export function lineOf(e: Pick<EventRow, "name" | "props">): Line | null {
       return { kind: "extension", text: "Paired the extension" };
     case "extension.opened":
       return { kind: "extension", text: "Opened the extension popup" };
+    case "nudge.shown":
+      return { kind: "extension", text: `Brief's popup reminded them${p.replay === true ? " (on a Replay site)" : ""}` };
+    case "nudge.brief_it":
+      return { kind: "extension", text: "Started a brief from the reminder" };
+    case "nudge.closed":
+      return { kind: "extension", text: "Closed the reminder" };
     case "brief.created":
       return {
         kind: "brief",
-        text: `Created a brief${str(p.kind) ? ` (${str(p.kind)})` : ""}${p.via === "nudge" ? " from the “Seen a bug?” card" : ""}`,
+        text: `Created a brief${str(p.kind) ? ` (${str(p.kind)})` : ""}${p.via === "nudge" ? " from the reminder" : ""}`,
       };
     case "brief.file_refused":
       return { kind: "brief", text: "Tried to file with no tracker", bad: true };
@@ -223,6 +229,41 @@ function tally(values: string[]): Counted {
 }
 
 /** The website's numbers since `sinceMs`. */
+/** What the extension's reminder popup did over a period. */
+export type NudgeSummary = { shown: number; briefIt: number; closed: number; noAction: number; briefs: number };
+
+/**
+ * The reminder's numbers since `sinceMs`. Each showing ends one way: a brief
+ * started, closed, or no action (neither, before that person's next showing
+ * or now). `briefs`: briefs created from it (brief.created with `via: "nudge"`).
+ */
+export function nudgeSummary(events: (EventRow & { user_id: string | null })[], sinceMs: number): NudgeSummary {
+  const recent = events
+    .filter((e) => Date.parse(e.at) >= sinceMs)
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const out: NudgeSummary = { shown: 0, briefIt: 0, closed: 0, noAction: 0, briefs: 0 };
+  // per person: a showing nobody has answered yet
+  const waiting = new Map<string, boolean>();
+  for (const e of recent) {
+    const who = e.user_id ?? "";
+    if (e.name === "nudge.shown") {
+      if (waiting.get(who)) out.noAction++;
+      waiting.set(who, true);
+      out.shown++;
+    } else if (e.name === "nudge.brief_it") {
+      out.briefIt++;
+      waiting.set(who, false);
+    } else if (e.name === "nudge.closed") {
+      out.closed++;
+      waiting.set(who, false);
+    } else if (e.name === "brief.created" && e.props.via === "nudge") {
+      out.briefs++;
+    }
+  }
+  for (const w of waiting.values()) if (w) out.noAction++;
+  return out;
+}
+
 export function siteSummary(events: EventRow[], sinceMs: number): SiteSummary {
   const recent = events.filter((e) => Date.parse(e.at) >= sinceMs);
   const views = recent.filter((e) => e.name === "site.view");

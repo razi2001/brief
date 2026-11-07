@@ -1350,3 +1350,19 @@ chrome.storage.onChanged.addListener((changes, area) => {
     }
   });
 });
+
+// ---------- the reminder (background.js maybeNudge) ----------
+// The worker opened this popup on its own, for a user quiet for a week or
+// because the owner sent it: "Seen a bug?" (or the owner's text, set as text)
+// on top, and a port held open so the worker hears whether a capture starts
+// before it closes.
+chrome.storage.local.get('nudgeReminder').then(({ nudgeReminder }) => {
+  if (!nudgeReminder) return;
+  chrome.storage.local.remove('nudgeReminder').catch(() => {});
+  if (Date.now() - nudgeReminder.at > 15_000) return;
+  const line = document.getElementById('reminderLine');
+  const text = typeof nudgeReminder.text === 'string' ? nudgeReminder.text.trim().slice(0, 80) : '';
+  if (text) line.textContent = text;
+  line.hidden = false;
+  chrome.runtime.connect({ name: 'nudge-reminder' });
+}).catch(() => {});

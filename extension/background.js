@@ -9,7 +9,7 @@ import { fileDraft, fileDraftObject, resumeFiling, filingKeys } from "./filing.j
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
 import { putChunk, prune as pruneReplay, allMeta, deleteChunks, clearAll as clearReplay } from "./replay-store.js";
-import { claimNudge, markUsed, markClosed, syncNudgeIfStale } from "./nudge.js";
+import { claimNudge, missedNudge, markUsed, cardEvent, syncNudgeIfStale } from "./nudge.js";
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
@@ -52,7 +52,7 @@ async function startShot(itemId) {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return { ok: false, error: 'unsupported_page' };
-    markUsed().catch(() => {});
+    await captureStarted();
     const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
     // Mint the screenshot's id HERE and keep the clean capture in the blob
     // store under it, so "Edit drawing" can later reopen the annotator on the
@@ -216,9 +216,7 @@ async function askOffscreen(message, tries = 4) {
   throw last || new Error('the offscreen document did not answer');
 }
 
-// `via`: 'nudge' when the "Seen a bug?" card asked for it (the create request
-// says so, for the activity log).
-async function startAutoReport(tab, { via } = {}) {
+async function startAutoReport(tab) {
   const page = (() => { try { return new URL(tab?.url || '').host; } catch { return ''; } })();
   try {
     await startup;
@@ -239,7 +237,7 @@ async function startAutoReport(tab, { via } = {}) {
     const at = Date.now();
     const draftId = genId();
     const { autoReports = {} } = await chrome.storage.local.get('autoReports');
-    autoReports[draftId] = { at, tabId: tab.id, page, ...(via ? { via } : {}) };
+    autoReports[draftId] = { at, tabId: tab.id, page };
     await chrome.storage.local.set({ autoReports });
     iconBusy(true);
 
@@ -285,7 +283,7 @@ async function autoReportBuilt(draftId, result) {
     await reportLog({ ok: false, error: result?.error === 'Nothing recorded in the last minute' ? 'Nothing was recorded in the last minute' : 'Couldn’t build the report', detail: result?.error, page: entry.page });
     return;
   }
-  const d = { ...emptyDraft(), id: draftId, createdAt: entry.at, autoReport: true, replay: result.replay, ...(entry.via ? { via: entry.via } : {}) };
+  const d = { ...emptyDraft(), id: draftId, createdAt: entry.at, autoReport: true, replay: result.replay };
   const res = await fileDraftObject(d, 'draft');
   iconResult(res.ok);
   await reportLog(res.ok
@@ -303,39 +301,71 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'brief-report') await startAutoReport(tab);
 });
 
-// ---------- "Seen a bug?" (nudge.js) ----------
-// A page loaded in front: the card goes there if this browser has made
-// nothing for a week. Pairing starts the week.
+// ---------- The reminder (nudge.js) ----------
+// A page loaded in front of a user who has made nothing for a week: the
+// extension's own popup opens under its toolbar icon, with "Seen a bug?" (or
+// the owner's text) on top. So does the owner's "show it now", once. Pairing
+// starts the week.
 chrome.storage.onChanged.addListener((changes, area) => {
   const t = area === 'local' && changes.briefCloudToken;
   if (t && t.newValue && t.newValue !== t.oldValue) markUsed().catch(() => {});
 });
 
 async function maybeNudge(tab) {
-  const [{ briefCloudToken }, sites, rec, cfg] = await Promise.all([
-    chrome.storage.local.get('briefCloudToken'), getReplaySites(), getRecSession(),
+  const [{ briefCloudToken, lastBriefAt }, sites, rec, win, cfg] = await Promise.all([
+    chrome.storage.local.get(['briefCloudToken', 'lastBriefAt']), getReplaySites(), getRecSession(),
+    chrome.windows.get(tab.windowId).catch(() => null),
     syncNudgeIfStale(5 * 60_000).catch(() => null),
   ]);
+  // Chrome only opens a popup in the focused window.
+  if (!win?.focused) return;
   const show = await claimNudge({
-    url: tab.url, paired: !!briefCloudToken, recording: !!rec || STATE.recording, sites, appUrl: APP_URL,
+    url: tab.url, paired: !!briefCloudToken, recording: !!rec || STATE.recording, sites, appUrl: APP_URL, lastBriefAt,
     push: cfg?.push ?? null,
   });
-  if (show) {
-    await chrome.tabs.sendMessage(tab.id, { type: 'NUDGE_SHOW', text: cfg?.message || '', button: cfg?.button || '' }, { frameId: 0 }).catch(() => {});
+  if (!show) return;
+  const push = show === 'push' ? cfg.push.id : null;
+  // the popup reads it as it opens (popup.js), like pendingExpandBriefId:
+  // the line on top is the owner's text, or "Seen a bug?"
+  openedFor = push;
+  await chrome.storage.local.set({ nudgeReminder: { at: Date.now(), text: cfg?.message || '' } });
+  try {
+    await chrome.action.openPopup({ windowId: tab.windowId });
+    cardEvent('nudge.shown', { replay: sites.some((p) => patternMatches(p, tab.url)), push });
+  } catch (err) {
+    // Not shown (an older Chrome, the window lost focus): the week isn't used
+    // up, a push isn't either, and a later page load tries again, a few times
+    // a day at most.
+    console.warn('[brief/background] reminder popup:', err?.message || err);
+    await chrome.storage.local.remove('nudgeReminder').catch(() => {});
+    await missedNudge();
   }
 }
 
-// Brief it on the card: the last minute on a Replay site, like the right-click
-// item. Anywhere else there's no last minute to send, so a screenshot, like the
-// popup's (it lands on the current draft, which the popup then shows).
-async function nudgeBriefIt(tab) {
-  if (!tab?.id || !tab.url) return;
-  if (await isWatched(tab.url)) { await startAutoReport(tab, { via: 'nudge' }); return; }
-  await startup;
-  let d = await getDraft();
-  if (!d) { d = emptyDraft(); await setDraft(d); }
-  await chrome.storage.session.set({ nudgeShot: { itemId: d.id, at: Date.now() } });
-  await startShot(d.id);
+// The reminder popup holds a port open while it is up (popup.js). A capture
+// started meanwhile is "Brief it", and its brief says it came from the
+// reminder; the popup closing with none is "closed".
+// `openedFor`: the owner's push that opened it, if any, carried on its events.
+let reminder = null;
+let openedFor = null;
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'nudge-reminder') return;
+  const r = { acted: false, push: openedFor };
+  openedFor = null;
+  reminder = r;
+  port.onDisconnect.addListener(() => {
+    if (!r.acted) cardEvent('nudge.closed', { push: r.push });
+    if (reminder === r) reminder = null;
+  });
+});
+
+/** A capture is starting on the current draft: from the reminder popup, mark it. */
+async function captureStarted() {
+  markUsed().catch(() => {});
+  if (!reminder || reminder.acted) return;
+  reminder.acted = true;
+  cardEvent('nudge.brief_it', { push: reminder.push });
+  await updateDraft(null, (d) => { if (!d.cloudBriefId) d.via = 'nudge'; }).catch(() => {});
 }
 
 // ---------- Draft badge ----------
@@ -1093,11 +1123,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // Instant replay: a page on a watched site gets its rolling buffer on
           // every load. Fire and forget, it must not hold up the resume answer.
           if (tabId != null && sender.frameId === 0 && sender.tab?.url) {
-            syncReplaySitesIfStale(10 * 60_000)
-              .catch(() => {})
+            const synced = syncReplaySitesIfStale(10 * 60_000).catch(() => {});
+            synced
               .then(() => syncReplayTab(tabId, sender.tab.url))
               .catch((err) => console.warn('[brief/background] replay sync:', err));
-            if (sender.tab.active) maybeNudge(sender.tab).catch((err) => console.warn('[brief/background] nudge:', err));
+            // after the sync: it brings the user's last brief (lastBriefAt)
+            if (sender.tab.active) synced.then(() => maybeNudge(sender.tab)).catch((err) => console.warn('[brief/background] nudge:', err));
           }
           const s = await getRecSession();
           if (!s || tabId == null) { sendResponse({ ok: true }); break; }
@@ -1177,16 +1208,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: true });
           break;
 
-        case 'NUDGE_BRIEF_IT':
-          await nudgeBriefIt(sender?.tab);
-          sendResponse({ ok: true });
-          break;
-
-        case 'NUDGE_CLOSED':
-          await markClosed();
-          sendResponse({ ok: true });
-          break;
-
         case 'REPORT_NOW': {
           // One-click report for a given tab (the e2e suite sends this; a
           // popup button could too).
@@ -1207,7 +1228,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // the flow survives the popup closing. The brief page opens after a
           // beat so the popup's confirmation can play if it's still around.
           await startup;
-          markUsed().catch(() => {});
+          await captureStarted();
           const result = await fileDraft(message.mode === 'ticket' ? 'ticket' : 'draft', {
             openTab: (url) => setTimeout(() => { openOrFocusTab(url); }, 1200),
           });
@@ -1220,7 +1241,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // The popup picked a video file and parked it in IndexedDB. The
           // offscreen document uploads it (it outlives the popup) through the
           // same path as a captured recording - keyframes, poster, transcript.
-          markUsed().catch(() => {});
+          await captureStarted();
           try {
             await ensureOffscreenDocument();
             const res = await chrome.runtime.sendMessage({
@@ -1264,11 +1285,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const strokes = Array.isArray(message.strokes) ? message.strokes : [];
             let added = false;
             // a screenshot the "Seen a bug?" card started: its brief says so
-            const { nudgeShot } = await chrome.storage.session.get('nudgeShot');
-            const viaNudge = nudgeShot?.itemId === message.itemId && Date.now() - nudgeShot.at < 15 * 60_000;
-            if (nudgeShot) await chrome.storage.session.remove('nudgeShot');
             await updateDraft(message.itemId, (d) => {
-              if (viaNudge && !d.cloudBriefId) d.via = 'nudge';
               if (!Array.isArray(d.screenshots)) d.screenshots = [];
               const existing = d.screenshots.find((s) => s.id === shotId);
               if (existing) {
@@ -1350,6 +1367,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
 
         case 'RESET_BEFORE_NEW_RECORDING':
+          // the popup's Record, right before the bar starts
+          await captureStarted();
           await resetBeforeRecording();
           sendResponse({ ok: true });
           break;

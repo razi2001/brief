@@ -10,6 +10,7 @@ import {
   isUserId,
   livePush,
   parseText,
+  cardStatuses,
 } from "./nudge";
 
 describe("card text", () => {
@@ -48,5 +49,31 @@ describe("pushes", () => {
     expect(isUserId("x,user_id.is.null")).toBe(false);
     expect(isUserId("")).toBe(false);
     expect(isUserId(42)).toBe(false);
+  });
+});
+
+describe("cardStatuses", () => {
+  const P = (id: string, user_id: string | null, at: string) => ({ id, user_id, created_at: `2026-11-0${at}T10:00:00Z` });
+  const E = (user_id: string, name: string, push: string) => ({ user_id, name, push });
+
+  it("each person: their newest push, theirs or everyone's, and the furthest thing they did", () => {
+    const pushes = [P("all1", null, "5"), P("a1", "user_a", "6"), P("b1", "user_b", "4")];
+    const events = [E("user_a", "nudge.shown", "a1"), E("user_a", "nudge.closed", "a1"), E("user_b", "nudge.brief_it", "b1"), E("user_c", "nudge.shown", "all1")];
+    const r = cardStatuses(pushes, events, ["user_a", "user_b", "user_c", "user_d"]);
+    expect(r.people.user_a).toEqual({ at: "2026-11-06T10:00:00Z", status: "closed" });
+    // b's own push is older than the everyone push: that's the one that counts, and b hasn't seen it
+    expect(r.people.user_b).toEqual({ at: "2026-11-05T10:00:00Z", status: "sent" });
+    expect(r.people.user_c.status).toBe("shown");
+    expect(r.people.user_d.status).toBe("sent");
+    expect(r.everyone).toEqual({ at: "2026-11-05T10:00:00Z", shown: 1, closed: 0, briefed: 0 });
+  });
+
+  it("Brief it beats closed, whatever the order", () => {
+    const r = cardStatuses([P("a1", "user_a", "6")], [E("user_a", "nudge.brief_it", "a1"), E("user_a", "nudge.shown", "a1")], ["user_a"]);
+    expect(r.people.user_a.status).toBe("briefed");
+  });
+
+  it("nothing sent: no status, no everyone line", () => {
+    expect(cardStatuses([], [], ["user_a"])).toEqual({ people: {}, everyone: null });
   });
 });

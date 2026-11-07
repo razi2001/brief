@@ -27,11 +27,18 @@ export const SERVER_EVENTS = [
 export const CLIENT_EVENTS = ["page.view", "onboarding.step", "onboarding.demo"] as const;
 /** What get-brief.app may send through POST /api/t. */
 export const SITE_EVENTS = ["site.view", "site.click", "site.demo"] as const;
+/**
+ * What the extension may send through POST /api/extension-events: its
+ * reminder popup opened, a brief was started from it, or it closed with none.
+ * Nothing else, and nothing about the page (the privacy page says so).
+ */
+export const EXTENSION_EVENTS = ["nudge.shown", "nudge.brief_it", "nudge.closed"] as const;
 
 export type ServerEvent = (typeof SERVER_EVENTS)[number];
 export type ClientEvent = (typeof CLIENT_EVENTS)[number];
 export type SiteEvent = (typeof SITE_EVENTS)[number];
-export type EventName = ServerEvent | ClientEvent | SiteEvent;
+export type ExtensionEvent = (typeof EXTENSION_EVENTS)[number];
+export type EventName = ServerEvent | ClientEvent | SiteEvent | ExtensionEvent;
 export type Props = Record<string, string | number | boolean>;
 
 const MAX_KEYS = 12;
@@ -70,6 +77,25 @@ export function track(userId: string | null, name: EventName, props: Record<stri
     // Outside a request (a background job): write now, still unawaited.
     void write();
   }
+}
+
+/**
+ * An extension event, or null when the name isn't one the extension may send.
+ * The only prop kept is `replay` on nudge.shown (whether the page was one of
+ * the user's Replay sites): anything else that comes is dropped.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function parseExtensionEvent(body: unknown): { name: ExtensionEvent; props: Props } | null {
+  if (!body || typeof body !== "object") return null;
+  const { name, props } = body as { name?: unknown; props?: unknown };
+  if (!(EXTENSION_EVENTS as readonly unknown[]).includes(name)) return null;
+  const p = (props && typeof props === "object" ? props : {}) as { replay?: unknown; push?: unknown };
+  const out: Props = {};
+  if (name === "nudge.shown" && typeof p.replay === "boolean") out.replay = p.replay;
+  // the owner's push that opened it (nudge_pushes.id), for /admin/card
+  if (typeof p.push === "string" && UUID.test(p.push)) out.push = p.push;
+  return { name: name as ExtensionEvent, props: out };
 }
 
 /** A browser event, or null when the name isn't one the browser may send. */

@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     if (isUniqueViolation(error)) ({ data: brief, error } = await insert(row));
   }
   if (error || !brief) return jsonCors({ error: error?.message }, { status: 500 });
-  // `via: "nudge"`: started from the extension's "Seen a bug?" card.
+  // `via: "nudge"`: started from the extension's reminder popup.
   const via = briefVia(body.via);
   track(userId, "brief.created", { kind: sourceKind ?? "unknown", ...(via ? { via } : {}) });
 

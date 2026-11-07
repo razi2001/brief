@@ -1,15 +1,23 @@
-// Brief - "Seen a bug?", the card for a browser that stopped using Brief
+// Brief - the reminder for a user who stopped using Brief
 //
-// A paired browser that has made nothing for a week gets a small card on a page
-// it uses: Brief it, or close it. At most once a week, plus once for each "show
-// it now" from the owner. The worker decides, on each page load (claimNudge);
-// content.js only draws the card. The text and the pushes come from GET
-// /api/nudge (syncNudge); nothing about this browser is sent. The state stays
-// in chrome.storage.local under `nudge`:
-//   usedAt   last capture or filing here, or the pairing (the week starts over)
-//   shownAt  last time the card showed or was closed
-//   pushSeen the owner's last "show it now" this browser already showed
-// See docs/superpowers/specs/2026-10-30-inactivity-nudge-design.md and
+// A paired browser whose user has made nothing for a week gets the extension's
+// own popup, opened under its toolbar icon on a page they use, with a line on
+// top ("Seen a bug?", or the owner's text from /admin/card). At most once a
+// week, plus once for each "show it now" the owner sends (GET /api/nudge,
+// syncNudge). The worker decides, on each page load (claimNudge) and opens it
+// (background.js maybeNudge). The state stays in chrome.storage.local under
+// `nudge`:
+//   usedAt       the user's last brief (here, or as the server knows it from
+//                `lastBriefAt`), a capture started here, or the pairing
+//   shownAt      last time the reminder opened
+//   prevShownAt  the one before, put back if Chrome refuses to open it
+//   pushSeen     the owner's last push this browser opened
+//   prevPushSeen the one before, put back if Chrome refuses to open it
+//   tries        { day, n }: refused opens today
+// What people do with it is logged (cardEvent): it opened, a capture started
+// from it, it closed with none, with the push's id when the owner sent it.
+// Nothing about the page but whether it is a Replay site. See
+// docs/superpowers/specs/2026-10-30-inactivity-nudge-design.md and
 // 2026-11-07-nudge-admin-control-design.md.
 
 import { patternMatches } from './replay-sites.js';
@@ -18,8 +26,12 @@ import { APP_URL, getCloudToken } from './cloud.js';
 const DAY = 86_400_000;
 /** How long without a brief before the card shows. */
 export const QUIET_MS = 7 * DAY;
-/** And how long between two cards. */
+/** And how long between two reminders. */
 export const EVERY_MS = 7 * DAY;
+/** How many refused opens a day before waiting for tomorrow. */
+export const TRIES_PER_DAY = 3;
+
+const dayOf = (t) => Math.floor(t / DAY);
 
 const KEY = 'nudge';
 
@@ -63,31 +75,78 @@ export function markUsed(now = Date.now()) {
   return update((n) => ({ ...n, usedAt: now }));
 }
 
-/** The card was closed: the week between two cards starts now. */
-export function markClosed(now = Date.now()) {
-  return update((n) => ({ ...n, shownAt: now }));
+/**
+ * A page loaded in front: 'push' or 'weekly' when the reminder should open
+ * now (and it is then counted as shown; missedNudge takes that back if Chrome
+ * refuses), else false. `lastBriefAt` (from the server) moves `usedAt` forward
+ * when the user made a brief elsewhere, and gives a browser paired before this
+ * version its start. `push`: the owner's newest "show it now", opened once,
+ * whatever the week says.
+ */
+export async function claimNudge({ url, paired, recording, sites, appUrl, lastBriefAt, push = null, now = Date.now() }) {
+  let why = false;
+  await update((n) => {
+    if (!paired) return n;
+    const usedAt = Math.max(n.usedAt || 0, lastBriefAt || 0);
+    const known = usedAt && usedAt !== n.usedAt ? { ...n, usedAt } : n;
+    if (recording || !nudgePageOk(url, { sites, appUrl })) return known;
+    if (n.tries?.day === dayOf(now) && n.tries.n >= TRIES_PER_DAY) return known;
+    const { prevShownAt, prevPushSeen, ...rest } = known;
+    const shown = { ...rest, shownAt: now, ...(n.shownAt ? { prevShownAt: n.shownAt } : {}) };
+    if (push?.id && push.id !== n.pushSeen) {
+      why = 'push';
+      return { ...shown, pushSeen: push.id, prevPushSeen: n.pushSeen ?? null };
+    }
+    if (!usedAt || !nudgeDue({ now, paired, recording, ...known })) return known;
+    why = 'weekly';
+    return shown;
+  });
+  return why;
 }
 
-/**
- * A page loaded in front: true when it gets the card now, and the card is
- * then counted as shown. A browser paired before this version has no
- * `usedAt` yet: its week starts here. `push`: the owner's "show it now"
- * (GET /api/nudge), shown once, whatever the week says.
- */
-export async function claimNudge({ url, paired, recording, sites, appUrl, push = null, now = Date.now() }) {
-  let show = false;
-  await update((n) => {
-    const next = paired && !n.usedAt ? { ...n, usedAt: now } : n;
-    if (!nudgePageOk(url, { sites, appUrl })) return next;
-    if (paired && !recording && push?.id && push.id !== n.pushSeen) {
-      show = true;
-      return { ...next, shownAt: now, pushSeen: push.id };
-    }
-    if (next !== n || !nudgeDue({ now, paired, recording, ...n })) return next;
-    show = true;
-    return { ...n, shownAt: now };
+/** Chrome refused to open it: not shown after all, and one try fewer today. */
+export function missedNudge(now = Date.now()) {
+  return update((n) => {
+    const { shownAt, prevShownAt, prevPushSeen, pushSeen, tries, ...rest } = n;
+    const today = tries?.day === dayOf(now) ? tries.n : 0;
+    // a refused push: try it again on a later page load
+    const seen = prevPushSeen !== undefined ? prevPushSeen : pushSeen;
+    return {
+      ...rest,
+      ...(prevShownAt ? { shownAt: prevShownAt } : {}),
+      ...(seen ? { pushSeen: seen } : {}),
+      tries: { day: dayOf(now), n: today + 1 },
+    };
   });
-  return show;
+}
+
+/** The only names the extension logs, all about the reminder. */
+export const CARD_EVENTS = ['nudge.shown', 'nudge.brief_it', 'nudge.closed'];
+
+/**
+ * Tell Brief Cloud what happened to the reminder: it opened (`replay`: over a
+ * Replay site or not), a capture started from it, or it closed with none.
+ * `push`: the id of the owner's push that opened it, so /admin/card can say
+ * what each person did with it. Fire and forget, with the pairing token.
+ */
+export async function cardEvent(name, props = {}) {
+  if (!CARD_EVENTS.includes(name)) return;
+  try {
+    const token = await getCloudToken();
+    if (!token) return;
+    await fetch(`${APP_URL}/api/extension-events`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        props: {
+          ...(name === 'nudge.shown' ? { replay: !!props.replay } : {}),
+          ...(typeof props.push === 'string' && props.push ? { push: props.push } : {}),
+        },
+      }),
+      keepalive: true,
+    });
+  } catch {}
 }
 
 // ---------- What the owner set (GET /api/nudge) ----------

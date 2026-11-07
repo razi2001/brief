@@ -5,7 +5,7 @@ import RefreshButton from "./RefreshButton";
 import DailyChart from "./DailyChart";
 import { BarList, SourcesTable, StatTile } from "./ActivityCharts";
 import { ACCENT, NONE } from "./activity-colors";
-import { FUNNEL, ago, funnelCounts, funnelOf, type Counted, type PersonFacts, type SiteSummary } from "@/lib/activity";
+import { FUNNEL, ago, funnelCounts, funnelOf, type Counted, type NudgeSummary, type PersonFacts, type SiteSummary } from "@/lib/activity";
 import { RANGES, type Dashboard, type DayPoint, type Metric } from "@/lib/activity-stats";
 import { signupChannel } from "@/lib/channels";
 
@@ -25,6 +25,15 @@ export function FunnelPills({ p }: { p: PersonFacts }) {
         />
       ))}
     </span>
+  );
+}
+
+function Stat({ label, n }: { label: string; n: number }) {
+  return (
+    <div>
+      <h3 className="text-xs font-medium text-muted">{label}</h3>
+      <p className="mt-1 text-[26px] font-semibold tabular-nums leading-none text-ink">{n}</p>
+    </div>
   );
 }
 
@@ -74,12 +83,14 @@ export default function ActivityView({
   people,
   site,
   dashboard,
+  nudge,
   days,
   now,
 }: {
   people: PersonFacts[];
   site: SiteSummary;
   dashboard: Dashboard;
+  nudge: NudgeSummary;
   days: number;
   now: number;
 }) {
@@ -131,6 +142,15 @@ export default function ActivityView({
           <h3 className="mb-3 text-xs font-medium text-muted">Sign-ups said they heard from</h3>
           <BarList rows={dashboard.heard} color={(l) => (l === "No answer" ? NONE : ACCENT)} empty="No sign-ups" />
         </div>
+      </div>
+
+      <H2>Reminder popup · last 30 days</H2>
+      <div className="card mt-3 grid grid-cols-2 gap-x-6 gap-y-5 p-4 sm:grid-cols-5">
+        <Stat label="Shown" n={nudge.shown} />
+        <Stat label="Started a brief" n={nudge.briefIt} />
+        <Stat label="Closed" n={nudge.closed} />
+        <Stat label="No action" n={nudge.noAction} />
+        <Stat label="Briefs from it" n={nudge.briefs} />
       </div>
 
       <H2>get-brief.app</H2>

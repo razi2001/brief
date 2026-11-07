@@ -12,6 +12,6 @@ export default async function ActivityPage({
   await requireAdmin();
   const asked = Number((await searchParams).days);
   const days = (RANGES as readonly number[]).includes(asked) ? asked : 30;
-  const { people, site, dashboard, now } = await loadActivity(days);
-  return <ActivityView people={people} site={site} dashboard={dashboard} days={days} now={now} />;
+  const { people, site, dashboard, nudge, now } = await loadActivity(days);
+  return <ActivityView people={people} site={site} dashboard={dashboard} nudge={nudge} days={days} now={now} />;
 }

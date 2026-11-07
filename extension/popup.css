@@ -44,6 +44,10 @@ body.sheet-open { overflow:hidden; }
 
 .app { padding:0; }
 
+/* the reminder the worker opens the popup with (nudge.js) */
+.reminder { margin:14px 16px 0; padding:9px 14px 10px; border-radius:12px; background:rgba(221,105,54,.1);
+  font-family:var(--display); font-style:italic; font-size:21px; line-height:1.1; color:var(--accent); }
+
 /* ---------- HEADER ---------- */
 .header { display:flex; align-items:center; gap:10px; padding:16px 14px 4px 16px; }
 .mark { width:30px; height:30px; flex:0 0 auto; border-radius:8px;

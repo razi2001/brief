@@ -2,7 +2,16 @@ import { clerkClient, type User } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { connectedProviders } from "@/lib/trackers/registry";
 import { signupSource } from "@/lib/signup-source";
-import { siteSummary, timelineOf, type EventRow, type PersonFacts, type SiteSummary, type TimelineItem } from "@/lib/activity";
+import {
+  nudgeSummary,
+  siteSummary,
+  timelineOf,
+  type EventRow,
+  type NudgeSummary,
+  type PersonFacts,
+  type SiteSummary,
+  type TimelineItem,
+} from "@/lib/activity";
 import { DAY_MS, dashboardOf, dayRange, type Dashboard } from "@/lib/activity-stats";
 import { isAdminEmail } from "@/lib/admin-view";
 
@@ -86,7 +95,13 @@ async function loadRows(userId?: string): Promise<Rows> {
       return (ids ? q.in("user_id", ids) : q).range(a, b);
     }),
     allRows<Rows["seen"][number]>((a, b) => {
-      const q = db.from("events").select("user_id, at").not("user_id", "is", null).gte("at", seenSince);
+      // The extension opening its reminder is not something the person did.
+      const q = db
+        .from("events")
+        .select("user_id, at")
+        .not("user_id", "is", null)
+        .neq("name", "nudge.shown")
+        .gte("at", seenSince);
       return (ids ? q.in("user_id", ids) : q).order("at", { ascending: false }).range(a, b);
     }, 20_000),
   ]);
@@ -94,7 +109,7 @@ async function loadRows(userId?: string): Promise<Rows> {
 }
 
 /** Everyone, newest sign-up first, and the rows their facts came from. */
-async function loadPeople(): Promise<{ people: PersonFacts[]; rows: Rows }> {
+export async function loadPeople(): Promise<{ people: PersonFacts[]; rows: Rows }> {
   const client = await clerkClient();
   const [list, rows] = await Promise.all([
     client.users.getUserList({ limit: MAX_USERS, orderBy: "-created_at" }),
@@ -145,6 +160,21 @@ async function loadSiteEvents(since: string): Promise<EventRow[]> {
   );
 }
 
+/** The extension's reminder popup since `since`, and the briefs it brought. */
+async function loadNudgeEvents(since: string): Promise<(EventRow & { user_id: string | null })[]> {
+  type Row = EventRow & { user_id: string | null };
+  const db = createAdminSupabase();
+  const events = () => db.from("events").select("user_id, at, name, props").gte("at", since);
+  const [card, briefs] = await Promise.all([
+    allRows<Row>((a, b) => events().like("name", "nudge.%").order("at").range(a, b)),
+    allRows<Row>((a, b) => events().eq("name", "brief.created").eq("props->>via", "nudge").order("at").range(a, b)),
+  ]);
+  return [...card, ...briefs];
+}
+
+/** How far back the reminder's numbers look, whatever the page's period. */
+const NUDGE_DAYS = 30;
+
 /** Who did something while signed in, from `since`. */
 async function loadSeen(since: string): Promise<{ user_id: string; at: string }[]> {
   const db = createAdminSupabase();
@@ -164,15 +194,17 @@ async function loadLogStart(): Promise<string | null> {
  */
 export async function loadActivity(
   days: number,
-): Promise<{ people: PersonFacts[]; site: SiteSummary; dashboard: Dashboard; now: number }> {
+): Promise<{ people: PersonFacts[]; site: SiteSummary; dashboard: Dashboard; nudge: NudgeSummary; now: number }> {
   const now = Date.now();
   const start = Date.parse(dayRange(now, days)[0]);
   const from = new Date(start - days * DAY_MS).toISOString();
-  const [{ people, rows }, events, seen, logStart] = await Promise.all([
+  const nudgeSince = now - NUDGE_DAYS * DAY_MS;
+  const [{ people, rows }, events, seen, logStart, nudgeEvents] = await Promise.all([
     loadPeople(),
     loadSiteEvents(from),
     loadSeen(from),
     loadLogStart(),
+    loadNudgeEvents(new Date(nudgeSince).toISOString()),
   ]);
   const owner = new Set(people.filter((p) => p.admin).map((p) => p.id));
   const dashboard = dashboardOf({
@@ -184,5 +216,5 @@ export async function loadActivity(
     briefs: rows.briefs.filter((b) => !owner.has(b.user_id)),
     logStart,
   });
-  return { people, site: siteSummary(events, start), dashboard, now };
+  return { people, site: siteSummary(events, start), dashboard, nudge: nudgeSummary(nudgeEvents, nudgeSince), now };
 }

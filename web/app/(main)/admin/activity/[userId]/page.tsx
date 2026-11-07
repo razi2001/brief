@@ -16,7 +16,7 @@ export default async function PersonActivityPage({ params }: { params: Promise<{
       person={found.person}
       items={found.items}
       now={found.now}
-      card={<PushCardButton userId={userId} last={pushed.person} label="Show the bug card" />}
+      card={<PushCardButton userId={userId} last={pushed.person} label="Show the reminder" />}
     />
   );
 }

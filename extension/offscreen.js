@@ -646,7 +646,8 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
       if (delay) await new Promise((r) => setTimeout(r, delay));
       if (!current()) break;
       try {
-        cloudBriefId = await uploadDraft(files, cloudMeta, token);
+        // `via`: a recording started from the reminder popup says so
+        cloudBriefId = await uploadDraft(files, cloudMeta, token, { via: entry?.via });
         break;
       } catch (err) {
         lastErr = err;

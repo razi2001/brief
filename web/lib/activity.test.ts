@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ago, funnelCounts, funnelOf, lineOf, siteSummary, sourceLine, timelineOf, type PersonFacts } from "./activity";
+import {
+  ago,
+  funnelCounts,
+  funnelOf,
+  lineOf,
+  nudgeSummary,
+  siteSummary,
+  sourceLine,
+  timelineOf,
+  type PersonFacts,
+} from "./activity";
 
 const person = (over: Partial<PersonFacts> = {}): PersonFacts => ({
   id: "user_1",
@@ -73,9 +83,57 @@ describe("lineOf", () => {
 
   it("says when the extension's card brought a brief", () => {
     expect(lineOf({ name: "brief.created", props: { kind: "text", via: "nudge" } })?.text).toBe(
-      "Created a brief (text) from the “Seen a bug?” card",
+      "Created a brief (text) from the reminder",
     );
     expect(lineOf({ name: "brief.created", props: { kind: "text" } })?.text).toBe("Created a brief (text)");
+  });
+
+  it("writes what people did with the reminder popup", () => {
+    expect(lineOf({ name: "nudge.shown", props: { replay: true } })).toEqual({
+      kind: "extension",
+      text: "Brief's popup reminded them (on a Replay site)",
+    });
+    expect(lineOf({ name: "nudge.shown", props: { replay: false } })?.text).toBe("Brief's popup reminded them");
+    expect(lineOf({ name: "nudge.brief_it", props: {} })?.text).toBe("Started a brief from the reminder");
+    expect(lineOf({ name: "nudge.closed", props: {} })?.text).toBe("Closed the reminder");
+  });
+});
+
+describe("nudgeSummary", () => {
+  const ev = (at: string, name: string, user_id = "u1", props: Record<string, unknown> = {}) => ({ at, name, user_id, props });
+  const SINCE = Date.parse("2026-10-01T00:00:00Z");
+
+  it("ends each showing one way: Brief it, closed, or no action", () => {
+    const s = nudgeSummary(
+      [
+        // u1: shown, Brief it, a brief from it; a week later shown and closed
+        ev("2026-10-02T10:00:00Z", "nudge.shown", "u1", { replay: true }),
+        ev("2026-10-02T10:01:00Z", "nudge.brief_it"),
+        ev("2026-10-02T10:02:00Z", "brief.created", "u1", { kind: "text", via: "nudge" }),
+        ev("2026-10-09T10:00:00Z", "nudge.shown"),
+        ev("2026-10-09T10:00:05Z", "nudge.closed"),
+        // u2: shown twice with no click (the first ends at the second), u3: shown, nothing yet
+        ev("2026-10-03T10:00:00Z", "nudge.shown", "u2"),
+        ev("2026-10-10T10:00:00Z", "nudge.shown", "u2"),
+        ev("2026-10-20T10:00:00Z", "nudge.shown", "u3"),
+        // not the reminder's: a brief made another way
+        ev("2026-10-05T10:00:00Z", "brief.created", "u2", { kind: "text" }),
+      ],
+      SINCE,
+    );
+    expect(s).toEqual({ shown: 5, briefIt: 1, closed: 1, noAction: 3, briefs: 1 });
+  });
+
+  it("only counts the period, in time order whatever the input order", () => {
+    const s = nudgeSummary(
+      [
+        ev("2026-10-04T10:00:00Z", "nudge.closed"),
+        ev("2026-09-20T10:00:00Z", "nudge.shown", "u9"),
+        ev("2026-10-04T09:00:00Z", "nudge.shown"),
+      ],
+      SINCE,
+    );
+    expect(s).toEqual({ shown: 1, briefIt: 0, closed: 1, noAction: 0, briefs: 0 });
   });
 });
 

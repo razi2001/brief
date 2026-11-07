@@ -19,8 +19,8 @@ export function detectSourceKind(b: BriefMeta): SourceKind {
 }
 
 /**
- * What started a brief, when the extension says: "nudge" is its "Seen a bug?"
- * card. Anything else is dropped (the body is the client's word).
+ * What started a brief, when the extension says: "nudge" is its reminder
+ * popup. Anything else is dropped (the body is the client's word).
  */
 export function briefVia(v: unknown): "nudge" | null {
   return v === "nudge" ? "nudge" : null;

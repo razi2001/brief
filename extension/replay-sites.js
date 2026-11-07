@@ -91,13 +91,20 @@ export async function removePattern(pattern) {
 
 // Pull the org's list. Unpaired or a dead pairing: an empty list (record
 // nothing). A network failure keeps the last known list.
+// The answer also says when this user last made a brief (`lastBriefAt`, kept
+// for the "Seen a bug?" card, nudge.js).
 export async function syncReplaySites() {
   const token = await getCloudToken().catch(() => null);
   let sites = [];
   if (token) {
     try {
       const res = await fetch(`${APP_URL}/api/replay-sites`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) sites = (await res.json()).sites || [];
+      if (res.ok) {
+        const body = await res.json();
+        sites = body.sites || [];
+        const last = Date.parse(body.lastBriefAt || '');
+        if (Number.isFinite(last)) await chrome.storage.local.set({ lastBriefAt: last });
+      }
       else if (res.status !== 401) return getReplaySites();
     } catch {
       return getReplaySites();

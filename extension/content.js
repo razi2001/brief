@@ -19,16 +19,12 @@
       sendResponse({ ok: true });
       return false;
     }
-    if (message?.type === 'NUDGE_SHOW') {
-      showNudge(message.text, message.button);
-    } else if (message?.type === 'INJECT_BAR') {
-      removeNudge();
+    if (message?.type === 'INJECT_BAR') {
       // `resume`: the bar of a recording already running (a window recording
       // puts one in every tab). Only the bar: logging starts with BRIEF_START,
       // on the tabs the user actually visits.
       injectBar(message.streamId, message.intent || 'brief', message.mode || 'ship', message.itemId || '', message.resume, message.capture);
     } else if (message?.type === 'INJECT_SHOT') {
-      removeNudge();
       injectShot(message.itemId || '', message.dataUrl || '', message.pageUrl || '', message.pageTitle || '',
         message.shotId || '', message.strokes || []);
     } else if (message?.type === 'BRIEF_START') {
@@ -41,68 +37,6 @@
     }
     return false;
   });
-
-  // ---------- "Seen a bug?" ----------
-  // The worker sends NUDGE_SHOW when this browser hasn't made a brief in a week
-  // (nudge.js decides). A closed shadow root: the page's CSS can't reach the
-  // card and its scripts can't read it. `rr-block` keeps it out of the replay.
-  let nudgeHost = null;
-  const NUDGE_CSS = `
-    :host { all: initial; }
-    .card {
-      display: flex; align-items: center; gap: 10px;
-      padding: 7px 7px 7px 16px; border-radius: 999px;
-      background: linear-gradient(180deg, rgba(42, 38, 34, 0.95), rgba(18, 16, 14, 0.97));
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09), 0 12px 32px rgba(0, 0, 0, 0.28);
-      color: rgba(245, 241, 232, 0.94);
-      font: 500 14px/1.3 system-ui, 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;
-      -webkit-font-smoothing: antialiased; user-select: none;
-      animation: in 220ms cubic-bezier(.2, .7, .2, 1);
-    }
-    button { all: unset; cursor: pointer; box-sizing: border-box; }
-    button:focus-visible { outline: 2px solid #f08350; outline-offset: 2px; }
-    .go { padding: 7px 14px; border-radius: 999px; background: #dd6936; color: #fff; font-weight: 600; font-size: 13px; }
-    .go:hover { background: #f08350; }
-    .x { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: rgba(245, 241, 232, 0.6); }
-    .x:hover { color: rgba(245, 241, 232, 0.94); background: rgba(255, 255, 255, 0.08); }
-    @keyframes in { from { opacity: 0; transform: translateY(8px); } }
-    @media (prefers-reduced-motion: reduce) { .card { animation: none; } }
-  `;
-
-  // `text` / `button`: what the owner set (GET /api/nudge), else the built-in.
-  function showNudge(text, button) {
-    if (nudgeHost || iframeEl || shotEl) return;
-    nudgeHost = document.createElement('div');
-    nudgeHost.id = '__brief_nudge__';
-    nudgeHost.className = 'rr-block';
-    nudgeHost.style.cssText = 'all: initial !important; position: fixed !important; right: 24px !important; bottom: 24px !important; z-index: 2147483646 !important; display: block !important;';
-    const root = nudgeHost.attachShadow({ mode: 'closed' });
-    root.innerHTML = `<style>${NUDGE_CSS}</style>
-      <div class="card" role="dialog" aria-label="Brief">
-        <span>Seen a bug?</span>
-        <button class="go" type="button">Brief it</button>
-        <button class="x" type="button" aria-label="Close">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
-        </button>
-      </div>`;
-    // textContent, never HTML: the text comes from the server
-    root.querySelector('.card > span').textContent = (typeof text === 'string' && text.trim().slice(0, 80)) || 'Seen a bug?';
-    root.querySelector('.go').textContent = (typeof button === 'string' && button.trim().slice(0, 24)) || 'Brief it';
-    root.querySelector('.go').addEventListener('click', () => {
-      removeNudge();
-      // gone from the page before a screenshot is taken of it
-      setTimeout(() => { chrome.runtime.sendMessage({ type: 'NUDGE_BRIEF_IT' }).catch(() => {}); }, 150);
-    });
-    root.querySelector('.x').addEventListener('click', () => {
-      removeNudge();
-      chrome.runtime.sendMessage({ type: 'NUDGE_CLOSED' }).catch(() => {});
-    });
-    (document.body || document.documentElement).appendChild(nudgeHost);
-  }
-
-  function removeNudge() {
-    if (nudgeHost) { nudgeHost.remove(); nudgeHost = null; }
-  }
 
   // ---------- Screenshot annotator overlay ----------
   let shotEl = null;
