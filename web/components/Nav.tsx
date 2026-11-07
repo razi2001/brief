@@ -15,9 +15,10 @@ export const NAV_ITEMS = [
   { href: "/dashboard", label: "Home", icon: icon(<><rect x="2" y="2" width="5" height="6" rx="1.2" /><rect x="9" y="2" width="5" height="3.5" rx="1.2" /><rect x="9" y="7.5" width="5" height="6.5" rx="1.2" /><rect x="2" y="10" width="5" height="4" rx="1.2" /></>) },
   { href: "/tickets", label: "Tickets", icon: icon(<><path d="M3 4h10M3 8h10M3 12h6" /></>) },
   { href: "/drafts", label: "Drafts", icon: icon(<><path d="M9.5 2.5H4.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5.5" /><path d="m12.8 2.2 1 1L9 8l-1.6.6.6-1.6 4.8-4.8Z" /></>) },
-  { href: "/requests", label: "Requests", icon: icon(<><path d="M8 13.5V4M4 7.5 8 3.5l4 4" /><path d="M3 13.5h10" /></>) },
   { href: "/connections", label: "Settings", icon: icon(<><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6" /></>) },
   { href: "/guide", label: "How to use Brief", icon: icon(<><path d="M8 4.2C6.6 3.1 4.6 2.7 2.5 2.9v9.4c2.1-.2 4.1.2 5.5 1.3 1.4-1.1 3.4-1.5 5.5-1.3V2.9c-2.1-.2-4.1.2-5.5 1.3Z" /><path d="M8 4.2v9.4" /></>) },
+  // Always the last item: Nav draws it after the owner's links too.
+  { href: "/requests", label: "Feature requests", icon: icon(<><path d="M6 12.5h4M6.6 14h2.8" /><path d="M8 1.8a4.2 4.2 0 0 0-2.4 7.6c.5.4.8.9.8 1.5v.3h3.2v-.3c0-.6.3-1.1.8-1.5A4.2 4.2 0 0 0 8 1.8Z" /></>) },
 ] as const;
 
 type Item = { href: string; label: string; icon: ReactNode; exact?: boolean };
@@ -74,15 +75,18 @@ export function ActivityNavLink() {
  * Primary navigation: a vertical list in the sidebar (Linear-style), a row in
  * the mobile top bar. Real links, so each view has its own URL and the
  * extension can deep-link to /tickets. `extra` streams in after the fixed
- * items (the owner's All tickets link).
+ * items (the owner's All tickets link), and the last fixed item (Feature
+ * requests) still comes after it: it is always the last thing.
  */
 export default function Nav({ extra }: { extra?: ReactNode }) {
+  const last = NAV_ITEMS[NAV_ITEMS.length - 1];
   return (
     <nav aria-label="Primary" className="flex gap-0.5 sm:flex-col sm:gap-1">
-      {NAV_ITEMS.map((item) => (
+      {NAV_ITEMS.slice(0, -1).map((item) => (
         <NavLink key={item.href} item={item} />
       ))}
       {extra}
+      <NavLink item={last} />
     </nav>
   );
 }

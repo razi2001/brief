@@ -80,6 +80,31 @@ function StatusPill({ status }: { status: RequestStatus }) {
   );
 }
 
+/** A thumbs up: an outline until you've voted, then filled in the accent. */
+function ThumbsUp({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="transition-transform duration-150 group-hover:-rotate-6 group-active:scale-90"
+    >
+      <path
+        d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"
+        fill={filled ? "currentColor" : "none"}
+      />
+      {/* the cuff: drawn light on a filled hand so it still reads */}
+      <path d="M7 10v12" stroke={filled ? "#fffdfa" : "currentColor"} />
+    </svg>
+  );
+}
+
 function VoteButton({ item, busy, onToggle }: { item: RequestItem; busy: boolean; onToggle: () => void }) {
   return (
     <button
@@ -88,15 +113,13 @@ function VoteButton({ item, busy, onToggle }: { item: RequestItem; busy: boolean
       disabled={busy}
       aria-pressed={item.voted}
       aria-label={`${item.voted ? "Remove your vote from" : "Vote for"} ${item.title}`}
-      className={`flex h-12 w-11 shrink-0 flex-col items-center justify-center rounded-lg border text-[12px] font-medium tabular-nums transition-colors disabled:cursor-wait ${
+      className={`group flex h-14 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border text-[12px] font-semibold tabular-nums transition-colors disabled:cursor-wait ${
         item.voted
           ? "border-accent/40 bg-accent/10 text-accent"
-          : "border-hairline bg-surface text-ink-2 hover:bg-surface-2 hover:text-ink"
+          : "border-hairline bg-surface text-ink-2 hover:border-accent/30 hover:bg-accent/5 hover:text-accent"
       }`}
     >
-      <svg viewBox="0 0 10 6" width="10" height="6" aria-hidden="true">
-        <path d="m1 5 4-4 4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <ThumbsUp filled={item.voted} />
       {item.votes}
     </button>
   );
@@ -176,6 +199,7 @@ function Row({
   now,
   onVote,
   onStatus,
+  onDelete,
 }: {
   item: RequestItem;
   admin: boolean;
@@ -183,27 +207,60 @@ function Row({
   now: number;
   onVote: () => void;
   onStatus: (s: RequestStatus) => void;
+  onDelete: () => void;
 }) {
+  const [confirming, setConfirming] = useState(false);
   return (
     // Vote | text | status in a row from sm up; on a phone the status drops
     // under the text so the title keeps its width.
-    <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-2 px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+    <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3.5 gap-y-2 px-4 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
       <div className="row-span-2 sm:row-span-1">
         <VoteButton item={item} busy={busy} onToggle={onVote} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="break-words text-[14px] font-medium leading-snug text-ink">{item.title}</p>
+        {/* Everything shows in full: no clamping, and a long unbroken string wraps. */}
+        <p className="whitespace-pre-wrap text-[15px] font-medium leading-snug text-ink [overflow-wrap:anywhere]">{item.title}</p>
         {item.body && (
-          <p className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-ink-2/80">{item.body}</p>
+          <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink-2 [overflow-wrap:anywhere]">{item.body}</p>
         )}
-        <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-muted">
+        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
           {item.mine && (
             <>
               <span>You</span>
               <span aria-hidden="true">·</span>
             </>
           )}
-          <span className="shrink-0">{ago(item.createdAt, now)}</span>
+          <span>{ago(item.createdAt, now)}</span>
+          {item.mine &&
+            (confirming ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="text-ink-2">Delete this request?</span>
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  aria-label={`Confirm delete ${item.title}`}
+                  className="font-medium text-[#c62828] hover:underline"
+                >
+                  Delete
+                </button>
+                <button type="button" onClick={() => setConfirming(false)} className="hover:text-ink">
+                  Keep
+                </button>
+              </>
+            ) : (
+              <>
+                <span aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(true)}
+                  aria-label={`Delete ${item.title}`}
+                  className="transition-colors hover:text-[#c62828]"
+                >
+                  Delete
+                </button>
+              </>
+            ))}
         </div>
       </div>
       <div className="col-start-2 justify-self-start sm:col-start-3 sm:row-start-1 sm:justify-self-end sm:pt-0.5">
@@ -240,6 +297,14 @@ export default function RequestsView({ initial, admin }: { initial: RequestItem[
     if (!res?.ok) patch(item.id, { voted: item.voted, votes: item.votes });
   }
 
+  async function remove(item: RequestItem) {
+    setItems((all) => all.filter((i) => i.id !== item.id));
+    const res = await send(`/api/requests/${item.id}`, "DELETE", undefined);
+    // 404 means it was already gone, which is what was asked for. Anything
+    // else puts the request back.
+    if (!res?.ok && res?.status !== 404) setItems((all) => (all.some((i) => i.id === item.id) ? all : [item, ...all]));
+  }
+
   async function setStatus(item: RequestItem, status: RequestStatus) {
     patch(item.id, { status });
     const res = await send(`/api/requests/${item.id}`, "PATCH", { status });
@@ -255,7 +320,7 @@ export default function RequestsView({ initial, admin }: { initial: RequestItem[
     <div className="mx-auto w-full max-w-[720px]">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Requests</h1>
+          <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Feature requests</h1>
           <p className="mt-1.5 text-[13.5px] leading-snug text-ink-2/70">
             Help us build Brief. Send an idea, vote for what matters, and see it ship.
           </p>
@@ -310,6 +375,7 @@ export default function RequestsView({ initial, admin }: { initial: RequestItem[
               now={now}
               onVote={() => vote(item)}
               onStatus={(s) => setStatus(item, s)}
+              onDelete={() => remove(item)}
             />
           ))}
         </ul>

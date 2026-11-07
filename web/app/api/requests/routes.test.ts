@@ -6,13 +6,14 @@ vi.mock("@/lib/admin-server", () => ({ isAdmin: async () => session.admin }));
 
 const server = vi.hoisted(() => ({
   createRequest: vi.fn(),
+  deleteRequest: vi.fn(),
   setStatus: vi.fn(),
   setVote: vi.fn(),
 }));
 vi.mock("@/lib/requests-server", () => server);
 
 import { POST as create } from "./route";
-import { PATCH as setStatus } from "./[id]/route";
+import { DELETE as remove, PATCH as setStatus } from "./[id]/route";
 import { POST as vote } from "./[id]/vote/route";
 
 const ID = "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b";
@@ -24,6 +25,7 @@ beforeEach(() => {
   session.userId = "user_1";
   session.admin = false;
   server.createRequest.mockReset().mockResolvedValue({ ok: true, id: ID, createdAt: "2026-11-06T10:00:00Z" });
+  server.deleteRequest.mockReset().mockResolvedValue("ok");
   server.setStatus.mockReset().mockResolvedValue("ok");
   server.setVote.mockReset().mockResolvedValue("ok");
 });
@@ -84,6 +86,39 @@ describe("PATCH /api/requests/[id]", () => {
     session.admin = true;
     server.setStatus.mockResolvedValue("missing");
     expect((await setStatus(json({ status: "planned" }), params())).status).toBe(404);
+  });
+});
+
+describe("DELETE /api/requests/[id]", () => {
+  const del = (id = ID) => remove(new Request(`http://x/api/requests/${id}`, { method: "DELETE" }) as never, params(id));
+
+  it("deletes under the caller's own id, so it can only ever remove their own", async () => {
+    const res = await del();
+    expect(res.status).toBe(200);
+    expect(server.deleteRequest).toHaveBeenCalledWith("user_1", ID);
+  });
+
+  it("is not the owner's to use on someone else's: it still scopes to the caller", async () => {
+    session.admin = true;
+    await del();
+    expect(server.deleteRequest).toHaveBeenCalledWith("user_1", ID);
+  });
+
+  it("refuses a signed-out caller and a malformed id", async () => {
+    expect((await del("not-an-id")).status).toBe(400);
+    session.userId = null;
+    expect((await del()).status).toBe(401);
+    expect(server.deleteRequest).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for a request that is gone or isn't theirs", async () => {
+    server.deleteRequest.mockResolvedValue("missing");
+    expect((await del()).status).toBe(404);
+  });
+
+  it("answers 500 when the database fails", async () => {
+    server.deleteRequest.mockResolvedValue("error");
+    expect((await del()).status).toBe(500);
   });
 });
 

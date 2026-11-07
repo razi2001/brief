@@ -96,6 +96,22 @@ export async function setVote(userId: string, requestId: string, voted: boolean)
   return error ? "error" : "ok";
 }
 
+/**
+ * Remove the caller's own request; its votes go with it. Scoped by user_id, so
+ * someone else's request answers "missing" exactly like one that is gone: this
+ * never confirms that a request exists.
+ */
+export async function deleteRequest(userId: string, requestId: string): Promise<"ok" | "missing" | "error"> {
+  const { data, error } = await createAdminSupabase()
+    .from("feature_requests")
+    .delete()
+    .eq("id", requestId)
+    .eq("user_id", userId)
+    .select("id");
+  if (error) return "error";
+  return data && data.length > 0 ? "ok" : "missing";
+}
+
 /** The owner's status change. "missing" when no such request. */
 export async function setStatus(requestId: string, status: RequestStatus): Promise<"ok" | "missing" | "error"> {
   const { data, error } = await createAdminSupabase()

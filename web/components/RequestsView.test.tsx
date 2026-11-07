@@ -37,8 +37,9 @@ afterEach(() => {
 const titles = () => screen.getAllByRole("listitem").map((li) => li.querySelector("p")?.textContent);
 
 describe("the Requests list", () => {
-  it("tells people they help build Brief by sending and voting", () => {
+  it("is titled Feature requests and tells people they help build Brief by sending and voting", () => {
     render(<RequestsView initial={initial} admin={false} />);
+    expect(screen.getByRole("heading", { name: "Feature requests" })).toBeTruthy();
     expect(screen.getByText(/Help us build Brief\. Send an idea, vote for what matters, and see it ship\./)).toBeTruthy();
   });
 
@@ -111,6 +112,84 @@ describe("voting", () => {
     render(<RequestsView initial={initial} admin={false} />);
     fireEvent.click(screen.getByRole("button", { name: "Vote for Dark mode" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Vote for Dark mode" }).textContent).toBe("4"));
+  });
+});
+
+describe("the vote button", () => {
+  it("is a thumbs up that fills in once you've voted", () => {
+    render(<RequestsView initial={initial} admin={false} />);
+    const hand = (name: string) => screen.getByRole("button", { name }).querySelector("svg path")!;
+    expect(hand("Vote for Dark mode").getAttribute("fill")).toBe("none");
+    expect(hand("Remove your vote from Export to PDF").getAttribute("fill")).toBe("currentColor");
+    fireEvent.click(screen.getByRole("button", { name: "Vote for Dark mode" }));
+    expect(hand("Remove your vote from Dark mode").getAttribute("fill")).toBe("currentColor");
+  });
+});
+
+describe("showing everything", () => {
+  it("never crops a long request, and has nothing that could", () => {
+    const body = "word ".repeat(150).trim();
+    const long = "x".repeat(120);
+    const { container } = render(
+      <RequestsView initial={[item({ id: "x", title: long, body, mine: true })]} admin={false} />,
+    );
+    expect(screen.getByText(body)).toBeTruthy();
+    expect(screen.getByText(long)).toBeTruthy();
+    expect(container.querySelector('[class*="line-clamp"]')).toBeNull();
+    expect(container.querySelector('[class*="truncate"]')).toBeNull();
+  });
+});
+
+describe("deleting your own request", () => {
+  const deleteButtons = () => screen.queryAllByRole("button", { name: /^Delete / });
+
+  it("is offered on your own requests only, to the owner too", () => {
+    for (const admin of [false, true]) {
+      cleanup();
+      render(<RequestsView initial={initial} admin={admin} />);
+      expect(deleteButtons().map((b) => b.getAttribute("aria-label"))).toEqual(["Delete Export to PDF"]);
+    }
+  });
+
+  it("asks first, and Keep changes nothing", () => {
+    render(<RequestsView initial={initial} admin={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Export to PDF" }));
+    expect(screen.getByText("Delete this request?")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.queryByText("Delete this request?")).toBeNull();
+    expect(screen.getByText("Export to PDF")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("removes it at once and sends the delete once confirmed", async () => {
+    render(<RequestsView initial={initial} admin={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Export to PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete Export to PDF" }));
+
+    expect(screen.queryByText("Export to PDF")).toBeNull();
+    expect(screen.getByRole("button", { name: /All/ }).textContent).toContain("2");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/requests/b");
+    expect(fetchMock.mock.calls[0][1].method).toBe("DELETE");
+  });
+
+  it("puts it back when the delete fails", async () => {
+    fetchMock.mockResolvedValue(reply(false));
+    render(<RequestsView initial={initial} admin={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Export to PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete Export to PDF" }));
+    await waitFor(() => expect(screen.getByText("Export to PDF")).toBeTruthy());
+  });
+
+  it("treats 'already gone' as done", async () => {
+    fetchMock.mockResolvedValue(reply(false, 404));
+    render(<RequestsView initial={initial} admin={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Export to PDF" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete Export to PDF" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText("Export to PDF")).toBeNull();
   });
 });
 
