@@ -71,6 +71,19 @@ export function ActivityNavLink() {
   );
 }
 
+/** The owner's control of the extension's "Seen a bug?" card. */
+export function CardNavLink() {
+  return (
+    <NavLink
+      item={{
+        href: "/admin/card",
+        label: "Bug card",
+        icon: icon(<><rect x="2" y="4" width="12" height="8" rx="2" /><path d="M5 8h4" /></>),
+      }}
+    />
+  );
+}
+
 /**
  * Primary navigation: a vertical list in the sidebar (Linear-style), a row in
  * the mobile top bar. Real links, so each view has its own URL and the

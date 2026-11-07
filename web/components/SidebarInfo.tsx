@@ -3,7 +3,7 @@ import { getUserId } from "@/lib/auth";
 import { getOrg } from "@/lib/org-server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { isAdmin } from "@/lib/admin-server";
-import { ActivityNavLink, AdminNavLink } from "@/components/Nav";
+import { ActivityNavLink, AdminNavLink, CardNavLink } from "@/components/Nav";
 
 /**
  * The workspace line under the wordmark: your team ("Personal" without one).
@@ -27,6 +27,7 @@ export async function SidebarAdminLink() {
     <>
       <AdminNavLink />
       <ActivityNavLink />
+      <CardNavLink />
     </>
   ) : null;
 }

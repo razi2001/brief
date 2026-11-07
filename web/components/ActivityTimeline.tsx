@@ -20,10 +20,13 @@ export default function ActivityTimeline({
   person: p,
   items,
   now,
+  card,
 }: {
   person: PersonFacts;
   items: TimelineItem[];
   now: number;
+  /** The owner's "Show the bug card" control. */
+  card?: React.ReactNode;
 }) {
   const src = sourceLine(p.signup);
   return (
@@ -60,6 +63,7 @@ export default function ActivityTimeline({
         <dt className="text-muted">Last seen</dt>
         <dd className="text-ink-2">{p.lastSeen ? `${when(p.lastSeen)} (${ago(p.lastSeen, now)})` : "—"}</dd>
       </dl>
+      {card && <div className="mt-4">{card}</div>}
 
       <div className="card mt-6 overflow-hidden p-0">
         <ol className="divide-y divide-hairline">

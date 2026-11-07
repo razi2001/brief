@@ -9,7 +9,7 @@ import { fileDraft, fileDraftObject, resumeFiling, filingKeys } from "./filing.j
 import { putFile, getFile, shotKey, pruneFiles, draftKeys } from "./filestore.js";
 import { isWatched, armReplay, pingReplay, stopReplay, getReplaySites, patternMatches, syncReplaySites, syncReplaySitesIfStale } from "./replay-sites.js";
 import { putChunk, prune as pruneReplay, allMeta, deleteChunks, clearAll as clearReplay } from "./replay-store.js";
-import { claimNudge, markUsed, markClosed } from "./nudge.js";
+import { claimNudge, markUsed, markClosed, syncNudgeIfStale } from "./nudge.js";
 
 // ---------- Best-effort reopen the popup after a capture ----------
 // Chrome only permits chrome.action.openPopup() in some versions/contexts and
@@ -312,13 +312,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 async function maybeNudge(tab) {
-  const [{ briefCloudToken }, sites, rec] = await Promise.all([
+  const [{ briefCloudToken }, sites, rec, cfg] = await Promise.all([
     chrome.storage.local.get('briefCloudToken'), getReplaySites(), getRecSession(),
+    syncNudgeIfStale(5 * 60_000).catch(() => null),
   ]);
   const show = await claimNudge({
     url: tab.url, paired: !!briefCloudToken, recording: !!rec || STATE.recording, sites, appUrl: APP_URL,
+    push: cfg?.push ?? null,
   });
-  if (show) await chrome.tabs.sendMessage(tab.id, { type: 'NUDGE_SHOW' }, { frameId: 0 }).catch(() => {});
+  if (show) {
+    await chrome.tabs.sendMessage(tab.id, { type: 'NUDGE_SHOW', text: cfg?.message || '', button: cfg?.button || '' }, { frameId: 0 }).catch(() => {});
+  }
 }
 
 // Brief it on the card: the last minute on a Replay site, like the right-click

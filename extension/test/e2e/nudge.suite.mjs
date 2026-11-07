@@ -17,6 +17,7 @@
       res = { briefId: 'b-nudge', uploads: Object.fromEntries(files.map((f) => [f, { signedUrl: 'https://up.test/' + encodeURIComponent(f) }])) };
     }
     if (url.endsWith('/api/replay-sites')) res = { sites: replaySites };
+    if (url.endsWith('/api/nudge')) res = nudgeCfg;
     await b.send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(JSON.stringify(res)).toString('base64') }, sid).catch(() => {});
   };
   // get-brief.app is https-only: its pages are answered at the browser too
@@ -24,6 +25,7 @@
   const siteSessions = new Set();
   const answerSite = (sid, p) => b.send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'text/html' }], body: Buffer.from(page('Brief', '<h2>Brief</h2><p>get-brief.app</p>')).toString('base64') }, sid).catch(() => {});
   let replaySites = ['*.brief.localhost'];
+  let nudgeCfg = { message: '', button: '', push: null };
   const watchWorker = async (sid) => b.send('Fetch.enable', { patterns: [{ urlPattern: APP + '/*' }, { urlPattern: 'https://up.test/*' }] }, sid).catch(() => {});
   b.on((m) => {
     if (m.method === 'Fetch.requestPaused') (siteSessions.has(m.sessionId) ? answerSite : answer)(m.sessionId, m.params);
@@ -163,6 +165,24 @@
   const marked = await W(`chrome.storage.session.get('nudgeShot').then((r) => r.nudgeShot || null)`);
   const draft = await storage('draft');
   check('the screenshot is for the current draft, marked as from the card', marked?.itemId === draft?.id, JSON.stringify({ marked, draft: draft?.id }));
+
+  // ---- the owner's "show it now", with their text ----
+  // P just showed the card (shownAt now): the week alone would keep it quiet.
+  await focus(P);
+  await evalIn(P.sid, `document.getElementById('__brief_shot__')?.remove()`);
+  await W(`chrome.storage.session.remove('nudgeShot')`);
+  nudgeCfg = { message: 'Found a <b>glitch</b>?', button: 'Report it', push: { id: 'push-1', at: new Date().toISOString() } };
+  await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);
+  await reload(P);
+  check('a push shows the card, even inside the quiet week', await waitCard(P.sid, true));
+  const pushed = await cardNodes(P.sid);
+  check('with the owner’s text and button, as text (no HTML)', pushed.text === 'Found a <b>glitch</b>? Report it', JSON.stringify(pushed.text));
+  check('the text and the push come from /api/nudge', calls.some((c) => c.url === APP + '/api/nudge'));
+  check('the push is remembered', (await storage('nudge')).pushSeen === 'push-1');
+  await clickCard(P.sid, 'x');
+  await W(`chrome.storage.local.set({ nudgeCfgSyncedAt: 0 })`);
+  await reload(P);
+  check('the same push shows once', !(await waitCard(P.sid, true, 2500)));
 
   check('no page errors', exceptions.length === 0, exceptions.join(' | '));
 }

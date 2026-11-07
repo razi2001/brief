@@ -20,7 +20,7 @@
       return false;
     }
     if (message?.type === 'NUDGE_SHOW') {
-      showNudge();
+      showNudge(message.text, message.button);
     } else if (message?.type === 'INJECT_BAR') {
       removeNudge();
       // `resume`: the bar of a recording already running (a window recording
@@ -69,7 +69,8 @@
     @media (prefers-reduced-motion: reduce) { .card { animation: none; } }
   `;
 
-  function showNudge() {
+  // `text` / `button`: what the owner set (GET /api/nudge), else the built-in.
+  function showNudge(text, button) {
     if (nudgeHost || iframeEl || shotEl) return;
     nudgeHost = document.createElement('div');
     nudgeHost.id = '__brief_nudge__';
@@ -84,6 +85,9 @@
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
         </button>
       </div>`;
+    // textContent, never HTML: the text comes from the server
+    root.querySelector('.card > span').textContent = (typeof text === 'string' && text.trim().slice(0, 80)) || 'Seen a bug?';
+    root.querySelector('.go').textContent = (typeof button === 'string' && button.trim().slice(0, 24)) || 'Brief it';
     root.querySelector('.go').addEventListener('click', () => {
       removeNudge();
       // gone from the page before a screenshot is taken of it
