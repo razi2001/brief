@@ -97,17 +97,20 @@ export async function setVote(userId: string, requestId: string, voted: boolean)
 }
 
 /**
- * Remove the caller's own request; its votes go with it. Scoped by user_id, so
- * someone else's request answers "missing" exactly like one that is gone: this
- * never confirms that a request exists.
+ * Remove a request; its votes go with it. Scoped by user_id, so someone else's
+ * request answers "missing" exactly like one that is gone and this never
+ * confirms that a request exists. Only the owner (`asOwner`, decided by the
+ * route's own isAdmin() check, never by anything the browser sends) may remove
+ * anyone's: that is how junk gets cleared off an anonymous board.
  */
-export async function deleteRequest(userId: string, requestId: string): Promise<"ok" | "missing" | "error"> {
-  const { data, error } = await createAdminSupabase()
-    .from("feature_requests")
-    .delete()
-    .eq("id", requestId)
-    .eq("user_id", userId)
-    .select("id");
+export async function deleteRequest(
+  userId: string,
+  requestId: string,
+  asOwner = false,
+): Promise<"ok" | "missing" | "error"> {
+  let query = createAdminSupabase().from("feature_requests").delete().eq("id", requestId);
+  if (!asOwner) query = query.eq("user_id", userId);
+  const { data, error } = await query.select("id");
   if (error) return "error";
   return data && data.length > 0 ? "ok" : "missing";
 }

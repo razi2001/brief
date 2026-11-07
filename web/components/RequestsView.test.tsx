@@ -140,15 +140,34 @@ describe("showing everything", () => {
   });
 });
 
-describe("deleting your own request", () => {
+describe("deleting a request", () => {
   const deleteButtons = () => screen.queryAllByRole("button", { name: /^Delete / });
 
-  it("is offered on your own requests only, to the owner too", () => {
-    for (const admin of [false, true]) {
-      cleanup();
-      render(<RequestsView initial={initial} admin={admin} />);
-      expect(deleteButtons().map((b) => b.getAttribute("aria-label"))).toEqual(["Delete Export to PDF"]);
-    }
+  it("is offered on your own requests only", () => {
+    render(<RequestsView initial={initial} admin={false} />);
+    expect(deleteButtons().map((b) => b.getAttribute("aria-label"))).toEqual(["Delete Export to PDF"]);
+  });
+
+  it("is offered on every request to the owner, who still sees no names", () => {
+    render(<RequestsView initial={initial} admin />);
+    expect(deleteButtons().map((b) => b.getAttribute("aria-label")).sort()).toEqual([
+      "Delete Dark mode",
+      "Delete Export to PDF",
+      "Delete Slack alerts",
+    ]);
+    expect(screen.getAllByText("You")).toHaveLength(1);
+  });
+
+  it("lets the owner delete someone else's request, asking first", async () => {
+    render(<RequestsView initial={initial} admin />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete Dark mode" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete Dark mode" }));
+
+    expect(screen.queryByText("Dark mode")).toBeNull();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/requests/a");
+    expect(fetchMock.mock.calls[0][1].method).toBe("DELETE");
   });
 
   it("asks first, and Keep changes nothing", () => {

@@ -4,7 +4,10 @@ import { isAdmin } from "@/lib/admin-server";
 import { isRequestId, isStatus } from "@/lib/requests";
 import { deleteRequest, setStatus } from "@/lib/requests-server";
 
-/** Delete one of your own requests. Anyone else's is a 404, never a 403. */
+/**
+ * Delete one of your own requests; the owner may delete any. For everyone else
+ * a request that isn't theirs is a 404, never a 403.
+ */
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -12,7 +15,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   const { id } = await ctx.params;
   if (!isRequestId(id)) return NextResponse.json({ error: "invalid" }, { status: 400 });
 
-  const result = await deleteRequest(userId, id);
+  const result = await deleteRequest(userId, id, await isAdmin());
   if (result === "missing") return NextResponse.json({ error: "not found" }, { status: 404 });
   if (result === "error") return NextResponse.json({ error: "could not delete" }, { status: 500 });
   return NextResponse.json({ ok: true });

@@ -231,7 +231,8 @@ function Row({
             </>
           )}
           <span>{ago(item.createdAt, now)}</span>
-          {item.mine &&
+          {/* Your own, or any at all for the owner (the server decides again). */}
+          {(item.mine || admin) &&
             (confirming ? (
               <>
                 <span aria-hidden="true">·</span>

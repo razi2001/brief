@@ -92,16 +92,27 @@ describe("PATCH /api/requests/[id]", () => {
 describe("DELETE /api/requests/[id]", () => {
   const del = (id = ID) => remove(new Request(`http://x/api/requests/${id}`, { method: "DELETE" }) as never, params(id));
 
-  it("deletes under the caller's own id, so it can only ever remove their own", async () => {
+  it("deletes under the caller's own id, so a member can only ever remove their own", async () => {
     const res = await del();
     expect(res.status).toBe(200);
-    expect(server.deleteRequest).toHaveBeenCalledWith("user_1", ID);
+    expect(server.deleteRequest).toHaveBeenCalledWith("user_1", ID, false);
   });
 
-  it("is not the owner's to use on someone else's: it still scopes to the caller", async () => {
+  it("lets the owner delete any request", async () => {
     session.admin = true;
-    await del();
-    expect(server.deleteRequest).toHaveBeenCalledWith("user_1", ID);
+    const res = await del();
+    expect(res.status).toBe(200);
+    expect(server.deleteRequest).toHaveBeenCalledWith("user_1", ID, true);
+  });
+
+  it("never reads the owner flag from the request: only the server's own check sets it", async () => {
+    const forged = new Request(`http://x/api/requests/${ID}?asOwner=true`, {
+      method: "DELETE",
+      headers: { "x-owner": "1" },
+      body: JSON.stringify({ asOwner: true, admin: true }),
+    });
+    await remove(forged as never, params());
+    expect(server.deleteRequest).toHaveBeenCalledWith("user_1", ID, false);
   });
 
   it("refuses a signed-out caller and a malformed id", async () => {
