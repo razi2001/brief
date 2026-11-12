@@ -9,6 +9,7 @@ import { BRIEF_URL, type ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { displayIdentifier, keylessTrackerName, providerOf, shortIdentifier } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
+import { explainFilingError } from "@/lib/filing-errors";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
 import {
@@ -432,7 +433,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
             initialBody={brief.ticket_body || ""}
             assets={assets.flatMap((a) => (a.kind === "replay" ? [] : [{ filename: a.filename, kind: a.kind }]))}
             connected={connected}
-            exportError={isOwner && isDraft ? brief.error : null}
+            exportError={isOwner && isDraft && brief.error ? explainFilingError(brief.error) : null}
           />
 
           {/* ── Attachments ── (the ticket's own text often has an "Evidence"

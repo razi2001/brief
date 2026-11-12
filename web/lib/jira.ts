@@ -4,6 +4,7 @@ import { clerkStrategy } from "./clerk-strategies";
 import { resolveName, withBriefAttribution, NO_CAPABILITIES, type IssuePatch, type IssueSearchResult, type LiveIssueLookup, type TargetDetails, type Tracker, type TrackerTarget, type UpdateResult } from "./tracker";
 import { chunk } from "./ticket-sync";
 import { placeEvidence } from "./ticket-body";
+import { coerceJiraFields, fillRequired, missingFieldsMessage, rejectionMessage, toFieldMeta, type JiraFieldMeta } from "./jira-fields";
 
 export type JiraTok = { token: string; kind: "oauth" | "basic" };
 
@@ -485,22 +486,41 @@ const JIRA_PRIORITY: Record<string, string> = {
 export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl: string }): Tracker {
   const base = jiraBase(tok, cloud.cloudId, cloud.siteUrl);
 
-  async function pickIssueType(projectKey: string): Promise<string> {
-    // GET createmeta → projects[].issuetypes[]; prefer Bug, then Task, else first.
+  // The issue type to file as (Bug, then Task, else the first) and its create
+  // screen's fields: which are required and what each accepts.
+  async function pickIssueType(projectKey: string): Promise<{ id: string; fields: JiraFieldMeta[] }> {
     const r = await jiraFetch(
       tok,
       base,
-      `/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`
+      `/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes.fields`
     );
     if (!r.ok) throw new Error(`Jira createmeta failed: ${r.status} ${await r.text()}`);
     const j = (await r.json()) as {
-      projects?: Array<{ issuetypes?: Array<{ id: string; name: string; subtask?: boolean }> }>;
+      projects?: Array<{ issuetypes?: Array<{ id: string; name: string; subtask?: boolean; fields?: unknown }> }>;
     };
     const types = (j.projects?.[0]?.issuetypes ?? []).filter((t) => !t.subtask);
     if (!types.length) throw new Error(`Jira: no issue types for project ${projectKey}`);
     const byName = (n: string) => types.find((t) => t.name.toLowerCase() === n);
     const chosen = byName("bug") ?? byName("task") ?? types[0];
-    return chosen.id;
+    let fields = toFieldMeta(chosen.fields);
+    if (!fields.length) {
+      // Sites where the old createmeta no longer expands fields: ask the
+      // per-issue-type endpoint. Without it, filing still runs, unchecked.
+      try {
+        const f = await jiraFetch(
+          tok,
+          base,
+          `/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes/${encodeURIComponent(chosen.id)}?maxResults=200`,
+        );
+        if (f.ok) {
+          const fj = (await f.json()) as { fields?: unknown; values?: unknown };
+          fields = toFieldMeta(fj.fields ?? fj.values);
+        }
+      } catch {
+        /* fields stay unknown */
+      }
+    }
+    return { id: chosen.id, fields };
   }
 
   // Projects, fetched once per tracker instance (paginated /project/search).
@@ -706,7 +726,7 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
       const targets = await loadTargets();
       const project = targets.find((t) => t.id === targetId || t.key === targetId);
       if (!project) throw new Error(`Jira: project ${targetId} not found`);
-      const issueTypeId = await pickIssueType(project.key);
+      const { id: issueTypeId, fields: fieldMeta } = await pickIssueType(project.key);
 
       const assigneeAccountId = assignee ? await resolveAssigneeAccountId(project.key, assignee) : undefined;
 
@@ -756,14 +776,33 @@ export function makeJiraTracker(tok: JiraTok, cloud: { cloudId: string; siteUrl:
           body: JSON.stringify({ fields }),
         });
 
-      // Raw passthrough (custom fields etc.) first - resolved fields win.
-      const hasExtras = Object.keys(prefFields).length > 0 || Object.keys(extraFields ?? {}).length > 0;
-      let createRes = await createIssue({ ...(extraFields ?? {}), ...baseFields, ...prefFields });
-      if (!createRes.ok && hasExtras && createRes.status === 400) {
-        console.warn(
-          `[jira-tracker] create with extras rejected (400) - retrying without: ${await createRes.text()}`,
+      // Custom fields in the exact shape the project's create screen takes
+      // (a number for Story Points, [{id}] for Components...), then every
+      // required field checked BEFORE asking Jira: a missing one is named,
+      // with what it accepts, instead of a bare 400.
+      const coerced = coerceJiraFields(extraFields ?? {}, fieldMeta);
+      if (coerced.problems.length) console.warn(`[jira-tracker] custom fields adjusted: ${coerced.problems.join("; ")}`);
+      const { fields: allFields, missing } = fillRequired({ ...coerced.fields, ...baseFields, ...prefFields }, fieldMeta);
+      if (missing.length) throw new Error(missingFieldsMessage(project.key, missing, coerced.problems));
+
+      let createRes = await createIssue(allFields);
+      if (!createRes.ok && createRes.status === 400) {
+        const firstError = await createRes.text();
+        // Extras the project doesn't require are best-effort: retry with only
+        // the required ones, so labels or priority never block a filing.
+        const required = new Set(fieldMeta.filter((m) => m.required).map((m) => m.fieldId));
+        const keep = Object.fromEntries(
+          Object.entries(allFields).filter(([k]) => k in baseFields || required.has(k)),
         );
-        createRes = await createIssue(baseFields);
+        if (Object.keys(keep).length < Object.keys(allFields).length) {
+          console.warn(`[jira-tracker] create with extras rejected (400) - retrying with required fields only: ${firstError}`);
+          createRes = await createIssue(keep);
+          if (!createRes.ok && createRes.status === 400) {
+            throw new Error(rejectionMessage(project.key, await createRes.text(), fieldMeta));
+          }
+        } else {
+          throw new Error(rejectionMessage(project.key, firstError, fieldMeta));
+        }
       }
       if (!createRes.ok) throw new Error(`Jira issue create failed: ${createRes.status} ${await createRes.text()}`);
       const created = (await createRes.json()) as { id: string; key: string };

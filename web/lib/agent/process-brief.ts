@@ -108,7 +108,7 @@ export async function processBrief(
     SYSTEM_PROMPT +
     `\n\nTHIS TRACKER: ${trackerName}. A filing destination is called a ${noun}.` +
     (tracker.bodyGuidance ? ` ${tracker.bodyGuidance}` : "") +
-    `\n\nTOOLING: You drive the tracker through tools, MCP-style. search_issues(query) looks up EXISTING issues so you can route and label by precedent - call it before picking a ${noun}. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${detailsExtras.length ? `, and ${detailsExtras.join(", ")}` : ""} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns. create_issue files the one issue (targetId + title + markdown description, plus optional ${settable.join("/")}). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once.${caps.comments ? " The comment is posted on the issue after it's created; it's separate from the description." : ""} Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system ${caps.nativeAttachments ? "uploads and embeds" : "embeds"} your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
+    `\n\nTOOLING: You drive the tracker through tools, MCP-style. search_issues(query) looks up EXISTING issues so you can route and label by precedent - call it before picking a ${noun}. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${detailsExtras.length ? `, and ${detailsExtras.join(", ")}` : ""} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns.${caps.customFields ? " It also marks the custom fields the target REQUIRES: create_issue must set every required one, or the tracker refuses the ticket." : ""} create_issue files the one issue (targetId + title + markdown description, plus optional ${settable.join("/")}). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once.${caps.comments ? " The comment is posted on the issue after it's created; it's separate from the description." : ""} Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system ${caps.nativeAttachments ? "uploads and embeds" : "embeds"} your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
     (prefs
       ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice)${caps.states ? ", workflow state/status" : ""}, assignee${caps.projects ? ", project" : ""}${caps.labels ? ", labels" : ""}${caps.priority ? ", priority" : ""}${caps.customFields ? ", custom fields" : ""}, wording, format, and what to include. Pass each through the matching tool parameter - do not just mention it in the description - and VERIFY it landed via get_issue, repairing with update_issue. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "") +
@@ -123,7 +123,7 @@ export async function processBrief(
     linear:
       'Advanced Linear IssueCreateInput fields by API name (e.g. {"estimate": 2, "dueDate": "2026-07-01"}) - only when the preferences need something the named parameters don\'t cover.',
     jira:
-      'Jira fields by field id from get_target_details\' customFields (e.g. {"customfield_10042": {"value": "Production"}}) - only when the preferences need them. Use each field\'s listed type/allowedValues.',
+      'Jira fields by field id from get_target_details\' customFields (e.g. {"customfield_10042": "Production", "customfield_10028": 1, "components": ["Web"]}) - when the preferences need them, AND always for every field get_target_details marks required. Use each field\'s listed type/allowedValues: a number field takes a number, a field with allowedValues takes one (or, for a list field, several) of them by name. If create_issue answers that the project requires fields, set them here with the most fitting allowed value (1 for a number like story points) and call create_issue again.',
     github:
       'Extra GitHub fields: "milestone" (a milestone title from get_target_details\' customFields), and "project:<number>:<Field name>" to set a single-select field on a project board (e.g. {"project:3:Area": "Billing"}).',
     azure:
@@ -404,7 +404,9 @@ export async function processBrief(
 
   const runLoop = async (content: Part[]): Promise<IssueResult> => {
     // Held in an object: the tool calls set it from inside the loop.
-    const state: { created: IssueResult | null } = { created: null };
+    // lastCreateError: why the tracker refused create_issue, kept so a run
+    // that never manages to file ends on that reason, not a generic one.
+    const state: { created: IssueResult | null; lastCreateError: string | null } = { created: null, lastCreateError: null };
     // The loop runs past creation so the agent can verify (get_issue) and
     // repair (update_issue) until the preferences actually landed. It ends
     // when the model answers without tool calls, or at the turn cap.
@@ -497,6 +499,7 @@ export async function processBrief(
               );
               const logs = (brief.json as { techLogs?: VideoLogs[] })?.techLogs;
               const sections = Array.isArray(logs) ? videoLogSections(logs) : [];
+              try {
               state.created = await tracker.fileIssue({
                 details: sections.length ? sections : undefined,
                 targetId: String(args.targetId ?? ""),
@@ -513,6 +516,10 @@ export async function processBrief(
                 extraFields: obj(args.custom_fields),
                 evidence: evidenceFiles,
               });
+              } catch (e) {
+                state.lastCreateError = errorMessage(e);
+                throw e;
+              }
               descriptionMarkdown =
                 typeof issueDescription === "string" ? issueDescription : "";
               return state.created;
@@ -536,7 +543,13 @@ export async function processBrief(
         }
       },
     });
-    if (!state.created) throw new Error("agent did not create an issue");
+    if (!state.created) {
+      throw new Error(
+        state.lastCreateError
+          ? `The ticket wasn't created. ${state.lastCreateError}`
+          : "The ticket wasn't created: Brief's AI stopped before filing it. Press Retry, or open the draft and file it yourself.",
+      );
+    }
     return state.created;
   };
 

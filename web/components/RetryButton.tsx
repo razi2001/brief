@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { explainFilingError } from "@/lib/filing-errors";
 
 /**
  * Subtle accent-text button shown on FAILED brief rows. POSTs to the
@@ -28,7 +29,7 @@ export default function RetryButton({ briefId }: { briefId: string }) {
       }
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(explainFilingError(e instanceof Error ? e.message : String(e)));
     } finally {
       setPending(false);
     }
@@ -44,7 +45,7 @@ export default function RetryButton({ briefId }: { briefId: string }) {
       >
         {pending ? "Retrying…" : "Retry"}
       </button>
-      {error && <span className="max-w-[8rem] truncate text-[#c62828]" title={error}>{error}</span>}
+      {error && <span className="text-[#c62828]" title={error}>{error}</span>}
     </span>
   );
 }

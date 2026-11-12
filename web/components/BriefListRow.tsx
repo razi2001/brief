@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import RetryButton from "./RetryButton";
+import { explainFilingError } from "@/lib/filing-errors";
 import ArchiveButton from "./ArchiveButton";
 import StatusBadge from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
@@ -229,7 +230,11 @@ export default function BriefListRow({
         <p className={`truncate text-[13.5px] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
           {title}
         </p>
-        {isFailed && b.error && <p className="mt-0.5 truncate text-xs text-muted">{b.error}</p>}
+        {isFailed && b.error && (
+          <p className="mt-0.5 text-xs text-muted" title={explainFilingError(b.error)}>
+            {explainFilingError(b.error)}
+          </p>
+        )}
       </div>
 
       {/* 4 · Status (filing / didn't file / tracker state) */}

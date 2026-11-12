@@ -1,7 +1,8 @@
 import { errorMessage } from "@/lib/errors";
 import { randomBytes } from "crypto";
 import { createAdminSupabase } from "@/lib/supabase/server";
-import { resolveTrackerOrError } from "@/lib/trackers/registry";
+import { providerName, resolveTrackerOrError } from "@/lib/trackers/registry";
+import { explainFilingError } from "@/lib/filing-errors";
 import { BRIEF_URL, type ProviderKey, type Tracker } from "@/lib/tracker";
 import { processBrief, type FileResult } from "@/lib/agent/process-brief";
 import { composeDraftTicket } from "@/lib/agent/compose-draft";
@@ -175,6 +176,8 @@ export async function processBriefById(
 
     const filedPatch = {
       status: "filed",
+      // A retry that files clears the earlier attempt's failure.
+      error: null,
       ticket_url: result.ticketUrl,
       ticket_identifier: result.ticketIdentifier,
       // Which tracker this went to, recorded rather than inferred from the url
@@ -248,10 +251,14 @@ export async function processBriefById(
   } catch (e) {
     // Nothing was filed (the throw is from before create_issue, or from a run
     // that never created one) - fail the brief AND hand the claim back so the
-    // owner can retry straight away.
-    await releaseFiling(admin, userId, briefId, { status: "failed", error: errorMessage(e) });
-    track(userId, "brief.failed", { stage: "file", error: errorMessage(e) });
-    return { ok: false, status: 500, error: errorMessage(e) };
+    // owner can retry straight away. The row (shown on Tickets and in the
+    // extension) gets the explained reason; the raw one goes to the log.
+    const raw = errorMessage(e);
+    const explained = explainFilingError(raw, providerName(tracker.kind as ProviderKey));
+    console.error(`[process] brief ${briefId} didn't file: ${raw}`);
+    await releaseFiling(admin, userId, briefId, { status: "failed", error: explained });
+    track(userId, "brief.failed", { stage: "file", error: raw });
+    return { ok: false, status: 500, error: explained };
   }
 }
 
@@ -326,8 +333,11 @@ export async function draftBriefById(
       result: { ticketUrl: "", ticketIdentifier: "", summary: draft.title || "drafted" },
     };
   } catch (e) {
-    await draftWrite({ status: "failed", error: errorMessage(e) });
-    track(userId, "brief.failed", { stage: "draft", error: errorMessage(e) });
-    return { ok: false, status: 500, error: errorMessage(e) };
+    const raw = errorMessage(e);
+    const explained = explainFilingError(raw, undefined, { stage: "draft" });
+    console.error(`[process] brief ${briefId} draft failed: ${raw}`);
+    await draftWrite({ status: "failed", error: explained });
+    track(userId, "brief.failed", { stage: "draft", error: raw });
+    return { ok: false, status: 500, error: explained };
   }
 }
