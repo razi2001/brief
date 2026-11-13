@@ -1,9 +1,11 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Avatar from "./Avatar";
 import BashReview from "./BashReview";
+import Crumbs from "./Crumbs";
+import MoreMenu, { ConfirmItem } from "./MoreMenu";
 import { BoardSky, Column } from "./Podium";
 import { Hatted } from "./PodiumHats";
 import StatusBadge from "./StatusBadge";
@@ -40,7 +42,8 @@ const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: 
  * Start when they choose and gets their own clock from that moment: nobody
  * has to be there at the same time. Until it closes the page asks for the
  * board again and again, so a brief sent from the extension shows here on its
- * own. Whoever holds the link can join; whoever created it can close it early.
+ * own. Whoever holds the link can join; whoever created it can close it early,
+ * or delete it for good, from the menu beside its actions.
  *
  * One that holds its reports keeps them as drafts. Once it is closed, whoever
  * created it gets the review in place of the list (BashReview): the reports in
@@ -57,7 +60,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<"link" | "report" | null>(null);
-  const [confirmEnd, setConfirmEnd] = useState(false);
+  const router = useRouter();
 
   const phase = phaseOf(bash, now);
   const open = phase === "open";
@@ -118,7 +121,22 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
       setError(failed);
     }
     await refresh();
-    setConfirmEnd(false);
+    setBusy(false);
+  };
+
+  /** Delete it for good, then back to the list. */
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/bashes/${bash.code}`, { method: "DELETE", credentials: "same-origin" });
+      // Stays busy while the list opens.
+      if (res.ok && !res.redirected) return router.push("/bash");
+    } catch {
+      /* same as a refusal */
+    }
+    setError("Couldn't delete it. Try again");
     setBusy(false);
   };
 
@@ -149,28 +167,39 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
 
   return (
     <div className="mx-auto w-full max-w-[1040px]">
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-muted">
-        <Link href="/bash" className="text-muted no-underline hover:text-ink">
-          Bug bash
-        </Link>
-        {open ? (
-          <>
-            <span className="inline-flex items-center gap-1.5 font-medium text-accent">
-              <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-              Open
+      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: bash.name }]} />
+      <header className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink [overflow-wrap:anywhere]">{bash.name}</h1>
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] tabular-nums text-muted">
+            {open ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[12.5px] font-medium text-accent">
+                <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+                Open
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(26,22,18,0.06)] px-2 py-0.5 text-[12.5px] font-medium text-ink-2">
+                <span className={`h-1.5 w-1.5 rounded-full ${closed ? "bg-[#b9b2a4]" : "border border-muted"}`} aria-hidden />
+                {closed ? "Closed" : "Upcoming"}
+              </span>
+            )}
+            <span>
+              {open
+                ? `closes in ${clock(msLeft(bash, now))}`
+                : closed
+                  ? dayOf(bash.endedAt ?? bash.endsAt)
+                  : `${dayOf(bash.startsAt)} to ${dayOf(bash.endsAt)}, starts in ${clock(new Date(bash.startsAt).getTime() - now)}`}
             </span>
-            <span className="tabular-nums">closes in {clock(msLeft(bash, now))}</span>
-          </>
-        ) : closed ? (
-          <span>Closed {dayOf(bash.endedAt ?? bash.endsAt)}</span>
-        ) : (
-          <span>
-            {dayOf(bash.startsAt)} to {dayOf(bash.endsAt)}, starts in {clock(new Date(bash.startsAt).getTime() - now)}
-          </span>
-        )}
-      </p>
-      <header className="mt-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <h1 className="min-w-0 font-display text-[2.25rem] leading-[1.05] text-ink [overflow-wrap:anywhere]">{bash.name}</h1>
+            <span aria-hidden>·</span>
+            <span>{lengthLabel(bash.minutes)} each</span>
+            {bash.hold && (
+              <>
+                <span aria-hidden>·</span>
+                <span>Review before filing</span>
+              </>
+            )}
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {closed && (
             <button type="button" onClick={() => void copy("report")} className="btn h-8">
@@ -182,22 +211,6 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
               {copied === "link" ? "Copied" : "Copy invite link"}
             </button>
           )}
-          {!closed &&
-            bash.isOwner &&
-            (confirmEnd ? (
-              <>
-                <button type="button" onClick={() => setConfirmEnd(false)} className="btn h-8">
-                  Keep open
-                </button>
-                <button type="button" onClick={() => void post("end")} disabled={busy} className="btn h-8 !text-[#c62828]">
-                  Close now
-                </button>
-              </>
-            ) : (
-              <button type="button" onClick={() => setConfirmEnd(true)} className="btn h-8">
-                Close
-              </button>
-            ))}
           {!closed && bash.joined && yourEnd === null && (
             <button type="button" onClick={() => void post("leave")} disabled={busy} className="btn h-8">
               Leave
@@ -213,11 +226,36 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
               Start my {lengthLabel(bash.minutes)}
             </button>
           )}
+          {bash.isOwner && (
+            <MoreMenu label="More">
+              {(close) => (
+                <>
+                  {!closed && (
+                    <ConfirmItem
+                      label="Close"
+                      question="Close this bug bash now?"
+                      confirm="Close now"
+                      disabled={busy}
+                      onConfirm={() => {
+                        close();
+                        void post("end");
+                      }}
+                    />
+                  )}
+                  <ConfirmItem label="Delete" question="Delete this bug bash?" confirm="Delete" disabled={busy} onConfirm={() => void remove()} />
+                </>
+              )}
+            </MoreMenu>
+          )}
         </div>
       </header>
-      {error && <p className="mt-2 text-[13px] text-[#c62828]">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-2 text-[13px] text-[#c62828]">
+          {error}
+        </p>
+      )}
 
-      <div className="card mt-6 grid grid-cols-3 divide-x divide-hairline p-0">
+      <div className="card mt-5 grid grid-cols-3 divide-x divide-hairline p-0">
         {testing || done ? (
           <Stat label="Your time">
             {testing ? <span className="tabular-nums text-accent">{clock(yourEnd! - now)}</span> : <span>Done</span>}
@@ -243,7 +281,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
         ) : (
           <section aria-label="Found" className="card overflow-hidden p-0">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-hairline px-4 py-2.5">
-              <h2 className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Found</h2>
+              <h2 className="text-[13px] font-medium text-ink">Found</h2>
               <span className="text-xs tabular-nums text-muted">
                 {blocks.length < total && `${blocks.length} ${blocks.length === 1 ? "bug" : "bugs"} from ${total} reports`}
                 {bash.hold && `${blocks.length < total ? " · " : ""}${!closed ? "Held as drafts until the review" : bash.isOwner ? "" : "In review"}`}
@@ -360,7 +398,7 @@ function Board({ people, open, closed, now }: { people: Person[]; open: boolean;
   return (
     <section aria-label="Board" className="card relative isolate mt-4 overflow-hidden px-4 py-4">
       {racing && <BoardSky />}
-      <h2 className="relative text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Board</h2>
+      <h2 className="relative text-[13px] font-medium text-ink">Board</h2>
 
       {racing && (
         <>
@@ -419,9 +457,9 @@ function Board({ people, open, closed, now }: { people: Person[]; open: boolean;
 
 function Stat({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="px-4 py-3.5 sm:px-5">
-      <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">{label}</div>
-      <div className="mt-1 font-display text-[2.25rem] leading-none text-ink sm:text-[2.75rem]">{children}</div>
+    <div className="px-4 py-3 sm:px-5">
+      <div className="text-[12.5px] text-muted">{label}</div>
+      <div className="mt-0.5 text-[22px] font-semibold leading-tight tracking-[-0.02em] text-ink">{children}</div>
     </div>
   );
 }

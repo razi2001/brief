@@ -18,7 +18,7 @@ import BriefListRow from "./BriefListRow";
 import type { DashboardBrief } from "@/lib/brief-types";
 import { keylessTrackerName } from "@/lib/ticket-sync";
 import { useRouter } from "next/navigation";
-import TagRail from "./TagRail";
+import TagFilter from "./TagFilter";
 import TagPicker from "./TagPicker";
 import { UNTAGGED, applyTagChange, changeDelta, type BriefTags, type Tag, type TagColor } from "@/lib/tags";
 import { GROUP_COLOR, GROUP_LABEL, STATUS_GROUPS, countGroups, groupOfBrief, type StatusGroup } from "@/lib/status-group";
@@ -132,9 +132,9 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   return opts;
 }
 
-function EmptyState({ filtered, view = "tickets", flush = false }: { filtered: boolean; view?: "tickets" | "drafts"; flush?: boolean }) {
+function EmptyState({ filtered, view = "tickets" }: { filtered: boolean; view?: "tickets" | "drafts" }) {
   return (
-    <div className={`animate-rise ${flush ? "" : "mt-7 "}flex flex-col items-center gap-3 rounded-xl border border-dashed border-[rgba(26,22,18,0.14)] px-4 py-16 text-center`}>
+    <div className={`animate-rise mt-4 flex flex-col items-center gap-3 rounded-xl border border-dashed border-[rgba(26,22,18,0.14)] px-4 py-16 text-center`}>
       <BrandMark size={32} className="opacity-90" />
       <p className="text-[14px] font-medium text-ink">{filtered ? "No tickets here" : view === "drafts" ? "No drafts" : "No tickets yet"}</p>
     </div>
@@ -243,11 +243,11 @@ export default function BriefsFeed({
   isProcessing: boolean;
   /** This server render's id (see AutoRefresh). */
   renderId?: string;
-  /** Tickets only: the person's tags, shown as folders beside the list. */
+  /** Tickets only: the person's tags, a filter beside the status tabs. */
   tags?: Tag[];
   /** Which tags each listed brief carries. */
   briefTags?: BriefTags;
-  /** The open folder: a tag id, "none" for untagged, null for everything. */
+  /** The open tag: a tag id, "none" for untagged, null for everything. */
   activeTag?: string | null;
   /** Every ticket the person has, and how many carry no tag. */
   total?: number;
@@ -352,7 +352,7 @@ export default function BriefsFeed({
   const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
   const tagsOf = (id: string): Tag[] =>
     (briefTags[id] ?? []).map((t) => tagById.get(t)).filter((t): t is Tag => !!t);
-  // The server already narrowed the list to the open folder; this keeps it
+  // The server already narrowed the list to the open tag; this keeps it
   // true the moment a tag is added or removed here.
   const inFolder = (b: DashboardBrief) =>
     activeTag === null
@@ -656,11 +656,11 @@ export default function BriefsFeed({
     clearSelection();
   };
 
-  // Folders sit beside the Tickets list once there is anything to file under them.
-  const showRail = view === "tickets" && (total > 0 || tags.length > 0);
+  // The tag filter shows once there is anything to tag.
+  const showTags = view === "tickets" && (total > 0 || tags.length > 0);
 
   return (
-    <section data-wide={showRail ? "" : undefined}>
+    <section data-wide={showTags ? "" : undefined}>
       <header className="flex items-center justify-between gap-4">
         <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">{view === "drafts" ? "Drafts" : "Tickets"}</h1>
         <div className="flex shrink-0 items-center gap-2">
@@ -686,7 +686,7 @@ export default function BriefsFeed({
           <NewDraftButton />
         </div>
       </header>
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         {view === "tickets" ? (
           liveBriefs.length > 0 && (
             <StatusTabs counts={groupCounts} total={liveBriefs.length} value={group} onChange={setGroup} />
@@ -694,29 +694,28 @@ export default function BriefsFeed({
         ) : (
           <SummaryLine counts={liveCounts} />
         )}
+        {showTags && (
+          <div className="ml-auto">
+            <TagFilter
+              tags={tags}
+              total={total}
+              untagged={untagged}
+              active={activeTag}
+              onCreate={createTag}
+              onRename={renameTag}
+              onRecolor={recolorTag}
+              onDelete={deleteTag}
+            />
+          </div>
+        )}
       </div>
 
-      <div className={showRail ? "mt-5 flex flex-col gap-3 min-[1400px]:flex-row min-[1400px]:items-start min-[1400px]:gap-6" : undefined}>
-      {showRail && (
-        <TagRail
-          tags={tags}
-          total={total}
-          untagged={untagged}
-          active={activeTag}
-          onCreate={createTag}
-          onRename={renameTag}
-          onRecolor={recolorTag}
-          onDelete={deleteTag}
-          onDropBriefs={(tagId, ids) => setTagOn(tagId, ids, true)}
-        />
-      )}
-      <div className={showRail ? "min-w-0 flex-1" : undefined}>
       {liveBriefs.length > 0 ? (
         <>
           {/* overflow-visible so the column-filter popovers can escape the card;
               the row list clips its own bottom corners instead. gridVars sets the
               resizable column widths once - they cascade to the header and rows. */}
-          <div className={`card ${showRail ? "" : "mt-6 "}overflow-visible p-0`} style={gridVars}>
+          <div className="card mt-4 overflow-visible p-0" style={gridVars}>
             {/* Column header - a quiet, sticky row whose labels double as the
                 per-column filter triggers. Built on the same .ticket-grid as the
                 rows, so each label sits exactly above its column. */}
@@ -819,7 +818,6 @@ export default function BriefsFeed({
                     onToggleSelect={toggleSelect}
                     tags={tagsOf(b.id)}
                     onRemoveTag={view === "tickets" ? (tagId) => setTagOn(tagId, [b.id], false) : undefined}
-                    dragIds={showRail ? (selected.has(b.id) ? [...selected] : [b.id]) : undefined}
                   />
                 ))}
               </ul>
@@ -905,10 +903,8 @@ export default function BriefsFeed({
           )}
         </>
       ) : (
-        <EmptyState filtered={activeTag !== null} view={view} flush={showRail} />
+        <EmptyState filtered={activeTag !== null} view={view} />
       )}
-      </div>
-      </div>
     </section>
   );
 }

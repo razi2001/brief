@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Crumbs from "./Crumbs";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_DURATION, DEFAULT_OPEN_DAYS, DURATIONS, HOLDS_BY_DEFAULT, MAX_BASH_NAME, MAX_OPEN_DAYS, lengthLabel } from "@/lib/bash";
@@ -98,19 +99,17 @@ export default function BashNew() {
     setBusy(false);
   };
 
-  const label = "text-[11px] font-medium uppercase tracking-[0.08em] text-muted";
+  const label = "text-[12.5px] font-medium text-ink-2";
   const dateInput =
     "mt-1.5 h-10 w-full rounded-[10px] border border-hairline bg-surface px-3 text-[14px] tabular-nums text-ink outline-none transition-colors focus:border-accent";
 
   return (
     <div className="mx-auto w-full max-w-[640px]">
-      <Link href="/bash" className="text-[13px] text-muted no-underline hover:text-ink">
-        Bug bash
-      </Link>
-      <h1 className="mt-2 text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">New bug bash</h1>
+      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: "New" }]} />
+      <h1 className="mt-3 text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">New bug bash</h1>
 
       <form
-        className="card mt-6 p-5 sm:p-6"
+        className="card mt-5 p-5 sm:p-6"
         onSubmit={(e) => {
           e.preventDefault();
           void create();
@@ -128,12 +127,12 @@ export default function BashNew() {
           placeholder="Release 2.4"
           autoComplete="off"
           spellCheck={false}
-          className="mt-1.5 w-full border-b border-hairline bg-transparent pb-2 font-display text-[1.75rem] leading-tight text-ink outline-none transition-colors placeholder:text-[rgba(26,22,18,0.25)] focus:border-accent"
+          className="mt-1.5 h-10 w-full rounded-[10px] border border-hairline bg-surface px-3 text-[15px] font-medium text-ink outline-none transition-colors placeholder:font-normal placeholder:text-[rgba(26,22,18,0.3)] focus:border-accent"
         />
         {suggestions.length > 0 && (
           <div className="animate-rise mt-3">
             <span id="bash-suggested" className="text-xs text-muted">
-              Suggested, from where your recent bugs are
+              Suggested
             </span>
             <ul aria-labelledby="bash-suggested" className="mt-1.5 flex flex-wrap gap-1.5">
               {suggestions.map((s) => (
@@ -235,7 +234,7 @@ export default function BashNew() {
 
         {error && <p className="mt-4 text-[13px] text-[#c62828]">{error}</p>}
         <div className="mt-6 flex items-center justify-end gap-2">
-          <Link href="/bash" className="btn h-9 no-underline">
+          <Link href="/bash" className="btn h-9">
             Cancel
           </Link>
           <button type="submit" disabled={!name.trim() || !datesOk || busy} className="btn-accent h-9">

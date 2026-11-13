@@ -10,13 +10,14 @@ const server = vi.hoisted(() => ({
   startBash: vi.fn(),
   leaveBash: vi.fn(),
   endBash: vi.fn(),
+  deleteBash: vi.fn(),
 }));
 vi.mock("@/lib/bash-server", () => server);
 const events = vi.hoisted(() => ({ track: vi.fn() }));
 vi.mock("@/lib/events", () => events);
 
 import { POST as create } from "./route";
-import { GET as read } from "./[code]/route";
+import { GET as read, DELETE as remove } from "./[code]/route";
 import { POST as join } from "./[code]/join/route";
 import { POST as start } from "./[code]/start/route";
 import { POST as leave } from "./[code]/leave/route";
@@ -48,6 +49,7 @@ beforeEach(() => {
   server.startBash.mockReset().mockResolvedValue("ok");
   server.leaveBash.mockReset().mockResolvedValue("ok");
   server.endBash.mockReset().mockResolvedValue("ok");
+  server.deleteBash.mockReset().mockResolvedValue("ok");
 });
 
 describe("POST /api/bashes", () => {
@@ -221,5 +223,34 @@ describe("POST /api/bashes/[code]/end", () => {
   it("answers 404 to anyone who didn't create it", async () => {
     server.endBash.mockResolvedValue("missing");
     expect((await end(none, params())).status).toBe(404);
+  });
+});
+
+describe("DELETE /api/bashes/[code]", () => {
+  it("refuses anyone who is signed out", async () => {
+    session.userId = null;
+    expect((await remove(none, params())).status).toBe(401);
+    expect(server.deleteBash).not.toHaveBeenCalled();
+  });
+
+  it("deletes it under the caller's id and records it", async () => {
+    const res = await remove(none, params());
+    expect(res.status).toBe(200);
+    expect(server.deleteBash).toHaveBeenCalledWith("user_1", CODE);
+    expect(events.track).toHaveBeenCalledWith("user_1", "bash.deleted");
+  });
+
+  it("answers 404 to anyone who didn't create it, and for a code that isn't one", async () => {
+    server.deleteBash.mockResolvedValue("missing");
+    expect((await remove(none, params())).status).toBe(404);
+    expect(events.track).not.toHaveBeenCalled();
+    server.deleteBash.mockClear();
+    expect((await remove(none, params("nope"))).status).toBe(404);
+    expect(server.deleteBash).not.toHaveBeenCalled();
+  });
+
+  it("answers 500 when it could not be deleted", async () => {
+    server.deleteBash.mockResolvedValue("error");
+    expect((await remove(none, params())).status).toBe(500);
   });
 });

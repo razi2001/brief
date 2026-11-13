@@ -24,6 +24,7 @@ export const SERVER_EVENTS = [
   "brief.deleted",
   "bash.started",
   "bash.joined",
+  "bash.deleted",
 ] as const;
 /** What a signed-in browser may send through POST /api/events. */
 export const CLIENT_EVENTS = ["page.view", "onboarding.step", "onboarding.demo"] as const;

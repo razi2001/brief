@@ -285,6 +285,20 @@ export async function endBash(userId: string, code: string): Promise<"ok" | "mis
 }
 
 /**
+ * Delete a bug bash for good. Only whoever created it may; for anyone else it
+ * is missing. Its people, its review groups and the marks on its reports go
+ * with it (the database cascades them). The reports themselves stay with who
+ * sent them: a held one is a draft in their Tickets, a filed one keeps its
+ * ticket.
+ */
+export async function deleteBash(userId: string, code: string): Promise<"ok" | "missing" | "error"> {
+  const bash = await findBash(code);
+  if (!bash || bash.created_by !== userId) return "missing";
+  const { error } = await createAdminSupabase().from("bashes").delete().eq("id", bash.id).eq("created_by", userId);
+  return error ? "error" : "ok";
+}
+
+/**
  * The open bug bash in which this person's own clock is running, if any: what
  * the brief they are sending right now can count for, and whether it is then
  * held for a review or filed with the bug bash's label. In several at once,

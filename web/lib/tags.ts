@@ -24,8 +24,6 @@ export const MAX_BRIEFS_PER_CHANGE = 200;
 /** The folder for briefs with no tag, as it reads in the URL (?tag=none). */
 export const UNTAGGED = "none";
 
-/** What a dragged ticket row carries onto a folder: a JSON array of brief ids. */
-export const BRIEF_DRAG_TYPE = "application/x-brief-ids";
 
 export type Tag = {
   id: string;

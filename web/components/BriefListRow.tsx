@@ -12,7 +12,7 @@ import { PROVIDER_LABELS } from "./provider-labels";
 import BrandMark from "./BrandMark";
 import Elapsed from "./Elapsed";
 import type { DashboardBrief } from "@/lib/brief-types";
-import { BRIEF_DRAG_TYPE, TAG_COLORS, type Tag } from "@/lib/tags";
+import { TAG_COLORS, type Tag } from "@/lib/tags";
 
 const NO_TAGS: Tag[] = [];
 /** Tag labels a row shows before the rest fold into "+n". */
@@ -63,14 +63,11 @@ export default function BriefListRow({
   onToggleSelect,
   tags = NO_TAGS,
   onRemoveTag,
-  dragIds,
 }: {
   /** The tags it carries, shown as small labels after the title. */
   tags?: Tag[];
   /** Take one of its tags off. Without it the labels are read-only. */
   onRemoveTag?: (tagId: string) => void;
-  /** What dragging this row carries onto a folder: itself, or the whole selection. */
-  dragIds?: string[];
   brief: DashboardBrief;
   /** The list it's in. A processing brief marked as a draft is being written, not filed. */
   view?: "tickets" | "drafts";
@@ -133,15 +130,6 @@ export default function BriefListRow({
 
   return (
     <li
-      draggable={dragIds ? true : undefined}
-      onDragStart={
-        dragIds
-          ? (e) => {
-              e.dataTransfer.setData(BRIEF_DRAG_TYPE, JSON.stringify(dragIds));
-              e.dataTransfer.effectAllowed = "copy";
-            }
-          : undefined
-      }
       className={`group animate-rise ticket-grid relative min-h-[42px] py-2 pl-3 pr-2.5 transition-colors max-sm:gap-x-2 max-sm:[grid-template-columns:1.5rem_5.25rem_minmax(0,1fr)_0.75rem_1.75rem] ${
         selected ? "bg-accent/[0.05] hover:bg-accent/[0.07]" : "hover:bg-surface-2"
       }${leaving ? " brief-leaving" : ""}`}

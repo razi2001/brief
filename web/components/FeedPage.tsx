@@ -15,7 +15,7 @@ import { UNTAGGED, type BriefTags, type Tag } from "@/lib/tags";
 import { briefIdsOfTag, loadTags, taggedBriefIds, tagsOfBriefs } from "@/lib/tags-server";
 
 /** Rows each kind shows: the newest tickets, and the newest drafts. */
-const PAGE = 40;
+const PAGE = 100;
 /** Ids one query names: keeps the request's URL well under any limit. */
 const ID_CHUNK = 100;
 
@@ -26,8 +26,9 @@ type Kind = "tickets" | "drafts";
  * The Tickets page: tickets (filed, filing, or that didn't file) and drafts
  * (written up, never filed) in one list, with a tab for each state. The two
  * are read separately, the newest PAGE of each, so a burst of drafts never
- * pushes tickets off the list, then shown together, newest first. It can be
- * narrowed to one folder: a tag's id, or "none" for what has no tag.
+ * pushes tickets off the list, then shown together, newest first. A capture
+ * not sent yet ("uploaded") is no ticket and is never read. It can be
+ * narrowed to one tag: a tag's id, or "none" for what has no tag.
  * `show` opens it on a tab ("drafts", from old /drafts links).
  */
 export default async function FeedPage({ tag = null, show = null }: { tag?: string | null; show?: "drafts" | null }) {
@@ -114,7 +115,7 @@ function feedQuery(admin: Admin, userId: string, kind: Kind) {
   const scoped =
     kind === "drafts"
       ? q.or("status.eq.drafted,and(status.eq.processing,filing_started_at.is.null,ticket_body.is.null)")
-      : q.neq("status", "drafted").or("status.neq.processing,filing_started_at.not.is.null,ticket_body.not.is.null");
+      : q.neq("status", "drafted").neq("status", "uploaded").or("status.neq.processing,filing_started_at.not.is.null,ticket_body.not.is.null");
   return scoped.order("created_at", { ascending: false });
 }
 

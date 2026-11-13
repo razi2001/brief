@@ -165,7 +165,7 @@ export default function BashReview({
   return (
     <section aria-label="Review" className="card overflow-visible p-0">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-4 py-2.5">
-        <h2 className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Review</h2>
+        <h2 className="text-[13px] font-medium text-ink">Review</h2>
         <div className="flex items-center gap-3">
           <span className="text-[13px] tabular-nums text-muted">
             {review.groups.length} {review.groups.length === 1 ? "bug" : "bugs"} from {reports} {reports === 1 ? "report" : "reports"}
@@ -288,7 +288,7 @@ function GroupHead({
     <div className="flex items-start gap-x-3 gap-y-2 px-3.5 pb-2.5 pt-3 max-sm:flex-col max-sm:items-stretch">
       <div className="min-w-0 flex-1">
         {locked ? (
-          <p className="font-display text-[1.3125rem] leading-snug text-ink [overflow-wrap:anywhere]">{g.title}</p>
+          <p className="text-[14.5px] font-semibold leading-snug tracking-[-0.005em] text-ink [overflow-wrap:anywhere]">{g.title}</p>
         ) : (
           <input
             value={title}
@@ -304,7 +304,7 @@ function GroupHead({
             }}
             aria-label="Ticket title"
             spellCheck={false}
-            className="-mx-1.5 w-[calc(100%+0.75rem)] rounded-md bg-transparent px-1.5 font-display text-[1.3125rem] leading-snug text-ink outline-none transition-colors hover:bg-surface-2 focus:bg-surface-2"
+            className="-mx-1.5 w-[calc(100%+0.75rem)] rounded-md bg-transparent px-1.5 py-0.5 text-[14.5px] font-semibold leading-snug tracking-[-0.005em] text-ink outline-none transition-colors hover:bg-surface-2 focus:bg-surface-2"
           />
         )}
         {g.reports.length > 1 && (
