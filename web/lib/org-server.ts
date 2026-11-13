@@ -583,7 +583,7 @@ async function leaderboardRows(
 }
 
 /** One batched Clerk lookup for however many distinct people are ranked. */
-async function lookupNames(
+export async function lookupNames(
   userIds: string[],
 ): Promise<Map<string, { name: string; fullName: string; imageUrl?: string }>> {
   const names = new Map<string, { name: string; fullName: string; imageUrl?: string }>();

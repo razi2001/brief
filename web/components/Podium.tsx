@@ -367,7 +367,7 @@ export default function Podium({
 const HEIGHTS: Record<number, number> = { 1: 104, 2: 76, 3: 56 };
 
 /** A soft rounded column that rises from the baseline: peach for the leader, cream for the rest. */
-function Column({ rank, filed, delay }: { rank: number; filed: number; delay: number }) {
+export function Column({ rank, filed, delay }: { rank: number; filed: number; delay: number }) {
   const first = rank === 1;
   return (
     <div
@@ -442,7 +442,7 @@ function InviteSeat({ rank }: { rank: number }) {
  * across it (the same cloud shapes as the page sky, defined once in
  * CloudBackground).
  */
-function BoardSky() {
+export function BoardSky() {
   return (
     <div aria-hidden className="lb-sky">
       {[

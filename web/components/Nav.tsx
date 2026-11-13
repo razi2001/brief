@@ -13,25 +13,35 @@ const icon = (d: ReactNode) => (
 /** The sidebar's items, also drawn by the Guide's illustrations. */
 export const NAV_ITEMS = [
   { href: "/dashboard", label: "Home", icon: icon(<><rect x="2" y="2" width="5" height="6" rx="1.2" /><rect x="9" y="2" width="5" height="3.5" rx="1.2" /><rect x="9" y="7.5" width="5" height="6.5" rx="1.2" /><rect x="2" y="10" width="5" height="4" rx="1.2" /></>) },
-  { href: "/tickets", label: "Tickets", icon: icon(<><path d="M3 4h10M3 8h10M3 12h6" /></>) },
-  { href: "/drafts", label: "Drafts", icon: icon(<><path d="M9.5 2.5H4.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5.5" /><path d="m12.8 2.2 1 1L9 8l-1.6.6.6-1.6 4.8-4.8Z" /></>) },
+  // Drafts are a tab of Tickets; an open draft (/drafts/<id>) still lights this item.
+  { href: "/tickets", label: "Tickets", also: "/drafts", icon: icon(<><path d="M3 4h10M3 8h10M3 12h6" /></>) },
+  { href: "/bash", label: "Bug bash", icon: icon(<><ellipse cx="8" cy="9.2" rx="3.2" ry="4" /><path d="M6.2 5.6a1.9 1.9 0 0 1 3.6 0M8 5.4v7.8M4.8 8H2.4M13.6 8h-2.4M5 11.2l-2 1.4M11 11.2l2 1.4M5.2 6.2 3.4 4.6M10.8 6.2l1.8-1.6" /></>) },
   { href: "/connections", label: "Settings", icon: icon(<><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6" /></>) },
   { href: "/guide", label: "How to use Brief", icon: icon(<><path d="M8 4.2C6.6 3.1 4.6 2.7 2.5 2.9v9.4c2.1-.2 4.1.2 5.5 1.3 1.4-1.1 3.4-1.5 5.5-1.3V2.9c-2.1-.2-4.1.2-5.5 1.3Z" /><path d="M8 4.2v9.4" /></>) },
   // Always the last item: Nav draws it after the owner's links too.
   { href: "/requests", label: "Feature requests", icon: icon(<><path d="M6 12.5h4M6.6 14h2.8" /><path d="M8 1.8a4.2 4.2 0 0 0-2.4 7.6c.5.4.8.9.8 1.5v.3h3.2v-.3c0-.6.3-1.1.8-1.5A4.2 4.2 0 0 0 8 1.8Z" /></>) },
 ] as const;
 
-type Item = { href: string; label: string; icon: ReactNode; exact?: boolean };
+type Item = { href: string; label: string; icon: ReactNode; exact?: boolean; also?: string };
 
-/** One sidebar link, highlighted while you're on its route (or below it, unless `exact`). */
-export function NavLink({ item }: { item: Item }) {
+/** The help links: they sit apart, at the foot of the sidebar, and read quieter. */
+const HELP_HREFS: readonly string[] = ["/guide", "/requests"];
+
+/**
+ * One sidebar link, highlighted while you're on its route (or below it, unless
+ * `exact`). `quiet` is the smaller look of the help links at the foot.
+ */
+export function NavLink({ item, quiet = false }: { item: Item; quiet?: boolean }) {
   const pathname = usePathname();
-  const active = pathname === item.href || (!item.exact && pathname.startsWith(item.href + "/"));
+  const active =
+    pathname === item.href || (!item.exact && pathname.startsWith(item.href + "/")) || (!!item.also && (pathname === item.also || pathname.startsWith(item.also + "/")));
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
-      className={`flex shrink-0 items-center gap-2 rounded-[10px] px-2.5 py-1.5 text-[14px] font-medium no-underline sm:gap-3 sm:px-3 sm:py-2 sm:text-[15px] transition-colors ${
+      className={`flex shrink-0 items-center gap-2 rounded-[10px] px-2.5 py-1.5 text-[14px] font-medium no-underline sm:gap-3 sm:px-3 transition-colors ${
+        quiet ? "sm:py-1.5 sm:text-[13.5px] sm:font-normal" : "sm:py-2 sm:text-[15px]"
+      } ${
         active
           ? "bg-white/80 text-ink shadow-[0_1px_2px_rgba(26,22,18,.06),0_0_0_1px_rgba(26,22,18,.06)]"
           : "text-ink-2/80 hover:bg-white/45 hover:text-ink"
@@ -87,19 +97,26 @@ export function CardNavLink() {
 /**
  * Primary navigation: a vertical list in the sidebar (Linear-style), a row in
  * the mobile top bar. Real links, so each view has its own URL and the
- * extension can deep-link to /tickets. `extra` streams in after the fixed
- * items (the owner's All tickets link), and the last fixed item (Feature
- * requests) still comes after it: it is always the last thing.
+ * extension can deep-link to /tickets. `extra` streams in after the main
+ * items (the owner's All tickets link). The help links (How to use Brief,
+ * Feature requests) come last and, in the sidebar, drop to its foot in a
+ * quieter look, so the list above is only the places you work in. Feature
+ * requests is always the last thing.
  */
 export default function Nav({ extra }: { extra?: ReactNode }) {
-  const last = NAV_ITEMS[NAV_ITEMS.length - 1];
+  const main = NAV_ITEMS.filter((item) => !HELP_HREFS.includes(item.href));
+  const help = NAV_ITEMS.filter((item) => HELP_HREFS.includes(item.href));
   return (
-    <nav aria-label="Primary" className="flex gap-0.5 sm:flex-col sm:gap-1">
-      {NAV_ITEMS.slice(0, -1).map((item) => (
+    <nav aria-label="Primary" className="flex gap-0.5 sm:flex-1 sm:flex-col sm:gap-1">
+      {main.map((item) => (
         <NavLink key={item.href} item={item} />
       ))}
       {extra}
-      <NavLink item={last} />
+      <div className="flex gap-0.5 sm:mt-auto sm:flex-col sm:gap-0.5 sm:pt-4">
+        {help.map((item) => (
+          <NavLink key={item.href} item={item} quiet />
+        ))}
+      </div>
     </nav>
   );
 }

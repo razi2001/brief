@@ -10,12 +10,12 @@ afterEach(cleanup);
 const labels = () => screen.getAllByRole("link").map((a) => a.textContent);
 
 describe("the sidebar", () => {
-  it("lists the fixed items with Feature requests last", () => {
+  it("lists the places you work in, then the help links, Feature requests last", () => {
     render(<Nav />);
-    expect(labels()).toEqual(["Home", "Tickets", "Drafts", "Settings", "How to use Brief", "Feature requests"]);
+    expect(labels()).toEqual(["Home", "Tickets", "Bug bash", "Settings", "How to use Brief", "Feature requests"]);
   });
 
-  it("keeps Feature requests last even after the owner's links", () => {
+  it("puts the owner's links before the help links, Feature requests still last", () => {
     render(
       <Nav
         extra={
@@ -29,11 +29,11 @@ describe("the sidebar", () => {
     expect(labels()).toEqual([
       "Home",
       "Tickets",
-      "Drafts",
+      "Bug bash",
       "Settings",
-      "How to use Brief",
       "All tickets",
       "Activity",
+      "How to use Brief",
       "Feature requests",
     ]);
   });

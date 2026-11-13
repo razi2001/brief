@@ -229,6 +229,12 @@ a {
   }
 }
 
+/* A page that asks for more room (the Tickets list with its folders beside it)
+   gets a wider column. Unlayered, so it wins over the max-width utility. */
+.app-page:has([data-wide]) {
+  max-width: 1260px;
+}
+
 /* A strip that scrolls sideways without showing a bar (the mobile nav). */
 .no-scrollbar {
   scrollbar-width: none;

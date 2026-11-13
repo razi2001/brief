@@ -36,7 +36,7 @@ export default function AppShell({ children, headerRight, workspace, status, hid
           </span>
         </Link>
         {!hideNav && (
-          <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto sm:mt-7 sm:flex-none sm:overflow-visible">
+          <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto sm:mt-7 sm:flex sm:min-h-0 sm:flex-col sm:overflow-visible">
             <Nav extra={navExtra} />
           </div>
         )}
@@ -46,7 +46,7 @@ export default function AppShell({ children, headerRight, workspace, status, hid
         </div>
       </aside>
       <main className="min-w-0 flex-1">
-        <div className="mx-auto w-full max-w-[1080px] px-4 py-6 sm:px-8 sm:py-9">{children}</div>
+        <div className="app-page mx-auto w-full max-w-[1080px] px-4 py-6 sm:px-8 sm:py-9">{children}</div>
       </main>
     </div>
   );

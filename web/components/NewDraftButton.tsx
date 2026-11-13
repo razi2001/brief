@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-/** Drafts' primary action: start a blank draft and open it to write. */
+/** The Tickets page's primary action: start a blank draft and open it to write. */
 export default function NewDraftButton() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);

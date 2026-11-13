@@ -88,6 +88,9 @@ function buildOverrides(d) {
     transcript: d.transcript || '',
     description: d.description || '',
     ...(d.autoReport ? { autoReport: true } : {}),
+    // the popup's bug bash switch, off for this brief: the server then sends it
+    // on as if you were in no bug bash
+    ...(d.bashOff ? { bash: false } : {}),
     extra: (d.extra || []).filter((p) => (p.key || '').trim() || (p.value || '').trim()),
     screenshots: (d.screenshots || []).map((s) => ({ file: `screenshots/${s.id}.png`, description: s.description || '', annotated: !!s.annotated })),
     ...(d.replay ? { includeReplay: d.replay.attach !== false, replayNote: d.replay.note || '' } : {}),

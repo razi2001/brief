@@ -18,6 +18,10 @@ const descField = $('#descField');
 const kvList = $('#kvList');
 const createBtn = $('#createBtn');
 const reconnectBtn = $('#reconnectBtn');
+const bashRow = $('#bashRow');
+const bashName = $('#bashName');
+const bashTimer = $('#bashTimer');
+const bashSwitch = $('#bashSwitch');
 const createMenuBtn = $('#createMenuBtn');
 const createMenu = $('#createMenu');
 const briefCloudBtn = $('#briefCloudBtn');
@@ -42,6 +46,14 @@ let bcTracker;
 let bcTrackerName = null; // the server's display name for bcTracker, or with none, for the tracker to fix
 let bcTrackerIssue = null; // with no tracker, why a connected one can't file yet, when the server said
 let bcTrackerAction = null; // with a tracker, 'reconnect' (still on Clerk); with none, 'reconnect' | 'pick' | 'connect'
+let bcBash = null; // the bug bash your own clock is running in ({ name, hold, endsAt }), or null
+// Is this brief for the bug bash? Yes while your time in one is running,
+// unless its switch was turned off for THIS brief (kept on the draft as
+// bashOff, so the next brief is for the bug bash again).
+const inBash = () => !!bcBash && !draft.bashOff;
+// ...and is that bug bash one that holds its reports for a review? Then the
+// brief is kept as a draft there: nothing is filed, and no tracker is needed.
+const heldByBash = () => inBash() && bcBash.hold;
 // What the orange button does, picked in its menu and remembered:
 // 'ticket' files to the tracker, 'draft' saves a draft and copies its public
 // link, 'prompt' saves a draft and copies a fix prompt.
@@ -137,7 +149,7 @@ function sig(d) {
     !!d.recording, d.recording?.poster ? 1 : 0,
     d.uploading, d.uploadFailed, d.cloudBriefId || '',
     d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()), !!d.noSpeech,
-    !!d.filing, d.fileError ? 1 : 0,
+    !!d.filing, d.fileError ? 1 : 0, d.bashOff ? 1 : 0,
     d.replay?.addedAt || 0, d.recording?.durationMs || 0,
   ].join('|');
 }
@@ -155,6 +167,7 @@ async function readTicketsInFlight() {
 }
 function render() {
   renderGallery();
+  renderBash();
   updateCreate();
   setBrandSpin(!!draft.filing || !!draft.uploading);
   lastSig = sig(draft);
@@ -281,6 +294,8 @@ function updateCreate() {
   if (label) {
     if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Saving…'}`;
     else if (uploading) label.textContent = 'Uploading…';
+    // held for the bug bash: the button says where it goes
+    else if (mode === 'ticket' && heldByBash()) label.innerHTML = `<span>Add to</span> <span class="ctk-name">${esc(bcBash.name)}</span>`;
     else label.innerHTML = mode === 'ticket' ? esc(createLabel()) : `${MODE_ICON[mode]}${esc(mode === 'prompt' ? promptLabel() : MODE_LABEL[mode])}`;
   }
   renderCreateMenu();
@@ -327,7 +342,7 @@ function renderCreateMenu() {
   const items = [
     fix
       ? { key: 'fix', icon: 'send', t: createLabel(), s: why, pill }
-      : { key: 'ticket', icon: 'send', t: createLabel(), s: 'File the ticket now' },
+      : { key: 'ticket', icon: 'send', t: createLabel(), s: heldByBash() ? 'Held for the bug bash review' : inBash() ? 'Filed now, with the bug bash label' : 'File the ticket now' },
     { key: 'draft', icon: 'link', t: 'Share link', s: 'Public page, kept in Drafts' },
     { key: 'prompt', icon: 'prompt', t: promptLabel(), s: FIX_AGENTS[fixAgent]?.name ? `Copies the prompt, opens ${FIX_AGENTS[fixAgent].name}` : 'Copies a prompt for your agent' },
   ];
@@ -410,6 +425,7 @@ async function launchApp(url) {
 }
 // "Create in Linear": the tracker it lands in, once known.
 function createLabel() {
+  if (heldByBash()) return `Add to ${bcBash.name}`;
   const name = bcTrackerName || TRACKER_NAMES[bcTracker];
   return name ? `Create in ${name}` : 'Create ticket';
 }
@@ -864,7 +880,9 @@ async function startFiling(mode, kind = 'link') {
   // The link is copied now, before anything uploads: its id is picked here
   // and the server takes it, so the page is there by the time anyone opens
   // it. Kept on the draft, so a retry after a failure keeps the same link.
-  let done = 'Ticket queued';
+  // sent to the bug bash: say which one (a long name is cut, the toast is one line)
+  const sentTo = inBash() ? (bcBash.name.length > 26 ? `${bcBash.name.slice(0, 25).trimEnd()}…` : bcBash.name) : null;
+  let done = mode === 'ticket' && sentTo ? `Added to ${sentTo}` : 'Ticket queued';
   let launchAfter = null;
   if (mode === 'draft') {
     const shareId = draft.shareId || newShareId();
@@ -923,6 +941,8 @@ function fixPrompt(description, mdUrl) {
 // plain connect. Null while a tracker files, or before a paired account's
 // status is known.
 function trackerFixLabel() {
+  // held for a bug bash's review: nothing is filed, so there is nothing to fix
+  if (heldByBash()) return null;
   if (bcTracker !== null) return null;
   const name = bcTrackerName || 'your tracker';
   if (bcTrackerAction === 'reconnect') return `Reconnect ${name}`;
@@ -943,7 +963,9 @@ async function primaryCreate() {
         bcConnected = st.connected; bcTracker = st.tracker; bcTrackerName = st.trackerName ?? null;
         bcTrackerIssue = st.tracker ? null : st.trackerIssue ?? null;
         bcTrackerAction = st.connected ? st.trackerAction ?? null : null;
+        bcBash = st.bash ?? null;
         renderReconnect();
+        renderBash();
       }
     } catch { /* unknown: try to file, the server says if there's no tracker */ }
     updateCreate();
@@ -1041,6 +1063,43 @@ function renderCloudLink() {
 // A tracker that files but should be reconnected (still on Clerk). With none
 // that files, the fix is the first item of Create's menu instead, and a dot
 // on its ▾ says so.
+// The bug bash your own clock is running in, above Create: its name, the
+// time you have left, and a switch for THIS brief.
+const clockText = (ms) => {
+  const t = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60;
+  const two = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
+};
+let bashTick = null;
+function renderBash() {
+  if (!bashRow) return;
+  // your time is up: the row goes, and the popup is as it always was
+  if (bcBash && bcBash.endsAt <= Date.now()) bcBash = null;
+  bashRow.hidden = !bcBash;
+  if (!bcBash) { clearInterval(bashTick); bashTick = null; return; }
+  const on = !draft.bashOff;
+  bashRow.classList.toggle('off', !on);
+  bashName.textContent = bcBash.name;
+  bashTimer.textContent = clockText(bcBash.endsAt - Date.now());
+  bashSwitch.classList.toggle('on', on);
+  bashSwitch.setAttribute('aria-checked', String(on));
+  if (!bashTick) {
+    bashTick = setInterval(() => {
+      if (!bcBash) return;
+      if (bcBash.endsAt <= Date.now()) { renderBash(); updateCreate(); return; }
+      bashTimer.textContent = clockText(bcBash.endsAt - Date.now());
+    }, 1000);
+  }
+}
+bashSwitch?.addEventListener('click', async () => {
+  // shown at once; the draft keeps it
+  draft.bashOff = !draft.bashOff;
+  renderBash();
+  updateCreate();
+  const off = !!draft.bashOff;
+  await persist((d) => { d.bashOff = off; });
+});
 function renderReconnect() {
   if (!reconnectBtn) return;
   const show = bcTrackerAction === 'reconnect' && !!bcTracker;
@@ -1159,16 +1218,18 @@ const TRACKER_CACHE_KEY = 'bcTrackerCache';
 async function readTrackerCache() {
   try {
     const { [TRACKER_CACHE_KEY]: c } = await chrome.storage.local.get(TRACKER_CACHE_KEY);
-    if (!c || typeof c !== 'object') return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null }; // undefined = never asked
+    if (!c || typeof c !== 'object') return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null, bash: null }; // undefined = never asked
     return {
       tracker: c.tracker ?? null,
       trackerName: typeof c.trackerName === 'string' ? c.trackerName : null,
       trackerIssue: typeof c.trackerIssue === 'string' ? c.trackerIssue : null,
       trackerAction: TRACKER_ACTIONS.includes(c.trackerAction) ? c.trackerAction : null,
+      // the bug bash seen last time, so its row is there from the first paint
+      bash: c.bash && typeof c.bash.name === 'string' && Number(c.bash.endsAt) > Date.now() ? { name: c.bash.name, hold: c.bash.hold === true, endsAt: Number(c.bash.endsAt) } : null,
     };
-  } catch { return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null }; }
+  } catch { return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null, bash: null }; }
 }
-function writeTrackerCache(tracker, trackerName, trackerIssue, trackerAction) {
+function writeTrackerCache(tracker, trackerName, trackerIssue, trackerAction, bash) {
   try {
     return chrome.storage.local.set({
       [TRACKER_CACHE_KEY]: {
@@ -1176,6 +1237,7 @@ function writeTrackerCache(tracker, trackerName, trackerIssue, trackerAction) {
         trackerName: trackerName ?? null,
         trackerIssue: trackerIssue ?? null,
         trackerAction: trackerAction ?? null,
+        bash: bash ?? null,
       },
     });
   } catch { return Promise.resolve(); }
@@ -1189,8 +1251,8 @@ async function bcRefresh() {
   // waiting for the next open.
   if (!token) {
     await writeTrackerCache(null, null, null, null);
-    bcTrackerName = null; bcTrackerIssue = null; bcTrackerAction = null;
-    updateCreate(); renderReconnect();
+    bcTrackerName = null; bcTrackerIssue = null; bcTrackerAction = null; bcBash = null;
+    updateCreate(); renderReconnect(); renderBash();
     return;
   }
   try {
@@ -1202,13 +1264,16 @@ async function bcRefresh() {
     const name = status.trackerName ?? null;
     const issue = tracker ? null : status.trackerIssue ?? null;
     const action = status.connected ? status.trackerAction ?? null : null;
-    await writeTrackerCache(tracker, name, issue, action);
+    const bash = status.connected ? status.bash ?? null : null;
+    await writeTrackerCache(tracker, name, issue, action, bash);
+    bcBash = bash;
     bcTrackerName = name;
     bcTrackerIssue = issue;
     bcTrackerAction = action;
     // The label can change without the tracker changing (a reconnect becomes
     // a pick), so always; it only rewrites the button's own text.
     bcTracker = tracker;
+    renderBash();
     updateCreate();
     renderReconnect();
   } catch {}
@@ -1271,7 +1336,7 @@ resetBtn?.addEventListener('click', openReset);
   else { draft = emptyDraft(); await setDraft(draft); }
   // The tracker we saw last time, read before the first paint, so the Create
   // button opens at its final width instead of settling once /api/me answers.
-  ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue, trackerAction: bcTrackerAction } = await readTrackerCache());
+  ({ tracker: bcTracker, trackerName: bcTrackerName, trackerIssue: bcTrackerIssue, trackerAction: bcTrackerAction, bash: bcBash } = await readTrackerCache());
   // and what the button does, as picked last time
   try {
     const { createDefault: picked, fixAgent: agent } = await chrome.storage.local.get(['createDefault', 'fixAgent']);

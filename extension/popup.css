@@ -140,6 +140,27 @@ body.sheet-open { overflow:hidden; }
    pick is remembered (createDefault). With no tracker that files it starts on
    the draft, and the fix (Connect a tracker...) is the slim link above. */
 .create-wrap { position:relative; padding:16px 16px 12px; }
+/* The bug bash your own clock is running in: its name, the time you have
+   left, and a switch for THIS brief. Off, the row goes quiet and the brief is
+   sent as if you were in none. */
+.bash-row { display:flex; align-items:center; gap:10px; margin:0 0 10px; padding:8px 10px 8px 12px; border-radius:14px;
+  background:rgba(221,105,54,.07); border:1px solid rgba(221,105,54,.2); transition:background var(--t), border-color var(--t); }
+.bash-row.off { background:rgba(26,22,18,.035); border-color:var(--hairline); }
+.bash-ico { display:flex; flex:none; color:var(--accent); transition:color var(--t); }
+.bash-ico svg { width:17px; height:17px; }
+.bash-row.off .bash-ico { color:var(--muted); }
+.bash-txt { display:flex; flex-direction:column; gap:1px; min-width:0; flex:1; }
+.bash-label { font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); white-space:nowrap; }
+.bash-timer { margin-left:6px; letter-spacing:.02em; color:var(--accent); font-variant-numeric:tabular-nums; font-weight:500; }
+.bash-row.off .bash-timer { color:var(--muted); }
+.bash-name { font-size:12.5px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bash-row.off .bash-name { color:var(--muted); }
+.bash-row .switch.on { background:var(--accent); }
+/* In a bug bash the Create button reads "Add to <its name>": the name is cut
+   with an ellipsis so the button never grows past the popup. */
+#createBtn { min-width:0; }
+#createBtn .ctk-label { min-width:0; max-width:100%; }
+#createBtn .ctk-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* A reconnect, or with no tracker the fix: a slim accent link above Create,
    never in its way. */
 .reconnect-btn { display:flex; align-items:center; justify-content:center; gap:7px; margin:0 auto 8px; padding:5px 10px;

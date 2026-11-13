@@ -1,6 +1,6 @@
-import FeedPage from "@/components/FeedPage";
+import { redirect } from "next/navigation";
 
-/** Briefs written up but never filed: no ticket yet. */
+/** Drafts live on the Tickets page now, under its Drafts tab. Old links land there. */
 export default function DraftsPage() {
-  return <FeedPage view="drafts" />;
+  redirect("/tickets?show=drafts");
 }

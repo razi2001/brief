@@ -7,6 +7,7 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 import { corsPreflight, jsonCors } from "@/lib/cors";
 import { draftBriefById } from "@/lib/agent/run-processing";
 import { runDraftJob } from "@/lib/agent/draft-jobs";
+import { markForBash, runningBashOf } from "@/lib/bash-server";
 
 export const maxDuration = 300;
 
@@ -35,6 +36,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     screenshots?: Array<{ file: string; description?: string; annotated?: boolean }>;
     /** The token Public link or Fix prompt already copied. */
     shareId?: string;
+    /** false when the popup's bug bash switch is off for this brief. */
+    bash?: boolean;
   };
   const title = (body?.title ?? "").toString().trim();
   const overrides = {
@@ -68,6 +71,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       },
       { status: 409 },
     );
+  }
+
+  // Already written up (a retry, or the same brief sent twice): nothing to
+  // write. Marking it as being written again would leave it there, since a
+  // brief with a body is never written a second time.
+  if (phase === "draft") {
+    if (body?.bash !== false) {
+      const bash = await runningBashOf(userId, admin).catch(() => null);
+      if (bash) await markForBash(bash.id, id, admin).catch(() => {});
+    }
+    return jsonCors({ queued: true, shareId: existing.share_id });
   }
 
   // Merge the popup's edits into the stored brief.json so the streaming write
@@ -107,6 +121,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // the copied token is already another brief's: this one gets its own
     shareId = newShareId();
     await markWriting();
+  }
+
+  // A draft counts for the reporter's running bug bash too, unless the popup's
+  // switch was off for it. Never a reason to fail.
+  if (body?.bash !== false) {
+    const bash = await runningBashOf(userId, admin).catch(() => null);
+    if (bash) await markForBash(bash.id, id, admin).catch(() => {});
   }
 
   // Write it now, in the background. The draft used to be written only when

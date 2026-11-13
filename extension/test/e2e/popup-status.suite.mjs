@@ -21,6 +21,10 @@
       const req = JSON.parse(p.request.postData || '{}');
       calls.push({ what: 'draft', body: req });
       body = { queued: true, shareId: req.shareId };
+    } else if (/\/api\/briefs\/[^/]+\/process$/.test(url)) {
+      const req = JSON.parse(p.request.postData || '{}');
+      calls.push({ what: 'process', body: req });
+      body = { queued: true, shareId: 'sharesharesh' };
     }
     await b.send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: 200, responseHeaders: [{ name: 'content-type', value: 'application/json' }, { name: 'access-control-allow-origin', value: '*' }], body: Buffer.from(JSON.stringify(body)).toString('base64') }, sid).catch(() => {});
   };
@@ -305,6 +309,172 @@
   check('mic denied: Screenshot captures the page and opens the annotator on it', annotator && !shotErr, JSON.stringify({ annotator, shotErr }));
   await b.send('Target.closeTarget', { targetId: noMicT }).catch(() => {});
   await b.send('Target.closeTarget', { targetId: site.targetId }).catch(() => {});
+
+  // ---- your time is running in a bug bash: a row above Create, with a timer and a switch ----
+  const bashState = (sid) => evalIn(sid, `(() => {
+    const r = document.querySelector('#bashRow');
+    const sw = document.querySelector('#bashSwitch');
+    const c = document.querySelector('#createBtn');
+    return { shown: !!r && !r.hidden && r.offsetParent !== null, name: document.querySelector('#bashName').textContent, timer: document.querySelector('#bashTimer').textContent,
+      on: sw.getAttribute('aria-checked') === 'true', quiet: r.classList.contains('off'), button: c.textContent.replace(/\\s+/g, ' ').trim(), disabled: c.disabled };
+  })()`);
+  const menuRows = (sid) => evalIn(sid, `[...document.querySelectorAll('#createMenu .cm-item')].map((i) => ({ key: i.dataset.key, t: i.querySelector('.cm-t').textContent, s: i.querySelector('.cm-s').textContent, on: i.getAttribute('aria-checked') === 'true' }))`);
+  const toastText = (sid) => evalIn(sid, `document.querySelector('#toast').textContent`);
+  const secs = (t) => t.split(':').reduce((n, x) => n * 60 + Number(x), 0);
+  const noBash = { ok: true, tracker: 'linear', trackerName: 'Linear', trackerIssue: null, trackerAction: null };
+  const MIN = 60_000;
+  const held = (leftMs = 72 * MIN) => ({ name: 'Release 2.4', hold: true, leftMs });
+  const start = async (cache) => { await reset(cache); await W(`chrome.storage.local.set({ createDefault: 'ticket' })`); };
+
+  // In none: the popup is as it always was.
+  me = { ...noBash, bash: null };
+  await start(null);
+  const B0 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const b0 = await bashState(B0.sid);
+  check('in no bug bash: no row, Create as usual', !b0.shown && b0.button === 'Create in Linear', JSON.stringify(b0));
+  await b.send('Target.closeTarget', { targetId: B0.targetId }).catch(() => {});
+
+  // Your time is running in one that holds its reports for a review.
+  me = { ...noBash, bash: held() };
+  await start(null);
+  const B1 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const b1 = await bashState(B1.sid);
+  check('your time is running: the bug bash shows above Create, switched on', b1.shown && b1.name === 'Release 2.4' && b1.on && !b1.quiet, JSON.stringify(b1));
+  check('with the time you have left', /^1:1[01]:\d\d$/.test(b1.timer), JSON.stringify(b1.timer));
+  await sleep(2200);
+  const b1later = await bashState(B1.sid);
+  check('which counts down', secs(b1later.timer) < secs(b1.timer) && secs(b1.timer) - secs(b1later.timer) <= 4, JSON.stringify([b1.timer, b1later.timer]));
+  check('one that holds: the button reads "Add to <its name>"', b1.button === 'Add to Release 2.4' && !b1.disabled, JSON.stringify(b1));
+  await click(B1.sid, '#createMenuBtn'); await sleep(300);
+  const rows1 = await menuRows(B1.sid);
+  check('the menu keeps its three lines, the first saying it is held', rows1.map((r) => r.key).join() === 'ticket,draft,prompt' && rows1[0].t === 'Add to Release 2.4' && rows1[0].s === 'Held for the bug bash review', JSON.stringify(rows1));
+  await evalIn(B1.sid, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(300);
+  await shot(B1.sid, 'popup-bug-bash.png');
+  const cachedBash = await W(`chrome.storage.local.get('bcTrackerCache').then((r) => r.bcTrackerCache)`);
+  check('the bug bash is cached with the tracker, with when your time ends', cachedBash?.bash?.name === 'Release 2.4' && cachedBash?.bash?.hold === true && cachedBash?.bash?.endsAt > Date.now() + 60 * MIN, JSON.stringify(cachedBash));
+
+  // Sent with the switch on: for the bug bash.
+  await stubCopy(B1.sid);
+  calls.length = 0;
+  await click(B1.sid, '#createBtn'); await sleep(2500);
+  const sentOn = calls.find((c) => c.what === 'process');
+  check('sent with the switch on: the ticket ask carries no opt-out', !!sentOn && !('bash' in sentOn.body), JSON.stringify(calls.map((c) => ({ what: c.what, bash: c.body.bash }))));
+  const tOn = await toastText(B1.sid);
+  check('it says "Added to Release 2.4"', tOn === 'Added to Release 2.4', JSON.stringify(tOn));
+  const fresh = await bashState(B1.sid);
+  check('the next brief starts with the switch on again', fresh.shown && fresh.on && fresh.button === 'Add to Release 2.4', JSON.stringify(fresh));
+  await b.send('Target.closeTarget', { targetId: B1.targetId }).catch(() => {});
+
+  // Switched off for one brief: it is sent as if in no bug bash.
+  await start({ tracker: 'linear', trackerName: 'Linear', bash: { name: 'Release 2.4', hold: true, endsAt: Date.now() + 70 * MIN } });
+  meDelayMs = 2500;
+  const B2 = await open(`chrome-extension://${extId}/popup.html`); await sleep(900);
+  const early = await bashState(B2.sid);
+  check('the next open shows the bug bash from the cache, timer running, before /api/me answers', early.shown && early.button === 'Add to Release 2.4' && /^1:(10:00|09:\d\d)$/.test(early.timer), JSON.stringify(early));
+  await sleep(2600); meDelayMs = 0;
+  await click(B2.sid, '#bashSwitch'); await sleep(500);
+  const b2 = await bashState(B2.sid);
+  check('switched off: the row goes quiet and the button is "Create in Linear" again', b2.shown && !b2.on && b2.quiet && b2.button === 'Create in Linear', JSON.stringify(b2));
+  const kept = await W(`chrome.storage.local.get('draft').then((r) => r.draft?.bashOff)`);
+  check('the choice is kept on the brief', kept === true, JSON.stringify(kept));
+  await b.send('Target.closeTarget', { targetId: B2.targetId }).catch(() => {});
+  const B3 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const b3 = await bashState(B3.sid);
+  check('and is still off when the popup is opened again', b3.shown && !b3.on && b3.button === 'Create in Linear', JSON.stringify(b3));
+  await stubCopy(B3.sid);
+  calls.length = 0;
+  await click(B3.sid, '#createBtn'); await sleep(2500);
+  const sentOff = calls.find((c) => c.what === 'process');
+  check('sent with the switch off: the ticket ask says to leave the bug bash out', sentOff?.body.bash === false, JSON.stringify(calls.map((c) => ({ what: c.what, bash: c.body.bash }))));
+  const tOff = await toastText(B3.sid);
+  check('and it says "Ticket queued"', tOff === 'Ticket queued', JSON.stringify(tOff));
+  const afterOff = await bashState(B3.sid);
+  check('the brief after that one has the switch on again', afterOff.on && afterOff.button === 'Add to Release 2.4', JSON.stringify(afterOff));
+  // ...and back on by hand
+  await click(B3.sid, '#bashSwitch'); await sleep(400);
+  await click(B3.sid, '#bashSwitch'); await sleep(400);
+  const backOn = await bashState(B3.sid);
+  check('off then on again: the button follows', backOn.on && !backOn.quiet && backOn.button === 'Add to Release 2.4', JSON.stringify(backOn));
+  await b.send('Target.closeTarget', { targetId: B3.targetId }).catch(() => {});
+
+  // A link shared with the switch on counts for the bug bash; off, it does not.
+  await start(null);
+  const B3c = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  await pick(B3c.sid, 'draft');
+  await stubCopy(B3c.sid);
+  calls.length = 0;
+  await click(B3c.sid, '#createBtn'); await sleep(2500);
+  const linkOn = calls.find((c) => c.what === 'draft');
+  check('Share link with the switch on: no opt-out, so it counts', !!linkOn && !('bash' in linkOn.body), JSON.stringify(calls.map((c) => ({ what: c.what, bash: c.body.bash }))));
+  await b.send('Target.closeTarget', { targetId: B3c.targetId }).catch(() => {});
+  await W(`chrome.storage.local.set({ draft: { id: 'd-link-off', createdAt: Date.now(), screenshots: [], description: 'checkout hangs', bashOff: true } })`);
+  const B3d = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  await stubCopy(B3d.sid);
+  calls.length = 0;
+  await click(B3d.sid, '#createBtn'); await sleep(2500);
+  const linkOff = calls.find((c) => c.what === 'draft');
+  check('Share link with the switch off: it leaves the bug bash out', linkOff?.body.bash === false, JSON.stringify(calls.map((c) => ({ what: c.what, bash: c.body.bash }))));
+  await b.send('Target.closeTarget', { targetId: B3d.targetId }).catch(() => {});
+  await W(`chrome.storage.local.set({ createDefault: 'ticket' })`);
+
+  // No tracker at all: a bug bash that holds needs none.
+  me = { ok: true, tracker: null, trackerName: null, trackerIssue: null, trackerAction: 'connect', bash: held() };
+  await start(null);
+  const B4 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const b4 = await bashState(B4.sid);
+  check('with no tracker, one that holds still takes the brief', b4.button === 'Add to Release 2.4' && !b4.disabled, JSON.stringify(b4));
+  await click(B4.sid, '#bashSwitch'); await sleep(500);
+  const b4off = await bashState(B4.sid);
+  check('switched off there, the button falls back to sharing a link', b4off.button === 'Share link', JSON.stringify(b4off));
+  await b.send('Target.closeTarget', { targetId: B4.targetId }).catch(() => {});
+
+  // One that doesn't hold: the ticket is filed as usual (the server adds the label).
+  me = { ...noBash, bash: { name: 'Checkout', hold: false, leftMs: 20 * MIN } };
+  await start(null);
+  const B5 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const b5 = await bashState(B5.sid);
+  await click(B5.sid, '#createMenuBtn'); await sleep(300);
+  const rows5 = await menuRows(B5.sid);
+  check('one that does not hold: the row shows, the button still files to the tracker, the menu says with the label',
+    b5.shown && b5.on && b5.button === 'Create in Linear' && /^(19|20):\d\d$/.test(b5.timer) && rows5[0].s === 'Filed now, with the bug bash label', JSON.stringify({ b5, rows5 }));
+  await evalIn(B5.sid, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`); await sleep(300);
+  await stubCopy(B5.sid);
+  await click(B5.sid, '#createBtn'); await sleep(2500);
+  const t5 = await toastText(B5.sid);
+  check('and its toast still says it went to the bug bash', t5 === 'Added to Checkout', JSON.stringify(t5));
+  await b.send('Target.closeTarget', { targetId: B5.targetId }).catch(() => {});
+
+  // Your time runs out while the popup is open: the row goes on its own.
+  me = { ...noBash, bash: held(3500) };
+  await start(null);
+  const B6 = await open(`chrome-extension://${extId}/popup.html`); await sleep(1800);
+  const last = await bashState(B6.sid);
+  me = { ...noBash, bash: null };
+  await sleep(3200);
+  const gone = await bashState(B6.sid);
+  check('when your time runs out the row goes and the button is "Create in Linear" again', last.shown && /^0:0\d$/.test(last.timer) && !gone.shown && gone.button === 'Create in Linear', JSON.stringify({ last, gone }));
+  await b.send('Target.closeTarget', { targetId: B6.targetId }).catch(() => {});
+  const B6b = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const b6b = await bashState(B6b.sid);
+  check('and it is not brought back from the cache on the next open', !b6b.shown && b6b.button === 'Create in Linear', JSON.stringify(b6b));
+  await b.send('Target.closeTarget', { targetId: B6b.targetId }).catch(() => {});
+
+  // A server from before the timer (no time left sent): no row, nothing breaks.
+  me = { ...noBash, bash: { name: 'Release 2.4', hold: true } };
+  await start(null);
+  const B6c = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const b6c = await bashState(B6c.sid);
+  check('a bug bash sent with no time left is not shown', !b6c.shown && b6c.button === 'Create in Linear', JSON.stringify(b6c));
+  await b.send('Target.closeTarget', { targetId: B6c.targetId }).catch(() => {});
+
+  // A long name is cut, in the row and in the button; both stay one line.
+  me = { ...noBash, bash: { name: 'Release 2.4 checkout and payments regression for the whole team', hold: true, leftMs: 170 * MIN } };
+  await start(null);
+  const B7 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  const fit = await evalIn(B7.sid, `(() => { const r = document.querySelector('#bashRow').getBoundingClientRect(); const n = document.querySelector('#bashName'); const c = document.querySelector('#createBtn'); const cn = c.querySelector('.ctk-name'); return { row: Math.round(r.width), rowH: Math.round(r.height), cut: n.scrollWidth > n.clientWidth, split: Math.round(document.querySelector('#createSplit').getBoundingClientRect().width), btnH: Math.round(c.getBoundingClientRect().height), btnCut: cn.scrollWidth > cn.clientWidth, timer: document.querySelector('#bashTimer').textContent }; })()`);
+  check('a long name is cut in the row and in the button, each on one line', fit.row <= 360 && fit.rowH < 60 && fit.cut && fit.split <= 360 && fit.btnH < 60 && fit.btnCut && /^2:\d\d:\d\d$/.test(fit.timer), JSON.stringify(fit));
+  await shot(B7.sid, 'popup-bug-bash-long.png');
+  await b.send('Target.closeTarget', { targetId: B7.targetId }).catch(() => {});
 
   // What the voice said shows under the tiles (it goes into the ticket); with
   // no words heard the tile says "No voice". Both open the transcript.

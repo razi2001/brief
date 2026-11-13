@@ -12,6 +12,11 @@ import { PROVIDER_LABELS } from "./provider-labels";
 import BrandMark from "./BrandMark";
 import Elapsed from "./Elapsed";
 import type { DashboardBrief } from "@/lib/brief-types";
+import { BRIEF_DRAG_TYPE, TAG_COLORS, type Tag } from "@/lib/tags";
+
+const NO_TAGS: Tag[] = [];
+/** Tag labels a row shows before the rest fold into "+n". */
+const MAX_TAG_LABELS = 2;
 
 function relativeTime(iso?: string | null): string {
   if (!iso) return "";
@@ -56,9 +61,18 @@ export default function BriefListRow({
   selected = false,
   anySelected = false,
   onToggleSelect,
+  tags = NO_TAGS,
+  onRemoveTag,
+  dragIds,
 }: {
+  /** The tags it carries, shown as small labels after the title. */
+  tags?: Tag[];
+  /** Take one of its tags off. Without it the labels are read-only. */
+  onRemoveTag?: (tagId: string) => void;
+  /** What dragging this row carries onto a folder: itself, or the whole selection. */
+  dragIds?: string[];
   brief: DashboardBrief;
-  /** The list it's in: in Drafts a processing brief is being written, not filed. */
+  /** The list it's in. A processing brief marked as a draft is being written, not filed. */
   view?: "tickets" | "drafts";
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
@@ -79,7 +93,7 @@ export default function BriefListRow({
   // tickets; filed rows also get a "open in tracker" action. Old filed briefs
   // without a share link fall back to opening the tracker directly.
   // the brief opens inside the app: drafts under Drafts, the rest under Tickets
-  const writing = isProcessing && view === "drafts";
+  const writing = isProcessing && (view === "drafts" || !!b.draft);
   const briefHref = b.share_id ? `/${isDraft || writing ? "drafts" : "tickets"}/${b.share_id}` : undefined;
   // A ticket the tracker no longer has: nothing to open there, so the row and
   // its id chip fall back to the Brief page.
@@ -119,6 +133,15 @@ export default function BriefListRow({
 
   return (
     <li
+      draggable={dragIds ? true : undefined}
+      onDragStart={
+        dragIds
+          ? (e) => {
+              e.dataTransfer.setData(BRIEF_DRAG_TYPE, JSON.stringify(dragIds));
+              e.dataTransfer.effectAllowed = "copy";
+            }
+          : undefined
+      }
       className={`group animate-rise ticket-grid relative min-h-[42px] py-2 pl-3 pr-2.5 transition-colors max-sm:gap-x-2 max-sm:[grid-template-columns:1.5rem_5.25rem_minmax(0,1fr)_0.75rem_1.75rem] ${
         selected ? "bg-accent/[0.05] hover:bg-accent/[0.07]" : "hover:bg-surface-2"
       }${leaving ? " brief-leaving" : ""}`}
@@ -227,9 +250,48 @@ export default function BriefListRow({
 
       {/* 3 · Title (+ inline error on failed rows) */}
       <div className={`min-w-0${dim}`}>
-        <p className={`truncate text-[13.5px] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
-          {title}
-        </p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className={`min-w-0 truncate text-[13.5px] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
+            {title}
+          </p>
+          {tags.length > 0 && (
+            <span className="flex shrink-0 items-center gap-1 max-sm:hidden">
+              {tags.slice(0, MAX_TAG_LABELS).map((t) => (
+                <span
+                  key={t.id}
+                  className="group/t relative z-10 inline-flex max-w-[112px] items-center gap-1 rounded-full py-[1px] pl-1.5 pr-2 text-[11.5px] leading-[1.5] text-ink-2"
+                  style={{ backgroundColor: `${TAG_COLORS[t.color]}24` }}
+                  title={t.name}
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: TAG_COLORS[t.color] }} aria-hidden />
+                  <span className="truncate">{t.name}</span>
+                  {onRemoveTag && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onRemoveTag(t.id);
+                      }}
+                      title={`Remove ${t.name}`}
+                      aria-label={`Remove ${t.name}`}
+                      className="-mr-1 hidden h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full text-muted hover:bg-[rgba(26,22,18,0.1)] hover:text-ink focus-visible:flex group-hover/t:flex"
+                    >
+                      <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden="true">
+                        <path d="M6 6l12 12M18 6L6 18" />
+                      </svg>
+                    </button>
+                  )}
+                </span>
+              ))}
+              {tags.length > MAX_TAG_LABELS && (
+                <span className="text-[11.5px] tabular-nums text-muted" title={tags.slice(MAX_TAG_LABELS).map((t) => t.name).join(", ")}>
+                  +{tags.length - MAX_TAG_LABELS}
+                </span>
+              )}
+            </span>
+          )}
+        </div>
         {isFailed && b.error && (
           <p className="mt-0.5 text-xs text-muted" title={explainFilingError(b.error)}>
             {explainFilingError(b.error)}

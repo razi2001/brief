@@ -264,27 +264,41 @@ export type Row = {
   fresh?: boolean;
 };
 
-/** The Tickets (or Drafts) table, as BriefsFeed draws it. */
-export function MockFeed({ view, rows, counts }: { view: "Tickets" | "Drafts"; rows: Row[]; counts: Array<[string, string]> }) {
+const FEED_TABS: Array<[string, string | null]> = [
+  ["All", null],
+  ["Drafts", "#8a8378"],
+  ["Open", "#3b6fb6"],
+  ["In progress", "#dd6936"],
+  ["Done", "#2e7d32"],
+  ["Closed", "#c9c3b5"],
+];
+
+/** The Tickets table, as BriefsFeed draws it: one page, a tab per state. `view` is the tab that is open. */
+export function MockFeed({ rows, view = "Tickets" }: { view?: "Tickets" | "Drafts"; rows: Row[] }) {
+  const open = view === "Drafts" ? "Drafts" : "All";
   return (
     <div className="gd-feed">
       <div className="top">
         <div>
-          <div className="gd-h1">{view}</div>
-          <div className="counts">
-            {counts.map(([label, color]) => (
-              <span key={label}>
-                <i style={{ background: color }} />
+          {/* one page for both: the heading is always Tickets */}
+          <div className="gd-h1">Tickets</div>
+          <div className="tabs">
+            {FEED_TABS.map(([label, color]) => (
+              <span key={label} className={label === open ? "on" : ""}>
+                {color && <i style={{ background: color }} />}
                 {label}
               </span>
             ))}
           </div>
         </div>
-        <span className="refresh">
-          <IconRefresh />
-        </span>
+        <div className="acts">
+          <span className="refresh">
+            <IconRefresh />
+          </span>
+          <span className="new">New draft</span>
+        </div>
       </div>
-      <div className="gd-card" style={{ marginTop: "calc(24 * var(--a))" }}>
+      <div className="gd-card" style={{ marginTop: "calc(18 * var(--a))" }}>
         <div className="gd-tr th">
           <span className="box" />
           <span>ID</span>

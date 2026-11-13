@@ -17,6 +17,11 @@ import ColumnFilter from "./ColumnFilter";
 import BriefListRow from "./BriefListRow";
 import type { DashboardBrief } from "@/lib/brief-types";
 import { keylessTrackerName } from "@/lib/ticket-sync";
+import { useRouter } from "next/navigation";
+import TagRail from "./TagRail";
+import TagPicker from "./TagPicker";
+import { UNTAGGED, applyTagChange, changeDelta, type BriefTags, type Tag, type TagColor } from "@/lib/tags";
+import { GROUP_COLOR, GROUP_LABEL, STATUS_GROUPS, countGroups, groupOfBrief, type StatusGroup } from "@/lib/status-group";
 
 // "Updated" column presets (single-select) + their max-age windows.
 const UPDATED_OPTIONS: FilterOption[] = [
@@ -67,6 +72,9 @@ const COL_STORE_KEY = "tickets:colw:v7";
 // the left gets wider). A side left undefined is the flexible Title track, which
 // absorbs the change automatically.
 type ResizeSpec = { inc?: ColKey; dec?: ColKey };
+
+const NO_TAGS: Tag[] = [];
+const NO_BRIEF_TAGS: BriefTags = {};
 
 export type Counts = { filed: number; processing: number; failed: number; drafted: number };
 
@@ -124,11 +132,11 @@ function deriveOptions(briefs: DashboardBrief[]): FilterOption[] {
   return opts;
 }
 
-function EmptyState({ filtered, view = "tickets" }: { filtered: boolean; view?: "tickets" | "drafts" }) {
+function EmptyState({ filtered, view = "tickets", flush = false }: { filtered: boolean; view?: "tickets" | "drafts"; flush?: boolean }) {
   return (
-    <div className="animate-rise mt-7 flex flex-col items-center gap-3 rounded-xl border border-dashed border-[rgba(26,22,18,0.14)] px-4 py-16 text-center">
+    <div className={`animate-rise ${flush ? "" : "mt-7 "}flex flex-col items-center gap-3 rounded-xl border border-dashed border-[rgba(26,22,18,0.14)] px-4 py-16 text-center`}>
       <BrandMark size={32} className="opacity-90" />
-      <p className="text-[14px] font-medium text-ink">{filtered ? "Nothing matches" : view === "drafts" ? "No drafts" : "No tickets yet"}</p>
+      <p className="text-[14px] font-medium text-ink">{filtered ? "No tickets here" : view === "drafts" ? "No drafts" : "No tickets yet"}</p>
     </div>
   );
 }
@@ -160,6 +168,52 @@ function SummaryLine({ counts }: { counts: Counts }) {
 }
 
 /**
+ * Where the tickets stand, at a glance: one tab per group with its count.
+ * Picking one narrows the list to it. Groups are read from each tracker's own
+ * state names (lib/status-group.ts); the Status column still filters by the
+ * exact state.
+ */
+function StatusTabs({
+  counts,
+  total,
+  value,
+  onChange,
+}: {
+  counts: Record<StatusGroup, number>;
+  total: number;
+  value: StatusGroup | "all";
+  onChange: (v: StatusGroup | "all") => void;
+}) {
+  const tab = (key: StatusGroup | "all", label: string, count: number, color?: string) => {
+    const on = value === key;
+    return (
+      <button
+        key={key}
+        type="button"
+        role="tab"
+        aria-selected={on}
+        onClick={() => onChange(key)}
+        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[13px] transition-colors ${
+          on
+            ? "bg-ink text-cream"
+            : "bg-white/60 text-ink-2 shadow-[0_0_0_1px_rgba(26,22,18,.07)] hover:bg-white hover:text-ink"
+        }`}
+      >
+        {color && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} aria-hidden />}
+        {label}
+        <span className={`tabular-nums ${on ? "text-cream/70" : "text-muted"}`}>{count}</span>
+      </button>
+    );
+  };
+  return (
+    <div role="tablist" aria-label="Status" className="flex flex-wrap items-center gap-1.5">
+      {tab("all", "All", total)}
+      {STATUS_GROUPS.map((g) => tab(g, GROUP_LABEL[g], counts[g], GROUP_COLOR[g]))}
+    </div>
+  );
+}
+
+/**
  * The Briefs feed: editorial heading + summary line, a funnel-icon filter
  * popover, and the rich brief cards. Archive is the only removal action (it
  * behaves like a delete - archived briefs are never refetched). Optimistic and
@@ -175,6 +229,12 @@ export default function BriefsFeed({
   counts,
   isProcessing,
   renderId,
+  tags: initialTags = NO_TAGS,
+  briefTags: initialBriefTags = NO_BRIEF_TAGS,
+  activeTag = null,
+  total = 0,
+  untagged: initialUntagged = 0,
+  initialGroup = "all",
 }: {
   /** Tickets (filed, filing, didn't file) or Drafts (written up, never filed). */
   view?: "tickets" | "drafts";
@@ -183,7 +243,127 @@ export default function BriefsFeed({
   isProcessing: boolean;
   /** This server render's id (see AutoRefresh). */
   renderId?: string;
+  /** Tickets only: the person's tags, shown as folders beside the list. */
+  tags?: Tag[];
+  /** Which tags each listed brief carries. */
+  briefTags?: BriefTags;
+  /** The open folder: a tag id, "none" for untagged, null for everything. */
+  activeTag?: string | null;
+  /** Every ticket the person has, and how many carry no tag. */
+  total?: number;
+  untagged?: number;
+  /** The tab it opens on: "draft" for links that used to go to the Drafts page. */
+  initialGroup?: StatusGroup | "all";
 }) {
+  const router = useRouter();
+
+  // ── Tags ───────────────────────────────────────────────────────────────
+  // The server's lists, changed here first so a tag lands the moment you drop
+  // it. Each new server render replaces them: the server has the last word.
+  const [tagSrc, setTagSrc] = useState(initialTags);
+  const [tags, setTags] = useState(initialTags);
+  const [untagged, setUntagged] = useState(initialUntagged);
+  const [briefTagSrc, setBriefTagSrc] = useState(initialBriefTags);
+  const [briefTags, setBriefTags] = useState(initialBriefTags);
+  if (tagSrc !== initialTags) {
+    setTagSrc(initialTags);
+    setTags(initialTags);
+    setUntagged(initialUntagged);
+  }
+  if (briefTagSrc !== initialBriefTags) {
+    setBriefTagSrc(initialBriefTags);
+    setBriefTags(initialBriefTags);
+  }
+
+  const send = async (url: string, method: string, body?: unknown): Promise<Response | null> => {
+    try {
+      const res = await fetch(url, {
+        method,
+        credentials: "same-origin",
+        headers: body ? { "content-type": "application/json" } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      // A signed-out call is redirected to the sign-in page, which answers 200.
+      return res.redirected ? null : res;
+    } catch {
+      return null;
+    }
+  };
+  const problemOf = (res: Response | null): string | null => {
+    if (res?.ok) return null;
+    if (res?.status === 409) return "You already have this tag";
+    if (res?.status === 429) return "That's the most tags you can keep";
+    return "Couldn't save. Try again";
+  };
+
+  const byName = (a: Tag, b: Tag) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+
+  const createTagRaw = async (name: string): Promise<{ tag?: Tag; problem?: string }> => {
+    const res = await send("/api/tags", "POST", { name });
+    const problem = problemOf(res);
+    if (problem || !res) return { problem: problem ?? "Couldn't save. Try again" };
+    const { tag } = (await res.json()) as { tag: Tag };
+    setTags((ts) => [...ts, tag].sort(byName));
+    return { tag };
+  };
+  const createTag = async (name: string) => (await createTagRaw(name)).problem ?? null;
+
+  const renameTag = async (id: string, name: string) => {
+    const problem = problemOf(await send(`/api/tags/${id}`, "PATCH", { name }));
+    if (!problem) setTags((ts) => ts.map((t) => (t.id === id ? { ...t, name } : t)).sort(byName));
+    return problem;
+  };
+  const recolorTag = (id: string, color: TagColor) => {
+    setTags((ts) => ts.map((t) => (t.id === id ? { ...t, color } : t)));
+    void send(`/api/tags/${id}`, "PATCH", { color }).then((res) => {
+      if (!res?.ok) router.refresh();
+    });
+  };
+  const deleteTag = (id: string) => {
+    setTags((ts) => ts.filter((t) => t.id !== id));
+    setBriefTags((bt) => Object.fromEntries(Object.entries(bt).map(([k, v]) => [k, v.filter((t) => t !== id)])));
+    void send(`/api/tags/${id}`, "DELETE").then(() => {
+      // Its tickets may now have no tag at all: let the server recount.
+      if (activeTag === id) router.push("/tickets");
+      else router.refresh();
+    });
+  };
+
+  /** Put a tag on (or take it off) these briefs: here at once, then saved. */
+  const setTagOn = (tagId: string, ids: string[], on: boolean) => {
+    const delta = changeDelta(briefTags, ids, tagId, on);
+    if (delta === 0) return;
+    const next = applyTagChange(briefTags, ids, tagId, on);
+    const bare = (bt: BriefTags) => ids.filter((id) => !(bt[id] ?? []).length).length;
+    setUntagged((u) => Math.max(0, u + bare(next) - bare(briefTags)));
+    setTags((ts) => ts.map((t) => (t.id === tagId ? { ...t, count: Math.max(0, t.count + delta) } : t)));
+    setBriefTags(next);
+    void send(`/api/tags/${tagId}/briefs`, "POST", { briefIds: ids, on }).then((res) => {
+      // It didn't save: show what the server really has.
+      if (!res?.ok) router.refresh();
+    });
+  };
+  const createAndTag = async (name: string, ids: string[]) => {
+    const { tag, problem } = await createTagRaw(name);
+    if (tag) setTagOn(tag.id, ids, true);
+    return problem ?? null;
+  };
+
+  const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
+  const tagsOf = (id: string): Tag[] =>
+    (briefTags[id] ?? []).map((t) => tagById.get(t)).filter((t): t is Tag => !!t);
+  // The server already narrowed the list to the open folder; this keeps it
+  // true the moment a tag is added or removed here.
+  const inFolder = (b: DashboardBrief) =>
+    activeTag === null
+      ? true
+      : activeTag === UNTAGGED
+        ? (briefTags[b.id] ?? []).length === 0
+        : (briefTags[b.id] ?? []).includes(activeTag);
+
+  const [group, setGroup] = useState<StatusGroup | "all">(initialGroup);
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+
   // Optimistic state for this session. Archive is the ONLY removal action and
   // it behaves like a delete: the row swipes out and is gone (archived briefs
   // aren't fetched). `archivedIds` covers the gap until the next load.
@@ -235,9 +415,11 @@ export default function BriefsFeed({
   //    (the server already excludes archived briefs from the fetch).
   // Drafts (written up, not filed) DO show - their row opens the brief page.
   const liveBriefs = useMemo(
-    () => briefs.filter((b) => b.status !== "uploaded" && !archivedIds.has(b.id)),
-    [briefs, archivedIds],
+    () => briefs.filter((b) => b.status !== "uploaded" && !archivedIds.has(b.id) && inFolder(b)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- inFolder reads only activeTag and briefTags
+    [briefs, archivedIds, activeTag, briefTags],
   );
+  const groupCounts = useMemo(() => countGroups(liveBriefs), [liveBriefs]);
 
   const options = useMemo(() => deriveOptions(liveBriefs), [liveBriefs]);
 
@@ -303,6 +485,7 @@ export default function BriefsFeed({
     setIdQuery("");
     setUpdatedRange("all");
     setAssigneeDeselected(new Set());
+    setGroup("all");
   };
 
   // Drives the accent dot on each column header.
@@ -311,7 +494,7 @@ export default function BriefsFeed({
   const titleActive = titleQuery.trim() !== "";
   const idActive = idQuery.trim() !== "";
   const updatedActive = updatedRange !== "all";
-  const filtersActive = statusActive || assigneeActive || titleActive || idActive || updatedActive;
+  const filtersActive = statusActive || assigneeActive || titleActive || idActive || updatedActive || group !== "all";
 
   const matchText = (hay: string, q: string) =>
     !q.trim() || hay.toLowerCase().includes(q.trim().toLowerCase());
@@ -319,6 +502,7 @@ export default function BriefsFeed({
   const visible = liveBriefs.filter(
     (b) =>
       reconciled.has(filterKeyOf(b)) &&
+      (group === "all" || groupOfBrief(b) === group) &&
       assigneeReconciled.has(assigneeKeyOf(b)) &&
       matchText(titleTextOf(b), titleQuery) &&
       // The ID column shows a keyless ticket's tracker name, so that matches too.
@@ -441,7 +625,10 @@ export default function BriefsFeed({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const anySelected = selected.size > 0;
 
-  const clearSelection = () => setSelected(new Set());
+  const clearSelection = () => {
+    setSelected(new Set());
+    setTagMenuOpen(false);
+  };
   const toggleSelect = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -469,8 +656,11 @@ export default function BriefsFeed({
     clearSelection();
   };
 
+  // Folders sit beside the Tickets list once there is anything to file under them.
+  const showRail = view === "tickets" && (total > 0 || tags.length > 0);
+
   return (
-    <section>
+    <section data-wide={showRail ? "" : undefined}>
       <header className="flex items-center justify-between gap-4">
         <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">{view === "drafts" ? "Drafts" : "Tickets"}</h1>
         <div className="flex shrink-0 items-center gap-2">
@@ -493,19 +683,40 @@ export default function BriefsFeed({
           )}
           <AutoRefresh active={isProcessing} renderId={renderId} />
           <RefreshButton />
-          {view === "drafts" && <NewDraftButton />}
+          <NewDraftButton />
         </div>
       </header>
       <div className="mt-3">
-        <SummaryLine counts={liveCounts} />
+        {view === "tickets" ? (
+          liveBriefs.length > 0 && (
+            <StatusTabs counts={groupCounts} total={liveBriefs.length} value={group} onChange={setGroup} />
+          )
+        ) : (
+          <SummaryLine counts={liveCounts} />
+        )}
       </div>
 
+      <div className={showRail ? "mt-5 flex flex-col gap-3 min-[1400px]:flex-row min-[1400px]:items-start min-[1400px]:gap-6" : undefined}>
+      {showRail && (
+        <TagRail
+          tags={tags}
+          total={total}
+          untagged={untagged}
+          active={activeTag}
+          onCreate={createTag}
+          onRename={renameTag}
+          onRecolor={recolorTag}
+          onDelete={deleteTag}
+          onDropBriefs={(tagId, ids) => setTagOn(tagId, ids, true)}
+        />
+      )}
+      <div className={showRail ? "min-w-0 flex-1" : undefined}>
       {liveBriefs.length > 0 ? (
         <>
           {/* overflow-visible so the column-filter popovers can escape the card;
               the row list clips its own bottom corners instead. gridVars sets the
               resizable column widths once - they cascade to the header and rows. */}
-          <div className="card mt-6 overflow-visible p-0" style={gridVars}>
+          <div className={`card ${showRail ? "" : "mt-6 "}overflow-visible p-0`} style={gridVars}>
             {/* Column header - a quiet, sticky row whose labels double as the
                 per-column filter triggers. Built on the same .ticket-grid as the
                 rows, so each label sits exactly above its column. */}
@@ -606,6 +817,9 @@ export default function BriefsFeed({
                     selected={selected.has(b.id)}
                     anySelected={anySelected}
                     onToggleSelect={toggleSelect}
+                    tags={tagsOf(b.id)}
+                    onRemoveTag={view === "tickets" ? (tagId) => setTagOn(tagId, [b.id], false) : undefined}
+                    dragIds={showRail ? (selected.has(b.id) ? [...selected] : [b.id]) : undefined}
                   />
                 ))}
               </ul>
@@ -636,6 +850,32 @@ export default function BriefsFeed({
               <div className="animate-bar-rise pointer-events-auto flex items-center gap-1 rounded-[10px] border border-[rgba(245,241,232,0.12)] bg-ink px-1.5 py-1 text-cream shadow-[0_10px_34px_rgba(26,22,18,0.3)]">
                 <span className="px-2 text-[13px] tabular-nums text-cream/90">{selected.size} selected</span>
                 <span className="mx-0.5 h-4 w-px bg-cream/20" />
+                {view === "tickets" && (
+                  <span className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setTagMenuOpen((o) => !o)}
+                      aria-expanded={tagMenuOpen}
+                      title="Tag selected"
+                      className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium text-cream/90 transition-colors hover:bg-cream/10 hover:text-cream"
+                    >
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 7.5c0-1 .8-1.8 1.8-1.8h4.4l2 2.2h8c1 0 1.8.8 1.8 1.8v7.6c0 1-.8 1.8-1.8 1.8H4.8c-1 0-1.8-.8-1.8-1.8V7.5Z" />
+                      </svg>
+                      Tag
+                    </button>
+                    {tagMenuOpen && (
+                      <TagPicker
+                        tags={tags}
+                        briefTags={briefTags}
+                        briefIds={[...selected]}
+                        onToggle={(tagId, on) => setTagOn(tagId, [...selected], on)}
+                        onCreate={(name) => createAndTag(name, [...selected])}
+                        onClose={() => setTagMenuOpen(false)}
+                      />
+                    )}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={archiveSelected}
@@ -665,8 +905,10 @@ export default function BriefsFeed({
           )}
         </>
       ) : (
-        <EmptyState filtered={false} view={view} />
+        <EmptyState filtered={activeTag !== null} view={view} flush={showRail} />
       )}
+      </div>
+      </div>
     </section>
   );
 }

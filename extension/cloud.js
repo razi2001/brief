@@ -32,6 +32,16 @@ export const TICKETS_URL = `${APP_URL}/tickets`;
 // into the void. Network errors return null so callers keep last-known state
 // (don't block offline users).
 export const TRACKER_ACTIONS = ['reconnect', 'pick', 'connect'];
+// The bug bash in which your own clock is running, as /api/me names it:
+// { name, hold, endsAt }, or null. `hold` means a brief sent to it is kept as
+// a draft for the review at its end, so it needs no tracker. The server sends
+// the time LEFT; `endsAt` is that, on this computer's own clock.
+function cleanBash(b) {
+  if (!b || typeof b.name !== 'string' || !b.name.trim()) return null;
+  const left = Number(b.leftMs);
+  if (!Number.isFinite(left) || left <= 0) return null;
+  return { name: b.name.trim().slice(0, 80), hold: b.hold === true, endsAt: Date.now() + left };
+}
 export async function fetchAccountStatus() {
   const token = await getCloudToken();
   if (!token) return { connected: false, tracker: null, trackerName: null, trackerIssue: null, trackerAction: null };
@@ -51,6 +61,7 @@ export async function fetchAccountStatus() {
       trackerName: body?.trackerName ?? null,
       trackerIssue: typeof body?.trackerIssue === 'string' && body.trackerIssue ? body.trackerIssue : null,
       trackerAction: TRACKER_ACTIONS.includes(body?.trackerAction) ? body.trackerAction : null,
+      bash: cleanBash(body?.bash),
     };
   } catch {
     return null;

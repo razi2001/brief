@@ -7,6 +7,15 @@ vi.mock("@/lib/extauth", () => ({
   userIdForToken: async (token: string) => (token === "good" ? "user_1" : null),
 }));
 
+// The running bug bash the account is in, if any.
+const running = vi.hoisted(() => ({ current: null as { id: string; name: string; hold: boolean; endsAt: number } | null, fail: false }));
+vi.mock("@/lib/bash-server", () => ({
+  runningBashOf: async () => {
+    if (running.fail) throw new Error("db down");
+    return running.current;
+  },
+}));
+
 // The Clerk user the route fetches, and the token Clerk vends for its accounts.
 const clerkUser = vi.hoisted(() => ({ current: { id: "user_1", externalAccounts: [] as unknown[] } }));
 const oauthToken = vi.hoisted(() => ({ current: null as string | null }));
@@ -62,6 +71,7 @@ describe("/api/me", () => {
   it("names the tracker it files into, by its display name", async () => {
     store.current = { monday: { meta: {} } };
     expect(await (await me()).json()).toEqual({
+      bash: null,
       ok: true,
       tracker: "monday",
       trackerName: "Monday",
@@ -80,6 +90,7 @@ describe("/api/me", () => {
   it("says why there is no tracker when a connection is waiting on its workspace pick, and offers the pick", async () => {
     store.current = { azure: { meta: {} } };
     expect(await (await me()).json()).toEqual({
+      bash: null,
       ok: true,
       tracker: null,
       trackerName: "Azure DevOps",
@@ -98,6 +109,7 @@ describe("/api/me", () => {
 
   it("offers a connect when nothing is connected", async () => {
     expect(await (await me()).json()).toEqual({
+      bash: null,
       ok: true,
       tracker: null,
       trackerName: null,
@@ -123,6 +135,7 @@ describe("/api/me", () => {
       );
       try {
         expect(await (await me()).json()).toEqual({
+          bash: null,
           ok: true,
           tracker: key,
           trackerName: name,
@@ -163,5 +176,31 @@ describe("/api/me", () => {
 
   it("refuses a token that pairs to no one", async () => {
     expect((await me("bad")).status).toBe(401);
+  });
+
+  describe("the running bug bash", () => {
+    it("is named, with whether it holds and the time left, when the account's clock is running in one", async () => {
+      running.current = { id: "b1", name: "Release 2.4", hold: true, endsAt: Date.now() + 40 * 60_000 };
+      try {
+        const bash = (await (await me()).json()).bash;
+        expect(bash).toMatchObject({ name: "Release 2.4", hold: true });
+        // about 40 minutes, as time left (not a clock time)
+        expect(bash.leftMs).toBeGreaterThan(39 * 60_000);
+        expect(bash.leftMs).toBeLessThanOrEqual(40 * 60_000);
+      } finally {
+        running.current = null;
+      }
+    });
+
+    it("is null when it cannot be read: the popup looks as it always did", async () => {
+      running.fail = true;
+      try {
+        const res = await me();
+        expect(res.status).toBe(200);
+        expect((await res.json()).bash).toBeNull();
+      } finally {
+        running.fail = false;
+      }
+    });
   });
 });

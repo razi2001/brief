@@ -173,11 +173,10 @@ export const briefit = scene<BriefItS>({
   ],
   View: ({ s }) =>
     s.drafts ? (
-      <BrowserFrame url={`${APP}/drafts`} title="Drafts · Brief Cloud" fav="#dd6936">
-        <MockApp active="Drafts">
+      <BrowserFrame url={`${APP}/tickets?show=drafts`} title="Tickets · Brief Cloud" fav="#dd6936">
+        <MockApp active="Tickets">
           <MockFeed
             view="Drafts"
-            counts={[["2 drafts", "#dd6936"]]}
             rows={[
               { id: "brief-16", title: "Save changes on Profile does nothing", status: "draft", when: "now", fresh: true },
               { id: "brief-12", title: "Coupon field accepts expired codes", status: "draft", when: "2d" },

@@ -101,6 +101,15 @@ export async function processBriefById(
     // Export of a draft the reporter already iterated on: file the stored
     // title/body verbatim (only route + set fields), don't rewrite.
     useExistingContent?: boolean;
+    // A bug bash group: file exactly this title and body (the leading
+    // report's write-up plus every report of the bug).
+    fixed?: { title: string; description: string };
+    // Whose tracker and ticket preferences to file with, when not the brief's
+    // owner: whoever started the bug bash files its tickets.
+    fileAs?: string;
+    // An extra line of standing instructions for this one filing (the bash's
+    // label).
+    instruction?: string;
   } = {},
 ): Promise<ProcessResult> {
   const admin = createAdminSupabase();
@@ -116,14 +125,16 @@ export async function processBriefById(
   // file somewhere else); otherwise the registry picks the connected one. A
   // miss comes back with the line that says why: nothing connected, a pending
   // workspace pick, an expired connection.
-  const { tracker, error } = await resolveTrackerOrError(userId, opts.provider);
+  const filer = opts.fileAs ?? userId;
+  const { tracker, error } = await resolveTrackerOrError(filer, opts.provider);
   if (!tracker) {
     await releaseFiling(admin, userId, briefId, { status: "failed", error });
     track(userId, "brief.failed", { stage: "file", error });
     return { ok: false, status: 409, error };
   }
 
-  const guidance = await loadGuidance(userId);
+  const guidance = [await loadGuidance(filer), opts.instruction ?? ""].filter(Boolean).join("\n");
+  const verbatim = !!opts.fixed || !!opts.useExistingContent;
 
   try {
     const prefix = brief.storage_prefix as string;
@@ -149,7 +160,7 @@ export async function processBriefById(
       overrides: opts.overrides,
       // Export of a finalized draft: skip transcription + keyframe vision (the
       // ticket is already written; we only route + attach evidence).
-      lean: !!opts.useExistingContent,
+      lean: verbatim,
       evidenceBaseUrl: `${appOrigin()}/api/evidence/${shareId}`,
       uploadsVideo: !embedsEvidenceByUrl,
     });
@@ -163,8 +174,9 @@ export async function processBriefById(
     );
 
     // Exporting a draft the reporter finalized: file their exact title/body.
-    const fixed =
-      opts.useExistingContent && (brief.ticket_body || brief.ticket_title)
+    const fixed = opts.fixed
+      ? opts.fixed
+      : opts.useExistingContent && (brief.ticket_body || brief.ticket_title)
         ? {
             title: ((brief.ticket_title as string | null) || (brief.title as string | null) || "").trim(),
             description: ((brief.ticket_body as string | null) || "").trim(),

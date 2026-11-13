@@ -806,6 +806,12 @@
 
 /* Tickets and Drafts: the table */
 .gd-feed .top { display: flex; align-items: flex-start; justify-content: space-between; }
+.gd-feed .tabs { display: flex; gap: calc(6 * var(--a)); margin-top: calc(12 * var(--a)); font-size: calc(12 * var(--a)); color: #3a3530; }
+.gd-feed .tabs span { display: flex; align-items: center; gap: calc(6 * var(--a)); height: calc(26 * var(--a)); padding: 0 calc(10 * var(--a)); border-radius: 999px; border: calc(1 * var(--a)) solid rgba(26, 22, 18, 0.09); background: #fffdfa; white-space: nowrap; }
+.gd-feed .tabs span.on { background: #1a1612; border-color: #1a1612; color: #fff; font-weight: 500; }
+.gd-feed .tabs i { width: calc(6 * var(--a)); height: calc(6 * var(--a)); border-radius: 50%; }
+.gd-feed .acts { display: flex; align-items: center; gap: calc(8 * var(--a)); }
+.gd-feed .new { height: calc(30 * var(--a)); padding: 0 calc(12 * var(--a)); border-radius: calc(8 * var(--a)); background: #dd6936; color: #fff; font-size: calc(12.5 * var(--a)); font-weight: 500; display: flex; align-items: center; white-space: nowrap; }
 .gd-feed .counts { display: flex; gap: calc(16 * var(--a)); margin-top: calc(10 * var(--a)); font-size: calc(13 * var(--a)); color: #8a8378; }
 .gd-feed .counts span { display: flex; align-items: center; gap: calc(6 * var(--a)); }
 .gd-feed .counts i { width: calc(5 * var(--a)); height: calc(5 * var(--a)); border-radius: 50%; }

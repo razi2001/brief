@@ -43,6 +43,9 @@ export type DashboardBrief = {
   /** Which tracker this brief was filed to (the recorded ticket_provider,
    *  falling back to the ticket_url's hostname on older rows). */
   provider?: ProviderKey;
+  /** It is a draft: written up (or being written up) and never filed. Set by
+   *  the Tickets page, which lists drafts beside tickets. */
+  draft?: boolean;
   /** Live ticket info from whichever tracker it lives in, merged server-side. */
   ticket?: TicketInfo | null;
 };

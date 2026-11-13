@@ -118,12 +118,11 @@ export const create = scene<CreateS>({
   ],
   View: ({ s }) =>
     s.feed ? (
-      <BrowserFrame url={`${APP}/${s.feed === "drafts" ? "drafts" : "tickets"}`} title={s.feed === "drafts" ? "Drafts · Brief Cloud" : "Tickets · Brief Cloud"} fav="#dd6936">
-        <MockApp active={s.feed === "drafts" ? "Drafts" : "Tickets"}>
+      <BrowserFrame url={`${APP}/tickets${s.feed === "drafts" ? "?show=drafts" : ""}`} title="Tickets · Brief Cloud" fav="#dd6936">
+        <MockApp active="Tickets">
           {s.feed === "drafts" ? (
             <MockFeed
               view="Drafts"
-              counts={[["2 drafts", "#dd6936"]]}
               rows={[
                 { id: "brief-15", title: "Pay fails silently at checkout", status: "draft", when: "now", fresh: true },
                 { id: "brief-12", title: "Coupon field accepts expired codes", status: "draft", when: "2d" },
@@ -132,7 +131,6 @@ export const create = scene<CreateS>({
           ) : (
             <MockFeed
               view="Tickets"
-              counts={[["3 filed", "#2e7d32"]]}
               rows={[
                 s.feed === "filing"
                   ? { id: "brief-14", title: "Pay fails silently at checkout", status: "filing", when: "now", fresh: true }

@@ -135,6 +135,8 @@ export function appSectionOf(brief: Pick<ShareRow, "status" | "ticket_url" | "fi
 /** ← Tickets › APP-6453 › title, above the sheet when the brief opens inside the app. */
 function Breadcrumb({ section, identifier, title }: { section: "tickets" | "drafts"; identifier?: string | null; title: string }) {
   const label = section === "drafts" ? "Drafts" : "Tickets";
+  // Drafts are a tab of the Tickets page.
+  const back = section === "drafts" ? "/tickets?show=drafts" : "/tickets";
   const chevron = (
     <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-muted/70">
       <path d="m6 4 4 4-4 4" />
@@ -142,12 +144,12 @@ function Breadcrumb({ section, identifier, title }: { section: "tickets" | "draf
   );
   return (
     <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-[13px]">
-      <Link href={`/${section}`} aria-label={`Back to ${label}`} title={`Back to ${label}`} className="btn mr-1.5 h-8 w-8 shrink-0 justify-center !p-0 text-muted">
+      <Link href={back} aria-label={`Back to ${label}`} title={`Back to ${label}`} className="btn mr-1.5 h-8 w-8 shrink-0 justify-center !p-0 text-muted">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M19 12H5M11 6l-6 6 6 6" />
         </svg>
       </Link>
-      <Link href={`/${section}`} className="shrink-0 rounded-md px-1 py-0.5 text-muted no-underline transition-colors hover:bg-white/60 hover:text-ink">
+      <Link href={back} className="shrink-0 rounded-md px-1 py-0.5 text-muted no-underline transition-colors hover:bg-white/60 hover:text-ink">
         {label}
       </Link>
       {chevron}
