@@ -136,7 +136,7 @@ function sig(d) {
     (d.screenshots || []).length,
     !!d.recording, d.recording?.poster ? 1 : 0,
     d.uploading, d.uploadFailed, d.cloudBriefId || '',
-    d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()),
+    d.transcribing, d.transcriptFailed, !!(d.transcript && d.transcript.trim()), !!d.noSpeech,
     !!d.filing, d.fileError ? 1 : 0,
     d.replay?.addedAt || 0, d.recording?.durationMs || 0,
   ].join('|');
@@ -163,6 +163,25 @@ function render() {
 const X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
 const REFRESH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>';
 const PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const MIC_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
+const MIC_OFF_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 9.3V5.5a3 3 0 0 0-5.7-1.3M9 9v2.5a3 3 0 0 0 4.6 2.5M18.5 11a6.5 6.5 0 0 1-1.1 3.6M5.5 11a6.5 6.5 0 0 0 10 5.5M12 17.5V21M3 3l18 18"/></svg>';
+// What the recording's voice said goes into the ticket: once it has settled,
+// the tile's foot says "No voice" when the transcription heard no words, and
+// the words heard show on a line under the tiles (a tile is too narrow for a
+// sentence). Either opens the recording on its transcript.
+function recSettled() { return !draft.uploading && !draft.uploadFailed && !draft.transcribing; }
+function recFootHTML() {
+  const transcribing = draft.transcribing && !draft.uploading && !draft.uploadFailed;
+  if (recSettled() && draft.noSpeech && !(draft.transcript || '').trim()) return `<div class="rec-foot novoice" data-rec-voice="1"><span class="ico">${MIC_OFF_SVG}</span>No voice</div>`;
+  const dotCls = draft.uploading ? 'updot up' : draft.uploadFailed ? 'updot failed' : (transcribing ? 'updot up' : 'updot');
+  const footLabel = draft.uploading ? 'Uploading' : draft.uploadFailed ? 'Upload failed' : (transcribing ? 'Transcribing' : 'Recording');
+  return `<div class="rec-foot"><span class="${dotCls}"></span>${footLabel}${draft.recording?.durationMs && recSettled() ? ` ${fmtDur(draft.recording.durationMs)}` : ''}</div>`;
+}
+function voiceLineHTML() {
+  const said = (draft.transcript || '').trim().replace(/\s+/g, ' ');
+  if (!draft.recording || !recSettled() || !said) return '';
+  return `<button type="button" class="voice-line" data-rec-voice="1" title="Transcript" aria-label="Transcript"><span class="ico">${MIC_SVG}</span><span class="ntxt">“${esc(said.slice(0, 160))}”</span></button>`;
+}
 const EDIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SHEET_X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
 const SHEET_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
@@ -183,13 +202,10 @@ function renderGallery() {
 
   if (draft.recording) {
     const poster = draft.recording.poster || REC_FALLBACK;
-    const transcribing = draft.transcribing && !draft.uploading && !draft.uploadFailed;
-    const dotCls = draft.uploading ? 'updot up' : draft.uploadFailed ? 'updot failed' : (transcribing ? 'updot up' : 'updot');
-    const footLabel = draft.uploading ? 'Uploading' : draft.uploadFailed ? 'Upload failed' : (transcribing ? 'Transcribing' : 'Recording');
     html += `<div class="tile rec" data-rec="1">` +
       `<button class="remove" data-rm="rec" aria-label="Remove recording">${X_SVG}</button>` +
       `<div class="thumb"><img src="${poster}" alt="Recording"><span class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>` +
-      `<div class="rec-foot"><span class="${dotCls}"></span>${footLabel}${draft.recording.durationMs && !draft.uploading && !transcribing && !draft.uploadFailed ? ` ${fmtDur(draft.recording.durationMs)}` : ''}</div>` +
+      recFootHTML() +
       `</div>`;
   }
 
@@ -211,7 +227,7 @@ function renderGallery() {
       `<span class="add-lbl">Add</span></div>`;
   }
 
-  gallery.innerHTML = html;
+  gallery.innerHTML = html + voiceLineHTML();
   evCount.textContent = String(shots.length + (draft.recording ? 1 : 0) + (draft.replay ? 1 : 0));
 }
 
@@ -502,7 +518,10 @@ function wireTranscript(root) {
   const ta = $('#recTranscript', root);
   if (!ta) return;
   let t = null;
-  const persistTr = () => persist((d) => { d.transcript = ta.value; });
+  const persistTr = async () => {
+    await persist((d) => { d.transcript = ta.value; });
+    renderGallery();
+  };
   ta.addEventListener('input', () => { clearTimeout(t); t = setTimeout(persistTr, 250); });
   // Same voice-record mic as a screenshot note: dictate corrections/additions
   // straight into the transcript.
@@ -510,7 +529,7 @@ function wireTranscript(root) {
 }
 
 
-async function openRec() {
+async function openRec(toTranscript = false) {
   const r = draft.recording;
   if (!r) return;
   const poster = r.poster || REC_FALLBACK;
@@ -536,6 +555,7 @@ async function openRec() {
       `<button class="switch${draft.includeVideo ? ' on' : ''}" id="recAttach" role="switch" aria-checked="${!!draft.includeVideo}"><span class="knob"></span></button></div>`;
   openSheet('Recording', body, (root) => {
     wireTranscript(root);
+    if (toTranscript) $('#recTranscript', root)?.focus();
     const vid = $('.rec-vid', root);
     if (vid && blob) vid.src = URL.createObjectURL(blob);
     const edit = () => { openEditorTab(chrome.runtime.getURL(`player.html#${encodeURIComponent(draft.id)}`)).catch(() => {}); };
@@ -1208,7 +1228,7 @@ gallery.addEventListener('click', async (e) => {
       deleteFile(replayVoiceKey(draft.id)).catch(() => {});
       toast('Replay removed');
     } else if (id === 'rec') {
-      await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.includeVideo = false; });
+      await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.noSpeech = false; d.includeVideo = false; });
       deleteFile(recKey(draft.id)).catch(() => {});
       toast('Recording removed');
     } else {
@@ -1220,6 +1240,7 @@ gallery.addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('[data-add]')) return openAddChooser();
+  if (e.target.closest('[data-rec-voice]')) return openRec(true);
   if (e.target.closest('[data-rec]')) return openRec();
   if (e.target.closest('[data-rep]')) return openRep();
   const shot = e.target.closest('[data-shot]');

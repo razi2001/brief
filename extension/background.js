@@ -1117,9 +1117,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (typeof message.transcript === 'string' && message.transcript.trim()) {
                 d.transcript = message.transcript.trim();
                 d.transcriptFailed = false;
+                d.noSpeech = false;
               } else if (message.error) {
                 d.transcriptFailed = true;
-              } // empty + no error = genuinely no speech; leave transcript ''
+              } else {
+                d.noSpeech = true; // empty + no error = genuinely no speech; leave transcript ''
+              }
             });
             sendResponse({ ok: true });
           } catch (err) {

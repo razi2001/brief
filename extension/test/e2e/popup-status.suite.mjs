@@ -306,6 +306,65 @@
   await b.send('Target.closeTarget', { targetId: noMicT }).catch(() => {});
   await b.send('Target.closeTarget', { targetId: site.targetId }).catch(() => {});
 
+  // What the voice said shows under the tiles (it goes into the ticket); with
+  // no words heard the tile says "No voice". Both open the transcript.
+  const footOf = (sid) => evalIn(sid, `(() => {
+    const f = document.querySelector('.tile.rec .rec-foot');
+    const v = document.querySelector('.voice-line');
+    const g = document.querySelector('#gallery').getBoundingClientRect();
+    return { cls: f.className, text: f.textContent.trim(), footH: Math.round(f.getBoundingClientRect().height),
+      line: v ? v.textContent.trim() : null, lineW: v ? Math.round(v.getBoundingClientRect().width) : 0, lineH: v ? Math.round(v.getBoundingClientRect().height) : 0, galleryW: Math.round(g.width) };
+  })()`);
+  const withRecording = async (extra) => {
+    await W(`chrome.storage.local.set({ draft: { id: 'd-voice', createdAt: Date.now(), screenshots: [], description: '', recording: { recordedAt: Date.now(), durationMs: 42000 }, ...${JSON.stringify(extra)} } })`);
+    const P = await open(`chrome-extension://${extId}/popup.html`); await sleep(1500);
+    return P;
+  };
+  const onTranscript = (sid) => evalIn(sid, `document.activeElement?.id === 'recTranscript' && !!document.querySelector('#sheet.open')`);
+  const PV = await withRecording({ transcript: 'The total does not update when I add a coupon, it stays at forty euros' });
+  const fv = await footOf(PV.sid);
+  check('a narrated recording: its words show on one full-width line under the tiles', fv.line === '“The total does not update when I add a coupon, it stays at forty euros”' && fv.lineW === fv.galleryW && fv.lineH < 22 && fv.text === 'Recording 0:42', JSON.stringify(fv));
+  await shot(PV.sid, 'popup-tile-voice.png');
+  await click(PV.sid, '.voice-line'); await sleep(600);
+  check('clicking the line opens the recording on its transcript', (await onTranscript(PV.sid)) === true);
+  await b.send('Target.closeTarget', { targetId: PV.targetId }).catch(() => {});
+
+  const PN = await withRecording({ transcript: '', noSpeech: true });
+  const fn = await footOf(PN.sid);
+  check('no words heard: the tile says "No voice" on one line, and there is no line under it', fn.cls === 'rec-foot novoice' && fn.text === 'No voice' && fn.footH < 26 && fn.line === null, JSON.stringify(fn));
+  await shot(PN.sid, 'popup-tile-novoice.png');
+  await click(PN.sid, '.tile.rec .rec-foot'); await sleep(600);
+  check('clicking it opens the recording on its transcript, ready to type', (await onTranscript(PN.sid)) === true);
+  await evalIn(PN.sid, `(() => { const t = document.querySelector('#recTranscript'); t.value = 'Typed after the fact'; t.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await sleep(700);
+  const ft = await footOf(PN.sid);
+  check('words typed there show on the line, and the tile stops saying "No voice"', ft.line === '“Typed after the fact”' && ft.text === 'Recording 0:42', JSON.stringify(ft));
+  await b.send('Target.closeTarget', { targetId: PN.targetId }).catch(() => {});
+
+  const PT = await withRecording({ transcript: '', transcribing: true });
+  const ftr = await footOf(PT.sid);
+  check('while it transcribes the tile still says "Transcribing"', ftr.text === 'Transcribing' && ftr.line === null, JSON.stringify(ftr));
+  await b.send('Target.closeTarget', { targetId: PT.targetId }).catch(() => {});
+
+  const PO = await withRecording({ transcript: '' });
+  const fo = await footOf(PO.sid);
+  check('a recording never transcribed keeps "Recording 0:42" (not "No voice")', fo.text === 'Recording 0:42' && fo.line === null, JSON.stringify(fo));
+  await b.send('Target.closeTarget', { targetId: PO.targetId }).catch(() => {});
+
+  // The countdown says the mic is on, inside the pill.
+  const PB = await open(`chrome-extension://${extId}/bar.html`); await sleep(800);
+  const cd = await evalIn(PB.sid, `(() => {
+    document.body.className = 'state-countdown';
+    const pill = document.querySelector('.bar').getBoundingClientRect();
+    const v = document.querySelector('.cd-voice').getBoundingClientRect();
+    const x = document.querySelector('#cdCancelBtn').getBoundingClientRect();
+    const tr = document.querySelector('.cd-track').getBoundingClientRect();
+    return { text: document.querySelector('.cd-voice').textContent.trim(), pill: Math.round(pill.width), inside: v.left >= pill.left && x.right <= pill.right && v.right <= x.left, track: Math.round(tr.width) };
+  })()`);
+  check('the countdown pill says "Voice on" between the track and Cancel, same size', cd.text === 'Voice on' && cd.pill === 252 && cd.inside && cd.track >= 40, JSON.stringify(cd));
+  await shot(PB.sid, 'bar-countdown.png');
+  await b.send('Target.closeTarget', { targetId: PB.targetId }).catch(() => {});
+
   const thrown = exceptions.filter(Boolean);
   check('the popup threw nothing', thrown.length === 0, thrown.join(' | '));
 }

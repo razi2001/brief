@@ -161,7 +161,7 @@ body.state-saving [data-state='saving'], body.state-cancelled [data-state='cance
 body.state-countdown .bar, body.state-recording .bar { width: 252px; }
 body.state-countdown [data-state='countdown'], body.state-recording [data-state='recording'] { width: 100%; }
 .cd-num {
-  min-width: 57px; text-align: center; /* the dot + timer's width: the track starts where the wave does */
+  min-width: 30px; text-align: center;
   font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; color: var(--text);
 }
 .cd-num.tick { animation: tick 0.4s cubic-bezier(.2, .9, .3, 1.3); }
@@ -174,6 +174,9 @@ body.state-countdown [data-state='countdown'], body.state-recording [data-state=
   animation: cd-fill 2.1s linear forwards;
 }
 @keyframes cd-fill { to { width: 100%; } }
+/* the mic is live from the first second: said where the user decides to talk */
+.cd-voice { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; font-size: 11.5px; color: var(--text); white-space: nowrap; }
+.cd-voice svg { color: var(--accent-hi); }
 
 /* recording starts: a red glow pulses out of the bar's edge, twice. Kept to
    a few px (the frame around the bar is small) and listed with bar-in, so

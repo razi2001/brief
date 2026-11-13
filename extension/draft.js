@@ -25,6 +25,7 @@ export function emptyDraft() {
     transcript: '',
     transcribing: false,
     transcriptFailed: false,
+    noSpeech: false,   // transcription ran and heard no words
     description: '',
     extra: [],         // [{ key, value }]
     pageUrl: null,
@@ -64,6 +65,7 @@ export function landRecording(d, { uploading = true, durationMs = 0, poster = nu
     d.cloudBriefId = null;
     d.transcript = '';
     d.transcriptFailed = false;
+    d.noSpeech = false;
   }
 }
 
