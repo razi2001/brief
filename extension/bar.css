@@ -14,7 +14,6 @@
   --line: rgba(255, 255, 255, 0.09);
   --glass: linear-gradient(180deg, rgba(42, 38, 34, 0.94), rgba(18, 16, 14, 0.96));
   --ui: system-ui, 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
   --t: 160ms cubic-bezier(.2, .7, .2, 1);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -101,7 +100,7 @@ body.state-saving [data-state='saving'], body.state-cancelled [data-state='cance
 }
 .timer {
   min-width: 40px;
-  font-family: var(--mono);
+  font-family: var(--ui);
   font-variant-numeric: tabular-nums;
   font-size: 13px;
   letter-spacing: 0.02em;
@@ -162,7 +161,7 @@ body.state-countdown .bar, body.state-recording .bar { width: 252px; }
 body.state-countdown [data-state='countdown'], body.state-recording [data-state='recording'] { width: 100%; }
 .cd-num {
   min-width: 30px; text-align: center;
-  font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; color: var(--text);
+  font-family: var(--ui); font-variant-numeric: tabular-nums; font-size: 18px; font-weight: 600; color: var(--text);
 }
 .cd-num.tick { animation: tick 0.4s cubic-bezier(.2, .9, .3, 1.3); }
 @keyframes tick { from { transform: scale(1.45); opacity: 0.2; } }
@@ -197,7 +196,7 @@ body.state-countdown [data-state='countdown'], body.state-recording [data-state=
   width: 22px; height: 22px; flex-shrink: 0; border-radius: 50%;
   display: grid; place-items: center;
   background: rgba(255, 255, 255, 0.1); color: var(--text);
-  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  font-family: var(--ui); font-size: 12px; font-weight: 600;
 }
 .badge.ok { background: var(--ok); color: #08130d; box-shadow: 0 0 14px -2px rgba(60, 207, 142, 0.6); }
 .badge.warn { background: var(--warn); color: #1a1206; }

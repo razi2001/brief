@@ -302,8 +302,7 @@
     open1 && mic === 'NotAllowedError' && pm.ready && pm.button === 'Create in Linear' && setupTabs === 0,
     JSON.stringify({ open: open1, mic, pm, setupTabs }));
   if (!open1) throw new Error('the popup closed itself');
-  await evalIn(PM.sid, `window.close = () => {}; document.querySelector('[data-add]').click()`); await sleep(400);
-  await evalIn(PM.sid, `document.querySelector('#chShot').click()`); await sleep(1500);
+  await evalIn(PM.sid, `window.close = () => {}; document.querySelector('#wayShot').click()`); await sleep(1500);
   const annotator = await evalIn(site.sid, `!!document.getElementById('__brief_shot__')`);
   const shotErr = await evalIn(PM.sid, `document.querySelector('#errBar').textContent`);
   check('mic denied: Screenshot captures the page and opens the annotator on it', annotator && !shotErr, JSON.stringify({ annotator, shotErr }));
@@ -476,14 +475,17 @@
   await shot(B7.sid, 'popup-bug-bash-long.png');
   await b.send('Target.closeTarget', { targetId: B7.targetId }).catch(() => {});
 
-  // What the voice said shows under the tiles (it goes into the ticket); with
-  // no words heard the tile says "No voice". Both open the transcript.
+  // The recording is a row like the others, first in the list: its name
+  // ("Video · 0:42") and under it the words said, or "No voice"; "Record and
+  // talk" is gone while it is there. The words, or "No voice", open the
+  // transcript.
   const footOf = (sid) => evalIn(sid, `(() => {
     const f = document.querySelector('.tile.rec .rec-foot');
     const v = document.querySelector('.voice-line');
     const g = document.querySelector('#gallery').getBoundingClientRect();
     return { cls: f.className, text: f.textContent.trim(), footH: Math.round(f.getBoundingClientRect().height),
-      line: v ? v.textContent.trim() : null, lineW: v ? Math.round(v.getBoundingClientRect().width) : 0, lineH: v ? Math.round(v.getBoundingClientRect().height) : 0, galleryW: Math.round(g.width) };
+      line: v ? v.textContent.trim() : null, lineW: v ? Math.round(v.getBoundingClientRect().width) : 0, lineH: v ? Math.round(v.getBoundingClientRect().height) : 0, galleryW: Math.round(g.width),
+      inCard: !!v && !!v.closest('.tile.rec'), main: !document.querySelector('#recMain').hidden };
   })()`);
   const withRecording = async (extra) => {
     await W(`chrome.storage.local.set({ draft: { id: 'd-voice', createdAt: Date.now(), screenshots: [], description: '', recording: { recordedAt: Date.now(), durationMs: 42000 }, ...${JSON.stringify(extra)} } })`);
@@ -493,7 +495,7 @@
   const onTranscript = (sid) => evalIn(sid, `document.activeElement?.id === 'recTranscript' && !!document.querySelector('#sheet.open')`);
   const PV = await withRecording({ transcript: 'The total does not update when I add a coupon, it stays at forty euros' });
   const fv = await footOf(PV.sid);
-  check('a narrated recording: its words show on one full-width line under the tiles', fv.line === '“The total does not update when I add a coupon, it stays at forty euros”' && fv.lineW === fv.galleryW && fv.lineH < 22 && fv.text === 'Recording 0:42', JSON.stringify(fv));
+  check('a narrated recording: the row says "Video · 0:42" with the words under it on one line, and "Record and talk" is gone', fv.line === '“The total does not update when I add a coupon, it stays at forty euros”' && fv.inCard && fv.lineH < 22 && fv.text === 'Video · 0:42' && fv.main === false, JSON.stringify(fv));
   await shot(PV.sid, 'popup-tile-voice.png');
   await click(PV.sid, '.voice-line'); await sleep(600);
   check('clicking the line opens the recording on its transcript', (await onTranscript(PV.sid)) === true);
@@ -501,24 +503,24 @@
 
   const PN = await withRecording({ transcript: '', noSpeech: true });
   const fn = await footOf(PN.sid);
-  check('no words heard: the tile says "No voice" on one line, and there is no line under it', fn.cls === 'rec-foot novoice' && fn.text === 'No voice' && fn.footH < 26 && fn.line === null, JSON.stringify(fn));
+  check('no words heard: the row says "Video · 0:42", and "No voice" under it', fn.text === 'Video · 0:42' && fn.footH < 26 && fn.line === 'No voice', JSON.stringify(fn));
   await shot(PN.sid, 'popup-tile-novoice.png');
-  await click(PN.sid, '.tile.rec .rec-foot'); await sleep(600);
+  await click(PN.sid, '.tile.rec .voice-line'); await sleep(600);
   check('clicking it opens the recording on its transcript, ready to type', (await onTranscript(PN.sid)) === true);
   await evalIn(PN.sid, `(() => { const t = document.querySelector('#recTranscript'); t.value = 'Typed after the fact'; t.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   await sleep(700);
   const ft = await footOf(PN.sid);
-  check('words typed there show on the line, and the tile stops saying "No voice"', ft.line === '“Typed after the fact”' && ft.text === 'Recording 0:42', JSON.stringify(ft));
+  check('words typed there show on the row, and it stops saying "No voice"', ft.line === '“Typed after the fact”' && ft.text === 'Video · 0:42', JSON.stringify(ft));
   await b.send('Target.closeTarget', { targetId: PN.targetId }).catch(() => {});
 
   const PT = await withRecording({ transcript: '', transcribing: true });
   const ftr = await footOf(PT.sid);
-  check('while it transcribes the tile still says "Transcribing"', ftr.text === 'Transcribing' && ftr.line === null, JSON.stringify(ftr));
+  check('while it transcribes the card says "Transcribing"', ftr.text === 'Transcribing' && ftr.line === null, JSON.stringify(ftr));
   await b.send('Target.closeTarget', { targetId: PT.targetId }).catch(() => {});
 
   const PO = await withRecording({ transcript: '' });
   const fo = await footOf(PO.sid);
-  check('a recording never transcribed keeps "Recording 0:42" (not "No voice")', fo.text === 'Recording 0:42' && fo.line === null, JSON.stringify(fo));
+  check('a recording never transcribed says "Video · 0:42" and nothing under it (not "No voice")', fo.text === 'Video · 0:42' && fo.line === null, JSON.stringify(fo));
   await b.send('Target.closeTarget', { targetId: PO.targetId }).catch(() => {});
 
   // The countdown says the mic is on, inside the pill.

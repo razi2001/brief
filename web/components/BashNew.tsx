@@ -104,9 +104,9 @@ export default function BashNew() {
     "mt-1.5 h-10 w-full rounded-[10px] border border-hairline bg-surface px-3 text-[14px] tabular-nums text-ink outline-none transition-colors focus:border-accent";
 
   return (
-    <div className="mx-auto w-full max-w-[640px]">
+    <div className="w-full max-w-[640px]">
       <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: "New" }]} />
-      <h1 className="mt-3 text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">New bug bash</h1>
+      <h1 className="mt-3 page-title">New bug bash</h1>
 
       <form
         className="card mt-5 p-5 sm:p-6"

@@ -361,18 +361,15 @@
     }` }, P.sid);
   await b.send('Page.navigate', { url: `chrome-extension://${extId}/popup.html` }, P.sid); await sleep(2000);
   const pop = await evalIn(P.sid, `({ gear: !!document.querySelector('#replaySettingsBtn'), section: !!document.querySelector('#replayPart'), foot: document.querySelector('.tile.rep .rec-foot')?.textContent, rep: !!document.querySelector('.tile.rep') })`);
-  await evalIn(P.sid, `document.querySelector('[data-add]').click()`); await sleep(500);
-  const ch = await evalIn(P.sid, `({ t: document.querySelector('#chRep .ct')?.textContent, s: document.querySelector('#chRep .cs')?.textContent })`);
-  check('popup: Replay tile; + offers Replay (taken)', !pop.gear && !pop.section && pop.rep && /^Replay \d:\d\d$/.test(pop.foot || '') && ch.t === 'Replay' && ch.s === 'Already added', JSON.stringify({ pop, ch }));
-  await evalIn(P.sid, `document.querySelector('#sheetClose').click()`); await sleep(500);
-  // an empty brief: the Replay option names its shortcut
+  const ch = await evalIn(P.sid, `({ t: document.querySelector('#wayRep b')?.textContent.trim(), off: document.querySelector('#wayRep')?.disabled })`);
+  check('popup: Replay tile; "Last minute" is off once taken', !pop.gear && !pop.section && pop.rep && /^Last minute · \d:\d\d$/.test(pop.foot || '') && ch.t === 'Last minute' && ch.off === true, JSON.stringify({ pop, ch }));
+  // an empty brief: "Last minute" can be taken
   const keep = await W(`chrome.storage.local.get('draft').then(r => r.draft)`);
   await W(`chrome.storage.local.set({ draft: { id: 'empty', createdAt: Date.now(), screenshots: [], description: '' } })`);
   await b.send('Page.reload', {}, P.sid); await sleep(1800);
-  await evalIn(P.sid, `document.querySelector('[data-add]').click()`); await sleep(500);
-  const ch2 = await evalIn(P.sid, `document.querySelector('#chRep .cs')?.textContent`);
+  const ch2 = await evalIn(P.sid, `document.querySelector('#wayRep')?.disabled`);
   const mf = await W(`chrome.runtime.getManifest()`);
-  check('no replay shortcut (only one-click report); right-click menu permission in place', ch2 === 'The last 60 seconds' && Object.keys(mf.commands || {}).join() === 'report-now' && mf.permissions.includes('contextMenus'), JSON.stringify({ ch2, commands: mf.commands || null }));
+  check('no replay shortcut (only one-click report); right-click menu permission in place', ch2 === false && Object.keys(mf.commands || {}).join() === 'report-now' && mf.permissions.includes('contextMenus'), JSON.stringify({ ch2, commands: mf.commands || null }));
   await shot(P.sid, 'chooser-replay.png');
   await W(`chrome.storage.local.set({ draft: ${JSON.stringify(keep)} })`);
   await b.send('Page.reload', {}, P.sid); await sleep(1800);

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { lookupNames } from "@/lib/org-server";
@@ -58,6 +59,8 @@ const minutesOf = (b: BashRow) => b.minutes ?? DEFAULT_DURATION;
 const COUNTED = ["filed", "drafted", "processing", "failed"];
 
 export type BashPerson = {
+  /** Stable and opaque (not the user id): keys the board's rows, which move as ranks change. */
+  key: string;
   name: string;
   imageUrl?: string;
   isYou: boolean;
@@ -427,6 +430,7 @@ export async function loadBash(code: string, viewerId: string): Promise<BashSnap
   const rows = board(members, counted);
   const indexOf = new Map(rows.map((r, i) => [r.userId, i]));
   const people: BashPerson[] = rows.map((r) => ({
+    key: createHash("sha256").update(`${bash.code}:${r.userId}`).digest("hex").slice(0, 12),
     name: names.get(r.userId)?.fullName ?? "someone",
     imageUrl: names.get(r.userId)?.imageUrl,
     isYou: r.userId === viewerId,

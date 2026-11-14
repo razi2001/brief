@@ -23,10 +23,13 @@ export default function ArchiveButton({
   briefId,
   onArchive,
   onArchiveFailed,
+  label,
 }: {
   briefId: string;
   onArchive?: (id: string) => void;
   onArchiveFailed?: (id: string) => void;
+  /** Shown as a word, always there (on a card), instead of the icon that appears on a row's hover. */
+  label?: string;
 }) {
   const [done, setDone] = useState(false);
 
@@ -59,6 +62,14 @@ export default function ArchiveButton({
       onArchiveFailed?.(briefId);
       setDone(false);
     }
+  }
+
+  if (label) {
+    return (
+      <button type="button" onClick={archive} disabled={done} className="btn-ghost h-7 px-2 text-xs disabled:opacity-40">
+        {label}
+      </button>
+    );
   }
 
   return (

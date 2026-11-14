@@ -5,32 +5,6 @@
  */
 const bar = "rounded bg-surface-2";
 
-/** Home: the title, the ROI card with its four numbers, the leaderboard. */
-export function HomeSkeleton() {
-  return (
-    <div className="animate-pulse">
-      <div className="flex items-center justify-between gap-4">
-        <div className={`h-7 w-24 ${bar}`} />
-        <div className={`h-8 w-28 rounded-lg bg-surface-2`} />
-      </div>
-      <div className="card mt-7 h-[300px]" />
-      <div className="card mt-4 overflow-hidden px-7 pb-0 pt-6">
-        <div className={`h-3.5 w-36 ${bar}`} />
-        <div className="mt-4 grid grid-cols-2 gap-6 pb-6 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
-            <div key={i}>
-              <div className={`h-3 w-20 ${bar}`} />
-              <div className={`mt-2 h-10 w-20 ${bar}`} />
-              <div className={`mt-2 h-3 w-24 ${bar}`} />
-            </div>
-          ))}
-        </div>
-        <div className="-mx-7 h-[112px] bg-[linear-gradient(180deg,transparent_45%,#fff_45%)]" />
-      </div>
-    </div>
-  );
-}
-
 /** One ticket or draft: the breadcrumb, then the sheet with its title and body. */
 export function BriefSkeleton() {
   return (
@@ -59,7 +33,7 @@ export function BriefSkeleton() {
 /** The Guide: title and progress, then lesson cards (picture, title, blurb) by group. */
 export function GuideSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-[1000px] animate-pulse">
+    <div className="w-full animate-pulse">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className={`h-7 w-20 ${bar}`} />
@@ -135,7 +109,7 @@ export function SettingsSkeleton() {
     </div>
   );
   return (
-    <div className="mx-auto w-full max-w-[720px] animate-pulse">
+    <div className="w-full max-w-[720px] animate-pulse">
       <div className={`h-7 w-28 ${bar}`} />
       <div className={`mt-7 mb-2 h-3.5 w-20 ${bar}`} />
       <div className="card overflow-hidden">{[row("w-16", "w-36", 0), row("w-12", "w-20", 1)]}</div>

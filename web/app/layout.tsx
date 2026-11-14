@@ -37,11 +37,11 @@ export default function RootLayout({
       appearance={{
         variables: {
           colorPrimary: "#dd6936",
-          colorBackground: "#f5f1e8",
+          colorBackground: "#fffdfa",
           colorText: "#1a1612",
           colorInputBackground: "#ffffff",
           colorInputText: "#1a1612",
-          borderRadius: "10px",
+          borderRadius: "8px",
           fontFamily: "var(--font-inter)",
         },
       }}

@@ -61,7 +61,7 @@ describe("the Requests list", () => {
   it("shows a regular user read-only statuses", () => {
     render(<RequestsView initial={initial} admin={false} />);
     expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.getByText("Shipped", { selector: ".pill" })).toBeTruthy();
+    expect(screen.getByText("Shipped", { selector: "li span" })).toBeTruthy();
   });
 
   it("gives the owner a status control per row", () => {

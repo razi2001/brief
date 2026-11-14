@@ -1,31 +1,43 @@
-/* Brief - popup (one brief: Evidence gallery + Describe, with bottom sheets) */
+/* Brief - popup (one brief, as one composer: the description with its evidence, then Create; bottom sheets) */
 :root {
   --cream:#f5f1e8;
-  --card:#fffdf9;
+  --card:#fffdfa;
   --card-glass:rgba(255,255,255,.65);
   --ink:#1a1612;
   --ink-2:#3a3530;
-  --muted:#8a8378;
+  --muted:#7d766b;
   --accent:#dd6936;
   --hairline:rgba(26,22,18,.12);
   --red:#ff2d2d;
   --green:#2f7d4f;
   --display:'Instrument Serif', Georgia, serif;
   --mono:'JetBrains Mono', ui-monospace, monospace;
-  --t:220ms cubic-bezier(.2,.7,.2,1);
+  /* the interface is set in the system's own sans; the serif is the title, mono is for code */
+  --sans:system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  --line:rgba(26,22,18,.16);
+  --t:180ms cubic-bezier(.23,1,.32,1);
 }
 * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
 [hidden] { display:none !important; }
+/* One size, and a small one. The popup is as tall as a full brief needs (three
+   lines of description, a row of evidence, what the voice said, Create) and
+   stays that tall with less in it: the description takes the few pixels left.
+   A sheet (the recording, a screenshot) slides up inside that same frame, so
+   the window never jumps under the pointer. In a bug bash the frame is taller
+   by its row. Only something rare (an error message) can add to it. */
 html, body { width:360px; background:var(--cream); }
+body { --h:316px; min-height:var(--h); }
+body:has(#bashRow:not([hidden])) { --h:370px; }
+body:has(#reconnectBtn:not([hidden])) { --h:350px; }
+body:has(#bashRow:not([hidden])):has(#reconnectBtn:not([hidden])) { --h:404px; }
 body {
-  font-family:var(--mono);
+  font-family:var(--sans);
   color:var(--ink);
   font-size:13px;
+  letter-spacing:-.005em;
   -webkit-font-smoothing:antialiased;
   position:relative;
-  overflow-x:hidden;
-  max-height:600px;
-  overflow-y:auto;
+  overflow:hidden;
   /* reveal once the first render is in */
   opacity:0;
   transition:opacity .06s linear;
@@ -42,95 +54,110 @@ body.sheet-open { overflow:hidden; }
 ::-webkit-scrollbar-thumb { background:rgba(26,22,18,.18); border-radius:999px; border:2px solid transparent; background-clip:padding-box; }
 ::-webkit-scrollbar-thumb:hover { background:rgba(26,22,18,.34); background-clip:padding-box; }
 
-.app { padding:0; }
+.app { padding:0; min-height:var(--h); display:flex; flex-direction:column; }
+.header, .err-bar, .create-wrap { flex:0 0 auto; }
 
 /* ---------- HEADER ---------- */
-.header { display:flex; align-items:center; gap:10px; padding:16px 14px 4px 16px; }
-.mark { width:30px; height:30px; flex:0 0 auto; border-radius:8px;
+.header { display:flex; align-items:center; gap:9px; padding:14px 10px 2px 14px; }
+.mark { width:26px; height:26px; flex:0 0 auto; border-radius:7px;
   display:grid; place-items:center; }
-.mark svg { display:block; width:30px; height:30px; transform-origin:50% 50%; }
+.mark svg { display:block; width:26px; height:26px; transform-origin:50% 50%; }
 /* in-progress: a calm breathing pulse, not a savage full spin */
 .mark.spinning { animation:mark-breathe 1.5s ease-in-out infinite; }
 @keyframes mark-breathe { 0%,100% { opacity:1; } 50% { opacity:.5; } }
-.title { font-family:var(--display); font-size:24px; line-height:1.05; font-weight:400; letter-spacing:.2px; flex:1; color:var(--ink); }
+.title { font-family:var(--display); font-size:21px; line-height:1.05; font-weight:400; letter-spacing:.2px; flex:1; color:var(--ink); }
 .title em { font-style:italic; color:var(--accent); }
 /* ghost header icons (reset + cloud) - subtle, Notion-style */
 .header-actions { display:flex; align-items:center; gap:1px; flex:0 0 auto; }
-.hbtn { width:32px; height:32px; border:0; border-radius:8px; background:transparent; color:var(--muted);
+.hbtn { width:30px; height:30px; border:0; border-radius:8px; background:transparent; color:var(--muted);
   display:grid; place-items:center; cursor:pointer;
   transition:background var(--t), color var(--t), transform var(--t); }
 .hbtn:hover { background:rgba(26,22,18,.06); color:var(--ink); }
-.hbtn:active { transform:scale(.9); }
-.hbtn svg { width:18px; height:18px; }
-.cloud-btn:hover { transform:rotate(30deg); }
-.reset-btn:hover { transform:rotate(-45deg); }
+.hbtn:active { transform:scale(.94); }
+.hbtn svg { width:17px; height:17px; }
+.reset-btn:hover svg { transform:rotate(-45deg); }
+.reset-btn svg { transition:transform var(--t); }
 
-/* ---------- PARTS ---------- */
-.part { padding:0 16px; margin-top:2px; }
-.part-label { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted);
-  font-weight:500; margin:16px 0 10px; display:flex; align-items:center; gap:7px; }
-.part-label .count { color:var(--muted); font-weight:500; letter-spacing:.02em; opacity:.7; }
+/* ---------- COMPOSER ---------- */
+/* One card: the description on top, the evidence right under it, the way a
+   message carries its attachments. It lights as a whole while you type. */
+.composer { flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+  margin:10px 12px 0; background:var(--card); border:1px solid var(--hairline); border-radius:14px;
+  box-shadow:0 1px 2px rgba(26,22,18,.04); transition:border-color var(--t), box-shadow var(--t); }
+/* the description takes the room the evidence leaves */
+.composer .ai-wrap { flex:1 1 auto; min-height:72px; display:flex; }
+.composer .sheet-fields, .composer .gallery { flex:0 0 auto; }
+.composer:focus-within { border-color:rgba(221,105,54,.5); box-shadow:0 0 0 3px rgba(221,105,54,.12); }
+.composer .ai-field, .composer .ai-field:focus { background:transparent; border:0; box-shadow:none; border-radius:14px 14px 0 0;
+  padding:12px 14px 42px; font-size:13.5px; line-height:1.5; }
+.composer .sheet-fields { margin:0; padding:0 10px; }
+.composer .sheet-fields:not(:empty) { padding-bottom:8px; }
 
 /* ---------- GALLERY ---------- */
-/* tiles wrap, as in the demo: four to a row (three pieces of evidence and
-   Add), a second row only past that - no strip to scroll */
-.gallery { display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; padding:1px 0 2px; }
-.tile { position:relative; flex:0 0 auto; width:76px;
-  border-radius:16px; overflow:hidden; border:1px solid var(--hairline); background:var(--card); cursor:pointer;
-  display:flex; flex-direction:column;
-  transition:width var(--t), margin var(--t), opacity var(--t), transform var(--t), border-color var(--t); }
-.tile:hover { border-color:rgba(26,22,18,.26); }
-.tile:active { transform:scale(.96); }
+/* Evidence, inside the composer: one row of thumbnails (three pieces and Add
+   fit), a second row only past that. A thumbnail carries its words on the
+   picture (a note, the recording's state), so every tile is the same size. */
+.gallery { display:flex; flex-wrap:wrap; align-items:flex-start; gap:6px; padding:6px 10px 10px; }
+.tile { position:relative; flex:0 0 auto; width:74px; aspect-ratio:4/3;
+  border-radius:10px; overflow:hidden; border:1px solid var(--hairline); background:var(--card); cursor:pointer;
+  transition:width var(--t), margin var(--t), opacity var(--t), transform var(--t), border-color var(--t), box-shadow var(--t); }
+.tile:hover { border-color:var(--line); box-shadow:0 2px 8px -2px rgba(26,22,18,.16); }
+.tile:active { transform:scale(.97); }
 /* smooth collapse-out on remove */
-.tile.removing { width:0 !important; margin-right:-8px !important; opacity:0; transform:scale(.5); border-color:transparent; pointer-events:none; }
-.tile .thumb { aspect-ratio:4/3; flex:0 0 auto; overflow:hidden; background:#fbfaf7; display:flex; align-items:center; justify-content:center; position:relative; }
-.tile .thumb img { width:100%; height:100%; object-fit:cover; display:block; transition:transform var(--t); }
-.tile:hover .thumb img { transform:scale(1.06); }
-.tile .note-strip { flex:0 0 auto; padding:4px 6px; border-top:1px solid var(--hairline); background:var(--card);
-  font-size:8.5px; line-height:1.25; color:var(--ink-2); display:flex; align-items:center; gap:3px; min-height:19px; }
-.tile .note-strip .ntxt { display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; flex:1; word-break:break-word; }
-.tile .note-strip.empty { color:var(--accent); font-weight:500; }
+.tile.removing { width:0 !important; margin-right:-6px !important; opacity:0; transform:scale(.5); border-color:transparent; pointer-events:none; }
+.tile .thumb { position:absolute; inset:0; overflow:hidden; background:#fbfaf7; display:flex; align-items:center; justify-content:center; }
+.tile .thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+/* a screenshot's note, over the foot of the picture; with no note, nothing */
+.tile .note-strip { position:absolute; left:0; right:0; bottom:0; z-index:2; padding:9px 6px 3px;
+  background:linear-gradient(180deg, rgba(26,22,18,0), rgba(26,22,18,.62)); color:#fff;
+  font-size:9.5px; line-height:1.3; display:flex; align-items:center; gap:3px; }
+.tile .note-strip .ntxt { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+.tile .note-strip.empty { color:rgba(255,255,255,.92); font-weight:500; }
 .tile .note-strip .ico { flex:0 0 auto; opacity:.75; display:flex; }
-.tile .badge { position:absolute; top:4px; left:4px; background:rgba(26,22,18,.78); color:#fff; border-radius:5px;
-  font-size:8px; padding:1px 4px; letter-spacing:.04em; z-index:2; }
-/* corner remove (always visible, removes without opening the tile) */
-.tile .remove { position:absolute; top:4px; right:4px; width:16px; height:16px; border-radius:50%; border:1px solid var(--hairline);
-  background:rgba(255,253,249,.92); color:var(--muted); display:grid; place-items:center; cursor:pointer; z-index:3; padding:0;
-  backdrop-filter:blur(2px); transition:background var(--t), color var(--t), transform var(--t); }
-.tile .remove:hover { background:var(--red); color:#fff; border-color:var(--red); }
-.tile .remove:active { transform:scale(.85); }
+.tile .badge { position:absolute; top:4px; left:4px; min-width:15px; text-align:center; background:rgba(26,22,18,.7); color:#fff; border-radius:5px;
+  font-size:9.5px; line-height:15px; padding:0 4px; font-variant-numeric:tabular-nums; z-index:2; }
+/* corner remove: there when you point at the tile (or tab to it) */
+.tile .remove { position:absolute; top:3px; right:3px; width:18px; height:18px; border-radius:50%; border:0;
+  background:rgba(26,22,18,.62); color:#fff; display:grid; place-items:center; cursor:pointer; z-index:3; padding:0;
+  opacity:0; transition:opacity var(--t), background var(--t), transform var(--t); }
+.tile:hover .remove, .tile .remove:focus-visible { opacity:1; }
+.tile .remove:hover { background:var(--red); }
+.tile .remove:active { transform:scale(.88); }
 .tile .remove svg { width:10px; height:10px; }
 
 /* recording tile */
-.tile.rec .play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:26px; height:26px;
-  border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--hairline); display:grid; place-items:center;
-  color:var(--accent); box-shadow:0 2px 8px rgba(26,22,18,.16); }
-.tile.rec .play svg { width:12px; height:12px; margin-left:1px; }
-.tile.rec .rec-foot { flex:0 0 auto; padding:4px 6px; border-top:1px solid var(--hairline); background:var(--card);
-  font-size:8.5px; color:var(--ink-2); display:flex; align-items:center; gap:4px; min-height:19px; }
-.tile.rec .rec-foot .updot { width:5px; height:5px; border-radius:50%; background:var(--green); flex:0 0 auto; }
-.tile.rec .rec-foot .updot.up { background:var(--accent); animation:rec-pulse 1.2s ease-in-out infinite; }
+.tile.rec .play { position:absolute; top:42%; left:50%; transform:translate(-50%,-50%); width:22px; height:22px;
+  border-radius:50%; background:rgba(255,253,249,.94); display:grid; place-items:center;
+  color:var(--accent); box-shadow:0 1px 6px rgba(26,22,18,.22); }
+.tile.rec .play svg { width:11px; height:11px; margin-left:1px; }
+.tile.rec .rec-foot { position:absolute; left:0; right:0; bottom:0; z-index:2; padding:9px 5px 3px;
+  background:linear-gradient(180deg, rgba(26,22,18,0), rgba(26,22,18,.66)); color:#fff;
+  font-size:9px; line-height:1.3; letter-spacing:-.01em; display:flex; align-items:center; gap:3px; white-space:nowrap; overflow:hidden; font-variant-numeric:tabular-nums; }
+/* the dot speaks only while something is happening (or went wrong) */
+.tile.rec .rec-foot .updot { display:none; width:5px; height:5px; border-radius:50%; flex:0 0 auto; }
+.tile.rec .rec-foot .updot.up, .tile.rec .rec-foot .updot.failed { display:block; }
+.tile.rec .rec-foot .updot.up { background:#ffb38f; animation:rec-pulse 1.2s ease-in-out infinite; }
 .tile.rec .rec-foot .updot.failed { background:var(--red); }
 @keyframes rec-pulse { 50% { opacity:.35; } }
 .tile.rec .rec-foot .ico { flex:0 0 auto; display:flex; }
-.tile.rec .rec-foot.novoice { color:var(--muted); white-space:nowrap; }
+.tile.rec .rec-foot.novoice { color:rgba(255,255,255,.85); }
 /* what the voice said, under the tiles: it goes into the ticket */
-.voice-line { flex:0 0 100%; min-width:0; display:flex; align-items:center; gap:6px; padding:2px 2px 0; border:0; background:none; cursor:pointer;
-  font-family:var(--mono); font-size:10.5px; line-height:1.4; color:var(--ink-2); text-align:left; }
+.voice-line { flex:0 0 100%; min-width:0; display:flex; align-items:center; gap:6px; padding:3px 2px 0; border:0; background:none; cursor:pointer;
+  font-family:inherit; font-size:11.5px; line-height:1.4; color:var(--muted); text-align:left; transition:color var(--t); }
 .voice-line .ico { flex:0 0 auto; display:flex; color:var(--accent); }
 .voice-line .ico svg { width:12px; height:12px; }
 .voice-line .ntxt { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.voice-line:hover .ntxt { color:var(--ink); }
+.voice-line:hover { color:var(--ink); }
 
 
 /* add tile */
-.tile.add { border-style:dashed; border-width:1.5px; border-color:rgba(26,22,18,.22); background:transparent; min-height:76px;
-  align-items:center; justify-content:center; color:var(--muted); }
-.tile.add:hover { border-color:var(--accent); color:var(--accent); background:rgba(221,105,54,.04); }
-.tile.add .plus { width:26px; height:26px; border-radius:10px; border:1px solid currentColor; display:grid; place-items:center; transition:transform var(--t); }
+.tile.add { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  border:1px dashed rgba(26,22,18,.24); background:transparent; color:var(--muted); box-shadow:none; }
+.tile.add:hover { border-color:var(--accent); color:var(--accent); background:rgba(221,105,54,.05); box-shadow:none; }
+.tile.add .plus { display:grid; place-items:center; transition:transform var(--t); }
 .tile.add:hover .plus { transform:rotate(90deg); }
-.tile.add .plus svg { width:13px; height:13px; }
-.tile.add .add-lbl { font-size:8.5px; margin-top:5px; letter-spacing:.04em; }
+.tile.add .plus svg { width:15px; height:15px; }
+.tile.add .add-lbl { font-size:10.5px; }
 
 /* ---------- ADDITIONAL DATA (inline: description + custom fields) ---------- */
 
@@ -139,21 +166,21 @@ body.sheet-open { overflow:hidden; }
    tracker, save a draft and copy its public link, or copy a fix prompt. The
    pick is remembered (createDefault). With no tracker that files it starts on
    the draft, and the fix (Connect a tracker...) is the slim link above. */
-.create-wrap { position:relative; padding:16px 16px 12px; }
+.create-wrap { position:relative; padding:10px 12px 12px; }
 /* The bug bash your own clock is running in: its name, the time you have
    left, and a switch for THIS brief. Off, the row goes quiet and the brief is
    sent as if you were in none. */
-.bash-row { display:flex; align-items:center; gap:10px; margin:0 0 10px; padding:8px 10px 8px 12px; border-radius:14px;
+.bash-row { display:flex; align-items:center; gap:10px; margin:0 0 8px; padding:7px 10px 7px 12px; border-radius:10px;
   background:rgba(221,105,54,.07); border:1px solid rgba(221,105,54,.2); transition:background var(--t), border-color var(--t); }
 .bash-row.off { background:rgba(26,22,18,.035); border-color:var(--hairline); }
 .bash-ico { display:flex; flex:none; color:var(--accent); transition:color var(--t); }
 .bash-ico svg { width:17px; height:17px; }
 .bash-row.off .bash-ico { color:var(--muted); }
 .bash-txt { display:flex; flex-direction:column; gap:1px; min-width:0; flex:1; }
-.bash-label { font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); white-space:nowrap; }
-.bash-timer { margin-left:6px; letter-spacing:.02em; color:var(--accent); font-variant-numeric:tabular-nums; font-weight:500; }
+.bash-label { font-size:11px; color:var(--muted); white-space:nowrap; }
+.bash-timer { margin-left:4px; color:var(--accent); font-variant-numeric:tabular-nums; font-weight:500; }
 .bash-row.off .bash-timer { color:var(--muted); }
-.bash-name { font-size:12.5px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.bash-name { font-size:13px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .bash-row.off .bash-name { color:var(--muted); }
 .bash-row .switch.on { background:var(--accent); }
 /* In a bug bash the Create button reads "Add to <its name>": the name is cut
@@ -165,53 +192,54 @@ body.sheet-open { overflow:hidden; }
    never in its way. */
 .reconnect-btn { display:flex; align-items:center; justify-content:center; gap:7px; margin:0 auto 8px; padding:5px 10px;
   border:none; border-radius:8px; background:none; cursor:pointer; color:var(--accent);
-  font-family:var(--mono); font-size:12px; font-weight:500; letter-spacing:.01em;
+  font-family:inherit; font-size:12.5px; font-weight:500;
   transition:color var(--t), background var(--t); }
 .reconnect-btn:hover { color:#c95e2c; background:rgba(221,105,54,.08); }
 .reconnect-btn[hidden] { display:none; }
 .reconnect-dot { width:6px; height:6px; border-radius:50%; background:var(--accent); flex:none; }
 /* The split owns the shape, the glow and the press, so the two halves can
    never drift apart at the seam. */
-.create-split { display:flex; border-radius:14px; overflow:hidden; box-shadow:0 3px 14px rgba(221,105,54,.3);
+.create-split { display:flex; border-radius:10px; overflow:hidden;
+  box-shadow:0 1px 2px rgba(160,62,20,.28), inset 0 1px 0 rgba(255,255,255,.16);
   transition:box-shadow var(--t), transform var(--t), opacity var(--t); }
-.create-split:active { transform:translateY(1px); }
+.create-split:active { transform:scale(.985); }
 .create-split:has(#createBtn:disabled) { box-shadow:none; opacity:.45; }
-.cta { border:none; cursor:pointer; font-family:var(--mono); font-size:13px; font-weight:500; letter-spacing:.01em;
+.cta { border:none; cursor:pointer; font-family:inherit; font-size:13.5px; font-weight:600;
   display:flex; align-items:center; justify-content:center; gap:8px; transition:background var(--t); }
 .cta:disabled { cursor:default; pointer-events:none; }
 .cta svg { width:15px; height:15px; flex:none; }
 .cta.primary { background:var(--accent); color:#fff; }
-.cta.primary:hover, .cta.primary[aria-expanded="true"] { background:#c95e2c; }
-#createBtn { flex:1; min-width:0; padding:13px 10px; white-space:nowrap; }
+.cta.primary:hover, .cta.primary[aria-expanded="true"] { background:#cf5c2b; }
+#createBtn { flex:1; min-width:0; height:40px; padding:0 10px; white-space:nowrap; }
 #createBtn .ctk-label { display:inline-flex; align-items:center; gap:8px; }
-.cta.caret { width:44px; flex:none; border-left:1px solid rgba(255,255,255,.26); padding:0; }
+.cta.caret { width:40px; flex:none; border-left:1px solid rgba(255,255,255,.24); padding:0; }
 .cta.caret svg { width:16px; height:16px; transition:transform var(--t); }
 .cta.caret[aria-expanded="true"] svg { transform:rotate(180deg); }
 /* the menu opens upward from the button */
-.create-menu { position:absolute; left:16px; right:16px; bottom:calc(100% - 10px); z-index:30; padding:6px;
-  background:var(--card); border:1px solid var(--hairline); border-radius:16px;
-  box-shadow:0 14px 34px -10px rgba(40,25,10,.35);
-  opacity:0; transform:translateY(6px) scale(.98); transform-origin:bottom right; visibility:hidden;
+.create-menu { position:absolute; left:12px; right:12px; bottom:calc(100% - 6px); z-index:30; padding:4px;
+  background:var(--card); border:1px solid var(--line); border-radius:12px;
+  box-shadow:0 1px 2px rgba(26,22,18,.05), 0 12px 32px -12px rgba(26,22,18,.3);
+  opacity:0; transform:translateY(4px) scale(.97); transform-origin:bottom right; visibility:hidden;
   transition:opacity .15s, transform .18s, visibility 0s .18s; }
 .create-menu.open { opacity:1; transform:none; visibility:visible; transition:opacity .15s, transform .18s; }
-.cm-item { display:flex; align-items:center; gap:12px; width:100%; padding:11px 12px; border:none; border-radius:12px;
+.cm-item { display:flex; align-items:center; gap:11px; width:100%; padding:8px 10px; border:none; border-radius:8px;
   background:none; cursor:pointer; font-family:inherit; text-align:left; color:var(--ink); }
-.cm-item:hover, .cm-item:focus-visible { background:var(--cream); outline:none; }
-.cm-item + .cm-item { margin-top:2px; }
+.cm-item:hover, .cm-item:focus-visible { background:rgba(26,22,18,.05); outline:none; }
+.cm-item + .cm-item { margin-top:1px; }
 /* a plain icon, lit only on the current pick */
 .cm-ico { width:18px; height:18px; flex:none; color:var(--muted); display:grid; place-items:center; }
 .cm-ico svg { width:16px; height:16px; }
 .cm-item[aria-checked="true"] .cm-ico { color:var(--accent); }
-.cm-txt { display:flex; flex-direction:column; gap:3px; min-width:0; }
-.cm-t { font-size:12.5px; font-weight:500; }
-.cm-s { font-size:10.5px; color:#a39b8f; }
+.cm-txt { display:flex; flex-direction:column; gap:1px; min-width:0; }
+.cm-t { font-size:13px; font-weight:500; }
+.cm-s { font-size:11.5px; color:var(--muted); }
 .cm-check { margin-left:auto; color:var(--accent); display:flex; visibility:hidden; }
 .cm-check svg { width:15px; height:15px; }
 .cm-item[aria-checked="true"] .cm-check { visibility:visible; }
 /* no tracker that files: the ticket row can't be picked; its pill is the fix */
 .cm-fix .cm-t { color:var(--ink-2); }
 .cm-pill { margin-left:auto; flex:none; padding:5px 11px; border-radius:99px; background:var(--accent); color:#fff;
-  font-size:10.5px; font-weight:500; letter-spacing:.01em; box-shadow:0 2px 8px rgba(221,105,54,.28);
+  font-size:11.5px; font-weight:500;
   transition:background var(--t), transform var(--t); }
 .cm-fix:hover .cm-pill { background:#c95e2c; }
 .cm-fix:active .cm-pill { transform:translateY(1px); }
@@ -219,19 +247,20 @@ body.sheet-open { overflow:hidden; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 /* ---------- SHEETS ---------- */
-.scrim { position:fixed; inset:0; background:rgba(26,22,18,.42); opacity:0; visibility:hidden;
+.scrim { position:fixed; inset:0; background:rgba(26,22,18,.34); opacity:0; visibility:hidden;
   transition:opacity var(--t), visibility var(--t); z-index:40; }
 .scrim.open { opacity:1; visibility:visible; }
-.sheet { position:fixed; left:8px; right:8px; bottom:8px; z-index:50; background:var(--cream);
-  border-radius:24px; border:1px solid var(--hairline);
-  transform:translateY(calc(100% + 16px)); transition:transform var(--t);
-  max-height:calc(100vh - 16px); display:flex; flex-direction:column; box-shadow:0 12px 44px rgba(26,22,18,.22); }
+.sheet { position:fixed; left:6px; right:6px; bottom:6px; z-index:50; background:var(--cream);
+  border-radius:16px; border:1px solid var(--hairline);
+  transform:translateY(calc(100% + 16px)); transition:transform 260ms cubic-bezier(.23,1,.32,1);
+  max-height:calc(100vh - 12px); display:flex; flex-direction:column; box-shadow:0 12px 44px rgba(26,22,18,.22); }
 .sheet.open { transform:translateY(0); }
-.handle { width:38px; height:4px; border-radius:4px; background:rgba(26,22,18,.18); margin:9px auto 4px; flex:0 0 auto; }
-.sheet-head { display:flex; align-items:center; gap:10px; padding:6px 16px 10px; flex:0 0 auto; }
-.sheet-title { font-family:var(--display); font-size:21px; font-weight:400; flex:1; }
-.sheet-title em { font-style:italic; color:var(--accent); }
-.sheet-close, .sheet-action { width:34px; height:34px; border-radius:12px; flex:0 0 auto; border:1px solid var(--hairline);
+/* no grab handle: the sheet can't be dragged, and the popup has no room for ornaments */
+.handle { display:none; }
+.sheet-head { display:flex; align-items:center; gap:8px; padding:12px 14px 8px; flex:0 0 auto; }
+.sheet-title { font-size:15px; font-weight:600; letter-spacing:-.01em; flex:1; }
+.sheet-title em { font-style:normal; color:var(--accent); }
+.sheet-close, .sheet-action { width:30px; height:30px; border-radius:8px; flex:0 0 auto; border:1px solid var(--hairline);
   background:var(--card); cursor:pointer; display:grid; place-items:center; color:var(--ink-2); transition:background var(--t), transform var(--t), color var(--t); }
 .sheet-close:hover, .sheet-action:hover { background:#fff; color:var(--ink); }
 .sheet-close:active, .sheet-action:active { transform:scale(.94); }
@@ -239,41 +268,40 @@ body.sheet-open { overflow:hidden; }
 .sheet-action[hidden] { display:none; }
 /* "done, all good" check on evidence editors */
 .sheet-close.confirm { background:var(--accent); border-color:var(--accent); color:#fff; }
-.sheet-close.confirm:hover { background:#c95e2c; color:#fff; }
+.sheet-close.confirm:hover { background:#cf5c2b; color:#fff; }
 .sheet-close.confirm svg { width:17px; height:17px; }
-.sheet-body { padding:4px 16px 22px; overflow-y:auto; flex:1; }
+.sheet-body { padding:2px 14px 14px; overflow-y:auto; flex:1; }
 .sheet-body.fits { overflow-y:hidden; }
 
-.shot-preview { border-radius:16px; overflow:hidden; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:14px; }
-.shot-preview img { width:100%; display:block; }
-.rec-video { width:100%; max-height:132px; object-fit:cover; border-radius:16px; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:12px; display:block; }
-.rec-poster { width:100%; height:132px; object-fit:cover; border-radius:16px; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:12px; display:block; }
+.shot-preview { border-radius:12px; overflow:hidden; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:10px; }
+.shot-preview img { width:100%; max-height:104px; object-fit:cover; object-position:top; display:block; }
+.rec-video { width:100%; max-height:86px; object-fit:cover; border-radius:12px; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:10px; display:block; }
+.rec-poster { width:100%; height:86px; object-fit:cover; border-radius:12px; border:1px solid var(--hairline); background:#fbfaf7; margin-bottom:10px; display:block; }
 /* The recording playing (muted, looping), its length, and Edit: a tap opens it
    in its own tab (a popup is a fixed little window with no working fullscreen). */
-.rec-preview { position:relative; display:block; width:100%; aspect-ratio:16/9; padding:0; margin-bottom:12px; overflow:hidden; cursor:pointer;
-  border-radius:16px; border:1px solid var(--hairline); background:#fbfaf7; font:inherit; }
+.rec-preview { position:relative; display:block; width:100%; height:86px; padding:0; margin-bottom:10px; overflow:hidden; cursor:pointer;
+  border-radius:12px; border:1px solid var(--hairline); background:#fbfaf7; font:inherit; }
 .rec-preview .rec-vid { width:100%; height:100%; object-fit:cover; object-position:top center; display:block; transition:transform var(--t); }
 .rec-preview:hover .rec-vid { transform:scale(1.02); }
 .rec-preview:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-.rec-dur { position:absolute; left:10px; bottom:10px; padding:3px 8px; border-radius:7px; background:rgba(26,22,18,.72); color:#fff;
+.rec-dur { position:absolute; left:8px; bottom:8px; padding:3px 8px; border-radius:7px; background:rgba(26,22,18,.72); color:#fff;
   font-size:11px; font-variant-numeric:tabular-nums; backdrop-filter:blur(6px); }
-.rec-edit { position:absolute; right:10px; bottom:10px; display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 12px 0 10px;
+.rec-edit { position:absolute; right:8px; bottom:8px; display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 11px 0 9px;
   border-radius:9px; background:var(--accent); color:#fff; font-size:12px; font-weight:600;
   box-shadow:0 6px 16px -4px rgba(221,105,54,.6); transition:transform var(--t), background var(--t); }
 .rec-edit svg { width:14px; height:14px; }
 .rec-preview:hover .rec-edit { background:#c95e2c; transform:translateY(-1px); }
 
 /* AI-style auto-grow fields */
-.field-label { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:14px 2px 7px; }
-.field-label:first-child { margin-top:2px; }
+.field-label { font-size:12px; color:var(--muted); font-weight:500; margin:0 2px 6px; height:26px; line-height:26px; }
 .ai-wrap { position:relative; }
-.ai-field { width:100%; font-family:inherit; font-size:12px; line-height:1.55; color:var(--ink);
+.ai-field { width:100%; font-family:inherit; font-size:13px; line-height:1.5; color:var(--ink);
   appearance:none; -webkit-appearance:none;
-  background:rgba(255,255,255,.75); border:1px solid var(--hairline); border-radius:16px; padding:11px 13px; resize:none;
-  height:110px; overflow-y:auto;
+  background:var(--card); border:1px solid var(--hairline); border-radius:12px; padding:10px 12px; resize:none;
+  height:92px; overflow-y:auto;
   transition:border-color var(--t), box-shadow var(--t), background var(--t); }
 /* the description: one line shorter than the sheets' fields */
-#descField { height:90px; }
+#descField { height:auto; min-height:0; flex:1 1 auto; }
 .ai-field::placeholder { color:var(--muted); }
 .ai-field:focus { outline:none; border-color:var(--accent); background:#fff; box-shadow:0 0 0 3px rgba(221,105,54,.16); }
 .ai-field::-webkit-scrollbar { width:10px; }
@@ -281,9 +309,9 @@ body.sheet-open { overflow:hidden; }
 .ai-field::-webkit-scrollbar-thumb { background:rgba(26,22,18,.28); border-radius:999px; border:3px solid transparent; background-clip:padding-box; }
 .ai-field::-webkit-scrollbar-thumb:hover { background:var(--accent); background-clip:padding-box; }
 /* transcribing: a non-editable, animated placeholder shown in place of the field */
-.transcribing { position:relative; height:110px; border:1px solid var(--hairline); border-radius:16px;
+.transcribing { position:relative; height:64px; border:1px solid var(--hairline); border-radius:12px;
   background:rgba(255,255,255,.7); overflow:hidden; display:flex; align-items:center; justify-content:center; gap:9px;
-  color:var(--muted); font-size:12.5px; letter-spacing:.02em; user-select:none; }
+  color:var(--muted); font-size:12.5px; user-select:none; }
 .transcribing::after { content:''; position:absolute; inset:0; transform:translateX(-100%);
   background:linear-gradient(100deg, transparent 30%, rgba(221,105,54,.10) 50%, transparent 70%);
   animation:tr-shimmer 1.5s ease-in-out infinite; }
@@ -294,25 +322,133 @@ body.sheet-open { overflow:hidden; }
 .tr-dots i:nth-child(3) { animation-delay:.32s; }
 @keyframes tr-bounce { 0%,100% { transform:translateY(0); opacity:.35; } 50% { transform:translateY(-4px); opacity:1; } }
 
-/* description voice mic - pinned top-right; the field reserves a right gutter so text never reaches it */
-.ai-field.has-mic { padding-right:42px; }
-.desc-mic { position:absolute; top:8px; right:8px; width:28px; height:28px; border:0; border-radius:50%; z-index:2;
-  background:rgba(26,22,18,.05); color:var(--muted); display:grid; place-items:center; cursor:pointer; transition:background var(--t), color var(--t); }
-.desc-mic:hover { background:rgba(26,22,18,.1); color:var(--ink); }
+/* Voice. Every field that takes dictation (the description, a screenshot's
+   note, the recording's words, a replay's note) carries the same control at
+   its foot: a small pill that says what it does. Speak, and it listens (the
+   pill turns orange and a halo follows your voice); stop, and your words are
+   written into the field. The field keeps a clear strip for it at the bottom. */
+.ai-field.has-mic { display:block; padding-bottom:42px; }
+/* Long text scrolls: without this it ran under the pill. The strip is the
+   field's own colour, so the words stop above the control instead. */
+.ai-wrap:has(> .has-mic)::after { content:''; position:absolute; left:1px; right:11px; bottom:1px; height:40px; z-index:1;
+  background:var(--card); border-radius:0 0 0 11px; pointer-events:none; transition:background var(--t); }
+.ai-wrap:has(> .has-mic:focus)::after { background:#fff; }
+.composer .ai-wrap:has(> .has-mic)::after { background:var(--card); border-radius:0; }
+.desc-mic { position:absolute; left:8px; bottom:8px; height:26px; padding:0 10px 0 8px; border:0; border-radius:99px; z-index:2;
+  display:inline-flex; align-items:center; gap:5px; cursor:pointer;
+  background:rgba(221,105,54,.1); color:var(--accent); font-family:inherit; font-size:12px; font-weight:600;
+  transition:background var(--t), color var(--t), transform var(--t); }
+.desc-mic::after { content:'Speak'; }
+.desc-mic:hover { background:rgba(221,105,54,.17); }
+.desc-mic:active { transform:scale(.96); }
 .desc-mic.rec { background:var(--accent); color:#fff; }
-.desc-mic.busy { color:var(--accent); }
-.desc-mic .mic-stop { width:9px; height:9px; background:#fff; border-radius:2px; }
-.desc-mic .mic-spin { width:14px; height:14px; border:2px solid rgba(221,105,54,.25); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
-.desc-mic svg { width:15px; height:15px; }
-/* tiny flash message under the mic (allow access / didn't catch that) */
-.desc-mic-msg { position:absolute; top:40px; right:6px; font-size:10px; color:var(--accent); background:var(--cream);
-  padding:2px 7px; border-radius:7px; border:1px solid var(--hairline); opacity:0; transform:translateY(-3px);
+.desc-mic.rec::after { content:'Listening'; }
+.desc-mic.busy { background:rgba(26,22,18,.05); color:var(--muted); }
+.desc-mic.busy::after { content:'Writing'; }
+.desc-mic .mic-stop { width:8px; height:8px; margin:0 3px; background:#fff; border-radius:2px; animation:rec-pulse 1.2s ease-in-out infinite; }
+.desc-mic .mic-spin { width:12px; height:12px; margin:0 1px; border:2px solid rgba(26,22,18,.16); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+.desc-mic svg { width:14px; height:14px; }
+/* while it listens, the field shows the words as they are heard */
+.ai-field.hearing { caret-color:transparent; }
+/* ---------- THE BRIEF (A1) ----------
+   No card around it all: four quiet blocks on the cream. Orange is the icon of
+   the main way and Create, nothing else. */
+.composer, .composer:focus-within { background:none; border:0; box-shadow:none; border-radius:0; margin:12px 12px 0; gap:8px; }
+.main-act { display:flex; align-items:center; gap:12px; width:100%; padding:12px 12px 12px 13px; border:0; border-radius:12px; cursor:pointer;
+  background:var(--card); color:var(--ink); font-family:inherit; text-align:left;
+  box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.05), 0 8px 20px -14px rgba(26,22,18,.3);
+  transition:box-shadow var(--t), transform var(--t), background var(--t); }
+.main-act:hover { background:#fff; box-shadow:0 0 0 1px var(--line), 0 1px 2px rgba(26,22,18,.05), 0 10px 22px -12px rgba(26,22,18,.34); }
+.main-act:active { transform:scale(.985); }
+.main-act:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.ma-ic { width:36px; height:36px; border-radius:10px; flex:none; display:grid; place-items:center; background:rgba(221,105,54,.1); color:var(--accent); }
+.ma-ic svg { width:18px; height:18px; }
+.ma-t { flex:1; min-width:0; }
+.ma-t b { display:block; font-size:14px; font-weight:600; letter-spacing:-.01em; }
+.ma-t small { display:block; font-size:12px; color:var(--muted); margin-top:1px; }
+.ma-chev { color:rgba(26,22,18,.3); display:flex; transition:transform var(--t), color var(--t); }
+.ma-chev svg { width:16px; height:16px; }
+.main-act:hover .ma-chev { color:var(--muted); transform:translateX(2px); }
+
+/* what you captured */
+.gallery { display:flex; flex-direction:column; align-items:stretch; gap:8px; padding:0; }
+.gallery:empty { display:none; }
+/* Screenshots and the replay: one list, a row each across the whole line
+   (the picture, then its note or what it is), not a loose thumbnail. */
+.gallery .tiles { display:flex; flex-direction:column; border-radius:12px; background:var(--card); box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.04); overflow:hidden auto; max-height:161px; flex:none; }
+.tiles .tile { flex:none; width:100%; aspect-ratio:auto; display:flex; align-items:center; gap:11px; padding:7px 8px 7px 9px; border:0; border-radius:0; background:none; box-shadow:none; overflow:visible; }
+.tiles .tile + .tile { border-top:1px solid var(--hairline); }
+.tiles .tile:hover { background:rgba(26,22,18,.03); box-shadow:none; }
+.tiles .tile:active { transform:none; background:rgba(26,22,18,.05); }
+.tiles .tile .thumb { position:relative; inset:auto; flex:none; width:52px; height:39px; border-radius:7px; box-shadow:0 0 0 1px var(--line); }
+.tiles .tile .badge { top:10px; left:12px; min-width:14px; font-size:9px; line-height:14px; padding:0 3px; }
+.tiles .tile .note-strip, .tiles .tile .rec-foot { position:static; flex:1; min-width:0; padding:0; background:none; color:var(--ink); font-size:13px; line-height:1.4; }
+.tiles .tile .note-strip.empty { color:var(--muted); font-weight:400; }
+.tiles .tile .note-strip .ico { display:none; }
+.tiles .tile .play { top:50%; width:18px; height:18px; }
+.tiles .tile .play svg { width:9px; height:9px; }
+.tiles .tile .remove { position:static; order:9; flex:none; width:24px; height:24px; border-radius:7px; background:none; color:var(--muted); }
+.tiles .tile .remove:hover { background:rgba(26,22,18,.07); color:var(--ink); }
+.tiles .tile .remove svg { width:11px; height:11px; }
+.tiles .tile.removing { width:100% !important; margin-right:0 !important; transform:none; opacity:0; }
+.tile.rec-card { width:100%; aspect-ratio:auto; display:flex; align-items:center; gap:11px; padding:9px; border-radius:12px; border:0; overflow:visible;
+  box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.04); }
+.tile.rec-card:hover { box-shadow:0 0 0 1px var(--line), 0 2px 8px -2px rgba(26,22,18,.14); }
+.tile.rec-card .thumb { position:relative; inset:auto; flex:none; width:84px; height:63px; border-radius:8px; box-shadow:0 0 0 1px var(--line); }
+.tile.rec-card .play { top:50%; }
+.rc-body { flex:1; min-width:0; }
+.tile.rec-card .rec-foot { position:static; padding:0; background:none; color:var(--ink); font-size:13px; font-weight:600; gap:6px; overflow:visible; }
+.tile.rec-card .rec-foot.novoice { color:var(--ink); }
+.tile.rec-card .rec-foot .ico svg { width:13px; height:13px; }
+.tile.rec-card .rec-foot .updot { width:7px; height:7px; }
+.rc-ok { width:16px; height:16px; border-radius:50%; background:var(--green); color:#fff; display:grid; place-items:center; flex:none; }
+.rc-ok svg { width:10px; height:10px; }
+.tile.rec-card .voice-line { display:block; width:100%; padding:2px 0 0; font-size:12.5px; line-height:1.4; }
+.tile.rec-card .voice-line .ico { display:none; }
+.tile.rec-card .voice-line .ntxt { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; overflow:hidden; }
+.tile.rec-card .remove { top:5px; right:5px; }
+
+/* the other ways, by name: one strip */
+.ways { position:relative; display:flex; flex:0 0 auto; border-radius:10px; background:var(--card); box-shadow:0 0 0 1px var(--hairline); }
+.ways .way, .ways .desc-mic { position:static; flex:1 1 0; min-width:0; height:34px; padding:0 4px; border:0; border-radius:0; background:none; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:6px; font-family:inherit; font-size:12.5px; font-weight:500; color:var(--ink-2);
+  transition:background var(--t), color var(--t); }
+.ways > * + * { box-shadow:-1px 0 0 var(--hairline); }
+.ways > :first-child { border-radius:10px 0 0 10px; }
+.ways > .desc-mic { border-radius:0 10px 10px 0; }
+.ways .way svg, .ways .desc-mic svg { width:14px; height:14px; color:var(--muted); flex:none; }
+.ways .way:hover:not(:disabled), .ways .desc-mic:hover { background:rgba(26,22,18,.04); color:var(--ink); }
+.ways .way:active:not(:disabled), .ways .desc-mic:active { background:rgba(26,22,18,.07); transform:none; }
+.ways .way:disabled { color:var(--faint, #aaa396); cursor:default; }
+.ways .way:disabled svg { opacity:.5; }
+.ways .desc-mic.rec { background:rgba(221,105,54,.1); color:var(--accent); box-shadow:-1px 0 0 var(--hairline) !important; }
+.ways .desc-mic.rec .mic-stop { background:var(--accent); }
+.ways .desc-mic.busy { background:none; color:var(--muted); }
+.ways .desc-mic-msg { left:auto; right:0; bottom:calc(100% + 4px); }
+
+/* the words */
+.composer .ai-wrap { min-height:56px; }
+.composer .ai-field, .composer .ai-field:focus { background:var(--card); border:0; border-radius:10px; padding:10px 12px; font-size:13.5px; line-height:1.45;
+  box-shadow:0 0 0 1px var(--hairline); }
+.composer .ai-field:focus { background:#fff; box-shadow:0 0 0 1px var(--accent), 0 0 0 4px rgba(221,105,54,.14); }
+.composer .sheet-fields { padding:0; }
+.create-wrap { padding-top:8px; }
+
+/* In a sheet the pill sits on the label's row, right of the field's name
+   (Note … Speak), so the field is all text and stays short. */
+.sheet .ai-field.has-mic { height:64px; padding-bottom:10px; }
+.sheet .ai-wrap:has(> .has-mic)::after { display:none; }
+.sheet .desc-mic { left:auto; right:0; bottom:auto; top:-32px; }
+.sheet .desc-mic-msg { left:auto; right:96px; bottom:auto; top:-29px; }
+/* tiny flash message beside the pill (allow access / didn't catch that) */
+.desc-mic-msg { position:absolute; left:8px; bottom:40px; font-size:11.5px; color:var(--accent); background:var(--cream);
+  padding:2px 8px; border-radius:7px; border:1px solid var(--hairline); opacity:0; transform:translateY(3px);
   transition:opacity var(--t), transform var(--t); pointer-events:none; z-index:3; white-space:nowrap; }
 .desc-mic-msg.show { opacity:1; transform:translateY(0); }
 
 .sheet-actions { display:flex; gap:9px; margin-top:16px; }
-.s-btn { flex:1; border:1px solid var(--hairline); background:var(--card); border-radius:14px; padding:12px; cursor:pointer;
-  font-family:inherit; font-size:11.5px; font-weight:500; color:var(--ink-2); display:flex; align-items:center; justify-content:center; gap:7px; min-height:44px;
+.s-btn { flex:1; border:1px solid var(--line); background:var(--card); border-radius:10px; padding:0 12px; cursor:pointer;
+  font-family:inherit; font-size:13px; font-weight:500; color:var(--ink-2); display:flex; align-items:center; justify-content:center; gap:7px; min-height:36px;
   transition:background var(--t), border-color var(--t), transform var(--t), color var(--t); }
 .s-btn:hover { background:#fff; border-color:rgba(26,22,18,.2); }
 .s-btn:active { transform:scale(.97); }
@@ -320,43 +456,43 @@ body.sheet-open { overflow:hidden; }
 .s-btn.danger { color:var(--red); }
 .s-btn.danger:hover { background:rgba(255,45,45,.06); border-color:rgba(255,45,45,.3); }
 
-.toggle-row { display:flex; align-items:center; gap:10px; margin-top:16px; padding:12px 14px; background:rgba(255,255,255,.75); border:1px solid var(--hairline); border-radius:16px; }
-.toggle-row .lbl { flex:1; font-size:12px; color:var(--ink-2); }
-.switch { width:44px; height:26px; border-radius:20px; background:rgba(26,22,18,.18); position:relative; cursor:pointer; border:none; flex:0 0 auto; transition:background var(--t); }
+.toggle-row { display:flex; align-items:center; gap:10px; margin-top:8px; padding:6px 12px; background:var(--card); border:1px solid var(--hairline); border-radius:12px; }
+.toggle-row .lbl { flex:1; font-size:13px; color:var(--ink-2); }
+.switch { width:36px; height:22px; border-radius:20px; background:rgba(26,22,18,.18); position:relative; cursor:pointer; border:none; flex:0 0 auto; transition:background var(--t); }
 .switch.on { background:var(--green); }
-.switch .knob { position:absolute; top:3px; left:3px; width:20px; height:20px; border-radius:50%; background:#fff; transition:transform var(--t); box-shadow:0 1px 3px rgba(0,0,0,.2); }
-.switch.on .knob { transform:translateX(18px); }
+.switch .knob { position:absolute; top:2px; left:2px; width:18px; height:18px; border-radius:50%; background:#fff; transition:transform var(--t); box-shadow:0 1px 3px rgba(0,0,0,.2); }
+.switch.on .knob { transform:translateX(14px); }
 
-.chooser { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
-.choice { display:flex; align-items:center; gap:13px; width:100%; border:1px solid var(--hairline); background:var(--card);
-  appearance:none; -webkit-appearance:none; border-radius:16px; padding:12px 14px; cursor:pointer; font-family:inherit; text-align:left; color:var(--ink);
-  transition:background var(--t), border-color var(--t), transform var(--t); }
-.choice:hover:not(:disabled) { background:#fff; border-color:var(--accent); }
-.choice:active:not(:disabled) { transform:scale(.98); }
+.chooser { display:flex; flex-direction:column; gap:1px; margin:0 -8px; }
+.choice { display:flex; align-items:center; gap:11px; width:100%; border:0; background:none;
+  appearance:none; -webkit-appearance:none; border-radius:10px; padding:6px 8px; cursor:pointer; font-family:inherit; text-align:left; color:var(--ink);
+  transition:background var(--t), transform var(--t); }
+.choice:hover:not(:disabled) { background:rgba(26,22,18,.05); }
+.choice:active:not(:disabled) { transform:scale(.985); }
 .choice:disabled { opacity:.45; cursor:not-allowed; }
-.choice .cico { width:38px; height:38px; border-radius:12px; flex:0 0 auto; background:rgba(221,105,54,.1); color:var(--accent); display:grid; place-items:center; }
-.choice .cico svg { width:20px; height:20px; }
-.choice .ctxt { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
-.choice .ctxt .ct { font-size:13px; font-weight:500; }
-.choice .ctxt .cs { font-size:10.5px; color:var(--muted); }
+.choice .cico { width:32px; height:32px; border-radius:9px; flex:0 0 auto; background:rgba(221,105,54,.1); color:var(--accent); display:grid; place-items:center; }
+.choice .cico svg { width:17px; height:17px; }
+.choice .ctxt { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.choice .ctxt .ct { font-size:13.5px; font-weight:500; }
+.choice .ctxt .cs { font-size:11.5px; color:var(--muted); }
 .choice .chev { color:var(--muted); flex:0 0 auto; display:flex; }
 .choice .chev svg { width:16px; height:16px; }
 
 .kv-edit { display:flex; flex-direction:column; gap:10px; margin-top:4px; }
-.kv-edit input { width:100%; font-family:inherit; font-size:12px; color:var(--ink); background:rgba(255,255,255,.75);
-  border:1px solid var(--hairline); border-radius:14px; padding:12px 14px; min-height:44px; transition:border-color var(--t), box-shadow var(--t), background var(--t); }
+.kv-edit input { width:100%; font-family:inherit; font-size:13px; color:var(--ink); background:var(--card);
+  border:1px solid var(--hairline); border-radius:10px; padding:8px 12px; min-height:36px; transition:border-color var(--t), box-shadow var(--t), background var(--t); }
 .kv-edit input:focus { outline:none; border-color:var(--accent); background:#fff; box-shadow:0 0 0 3px rgba(221,105,54,.16); }
 
 /* fields editor inside the Describe sheet */
 .sheet-fields { display:flex; flex-direction:column; gap:9px; margin-top:6px; }
 .sheet-field { display:flex; gap:8px; align-items:center; }
-.sheet-field input { flex:1; min-width:0; font-family:inherit; font-size:12px; color:var(--ink); background:rgba(255,255,255,.7);
+.sheet-field input { flex:1; min-width:0; font-family:inherit; font-size:12.5px; color:var(--ink); background:rgba(26,22,18,.03);
   appearance:none; -webkit-appearance:none;
-  border:1px solid var(--hairline); border-radius:12px; padding:8px 11px; min-height:34px;
+  border:1px solid var(--hairline); border-radius:8px; padding:6px 10px; min-height:30px;
   transition:border-color var(--t), box-shadow var(--t), background var(--t); }
 .sheet-field input.k { flex:0 0 38%; }
 .sheet-field input:focus { outline:none; border-color:var(--accent); background:#fff; box-shadow:0 0 0 3px rgba(221,105,54,.16); }
-.sheet-field .fx { flex:0 0 auto; width:34px; height:34px; border:none; background:none; color:var(--muted); cursor:pointer; display:grid; place-items:center; border-radius:9px; }
+.sheet-field .fx { flex:0 0 auto; width:30px; height:30px; border:none; background:none; color:var(--muted); cursor:pointer; display:grid; place-items:center; border-radius:9px; }
 .sheet-field .fx:hover { color:var(--red); background:rgba(255,45,45,.06); }
 .sheet-field .fx svg { width:15px; height:15px; }
 
@@ -364,7 +500,7 @@ body.sheet-open { overflow:hidden; }
 /* one line, always: a pill that never wraps (the demo's toast) */
 .toast { position:fixed; left:50%; bottom:84px; transform:translateX(-50%) translateY(8px);
   display:flex; align-items:center; gap:7px; max-width:calc(100% - 32px); white-space:nowrap;
-  background:var(--ink); color:var(--cream); font-size:12px; padding:9px 15px; border-radius:99px; z-index:60;
+  background:var(--ink); color:var(--cream); font-size:12.5px; padding:8px 14px; border-radius:99px; z-index:60;
   box-shadow:0 8px 24px -8px rgba(26,22,18,.45);
   opacity:0; visibility:hidden; transition:opacity var(--t), transform var(--t); }
 .toast span { overflow:hidden; text-overflow:ellipsis; }
@@ -372,8 +508,8 @@ body.sheet-open { overflow:hidden; }
 .toast.show { opacity:1; visibility:visible; transform:translateX(-50%) translateY(0); }
 
 /* ---------- inline error ---------- */
-.err-bar { display:none; margin:12px 16px 0; font-family:var(--mono); font-size:11.5px; line-height:1.4; color:#b54328;
-  background:rgba(221,105,54,.08); border:1px solid rgba(221,105,54,.25); border-radius:12px; padding:9px 12px; }
+.err-bar { display:none; margin:10px 12px 0; font-family:inherit; font-size:12.5px; line-height:1.4; color:#b54328;
+  background:rgba(221,105,54,.08); border:1px solid rgba(221,105,54,.25); border-radius:10px; padding:8px 11px; }
 .err-bar.show { display:block; }
 .err-bar .err-link { display:inline-block; margin-top:2px; color:var(--accent); font-weight:600; text-decoration:none; }
 .err-bar .err-link:hover { text-decoration:underline; text-underline-offset:2px; }
@@ -385,8 +521,8 @@ body.sheet-open { overflow:hidden; }
 @keyframes rise { from { opacity:0; transform:translateY(10px) scale(.96); } to { opacity:1; transform:none; } }
 .export-done-check { display:inline-flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:50%; background:#16a34a; color:#fff; font-size:26px; margin-bottom:14px; animation:pop .34s cubic-bezier(.2,1.4,.4,1) .05s both; }
 @keyframes pop { from { transform:scale(0); } to { transform:scale(1); } }
-.export-done-title { font-family:var(--mono); font-size:15px; font-weight:500; color:var(--ink); margin-bottom:4px; }
-.export-done-sub { font-family:var(--display); font-style:italic; font-size:14px; color:var(--muted); }
+.export-done-title { font-family:inherit; font-size:15px; font-weight:600; color:var(--ink); margin-bottom:3px; }
+.export-done-sub { font-size:13px; color:var(--muted); }
 
 @media (prefers-reduced-motion:reduce) { * { transition-duration:.001ms !important; animation-duration:.001ms !important; } }
 
@@ -397,13 +533,14 @@ body.sheet-open { overflow:hidden; }
 /* replay tile: its still, a play badge */
 .tile.rep .thumb { background:linear-gradient(135deg, #fbf6ee, #f1e7d8); }
 .tile.rep .thumb img { width:100%; height:100%; object-fit:cover; object-position:top left; display:block; }
-.tile.rep .play { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:26px; height:26px;
-  border-radius:50%; background:rgba(255,253,249,.92); border:1px solid var(--hairline); display:grid; place-items:center;
-  color:var(--accent); box-shadow:0 2px 8px rgba(26,22,18,.16); }
-.tile.rep .play svg { width:12px; height:12px; margin-left:1px; }
-.tile.rep .rec-foot { flex:0 0 auto; padding:4px 6px; border-top:1px solid var(--hairline); background:var(--card);
-  font-size:8.5px; color:var(--ink-2); display:flex; align-items:center; gap:4px; min-height:19px; }
-.tile.rep .rec-foot .updot { width:5px; height:5px; border-radius:50%; background:var(--green); flex:0 0 auto; }
+.tile.rep .play { position:absolute; top:42%; left:50%; transform:translate(-50%,-50%); width:22px; height:22px;
+  border-radius:50%; background:rgba(255,253,249,.94); display:grid; place-items:center;
+  color:var(--accent); box-shadow:0 1px 6px rgba(26,22,18,.22); }
+.tile.rep .play svg { width:11px; height:11px; margin-left:1px; }
+.tile.rep .rec-foot { position:absolute; left:0; right:0; bottom:0; z-index:2; padding:9px 6px 3px;
+  background:linear-gradient(180deg, rgba(26,22,18,0), rgba(26,22,18,.66)); color:#fff;
+  font-size:9.5px; line-height:1.3; display:flex; align-items:center; gap:4px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.tile.rep .rec-foot .updot { width:5px; height:5px; border-radius:50%; background:#63d08f; flex:0 0 auto; }
 
 /* a filed ticket lands in the cloud button (the tickets list): the cloud itself
    bobs once (the button keeps its hover rotation to itself), and a dot stays */
@@ -419,12 +556,499 @@ body.sheet-open { overflow:hidden; }
    pairing page) instead of sitting there as an unlabeled icon. Text only: with
    the icon too, "What's the brief?" no longer fits on one line. */
 .cloud-label { display:none; }
-.cloud-btn.unlinked { width:auto; padding:0 10px; font-family:inherit; font-size:11.5px; font-weight:600;
+.cloud-btn.unlinked { width:auto; padding:0 10px; font-family:inherit; font-size:12.5px; font-weight:600;
   color:var(--accent); background:rgba(221,105,54,.1); }
 .cloud-btn.unlinked svg { display:none; }
 .cloud-btn.unlinked .cloud-label { display:inline; }
-.cloud-btn.unlinked:hover { transform:none; color:var(--accent); background:rgba(221,105,54,.16); }
+.cloud-btn.unlinked:hover { color:var(--accent); background:rgba(221,105,54,.16); }
 
 /* tickets still on their way (filed in the background): the cloud breathes */
 .cloud-btn.sending svg { color:var(--accent); animation:cloud-send 1.4s ease-in-out infinite; }
 @keyframes cloud-send { 50% { opacity:.45; transform:translateY(-1px); } }
+
+/* ---------- SHEETS, AS PAGES ----------
+   A sheet used to be a panel squeezed into the lower part of the popup, the
+   brief greyed out behind it: a title, a picture, a label, a pill and a field
+   stacked with no air. Now it is a page: it takes the whole popup, so each
+   thing has room, and there is less of it (no label above the field, its
+   placeholder says what it is; Speak is a quiet mic inside the field). */
+.sheet { left:0; right:0; bottom:0; top:0; max-height:none; border:0; border-radius:0; box-shadow:none; background:var(--cream);
+  transform:translateY(12px); opacity:0; visibility:hidden; transition:transform 200ms cubic-bezier(.23,1,.32,1), opacity 160ms ease, visibility 0s 200ms; }
+.sheet.open { transform:none; opacity:1; visibility:visible; transition:transform 200ms cubic-bezier(.23,1,.32,1), opacity 160ms ease; }
+.scrim { display:none; }
+.sheet-head { padding:14px 12px 12px 16px; }
+.sheet-title { font-size:15px; }
+.sheet-body { display:flex; flex-direction:column; padding:0 12px 12px; }
+.sheet-body > * { flex:none; }
+.sheet .field-label { display:none; }
+/* done: a soft check, not a second orange block */
+.sheet-close.confirm, .sheet-close.confirm:hover { background:rgba(221,105,54,.1); border-color:transparent; color:var(--accent); }
+.sheet-close.confirm:hover { background:rgba(221,105,54,.17); }
+/* the picture, larger, with a calm Edit on it */
+.shot-preview { margin-bottom:10px; border:0; padding:0; box-shadow:0 0 0 1px var(--hairline); position:relative; display:block; width:100%; cursor:pointer; }
+.shot-preview img { max-height:150px; }
+.rec-preview, .rec-poster, .rec-video { height:112px; max-height:112px; border:0; box-shadow:0 0 0 1px var(--hairline); }
+.rec-edit, .rec-preview:hover .rec-edit { background:rgba(26,22,18,.74); box-shadow:none; backdrop-filter:blur(6px); height:26px; font-weight:500; transform:none; }
+.shot-preview:hover .rec-edit, .rec-preview:hover .rec-edit { background:rgba(26,22,18,.88); }
+/* the field takes the room that is left; the mic sits inside it */
+.sheet-body > .ai-wrap, .sheet-body > #trWrap { flex:1 1 auto; min-height:64px; display:flex; }
+.sheet-body > #trWrap > .ai-wrap { flex:1; display:flex; }
+.sheet .ai-field.has-mic { height:auto; flex:1; min-height:64px; padding:10px 40px 10px 12px; border:0; border-radius:10px; box-shadow:0 0 0 1px var(--hairline); font-size:13.5px; line-height:1.45; }
+.sheet .ai-field.has-mic:focus { background:#fff; box-shadow:0 0 0 1px var(--accent), 0 0 0 4px rgba(221,105,54,.14); }
+.sheet .desc-mic { left:auto; top:auto; right:6px; bottom:6px; width:28px; height:28px; padding:0; border-radius:8px; justify-content:center;
+  background:none; color:var(--muted); }
+.sheet .desc-mic::after, .sheet .desc-mic.rec::after, .sheet .desc-mic.busy::after { content:none; }
+.sheet .desc-mic svg { width:16px; height:16px; }
+.sheet .desc-mic:hover { background:rgba(26,22,18,.06); color:var(--ink); }
+.sheet .desc-mic.rec { background:rgba(221,105,54,.12); color:var(--accent); }
+.sheet .desc-mic.rec .mic-stop { background:var(--accent); width:10px; height:10px; margin:0; border-radius:3px; }
+.sheet .desc-mic.busy { background:none; }
+.sheet .desc-mic-msg { left:auto; right:40px; top:auto; bottom:9px; }
+.sheet .transcribing { flex:1; height:auto; min-height:64px; border:0; box-shadow:0 0 0 1px var(--hairline); border-radius:10px; }
+.sheet .toggle-row { border:0; border-radius:10px; box-shadow:0 0 0 1px var(--hairline); padding:8px 12px; }
+
+/* a screenshot's note, typed in its row */
+.row-note { flex:1; min-width:0; height:32px; padding:0 8px; margin-left:-6px; border:0; border-radius:7px; background:none; font-family:inherit; font-size:13px; color:var(--ink); cursor:text; transition:background var(--t), box-shadow var(--t); }
+.row-note::placeholder { color:var(--muted); }
+.row-note:hover { background:rgba(26,22,18,.04); }
+.row-note:focus { outline:none; background:#fff; box-shadow:0 0 0 1px var(--accent), 0 0 0 3px rgba(221,105,54,.14); }
+.tiles .tile.shot:hover, .tiles .tile.shot:active { background:none; }
+.tiles .tile.shot .thumb { cursor:pointer; transition:box-shadow var(--t); }
+.tiles .tile.shot .thumb:hover { box-shadow:0 0 0 1px var(--accent); }
+
+/* one remove button everywhere: a quiet x at the end of the row, there when you point at it */
+.tile.rec-card .remove { position:static; order:9; flex:none; align-self:center; width:24px; height:24px; border-radius:7px; background:none; color:var(--muted); }
+.tile.rec-card .remove:hover, .tiles .tile .remove:hover { background:rgba(26,22,18,.07); color:var(--ink); }
+.tile.rec-card .remove svg { width:11px; height:11px; }
+
+/* ---------- MOTION ----------
+   Things arrive and leave; they do not pop. A new capture slides in, a removed
+   one folds away and the rest close the gap, the main action and the strip
+   answer a press. All short, all the same curve, none when motion is reduced. */
+.tiles .tile { max-height:64px; }
+.tile.rec-card { max-height:96px; }
+.tile.rec-card, .tiles .tile { transition:max-height 240ms cubic-bezier(.23,1,.32,1), padding 240ms cubic-bezier(.23,1,.32,1), opacity 160ms ease, transform 240ms cubic-bezier(.23,1,.32,1), background var(--t), box-shadow var(--t); }
+.tile.rec-card.removing, .tiles .tile.removing { max-height:0; padding-top:0; padding-bottom:0; opacity:0; transform:scale(.98); overflow:hidden; border-top-color:transparent; pointer-events:none; }
+.tile.rec-card.removing { margin-bottom:-8px; box-shadow:none; }
+.tile.enter { animation:tile-in 280ms cubic-bezier(.23,1,.32,1) both; }
+@keyframes tile-in { from { opacity:0; transform:translateY(-6px) scale(.98); } to { opacity:1; transform:none; } }
+.main-act { animation:tile-in 240ms cubic-bezier(.23,1,.32,1) both; }
+.sheet-body > * { animation:tile-in 260ms cubic-bezier(.23,1,.32,1) both; }
+.sheet-body > *:nth-child(2) { animation-delay:30ms; }
+.sheet-body > *:nth-child(3) { animation-delay:60ms; }
+.sheet-body > *:nth-child(4) { animation-delay:90ms; }
+.ways .way, .ways .desc-mic { transition:background var(--t), color var(--t), box-shadow var(--t); }
+.ways .desc-mic::after { transition:opacity var(--t); }
+.create-split { transition:box-shadow var(--t), transform var(--t), opacity 220ms ease; }
+.toast { transition:opacity 180ms ease, transform 240ms cubic-bezier(.23,1,.32,1); }
+@media (prefers-reduced-motion: reduce) {
+  .tile.enter, .main-act, .sheet-body > * { animation:none; }
+  .tile.rec-card, .tiles .tile, .sheet { transition:none; }
+}
+.tile.rec-card.removing { width:100% !important; margin-right:0 !important; }
+
+/* On a page the field keeps its size (three lines); the picture takes the room
+   that is left. A tall popup used to stretch the note into a big empty box. */
+.sheet-body > .ai-wrap, .sheet-body > #trWrap, .sheet-body > #trWrap > .ai-wrap { flex:none; min-height:0; display:block; }
+.sheet .ai-field.has-mic { display:block; flex:none; height:70px; min-height:0; }
+.sheet .transcribing { flex:none; height:70px; min-height:0; }
+.sheet-body > .shot-preview, .sheet-body > .rec-preview, .sheet-body > .rec-poster, .sheet-body > .rec-video { flex:1 1 auto; min-height:104px; height:auto; max-height:none; }
+.sheet-body > .shot-preview { display:flex; }
+.shot-preview img { width:100%; height:100%; max-height:none; object-fit:cover; object-position:top; }
+.sheet-body > .rec-poster, .sheet-body > .rec-video { object-fit:cover; object-position:top; }
+
+/* ---------- SHEETS: over the brief again ----------
+   The page that covered everything lost the sense of where you were. A sheet
+   is a card that comes up over the brief, the brief dimmed behind it, as tall
+   as what it holds (never taller than the popup). A screenshot is shown whole,
+   never cropped: it shrinks to fit, on a neutral ground. */
+.scrim { display:block; }
+.sheet { top:auto; left:8px; right:8px; bottom:8px; max-height:calc(100vh - 16px); border-radius:16px; box-shadow:0 0 0 1px var(--hairline), 0 16px 44px -10px rgba(26,22,18,.4);
+  transform:translateY(calc(100% + 16px)); opacity:1; visibility:visible; transition:transform 280ms cubic-bezier(.23,1,.32,1); }
+.sheet.open { transform:none; transition:transform 280ms cubic-bezier(.23,1,.32,1); }
+.sheet-head { padding:12px 10px 10px 14px; }
+.sheet-body { padding:0 10px 10px; min-height:0; overflow:hidden; }
+.sheet-body > .shot-preview { flex:0 1 auto; min-height:80px; height:auto; align-items:center; justify-content:center; background:#ebe7de; }
+.shot-preview img { width:100%; height:100%; max-height:none; object-fit:contain; object-position:center; }
+.sheet-body > .rec-preview, .sheet-body > .rec-poster, .sheet-body > .rec-video { flex:0 1 auto; height:auto; aspect-ratio:16/9; min-height:80px; max-height:none; }
+.rec-preview .rec-vid, .sheet-body > .rec-poster, .sheet-body > .rec-video { object-fit:contain; object-position:center; background:#ebe7de; }
+
+/* Screenshot and its time delay are one control. The strip sits in a card;
+   Screenshot's segment ends in a small chevron chip (it shows "3s" while a
+   delay is set), and the chip opens the Time delay row inside the same card,
+   under a hairline, like a disclosure. */
+.ways-card { position:relative; flex:none; border-radius:10px; background:var(--card); box-shadow:0 0 0 1px var(--hairline); }
+.ways-card > .ways { background:none; box-shadow:none; border-radius:0; }
+.ways > .way-split { flex:0 0 auto; display:flex; align-items:center; border-radius:10px 0 0 10px; transition:background var(--t); }
+.ways-card:has(.opt-row.open) .ways > .way-split { border-radius:10px 0 0 0; }
+.ways-card:has(.opt-row.open) .ways > .desc-mic { border-radius:0 10px 0 0; }
+.ways > .way-split:has(#wayShot:hover:not(:disabled)) { background:rgba(26,22,18,.04); }
+.ways .way-split #wayShot { flex:none; padding:0 5px 0 11px; background:none; }
+.ways .way-split #wayShot:hover { background:none; }
+.ways .way-opt { flex:none; display:flex; align-items:center; justify-content:center; gap:1px; height:24px; min-width:24px; margin-right:6px; padding:0 5px;
+  border:0; border-radius:6px; background:none; cursor:pointer; font-family:inherit; font-size:11.5px; font-weight:600; color:var(--muted);
+  transition:background var(--t), color var(--t); }
+.ways .way-opt svg { width:14px; height:14px; transition:transform 220ms cubic-bezier(.23,1,.32,1); }
+.ways .way-opt:hover, .ways .way-opt[aria-expanded="true"] { background:rgba(26,22,18,.07); color:var(--ink); }
+.ways .way-opt[aria-expanded="true"] svg { transform:rotate(180deg); }
+.ways .way-opt.set { padding:0 3px 0 7px; color:var(--accent); background:rgba(221,105,54,.1); }
+.ways .way-opt.set:hover, .ways .way-opt.set[aria-expanded="true"] { background:rgba(221,105,54,.16); color:var(--accent); }
+.ways .way-opt .way-opt-v:empty { display:none; }
+.ways > .way-split + .way, .ways > .desc-mic { flex:1 1 0; padding:0 2px; }
+.ways-card .opt-row { display:grid; grid-template-rows:0fr; margin:0; opacity:0;
+  transition:grid-template-rows 240ms cubic-bezier(.23,1,.32,1), opacity 180ms ease; }
+.ways-card .opt-row.open { grid-template-rows:1fr; opacity:1; }
+.ways-card .opt-in { overflow:hidden; min-height:0; display:flex; align-items:center; justify-content:space-between; padding:0 6px 0 12px; }
+.ways-card .opt-row.open .opt-in { border-top:1px solid var(--hairline); padding-top:6px; padding-bottom:6px; }
+.opt-l { font-size:12.5px; color:var(--muted); }
+.segm { display:flex; padding:2px; border-radius:8px; background:rgba(26,22,18,.06); }
+.segm button { height:24px; min-width:40px; padding:0 9px; border:0; border-radius:6px; background:none; cursor:pointer; font-family:inherit; font-size:12px; font-weight:500; color:var(--ink-2);
+  transition:background var(--t), box-shadow var(--t), color var(--t); }
+.segm button:hover:not([aria-checked="true"]) { color:var(--ink); }
+.segm button[aria-checked="true"] { background:var(--card); color:var(--ink); box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.08); }
+
+/* the last minute, as a row (no overlay on its picture) */
+.tiles .tile.rep .thumb { background:#fbf6ee; }
+.tiles .tile.rep .play { top:50%; }
+.tiles .tile.rep .rc-body { flex:1; min-width:0; }
+.tiles .tile.rep .rep-t { position:static; display:block; padding:0; background:none; color:var(--ink); font-size:13px; font-weight:500; line-height:1.35; }
+.tiles .tile.rep .rep-s { font-size:12px; line-height:1.35; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* The video is a row like the others (same picture size), first in the list.
+   Its voice is one quiet line under its name; the full words are one click
+   away, in its transcript. */
+.tiles .tile.rec .rc-body { flex:1; min-width:0; }
+.tiles .tile.rec .rec-foot { display:flex; align-items:center; gap:5px; font-size:13px; font-weight:500; line-height:1.35; overflow:hidden; white-space:nowrap; }
+.tiles .tile.rec .rc-ok { width:14px; height:14px; }
+.tiles .tile.rec .rc-ok svg { width:9px; height:9px; }
+.tiles .tile.rec .voice-line { display:block; width:100%; padding:0; font-size:12px; line-height:1.35; color:var(--muted); text-align:left; }
+.tiles .tile.rec .voice-line .ico { display:none; }
+.tiles .tile.rec .voice-line .ntxt { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tiles .tile.rec .voice-line:hover { color:var(--ink); }
+.tiles .tile.rec .play { top:50%; }
+.gallery { min-width:0; }
+.gallery .tiles { width:100%; max-width:100%; min-width:0; }
+.tiles .tile { min-width:0; max-width:100%; }
+/* at most five rows (a video, the last minute, three screenshots): all shown, none hidden behind a scroll */
+.gallery .tiles { max-height:none; overflow:visible; }
+
+/* ---------- ONE KIND OF ROW ----------
+   Every capture is a row: its picture, its name ("Video · 0:42",
+   "Screenshot 1", "Last minute · 0:04"), and under the name its words: what
+   you said, the note you type here, or the site it was on. */
+.tiles .tile .rc-body { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:1px; }
+.tiles .tile .rep-t, .tiles .tile.rec .rec-foot { position:static; display:flex; align-items:center; gap:5px; padding:0; background:none;
+  color:var(--ink); font-size:13px; font-weight:500; line-height:1.35; white-space:nowrap; overflow:hidden; }
+.tiles .tile .rep-s, .tiles .tile.rec .voice-line { font-size:12px; line-height:1.35; color:var(--muted); }
+.tiles .tile.rec .voice-line.novoice { color:var(--faint, #aaa396); }
+.tiles .row-note { display:block; flex:none; width:calc(100% + 8px); height:18px; margin:0 0 0 -4px; padding:0 4px; border:0; border-radius:4px;
+  background:none; font-family:inherit; font-size:12px; line-height:18px; color:var(--ink-2); cursor:text; transition:background var(--t), box-shadow var(--t); }
+.tiles .row-note::placeholder { color:var(--muted); }
+.tiles .row-note:hover { background:rgba(26,22,18,.04); }
+.tiles .row-note:focus { outline:none; background:#fff; box-shadow:0 0 0 1px var(--accent), 0 0 0 3px rgba(221,105,54,.14); }
+
+/* ---------- SPEAK, IN THE BOX ----------
+   Speaking only writes into the text box, so its mic is in the box (as on the
+   screenshot and recording sheets), not in the strip of captures. While it
+   listens the box lights and the words come in live. */
+.composer .ai-wrap::after { display:none !important; }
+.composer .ai-field.has-mic, .composer .ai-field.has-mic:focus { padding:10px 40px 10px 12px; }
+.composer .ai-wrap .desc-mic { position:absolute; left:auto; top:auto; right:6px; bottom:6px; width:28px; height:28px; padding:0; border-radius:8px;
+  justify-content:center; background:none; color:var(--muted); }
+.composer .ai-wrap .desc-mic::after { content:none; }
+.composer .ai-wrap .desc-mic svg { width:16px; height:16px; }
+.composer .ai-wrap .desc-mic:hover { background:rgba(26,22,18,.06); color:var(--ink); }
+.composer .ai-wrap .desc-mic.rec { background:rgba(221,105,54,.12); color:var(--accent); }
+.composer .ai-wrap .desc-mic.rec .mic-stop { background:var(--accent); width:10px; height:10px; margin:0; border-radius:3px; }
+.composer .ai-wrap .desc-mic.busy { background:none; }
+.composer .ai-wrap .desc-mic-msg { left:auto; right:40px; top:auto; bottom:9px; }
+.composer .ai-field.hearing { background:#fff; box-shadow:0 0 0 1px var(--accent), 0 0 0 4px rgba(221,105,54,.14); }
+/* the strip holds the two captures, half each */
+.ways > .way-split { flex:1 1 0; }
+.ways .way-split #wayShot { flex:1; justify-content:center; padding-left:12px; }
+.ways > :last-child { border-radius:0 10px 10px 0; }
+.ways-card:has(.opt-row.open) .ways > :last-child { border-radius:0 10px 0 0; }
+
+
+/* "Record and talk" is the same size as the row that takes its place once you
+   have recorded: the same height, its icon in a box the size of a picture, the
+   same two lines, the same flat edge. Only the icon is orange. */
+.main-act { gap:11px; padding:7px 8px 7px 9px; border-radius:12px;
+  box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.04); }
+.main-act:hover { background:#fff; box-shadow:0 0 0 1px var(--line), 0 1px 2px rgba(26,22,18,.04); }
+.ma-ic { width:52px; height:39px; border-radius:7px; }
+.ma-ic svg { width:17px; height:17px; }
+.ma-t b { font-size:13px; font-weight:500; line-height:1.35; letter-spacing:0; }
+.ma-t small { font-size:12px; line-height:1.35; margin-top:1px; }
+.ma-chev { margin-right:4px; }
+
+/* ---------- THE TEXT BOX: ONE LINE ----------
+   It is used now and then (a word or two, or a report with nothing captured),
+   so it takes one line, the mic at its end, and grows as you write. The popup
+   is as tall as what it holds. */
+body, body:has(#bashRow:not([hidden])), body:has(#reconnectBtn:not([hidden])),
+body:has(#bashRow:not([hidden])):has(#reconnectBtn:not([hidden])) { --h:0px; }
+.composer { flex:none; }
+.composer .ai-wrap { flex:none; min-height:0; display:block; }
+#descField, .composer .ai-field.has-mic, .composer .ai-field.has-mic:focus { display:block; height:38px; min-height:38px; max-height:122px; overflow-y:auto;
+  padding:9px 40px 9px 12px; line-height:1.45; transition:border-color var(--t), box-shadow var(--t), background var(--t); }
+.composer .ai-wrap .desc-mic { bottom:5px; }
+
+/* a screenshot's note reads like the video's words: one line, under its name */
+.tiles .tile .note-line { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--ink-2); }
+.tiles .tile .note-line.empty { color:var(--muted); }
+/* The remove x is always there, faint, and full on hover. Hover alone was
+   unreliable: a row redrawn under a still pointer (a recording uploading or
+   transcribing) only shows its hover once the pointer moves. */
+.tiles .tile .remove { opacity:.45; }
+.tiles .tile:hover .remove, .tiles .tile .remove:focus-visible { opacity:1; }
+
+/* ---------- THE EVIDENCE CARD ----------
+   One card holds the evidence of this brief: each capture as a row, then
+   "Add evidence", which opens the ways to add more in place, rows of the same
+   shape (their icon in a box the size of a picture). With nothing captured
+   yet, the ways are the card. A way already used up is not offered. */
+.ev-card { flex:none; border-radius:12px; background:var(--card); box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.04); overflow:hidden; }
+.ev-card .gallery { gap:0; }
+.ev-card .gallery .tiles { box-shadow:none; border-radius:0; background:none; }
+.ev-add { display:flex; align-items:center; gap:11px; width:100%; height:42px; padding:0 14px 0 9px; border:0; border-top:1px solid var(--hairline);
+  background:none; cursor:pointer; font-family:inherit; font-size:13px; font-weight:500; color:var(--ink-2); text-align:left; transition:background var(--t), color var(--t); }
+.ev-add:hover { background:rgba(26,22,18,.03); color:var(--ink); }
+.ev-add-ic { width:52px; display:grid; place-items:center; color:var(--accent); flex:none; }
+.ev-add-ic svg { width:16px; height:16px; }
+.ev-add-chev { margin-left:auto; display:flex; color:var(--muted); }
+.ev-add-chev svg { width:15px; height:15px; transition:transform 240ms cubic-bezier(.23,1,.32,1); }
+.ev-add[aria-expanded="true"] .ev-add-chev svg { transform:rotate(180deg); }
+.ev-ways { display:grid; grid-template-rows:0fr; transition:grid-template-rows 260ms cubic-bezier(.23,1,.32,1); }
+.ev-ways.open { grid-template-rows:1fr; }
+.ev-ways-in { min-height:0; overflow:hidden; }
+.ev-card.has .ev-ways.open .ev-ways-in { border-top:1px solid var(--hairline); background:rgba(26,22,18,.015); }
+.ev-ways-in > :not([hidden]) ~ :not(.opt-row):not([hidden]) { border-top:1px solid var(--hairline); }
+.ev-way { display:flex; align-items:center; gap:11px; width:100%; padding:7px 12px 7px 9px; border:0; background:none; cursor:pointer;
+  font-family:inherit; text-align:left; color:var(--ink); transition:background var(--t); }
+.ev-way:hover:not(:disabled) { background:rgba(26,22,18,.03); }
+.ev-way:active:not(:disabled) { background:rgba(26,22,18,.05); }
+.ev-way:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.ev-ic { width:52px; height:39px; border-radius:7px; flex:none; display:grid; place-items:center; background:rgba(26,22,18,.045); color:var(--ink-2); }
+.ev-ic svg { width:17px; height:17px; }
+.ev-rec .ev-ic { background:rgba(221,105,54,.1); color:var(--accent); }
+.ev-t { flex:1; min-width:0; }
+.ev-t b { display:block; font-size:13px; font-weight:500; line-height:1.35; }
+.ev-t small { display:block; font-size:12px; line-height:1.35; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ev-way-split { display:flex; align-items:center; }
+.ev-way-split .ev-way { flex:1; min-width:0; }
+.ev-way-split:has(> .ev-way:hover) { background:rgba(26,22,18,.03); }
+.ev-way-split > .ev-way:hover { background:none; }
+.ev-way-split .way-opt { flex:none; display:flex; align-items:center; justify-content:center; gap:1px; height:26px; min-width:26px; margin-right:10px; padding:0 5px;
+  border:0; border-radius:7px; background:none; cursor:pointer; font-family:inherit; font-size:11.5px; font-weight:600; color:var(--muted); transition:background var(--t), color var(--t); }
+.ev-way-split .way-opt svg { width:14px; height:14px; transition:transform 220ms cubic-bezier(.23,1,.32,1); }
+.ev-way-split .way-opt:hover, .ev-way-split .way-opt[aria-expanded="true"] { background:rgba(26,22,18,.07); color:var(--ink); }
+.ev-way-split .way-opt[aria-expanded="true"] svg { transform:rotate(180deg); }
+.ev-way-split .way-opt.set { padding:0 3px 0 7px; color:var(--accent); background:rgba(221,105,54,.1); }
+.ev-way-split .way-opt .way-opt-v:empty { display:none; }
+.ev-ways-in .opt-row { display:grid; grid-template-rows:0fr; opacity:0; transition:grid-template-rows 240ms cubic-bezier(.23,1,.32,1), opacity 180ms ease; }
+.ev-ways-in .opt-row.open { grid-template-rows:1fr; opacity:1; }
+.ev-ways-in .opt-in { overflow:hidden; min-height:0; display:flex; align-items:center; justify-content:space-between; padding:0 10px 0 72px; }
+.ev-ways-in .opt-row.open .opt-in { padding-top:2px; padding-bottom:8px; }
+
+/* "Add evidence" opens a sheet: its arrow points the way, and on the sheet the
+   ways are one card of rows */
+.ev-add-chev svg { transform:rotate(-90deg); }
+.sheet .ev-ways { display:block; }
+/* each way its own soft colour, not the video alone */
+.ev-rec .ev-ic { background:rgba(221,105,54,.11); color:#d0602f; }
+#wayShot .ev-ic { background:rgba(61,123,217,.11); color:#3d74cc; }
+#wayRep .ev-ic { background:rgba(122,90,216,.11); color:#6f52c9; }
+.sheet .ev-ways-in { border-radius:12px; background:var(--card); box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.04); overflow:hidden; }
+
+/* The captures are their card; "Add evidence" is not in it: a quiet dashed
+   button under it, which opens the ways on a sheet. */
+.ev-add, .ev-card.has + .ev-add { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; height:36px; padding:0 12px;
+  border:1px dashed rgba(26,22,18,.2); border-top:1px dashed rgba(26,22,18,.2); border-radius:10px; background:none;
+  font-size:12.5px; font-weight:500; color:var(--muted); transition:color var(--t), border-color var(--t), background var(--t); }
+.ev-add[hidden] { display:none; }
+.ev-add svg { width:14px; height:14px; }
+.ev-add:hover { color:var(--accent); border-color:rgba(221,105,54,.5); background:rgba(221,105,54,.05); }
+.ev-add:active { transform:scale(.99); }
+.ev-card:not(.has) .gallery { display:none; }
+.ev-card.has:not(:has(.ev-ways.open)) { }
+
+/* ---------- ONE CARD EACH ----------
+   Every capture is a card of its own, and so is every way to add one; they
+   stack with a little air between them. */
+.ev-card, .ev-card.has { background:none; box-shadow:none; border-radius:0; overflow:visible; }
+.ev-card .gallery .tiles, .gallery .tiles { gap:6px; background:none; box-shadow:none; border-radius:0; overflow:visible; }
+.tiles .tile { background:var(--card); border-radius:12px; box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.04); }
+.tiles .tile + .tile { border-top:0; }
+.tiles .tile:hover { background:#fff; box-shadow:0 0 0 1px var(--line), 0 1px 2px rgba(26,22,18,.05); }
+.tiles .tile.removing { margin-bottom:-6px; }
+.ev-ways-in { display:flex; flex-direction:column; gap:6px; padding:1px; margin:-1px; }
+.ev-ways-in > :not([hidden]) ~ :not(.opt-row):not([hidden]) { border-top:0; }
+.ev-card.has .ev-ways.open .ev-ways-in, .sheet .ev-ways-in { border-top:0; background:none; box-shadow:none; border-radius:0; }
+.ev-ways-in > .ev-way, .ev-ways-in > .ev-way-card { background:var(--card); border-radius:12px; box-shadow:0 0 0 1px var(--hairline), 0 1px 2px rgba(26,22,18,.04); overflow:hidden;
+  transition:background var(--t), box-shadow var(--t); }
+.ev-ways-in > .ev-way:hover:not(:disabled), .ev-ways-in > .ev-way-card:has(.ev-way:hover) { background:#fff; box-shadow:0 0 0 1px var(--line), 0 1px 2px rgba(26,22,18,.05); }
+.ev-ways-in > .ev-way-card[hidden] { display:none; }
+.ev-way-card .ev-way-split:has(> .ev-way:hover) { background:none; }
+.ev-way-card .opt-row { display:grid; grid-template-rows:0fr; opacity:0; transition:grid-template-rows 240ms cubic-bezier(.23,1,.32,1), opacity 180ms ease; }
+.ev-way-card .opt-row.open { grid-template-rows:1fr; opacity:1; }
+.ev-way-card .opt-in { overflow:hidden; min-height:0; display:flex; align-items:center; justify-content:space-between; padding:0 10px 0 72px; }
+.ev-way-card .opt-row.open .opt-in { padding-top:2px; padding-bottom:8px; }
+
+/* closed, the ways are gone entirely (a collapsed row used to peek out under the captures) */
+.ev-ways:not(.open) { display:none; }
+
+/* "Add evidence": a small text button right under the captures, part of the
+   list, not a box of its own between the list and the text box */
+.ev-add, .ev-card.has + .ev-add { align-self:flex-start; width:auto; height:28px; margin:-3px 0 -1px 2px; padding:0 9px 0 7px; gap:5px; justify-content:flex-start;
+  border:0; border-radius:8px; background:none; font-size:12.5px; font-weight:500; color:var(--ink-2); }
+.ev-add svg { width:14px; height:14px; color:var(--accent); }
+.ev-add:hover { background:rgba(26,22,18,.05); color:var(--ink); border:0; }
+
+/* ---------- THE WAYS AS BOXES ----------
+   Record and talk, Screenshot, Last minute: three boxes side by side, a
+   coloured icon over a name (what each does is in its tooltip). Screenshot's
+   time delay is a chip in its corner; its row opens under the boxes. */
+.ev-ways-in { flex-direction:row; flex-wrap:wrap; }
+.ev-ways-in > .ev-way, .ev-ways-in > .ev-way-card { flex:1 1 0; min-width:0; }
+.ev-ways-in > .opt-row { flex:0 0 100%; }
+.ev-ways-in .ev-way { flex-direction:column; justify-content:center; align-items:center; gap:9px; height:92px; padding:12px 6px 10px; text-align:center; }
+.ev-ways-in .ev-ic { width:40px; height:40px; border-radius:12px; }
+.ev-ways-in .ev-ic svg { width:19px; height:19px; }
+.ev-ways-in .ev-t { flex:none; }
+.ev-ways-in .ev-t b { font-size:12.5px; white-space:nowrap; }
+.ev-ways-in .ev-t small { display:none; }
+.ev-ways-in > .ev-way-card { position:relative; }
+.ev-way-card .ev-way-split { display:block; }
+.ev-way-card .ev-way-split .ev-way { width:100%; }
+.ev-way-card .ev-way-split .way-opt { position:absolute; top:6px; right:6px; margin:0; height:22px; min-width:22px; padding:0 3px; border-radius:6px; }
+.ev-way-card .ev-way-split .way-opt.set { padding:0 2px 0 6px; }
+.ev-way-card .ev-way-split .way-opt svg { width:13px; height:13px; }
+.ev-ways-in > .opt-row .opt-in { padding:0 6px 0 12px; border-radius:12px; }
+.ev-ways-in > .opt-row.open .opt-in { padding:6px 6px 6px 12px; background:var(--card); box-shadow:inset 0 0 0 1px var(--hairline); }
+/* three equal boxes, whatever their names */
+.ev-ways-in > .ev-way, .ev-ways-in > .ev-way-card { flex:1 1 0; width:0; min-width:0; }
+.ev-ways-in .ev-way { padding-left:4px; padding-right:4px; }
+.ev-ways-in .ev-t { max-width:100%; }
+.ev-ways-in .ev-t b { font-size:12px; overflow:hidden; text-overflow:ellipsis; }
+
+/* each box: icon, name, and one short line under it. Screenshot's line is
+   its time delay ("No delay" / "3s delay"), a quiet button that opens the
+   Time delay row under the boxes. */
+.ev-ways-in .ev-way { height:100px; gap:8px; padding-bottom:12px; }
+.ev-ways-in .ev-t small { display:block; margin-top:2px; font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ev-ways-in #wayShot .ev-t small { visibility:hidden; }
+.ev-way-card .ev-way-split .way-opt, .ev-way-card .ev-way-split .way-opt.set { top:auto; right:auto; left:50%; bottom:9px; transform:translateX(-50%);
+  height:20px; min-width:0; padding:0 3px 0 6px; gap:2px; border-radius:6px; background:none; color:var(--muted); font-size:11.5px; font-weight:400; white-space:nowrap; }
+.ev-way-card .ev-way-split .way-opt.set { color:var(--accent); font-weight:500; }
+.ev-way-card .ev-way-split .way-opt:hover, .ev-way-card .ev-way-split .way-opt[aria-expanded="true"] { background:rgba(26,22,18,.06); color:var(--ink); }
+.ev-way-card .ev-way-split .way-opt.set:hover { color:var(--accent); }
+.ev-way-card .ev-way-split .way-opt svg { width:12px; height:12px; }
+.ev-way-card .ev-way-split .way-opt .way-opt-v:empty { display:inline; }
+
+/* Never smaller than it opens: the popup keeps at least the height of a new
+   brief (the three boxes), so taking a first screenshot or removing one
+   doesn't make the window jump smaller. It still grows with more evidence. */
+body, body:has(#bashRow:not([hidden])), body:has(#reconnectBtn:not([hidden])),
+body:has(#bashRow:not([hidden])):has(#reconnectBtn:not([hidden])) { --h:280px; }
+.create-wrap { margin-top:auto; }
+
+/* the icons on their own: a clean line icon in its colour, no tinted square */
+.ev-ways-in .ev-ic, .ev-ways-in .ev-rec .ev-ic, .ev-ways-in #wayShot .ev-ic, .ev-ways-in #wayRep .ev-ic { width:auto; height:auto; border-radius:0; background:none; }
+.ev-ways-in .ev-ic svg { width:22px; height:22px; stroke-width:1.6; }
+.ev-ways-in .ev-way { height:88px; gap:10px; padding-top:14px; }
+.ev-ways-in .ev-way { height:98px; gap:11px; padding-top:16px; }
+body, body:has(#bashRow:not([hidden])), body:has(#reconnectBtn:not([hidden])), body:has(#bashRow:not([hidden])):has(#reconnectBtn:not([hidden])) { --h:278px; }
+.ev-way-card .ev-way-split .way-opt, .ev-way-card .ev-way-split .way-opt.set { bottom:13px; }
+
+/* a set delay reads like no delay: same quiet grey, no colour */
+.ev-way-card .ev-way-split .way-opt.set { color:var(--muted); font-weight:400; background:none; }
+.ev-way-card .ev-way-split .way-opt.set:hover, .ev-way-card .ev-way-split .way-opt.set[aria-expanded="true"] { background:rgba(26,22,18,.06); color:var(--ink); }
+
+/* Spare height (the popup never shrinks below a new brief's height) goes to
+   the text box, not to an empty gap above Create. */
+.create-wrap { margin-top:0; }
+.composer { flex:1 1 auto; }
+.composer .ai-wrap { flex:1 1 auto; display:flex; flex-direction:column; }
+#descField, .composer .ai-field.has-mic, .composer .ai-field.has-mic:focus { flex:1 1 auto; height:auto; max-height:none; }
+
+/* The list has a header: "Evidence" on the left, "+ Add" on the right (it
+   opens the ways on a sheet). Nothing sits between the list and the text box. */
+.ev-head { display:flex; align-items:center; justify-content:space-between; height:24px; margin:-2px 0 -4px; padding:0 0 0 4px; }
+.ev-head[hidden] { display:none; }
+.ev-head-t { font-size:12px; font-weight:500; color:var(--muted); }
+.ev-head .ev-add, .ev-head .ev-add:hover { align-self:center; width:auto; height:24px; margin:0; padding:0 8px 0 6px; gap:4px; border:0; border-radius:7px;
+  font-size:12px; font-weight:500; justify-content:center; }
+.ev-head .ev-add { background:none; color:var(--muted); }
+.ev-head .ev-add:hover { background:rgba(26,22,18,.06); color:var(--ink); }
+.ev-head .ev-add[hidden] { display:none; }
+.ev-head .ev-add svg { width:13px; height:13px; color:currentColor; }
+
+/* ---------- TRANSITIONS ----------
+   The ways rise in, one after the other, whenever they appear: a new brief,
+   the last capture removed, the Add sheet opening. The Evidence header fades
+   in with the list. All on one curve; none with reduced motion. */
+@keyframes way-in { from { opacity:0; transform:translateY(8px) scale(.97); } to { opacity:1; transform:none; } }
+@keyframes soft-in { from { opacity:0; transform:translateY(-3px); } to { opacity:1; transform:none; } }
+.ev-ways.open .ev-ways-in > .ev-way, .ev-ways.open .ev-ways-in > .ev-way-card { animation:way-in 340ms cubic-bezier(.23,1,.32,1) both; }
+.ev-ways.open .ev-ways-in > :nth-child(2) { animation-delay:45ms; }
+.ev-ways.open .ev-ways-in > :nth-child(3) { animation-delay:90ms; }
+.ev-head:not([hidden]) { animation:soft-in 240ms cubic-bezier(.23,1,.32,1) both; }
+.composer .ai-wrap, .create-wrap { transition:transform 260ms cubic-bezier(.23,1,.32,1); }
+.ev-way, .ev-way-card, .tiles .tile { will-change:auto; }
+@media (prefers-reduced-motion: reduce) {
+  .ev-ways.open .ev-ways-in > .ev-way, .ev-ways.open .ev-ways-in > .ev-way-card, .ev-head:not([hidden]) { animation:none; }
+}
+
+.ev-head.leaving { opacity:0; transform:translateY(-3px); transition:opacity 180ms ease, transform 200ms cubic-bezier(.23,1,.32,1); animation:none; }
+
+.tiles .tile.fading { opacity:0; transform:scale(.98); transition:opacity 150ms ease, transform 150ms ease; pointer-events:none; }
+
+/* smaller boxes */
+.ev-ways-in .ev-way { height:82px; gap:8px; padding-top:13px; padding-bottom:10px; }
+.ev-ways-in .ev-ic svg { width:19px; height:19px; }
+.ev-ways-in .ev-t b { font-size:12px; }
+.ev-ways-in .ev-t small { font-size:11px; margin-top:1px; }
+.ev-way-card .ev-way-split .way-opt, .ev-way-card .ev-way-split .way-opt.set { bottom:9px; height:19px; font-size:11px; }
+body, body:has(#bashRow:not([hidden])), body:has(#reconnectBtn:not([hidden])),
+body:has(#bashRow:not([hidden])):has(#reconnectBtn:not([hidden])) { --h:262px; }
+/* a capture added a moment ago slides in once the popup has appeared */
+.tile.enter { animation:tile-in 380ms cubic-bezier(.23,1,.32,1) both; }
+.tile.enter-late { animation-delay:120ms; }
+@keyframes tile-in { from { opacity:0; transform:translateY(-8px) scale(.97); } to { opacity:1; transform:none; } }
+
+/* the mic sits on the first line of the box (centred in a one-line box), not
+   pinned to the bottom of a taller one */
+.composer .ai-wrap { position:relative; }
+.composer .ai-wrap .desc-mic { top:5px; bottom:auto; }
+.composer .ai-wrap .desc-mic-msg { top:9px; bottom:auto; }
+/* "+ Add": small but easy to spot, in the accent, on a faint tint */
+.ev-head .ev-add { color:var(--accent); background:rgba(221,105,54,.08); font-weight:600; }
+.ev-head .ev-add:hover { color:#c95e2c; background:rgba(221,105,54,.14); }
+
+/* The visible box is the wrapper: it takes the popup's spare height, and the
+   text line and the mic sit centred in it, whatever its height. */
+.composer .ai-wrap { flex:1 1 auto; display:flex; flex-direction:column; justify-content:center; min-height:38px; cursor:text;
+  background:var(--card); border-radius:10px; box-shadow:0 0 0 1px var(--hairline); transition:background var(--t), box-shadow var(--t); }
+.composer .ai-wrap:focus-within, .composer .ai-wrap:has(.hearing) { background:#fff; box-shadow:0 0 0 1px var(--accent), 0 0 0 4px rgba(221,105,54,.14); }
+#descField, .composer .ai-field.has-mic, .composer .ai-field.has-mic:focus, .composer .ai-field.hearing {
+  flex:none !important; background:transparent; box-shadow:none; border:0; border-radius:10px; }
+.composer .ai-wrap .desc-mic { top:50%; bottom:auto; transform:translateY(-50%); }
+.composer .ai-wrap .desc-mic:active { transform:translateY(-50%) scale(.94); }
+.composer .ai-wrap .desc-mic-msg { top:50%; bottom:auto; transform:translateY(-50%); }
+
+/* "Evidence" and "+ Add": the same size and weight; Add in the accent, no tint */
+.ev-head-t, .ev-head .ev-add, .ev-head .ev-add:hover { font-size:12.5px; font-weight:500; }
+.ev-head .ev-add { background:none; color:var(--accent); padding:0 4px 0 4px; margin-right:-4px; }
+.ev-head .ev-add:hover { background:none; color:#c95e2c; text-decoration:underline; text-underline-offset:3px; }
+/* hover on "+ Add": the colour only deepens; nothing else moves or appears */
+.ev-head .ev-add, .ev-head .ev-add:hover, .ev-head .ev-add:active, .ev-head .ev-add:focus { border:0; box-shadow:none; transform:none; text-decoration:none; background:none; }
+.ev-head .ev-add { transition:color var(--t); }
+.ev-head .ev-add:hover { color:#b9541f; }
+.ev-head .ev-add:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.ev-head .ev-add, .ev-head .ev-add:hover, .ev-head .ev-add:active { padding:0 4px; margin:0 -4px 0 0; height:24px; gap:4px; width:auto; }
+/* hover: the plus turns a quarter turn; a press, a small give. The button keeps its size. */
+.ev-head .ev-add svg { transition:transform 280ms cubic-bezier(.23,1,.32,1); }
+.ev-head .ev-add:hover svg { transform:rotate(90deg); }
+.ev-head .ev-add:active svg { transform:rotate(90deg) scale(.85); transition-duration:120ms; }
+@media (prefers-reduced-motion: reduce) { .ev-head .ev-add svg { transition:none; } .ev-head .ev-add:hover svg { transform:none; } }

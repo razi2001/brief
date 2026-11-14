@@ -41,7 +41,7 @@ export default function Avatar({
   ) : (
     <span
       style={{ width: size, height: size }}
-      className="flex shrink-0 items-center justify-center rounded-full bg-[rgba(221,105,54,.12)] text-[0.6875rem] text-accent"
+      className="flex shrink-0 items-center justify-center rounded-full bg-[#fbe9df] text-[0.6875rem] text-accent"
     >
       {initialsOf(name)}
     </span>

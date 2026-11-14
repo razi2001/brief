@@ -87,6 +87,9 @@ function buildOverrides(d) {
     includeVideo: !!d.includeVideo,
     transcript: d.transcript || '',
     description: d.description || '',
+    // the recording's narration was transcribed and nothing was said: the
+    // server must not transcribe it again (it would invent words for silence)
+    ...(d.recording && d.noSpeech && !(d.transcript || '').trim() ? { noSpeech: true } : {}),
     ...(d.autoReport ? { autoReport: true } : {}),
     // the popup's bug bash switch, off for this brief: the server then sends it
     // on as if you were in no bug bash

@@ -18,7 +18,7 @@ export default function Crumbs({ items }: { items: Crumb[] }) {
             </svg>
           )}
           {c.href ? (
-            <Link href={c.href} className="-mx-1 shrink-0 rounded px-1 py-0.5 text-muted no-underline transition-colors hover:bg-white/60 hover:text-ink">
+            <Link href={c.href} className="-mx-1 shrink-0 rounded px-1 py-0.5 text-muted no-underline transition-colors hover:bg-hover hover:text-ink">
               {c.label}
             </Link>
           ) : (

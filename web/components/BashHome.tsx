@@ -148,10 +148,10 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
   const offered = suggestions.filter((s) => !taken.has(s.name.trim().toLowerCase()));
 
   return (
-    <div className="mx-auto w-full max-w-[1040px]">
+    <div className="w-full">
       <header className="flex items-center justify-between gap-4">
-        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Bug bash</h1>
-        <Link href="/bash/new" className="btn-accent h-8 shrink-0">
+        <h1 className="page-title">Bug bash</h1>
+        <Link href="/bash/new" className="btn-accent h-[30px] shrink-0">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -159,7 +159,7 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
         </Link>
       </header>
 
-      <div role="tablist" aria-label="Bug bashes" className="mt-3 flex flex-wrap items-center gap-1.5">
+      <div role="tablist" aria-label="Bug bashes" className="-ml-2 mt-4 flex flex-wrap items-center gap-0.5">
         {tabs.map((t) => {
           const on = tab === t.key;
           return (
@@ -171,12 +171,10 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
               aria-selected={on}
               aria-controls="bash-list"
               onClick={() => setPicked(t.key)}
-              className={`inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-[13px] transition-colors ${
-                on ? "bg-ink text-cream" : "bg-white/60 text-ink-2 shadow-[0_0_0_1px_rgba(26,22,18,.07)] hover:bg-white hover:text-ink"
-              }`}
+              className="tab"
             >
               <span className="truncate">{t.label}</span>
-              <span className={`tabular-nums ${on ? "text-cream/70" : "text-muted"}`}>{lists[t.key].length}</span>
+              <span className="tab-count">{lists[t.key].length}</span>
             </button>
           );
         })}
@@ -189,20 +187,20 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
 
       <div id="bash-list" role="tabpanel" aria-labelledby={`bash-tab-${tab}`} className="mt-4">
         {items.length > 0 ? (
-          <ul className="card divide-y divide-hairline p-0">
+          <ul className="-mx-2.5">
             {items.map((b) => {
               const part = partOf(b);
               return (
                 <li
                   key={b.code}
-                  className="relative flex items-center gap-x-3 gap-y-2 px-3.5 py-2.5 transition-colors first:rounded-t-[11px] last:rounded-b-[11px] hover:bg-surface-2 has-[[aria-expanded=true]]:z-20 max-sm:flex-wrap sm:pl-4 sm:pr-2.5"
+                  className="list-row has-[[aria-expanded=true]]:z-20 max-sm:flex-wrap"
                 >
                   {/* The whole line opens the bug bash; its actions sit above that. */}
                   <Link href={`/bash/${b.code}`} aria-label={b.name} className="absolute inset-0 rounded-[inherit]" />
                   <PhaseMark part={part} phase={b.phase} />
-                  <span className="min-w-0 flex-1">
-                    <span className={`block truncate text-[14px] font-medium leading-snug ${part === "closed" ? "text-ink-2" : "text-ink"}`}>{b.name}</span>
-                    <span className="mt-0.5 block truncate text-[12.5px] tabular-nums text-muted">
+                  <span className="flex min-w-0 flex-1 items-baseline gap-2.5">
+                    <span className={`truncate text-[13.5px] leading-snug ${part === "closed" ? "text-ink-2" : "text-ink"}`}>{b.name}</span>
+                    <span className="truncate text-xs tabular-nums text-muted">
                       {datesOf(b)} · {lengthLabel(b.minutes)} each · {b.people} {b.people === 1 ? "person" : "people"}
                     </span>
                   </span>
@@ -210,22 +208,22 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
                     <State item={b} part={part} />
                     <span className="flex items-center gap-1">
                       {part === "todo" && (
-                        <button type="button" onClick={() => void act("start", b.code)} disabled={busy === b.code} className="btn-accent h-8">
+                        <button type="button" onClick={() => void act("start", b.code)} disabled={busy === b.code} className="btn-accent h-7 !px-2.5 !py-0">
                           Start {lengthLabel(b.minutes)}
                         </button>
                       )}
                       {part === "testing" && (
-                        <Link href={`/bash/${b.code}`} className="btn h-8">
+                        <Link href={`/bash/${b.code}`} className="btn h-7 !px-2.5 !py-0">
                           Open
                         </Link>
                       )}
                       {part === "invited" && (
-                        <button type="button" onClick={() => void act("join", b.code)} disabled={busy === b.code} className="btn-accent h-8">
+                        <button type="button" onClick={() => void act("join", b.code)} disabled={busy === b.code} className="btn-accent h-7 !px-2.5 !py-0">
                           Join
                         </button>
                       )}
                       {part === "joined" && (
-                        <button type="button" onClick={() => void act("leave", b.code)} disabled={busy === b.code} className="btn h-8">
+                        <button type="button" onClick={() => void act("leave", b.code)} disabled={busy === b.code} className="btn h-7 !px-2.5 !py-0">
                           Leave
                         </button>
                       )}
@@ -255,21 +253,21 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
             })}
           </ul>
         ) : (
-          <div className="rounded-xl border border-dashed border-[rgba(26,22,18,0.14)] px-4 py-12 text-center">
-            <p className="text-[13.5px] text-muted">{tab === "mine" ? "Nothing assigned to you" : tab === "team" ? "No bug bash running" : "No closed bug bash"}</p>
+          <div className="rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-12 text-center">
+            <p className="text-[14px] font-medium text-ink">{tab === "mine" ? "Nothing assigned to you" : tab === "team" ? "No bug bash running" : "No closed bug bash"}</p>
           </div>
         )}
       </div>
 
       {offered.length > 0 && (
         <section aria-labelledby="bash-suggested" className="animate-rise mt-7">
-          <h2 id="bash-suggested" className="flex items-center gap-1.5 text-[13px] font-medium text-ink-2">
+          <h2 id="bash-suggested" className="section-label !items-center !gap-1.5">
             <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true" className="text-accent">
               <path d="M8 1.5c.4 2.9 1.7 4.2 4.6 4.6-2.9.4-4.2 1.7-4.6 4.6-.4-2.9-1.7-4.2-4.6-4.6 2.9-.4 4.2-1.7 4.6-4.6ZM12.5 10.5c.2 1.3.8 1.9 2.1 2.1-1.3.2-1.9.8-2.1 2.1-.2-1.3-.8-1.9-2.1-2.1 1.3-.2 1.9-.8 2.1-2.1Z" />
             </svg>
             Suggested
           </h2>
-          <ul className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {offered.map((s) => {
               const creating = busy === `new:${s.name}`;
               return (
@@ -279,7 +277,7 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
                     onClick={() => void createFrom(s.name)}
                     disabled={!!busy}
                     aria-label={`Create a bug bash for ${s.name}`}
-                    className="group/s flex w-full items-center gap-3 rounded-xl border border-hairline bg-surface/80 py-2.5 pl-3.5 pr-2.5 text-left shadow-[0_1px_2px_rgba(26,22,18,0.03)] transition-colors hover:border-[rgba(26,22,18,0.16)] hover:bg-surface disabled:cursor-default disabled:opacity-60"
+                    className="group/s flex w-full items-center gap-3 rounded-[14px] border border-hairline bg-cream py-2.5 pl-3.5 pr-2.5 text-left transition-colors hover:border-[var(--color-line)] disabled:cursor-default disabled:opacity-60"
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13.5px] font-medium text-ink">{s.name}</span>

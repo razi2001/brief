@@ -33,7 +33,7 @@ function LessonCard({ lesson, done, next }: { lesson: Lesson; done: boolean; nex
       onFocus={() => setHover(true)}
       onBlur={() => setHover(false)}
       className={`card group relative flex flex-col overflow-hidden no-underline hover:-translate-y-0.5 hover:shadow-[0_1px_2px_rgba(26,22,18,.04),0_14px_30px_-18px_rgba(26,22,18,.35)] ${
-        next ? "ring-2 ring-accent/70 ring-offset-2 ring-offset-cream" : ""
+        next ? "ring-2 ring-accent/70 ring-offset-2 ring-offset-white" : ""
       }`}
     >
       <div className="relative border-b hairline">
@@ -70,12 +70,12 @@ export default function GuideHub() {
   const next = LESSONS.find((l) => !isDone(l, facts, tried));
 
   return (
-    <div className="mx-auto w-full max-w-[1000px]">
+    <div className="w-full">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">How to use Brief</h1>
+          <h1 className="page-title">How to use Brief</h1>
           <p className="mt-1 text-[15px] text-ink-2">
-            From install to your first ticket, then the <em className="font-display text-[1.15em] text-accent">extras</em>.
+            From install to your first ticket, then the <em className="not-italic text-accent">extras</em>.
           </p>
         </div>
         <div className="flex items-center gap-3">

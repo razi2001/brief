@@ -25,11 +25,33 @@ const entries: PodiumEntry[] = [
 
 describe("Podium", () => {
   it("stands first place in the middle, between second and third", () => {
-    render(<Podium month={entries} all={entries} orgName="Acme" />);
-    const steps = screen.getAllByRole("listitem").slice(0, 3);
-    expect(within(steps[0]).getByText("jonas")).toBeTruthy();
-    expect(within(steps[1]).getByText("razi")).toBeTruthy();
-    expect(within(steps[2]).getByText("mira")).toBeTruthy();
+    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
+    const steps = [...container.querySelectorAll("li[data-place]")].map((li) => li.getAttribute("data-place"));
+    expect(steps).toEqual(["2", "1", "3"]);
+    expect(within(container.querySelector('li[data-place="1"]') as HTMLElement).getByText("razi")).toBeTruthy();
+  });
+
+  it("puts everyone past third place in rows under the podium, in order", () => {
+    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
+    expect([...container.querySelectorAll("li[data-flip]")].map((li) => li.getAttribute("data-flip"))).toEqual(["tom", "ana"]);
+  });
+
+  it("gives each step its medal", () => {
+    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
+    expect([...container.querySelectorAll("[title='First'],[title='Second'],[title='Third']")]).toHaveLength(3);
+  });
+
+  it("draws the rows' bars against the leader's count", () => {
+    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
+    const bar = container.querySelector<HTMLElement>('li[data-flip="tom"] .race-bar')!;
+    expect(parseFloat(bar.style.width)).toBeCloseTo((9 / 44) * 100, 1);
+  });
+
+  it("keeps a podium of two without an empty third step", () => {
+    const two = entries.slice(0, 2);
+    const { container } = render(<Podium month={two} all={two} orgName="Acme" />);
+    expect(container.querySelectorAll("li[data-place]")).toHaveLength(2);
+    expect(container.querySelector("li[data-place='3']")).toBeNull();
   });
 
   it("shows the title each person earned", () => {
@@ -57,30 +79,6 @@ describe("Podium", () => {
     render(<Podium month={entries} all={entries} orgName="Acme" />);
     expect(screen.getByText("tom")).toBeTruthy();
     expect(screen.getByText("ana")).toBeTruthy();
-  });
-
-  it("tells fourth place exactly how far off the podium they are", () => {
-    render(<Podium month={entries} all={entries} orgName="Acme" />);
-    // mira has 18, tom has 9 → 10 would overtake her.
-    expect(screen.getByText("bronze is 10 bugs away.")).toBeTruthy();
-  });
-
-  it("says bug, not bugs, when one would do it", () => {
-    const close = [
-      entry("a", 1, 5),
-      entry("b", 2, 4),
-      entry("c", 3, 3),
-      entry("d", 4, 3),
-    ];
-    render(<Podium month={close} all={close} orgName="Acme" />);
-    expect(screen.getByText("bronze is 1 bug away.")).toBeTruthy();
-  });
-
-  it("drops the nudge when nobody is off the podium", () => {
-    const { container } = render(
-      <Podium month={entries.slice(0, 3)} all={entries.slice(0, 3)} orgName="Acme" />,
-    );
-    expect(container.textContent).not.toContain("bronze is");
   });
 
   it("renders a podium of two without an empty third step", () => {
@@ -149,15 +147,6 @@ describe("Podium", () => {
     expect(screen.getByText("past month").getAttribute("href")).toBeNull();
   });
 
-  it("does not leave an empty third step when only two people are ranked", () => {
-    const two = entries.slice(0, 2);
-    const { container } = render(<Podium month={two} all={two} orgName="Acme" />);
-    // Three tracks with one empty cell shoved the pair off to the left.
-    const ol = container.querySelector("ol")!;
-    expect(ol.className).toContain("grid-cols-[repeat(2,minmax(0,1fr))]");
-    expect(ol.querySelectorAll("li")).toHaveLength(2);
-  });
-
   it("lists a teammate who filed nothing this range", () => {
     const withZero = [
       ...entries.slice(0, 3),
@@ -165,37 +154,6 @@ describe("Podium", () => {
     ];
     render(<Podium month={withZero} all={withZero} orgName="Acme" />);
     expect(screen.getByText("caroline")).toBeTruthy();
-  });
-
-  it("aligns a row the same whether or not the person earned a title", () => {
-    // The avatar used to carry mx-auto for the podium columns, so a row with
-    // no title had nothing to absorb the free space and the avatar drifted
-    // into the middle of the row.
-    const mixed = [
-      ...entries.slice(0, 3),
-      entry("withtitle", 4, 5, { title: "the novelist" }),
-      entry("notitle", 5, 4),
-    ];
-    const { container } = render(<Podium month={mixed} all={mixed} orgName="Acme" />);
-    const rows = [...container.querySelectorAll("ul > li")];
-    expect(rows).toHaveLength(2);
-    for (const row of rows) {
-      const img = row.querySelector("img, span[style]");
-      expect(img?.className).not.toContain("mx-auto");
-      // Every row has the flexible name cell that holds the layout steady.
-      expect(row.querySelector(".flex-1")).toBeTruthy();
-    }
-  });
-
-  it("scrolls the list instead of growing the card for a big org", () => {
-    const many = [
-      ...entries,
-      ...Array.from({ length: 8 }, (_, i) => entry(`p${i}`, i + 6, 1)),
-    ];
-    const { container } = render(<Podium month={many} all={many} orgName="Acme" />);
-    const ul = container.querySelector("ul")!;
-    expect(ul.className).toContain("overflow-y-auto");
-    expect(ul.className).toContain("max-h-");
   });
 
   it("names the org and counts the people in it", () => {
@@ -208,28 +166,6 @@ describe("Podium", () => {
 });
 
 describe("Podium hats", () => {
-  it("crowns first place, gives second a party hat and third a paper crown", () => {
-    render(<Podium month={entries} all={entries} orgName="Acme" />);
-    // The steps stand 2nd, 1st, 3rd.
-    const steps = screen.getAllByRole("listitem").slice(0, 3);
-    expect(steps[1].querySelector('[data-hat="crown"]')).toBeTruthy();
-    expect(steps[0].querySelector('[data-hat="party"]')).toBeTruthy();
-    expect(steps[2].querySelector('[data-hat="paper"]')).toBeTruthy();
-  });
-
-  it("keeps hats off everyone past third place", () => {
-    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
-    expect(container.querySelectorAll("[data-hat]")).toHaveLength(3);
-  });
-
-  it("hands out two hats on a podium of two", () => {
-    const pair = entries.slice(0, 2);
-    const { container } = render(<Podium month={pair} all={pair} orgName="Acme" />);
-    expect(container.querySelector('[data-hat="crown"]')).toBeTruthy();
-    expect(container.querySelector('[data-hat="party"]')).toBeTruthy();
-    expect(container.querySelector('[data-hat="paper"]')).toBeNull();
-  });
-
   it("crowns a lone reporter", () => {
     const { container } = render(
       <Podium month={[entries[0]]} all={[entries[0]]} orgName="Acme" />,
@@ -238,40 +174,16 @@ describe("Podium hats", () => {
     expect(container.querySelector('[data-hat="crown"]')).toBeTruthy();
   });
 
+  it("crowns first place, gives second a party hat and third a paper crown", () => {
+    const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
+    expect(container.querySelector('li[data-place="1"] [data-hat="crown"]')).toBeTruthy();
+    expect(container.querySelector('li[data-place="2"] [data-hat="party"]')).toBeTruthy();
+    expect(container.querySelector('li[data-place="3"] [data-hat="paper"]')).toBeTruthy();
+    expect(container.querySelectorAll("[data-hat]")).toHaveLength(3);
+  });
+
   it("no longer draws the old crown glyph", () => {
     const { container } = render(<Podium month={entries} all={entries} orgName="Acme" />);
     expect(container.textContent).not.toContain("♔");
-  });
-
-  describe("with invite seats (the dashboard)", () => {
-    it("alone: you stand on top, both other places are invite seats", () => {
-      render(<Podium month={[entries[0]]} all={[entries[0]]} orgName="Acme" inviteSeats />);
-      const steps = screen.getAllByRole("listitem");
-      expect(steps).toHaveLength(3);
-      expect(within(steps[1]).getByText("razi")).toBeTruthy();
-      expect(within(steps[0]).getByText("Invite")).toBeTruthy();
-      expect(within(steps[2]).getByText("Invite")).toBeTruthy();
-      expect(screen.queryByText("just you so far", { exact: false })).toBeNull();
-    });
-
-    it("two people: only third place is open", () => {
-      render(<Podium month={entries.slice(0, 2)} all={entries.slice(0, 2)} orgName="Acme" inviteSeats />);
-      expect(screen.getAllByText("Invite")).toHaveLength(1);
-      expect(screen.getByText("jonas")).toBeTruthy();
-    });
-
-    it("a full podium has no open seats", () => {
-      render(<Podium month={entries} all={entries} orgName="Acme" inviteSeats />);
-      expect(screen.queryByText("Invite")).toBeNull();
-    });
-
-    it("an open seat copies the sign-up link", async () => {
-      let copied = "";
-      Object.assign(navigator, { clipboard: { writeText: async (t: string) => void (copied = t) } });
-      render(<Podium month={[entries[0]]} all={[entries[0]]} orgName="Acme" inviteSeats />);
-      fireEvent.click(screen.getAllByText("Invite")[0]);
-      expect(await screen.findByText("Link copied")).toBeTruthy();
-      expect(copied).toBe(`${window.location.origin}/sign-up`);
-    });
   });
 });

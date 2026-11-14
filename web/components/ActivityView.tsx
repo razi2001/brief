@@ -101,7 +101,7 @@ export default function ActivityView({
   return (
     <section>
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Activity</h1>
+        <h1 className="page-title">Activity</h1>
         <div className="flex items-center gap-2">
           <div className="inline-flex h-8 items-center rounded-lg border border-hairline bg-surface-2 p-0.5">
             {RANGES.map((d) => (

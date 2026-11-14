@@ -38,6 +38,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     shareId?: string;
     /** false when the popup's bug bash switch is off for this brief. */
     bash?: boolean;
+    /** The extension transcribed the recording and heard no voice. */
+    noSpeech?: boolean;
   };
   const title = (body?.title ?? "").toString().trim();
   const overrides = {
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     description: typeof body?.description === "string" ? body.description : undefined,
     extra: Array.isArray(body?.extra) ? body.extra : undefined,
     screenshots: Array.isArray(body?.screenshots) ? body.screenshots : undefined,
+    noSpeech: body?.noSpeech === true,
   };
 
   const admin = createAdminSupabase();

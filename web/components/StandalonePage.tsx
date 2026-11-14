@@ -14,8 +14,8 @@ type StandalonePageProps = {
 
 /**
  * The frame for pages outside the app shell (sign-in, onboarding, privacy...):
- * a minimal top bar on the sky, matching the AppShell sidebar's brand row, and
- * the page content below it. The page itself supplies the white sheet.
+ * a minimal top bar on the frame, matching the AppShell sidebar's brand row,
+ * and the page content below it. The page itself supplies the white sheet.
  */
 export default function StandalonePage({
   children,
@@ -28,7 +28,7 @@ export default function StandalonePage({
       <header className="flex items-center justify-between gap-3 px-3 py-2.5 sm:px-5 sm:py-4">
         <Link
           href={homeHref}
-          className="flex items-center gap-2 rounded-lg px-2 py-1.5 no-underline transition-colors hover:bg-white/50"
+          className="flex items-center gap-2 rounded-lg px-2 py-1.5 no-underline transition-colors hover:bg-hover"
         >
           <BrandMark size={22} />
           <span className="font-display text-[1.375rem] leading-none text-ink">Brief</span>
@@ -47,7 +47,7 @@ export default function StandalonePage({
 }
 
 /** The white floating sheet, the standalone-page twin of AppShell's `.panel`. */
-export const SHEET = "panel w-full rounded-[14px] md:min-h-0";
+export const SHEET = "panel w-full rounded-[12px] md:min-h-0";
 
 /** The quiet link row under the sign-in / sign-up sheet. */
 export function AuthLinks() {
@@ -81,7 +81,7 @@ export function AuthLinks() {
   );
 }
 
-/** The serif greeting above the sign-in / sign-up sheet. */
+/** The greeting above the sign-in / sign-up sheet. */
 export function AuthTitle() {
   return (
     <div className="mb-7 flex flex-col items-center text-center">

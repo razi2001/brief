@@ -108,7 +108,7 @@ export default function NudgeAdmin({ saved, children }: { saved: NudgeText; chil
 
   return (
     <section>
-      <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Bug card</h1>
+      <h1 className="page-title">Bug card</h1>
 
       <div className="card mt-6 grid place-items-center bg-hairline/30 py-8">
         <CardPreview message={message.trim() || DEFAULT_MESSAGE} />

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { cleanup, render, screen } from "@testing-library/react";
 import Nav from "./Nav";
 
-vi.mock("next/navigation", () => ({ usePathname: () => "/dashboard" }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/tickets" }));
 afterEach(cleanup);
 
 const labels = () => screen.getAllByRole("link").map((a) => a.textContent);
@@ -12,7 +12,7 @@ const labels = () => screen.getAllByRole("link").map((a) => a.textContent);
 describe("the sidebar", () => {
   it("lists the places you work in, then the help links, Feature requests last", () => {
     render(<Nav />);
-    expect(labels()).toEqual(["Home", "Tickets", "Bug bash", "Settings", "How to use Brief", "Feature requests"]);
+    expect(labels()).toEqual(["Tickets", "Bug bash", "Settings", "How to use Brief", "Feature requests"]);
   });
 
   it("puts the owner's links before the help links, Feature requests still last", () => {
@@ -27,7 +27,6 @@ describe("the sidebar", () => {
       />,
     );
     expect(labels()).toEqual([
-      "Home",
       "Tickets",
       "Bug bash",
       "Settings",

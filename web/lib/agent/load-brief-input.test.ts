@@ -70,6 +70,15 @@ test("the narration is timed, but only counted when someone was heard speaking",
   expect(tx.timed.mock.calls[0][0]).toMatchObject({ filename: "audio.webm" });
 });
 
+test("no voice heard in the extension: the recording is not transcribed again (the model invents words for silence)", async () => {
+  tx.plain.mockClear();
+  tx.timed.mockResolvedValue([]);
+  const files = { "u/b/brief.json": json({ events: [] }), "u/b/audio.webm": Buffer.from("opus") };
+  const { input } = await loadBriefInput(memoryStore(files), "u/b", { overrides: { transcript: "", noSpeech: true } });
+  expect(tx.plain).not.toHaveBeenCalled();
+  expect((input.json as { transcript?: string }).transcript ?? "").toBe("");
+});
+
 test("a video uploaded from a file keeps no page and no event log", async () => {
   const store = memoryStore({
     "u/b/brief.json": json({

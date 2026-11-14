@@ -2,18 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 
 const icon = (d: ReactNode) => (
-  <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     {d}
   </svg>
 );
 
 /** The sidebar's items, also drawn by the Guide's illustrations. */
 export const NAV_ITEMS = [
-  { href: "/dashboard", label: "Home", icon: icon(<><rect x="2" y="2" width="5" height="6" rx="1.2" /><rect x="9" y="2" width="5" height="3.5" rx="1.2" /><rect x="9" y="7.5" width="5" height="6.5" rx="1.2" /><rect x="2" y="10" width="5" height="4" rx="1.2" /></>) },
-  // Drafts are a tab of Tickets; an open draft (/drafts/<id>) still lights this item.
+  // The first page. An open draft (/drafts/<id>) still lights this item.
   { href: "/tickets", label: "Tickets", also: "/drafts", icon: icon(<><path d="M3 4h10M3 8h10M3 12h6" /></>) },
   { href: "/bash", label: "Bug bash", icon: icon(<><ellipse cx="8" cy="9.2" rx="3.2" ry="4" /><path d="M6.2 5.6a1.9 1.9 0 0 1 3.6 0M8 5.4v7.8M4.8 8H2.4M13.6 8h-2.4M5 11.2l-2 1.4M11 11.2l2 1.4M5.2 6.2 3.4 4.6M10.8 6.2l1.8-1.6" /></>) },
   { href: "/connections", label: "Settings", icon: icon(<><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6" /></>) },
@@ -39,16 +38,12 @@ export function NavLink({ item, quiet = false }: { item: Item; quiet?: boolean }
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
-      className={`flex shrink-0 items-center gap-2 rounded-[10px] px-2.5 py-1.5 text-[14px] font-medium no-underline sm:gap-3 sm:px-3 transition-colors ${
-        quiet ? "sm:py-1.5 sm:text-[13.5px] sm:font-normal" : "sm:py-2 sm:text-[15px]"
-      } ${
-        active
-          ? "bg-white/80 text-ink shadow-[0_1px_2px_rgba(26,22,18,.06),0_0_0_1px_rgba(26,22,18,.06)]"
-          : "text-ink-2/80 hover:bg-white/45 hover:text-ink"
+      className={`nav-link relative flex h-8 shrink-0 items-center gap-2 rounded-[7px] px-2 text-[13.5px] no-underline transition-colors duration-150 sm:h-[30px] sm:gap-2.5 ${quiet ? "" : "font-medium"} ${
+        active ? "text-ink" : `${quiet ? "text-muted" : "text-ink-2"} hover:bg-hover hover:text-ink`
       }`}
     >
-      <span className={active ? "text-accent" : "text-muted"}>{item.icon}</span>
-      {item.label}
+      <span className={`relative transition-colors duration-150 ${active ? "text-accent" : "text-muted"}`}>{item.icon}</span>
+      <span className="relative">{item.label}</span>
     </Link>
   );
 }
@@ -103,16 +98,58 @@ export function CardNavLink() {
  * quieter look, so the list above is only the places you work in. Feature
  * requests is always the last thing.
  */
-export default function Nav({ extra }: { extra?: ReactNode }) {
-  const main = NAV_ITEMS.filter((item) => !HELP_HREFS.includes(item.href));
-  const help = NAV_ITEMS.filter((item) => HELP_HREFS.includes(item.href));
+export default function Nav({ extra, base = "" }: { extra?: ReactNode; base?: string }) {
+  const at = (item: Item): Item => ({ ...item, href: base + item.href, also: item.also && base + item.also });
+  const main = NAV_ITEMS.filter((item) => !HELP_HREFS.includes(item.href)).map(at);
+  const help = NAV_ITEMS.filter((item) => HELP_HREFS.includes(item.href)).map(at);
+  const navRef = useRef<HTMLElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const pathname = usePathname();
+
+  // One highlight for the whole list: it sits behind the current item and
+  // slides to the next one. Placed by measuring, so it follows links that
+  // stream in late (the owner's) and the gap before the help links. Until it
+  // is placed, the current link carries its own background (see globals.css).
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const pill = pillRef.current;
+    if (!nav || !pill) return;
+    const place = () => {
+      const el = nav.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!el) {
+        pill.style.opacity = "0";
+        return;
+      }
+      const a = nav.getBoundingClientRect();
+      const b = el.getBoundingClientRect();
+      pill.style.opacity = "1";
+      pill.style.height = `${b.height}px`;
+      pill.style.transform = `translateY(${b.top - a.top}px)`;
+      nav.dataset.pill = "";
+    };
+    place();
+    // It appears in place the first time, and only moves after that: the
+    // position is committed (a forced style read) before the transition is on.
+    void pill.offsetHeight;
+    pill.dataset.ready = "";
+    const mo = new MutationObserver(place);
+    mo.observe(nav, { childList: true, subtree: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    ro?.observe(nav);
+    return () => {
+      mo.disconnect();
+      ro?.disconnect();
+    };
+  }, [pathname]);
+
   return (
-    <nav aria-label="Primary" className="flex gap-0.5 sm:flex-1 sm:flex-col sm:gap-1">
+    <nav ref={navRef} aria-label="Primary" className="nav relative flex gap-0.5 sm:flex-1 sm:flex-col sm:gap-px">
+      <span ref={pillRef} aria-hidden className="nav-pill" />
       {main.map((item) => (
         <NavLink key={item.href} item={item} />
       ))}
       {extra}
-      <div className="flex gap-0.5 sm:mt-auto sm:flex-col sm:gap-0.5 sm:pt-4">
+      <div className="flex gap-0.5 sm:mt-auto sm:flex-col sm:gap-px sm:pt-4">
         {help.map((item) => (
           <NavLink key={item.href} item={item} quiet />
         ))}

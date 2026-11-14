@@ -12,7 +12,7 @@
     <main class="app" id="app">
       <header class="header">
         <span class="mark" id="brandMark" aria-hidden="true">
-          <svg viewBox="0 0 128 128" width="34" height="34">
+          <svg viewBox="0 0 128 128" width="26" height="26">
             <rect x="0" y="0" width="128" height="128" rx="28" fill="#dd6936"/>
             <path fill="#f5f1e8" d="
               M26 38 Q26 26 38 26 L52 26 L52 34 L40 34 Q34 34 34 40 L34 52 L26 52 Z
@@ -33,7 +33,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/></svg>
           </button>
           <button class="hbtn cloud-btn" id="briefCloudBtn" aria-label="Open Brief Cloud" title="Brief Cloud">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4 4 0 0 1 0-8 5 5 0 0 1 9.6-1.6A3.5 3.5 0 0 1 18 18Z"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5"/></svg>
             <span class="cloud-label">Connect</span>
           </button>
         </div>
@@ -41,17 +41,38 @@
 
       <div class="err-bar" id="errBar"></div>
 
-      <section class="part">
-        <div class="part-label">Evidence <span class="count" id="evCount">0</span></div>
-        <div class="gallery" id="gallery"></div>
-      </section>
-
-      <section class="part">
-        <div class="part-label">Additional data</div>
+      <!-- The brief. First the way that makes the best ticket (a video with
+           your voice on it), saying what it gives; then what you captured;
+           then the other ways, by name; then the words. -->
+      <section class="composer">
+        <!-- The evidence of this brief, in one card: what you captured, then the
+             ways to add more (open by itself while there is nothing yet). -->
+        <div class="ev-head" id="evHead" hidden><span class="ev-head-t">Evidence</span><button class="ev-add" id="evAdd" type="button" aria-haspopup="dialog" aria-label="Add evidence" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Add</button></div>
+        <div class="ev-card" id="evCard">
+          <div class="gallery" id="gallery"></div>
+          <div class="ev-ways" id="evWays">
+            <div class="ev-ways-in" id="ways">
+              <button class="ev-way ev-rec" id="recMain" type="button" title="Record the screen and talk: Brief writes the ticket from it"><span class="ev-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 8-6 4 6 4V8Z"/><rect x="2" y="6" width="14" height="12" rx="2"/></svg></span><span class="ev-t"><b>Record and talk</b><small>Brief writes it</small></span></button>
+              <div class="ev-way-card" id="shotRow">
+              <div class="ev-way-split">
+                <button class="ev-way" id="wayShot" type="button" title="Screenshot: mark what is wrong on it"><span class="ev-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></span><span class="ev-t"><b>Screenshot</b><small>Mark what is wrong on it</small></span></button>
+                <button class="way-opt" id="shotOpt" type="button" aria-label="Screenshot time delay" aria-expanded="false"><span class="way-opt-v"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+              </div>
+              </div>
+              <button class="ev-way" id="wayRep" type="button" title="The last minute: what just happened in this tab"><span class="ev-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></span><span class="ev-t"><b>Last minute</b><small>Replay this tab</small></span></button>
+              <div class="opt-row" id="shotOptRow" inert>
+                <div class="opt-in"><span class="opt-l">Time delay</span>
+                  <div class="segm" id="shotDelay" role="radiogroup" aria-label="Time delay"><button type="button" data-d="0">Off</button><button type="button" data-d="3">3s</button><button type="button" data-d="6">6s</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="ai-wrap" id="descWrap">
-          <textarea class="ai-field has-mic" id="descField" placeholder="Describe the brief…" spellcheck="true"></textarea>
+          <textarea class="ai-field has-mic" id="descField" rows="1" placeholder="Anything to add?" spellcheck="true"></textarea>
         </div>
         <div class="sheet-fields" id="kvList"></div>
+        <span id="evCount" hidden>0</span>
       </section>
 
       <div class="create-wrap" id="createWrap">

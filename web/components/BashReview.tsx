@@ -118,15 +118,15 @@ export default function BashReview({
 
   if (!review.grouped) {
     return (
-      <section aria-label="Review" aria-busy="true" className="card overflow-hidden p-0">
-        <h2 className="border-b border-hairline px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">Review</h2>
-        <div className="space-y-3 p-4">
+      <section aria-label="Review" aria-busy="true">
+        <h2 className="section-label">Review</h2>
+        <div className="space-y-3">
           <p className="flex items-center gap-2 text-[13.5px] text-ink-2">
             <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
             Grouping the reports
           </p>
           {[72, 56, 64].map((w, i) => (
-            <div key={i} className="animate-pulse rounded-xl border border-hairline p-3.5">
+            <div key={i} className="animate-pulse rounded-[14px] border border-hairline p-3.5">
               <div className="h-4 rounded bg-surface-2" style={{ width: `${w}%` }} />
               <div className="mt-3 h-3 w-2/5 rounded bg-surface-2" />
             </div>
@@ -163,16 +163,16 @@ export default function BashReview({
         };
 
   return (
-    <section aria-label="Review" className="card overflow-visible p-0">
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-hairline px-4 py-2.5">
-        <h2 className="text-[13px] font-medium text-ink">Review</h2>
+    <section aria-label="Review">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pb-2">
+        <h2 className="section-label !pb-0">Review</h2>
         <div className="flex items-center gap-3">
           <span className="text-[13px] tabular-nums text-muted">
             {review.groups.length} {review.groups.length === 1 ? "bug" : "bugs"} from {reports} {reports === 1 ? "report" : "reports"}
             {filed > 0 && ` · ${filed} filed`}
           </span>
           {fileable.length > 0 && (
-            <button type="button" onClick={() => void fileAll()} disabled={filingAll} className="btn-accent h-8">
+            <button type="button" onClick={() => void fileAll()} disabled={filingAll} className="btn-accent h-[30px]">
               {filingAll ? "Creating" : fileable.length === 1 ? "Create ticket" : `Create ${fileable.length} tickets`}
             </button>
           )}
@@ -180,7 +180,7 @@ export default function BashReview({
       </header>
 
       {problem && (
-        <p role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-hairline bg-[rgba(198,40,40,0.05)] px-4 py-2.5 text-[13px] text-[#c62828]">
+        <p role="alert" className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] bg-[rgba(198,40,40,0.05)] px-3 py-2 text-[13px] text-[#c62828]">
           {problem.text}
           {problem.tracker && (
             <Link href="/connections#tracker" className="font-medium text-ink underline underline-offset-2">
@@ -191,21 +191,23 @@ export default function BashReview({
       )}
 
       {review.groups.length === 0 ? (
-        <p className="px-4 py-10 text-center text-[13.5px] text-muted">Nothing to review</p>
+        <div className="rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-12 text-center">
+          <p className="text-[14px] font-medium text-ink">Nothing to review</p>
+        </div>
       ) : (
-        <ul className="grid grid-cols-1 items-start gap-2.5 p-3 lg:grid-cols-2">
+        <ul className="flex flex-col gap-3">
           {review.groups.map((g) => {
             const locked = !!g.ticket || g.filing;
             return (
               <li
                 key={g.id}
                 {...dropOn(g.id, locked)}
-                className={`min-w-0 rounded-xl border bg-surface transition-shadow ${
+                className={`min-w-0 rounded-[14px] border bg-surface transition-shadow ${
                   over === g.id ? "border-accent shadow-[0_0_0_3px_rgba(221,105,54,0.14)]" : "border-hairline"
                 }`}
               >
                 <GroupHead group={g} locked={locked} canFile={fileable.some((f) => f.id === g.id)} onRename={(title) => change(`/groups/${g.id}`, { title })} onFile={() => void fileOne(g.id)} />
-                <ul className="border-t border-hairline">
+                <ul className="border-t border-hairline py-1">
                   {g.reports.map((r) => (
                     <ReportRow
                       key={r.id}
@@ -226,7 +228,7 @@ export default function BashReview({
       )}
 
       {review.dropped.length > 0 && (
-        <div className="border-t border-hairline px-4 py-2.5">
+        <div className="mt-4">
           <button
             type="button"
             onClick={() => setShowDropped((s) => !s)}
@@ -288,7 +290,7 @@ function GroupHead({
     <div className="flex items-start gap-x-3 gap-y-2 px-3.5 pb-2.5 pt-3 max-sm:flex-col max-sm:items-stretch">
       <div className="min-w-0 flex-1">
         {locked ? (
-          <p className="text-[14.5px] font-semibold leading-snug tracking-[-0.005em] text-ink [overflow-wrap:anywhere]">{g.title}</p>
+          <p className="text-[14px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]">{g.title}</p>
         ) : (
           <input
             value={title}
@@ -304,11 +306,11 @@ function GroupHead({
             }}
             aria-label="Ticket title"
             spellCheck={false}
-            className="-mx-1.5 w-[calc(100%+0.75rem)] rounded-md bg-transparent px-1.5 py-0.5 text-[14.5px] font-semibold leading-snug tracking-[-0.005em] text-ink outline-none transition-colors hover:bg-surface-2 focus:bg-surface-2"
+            className="-mx-1.5 w-[calc(100%+0.75rem)] rounded-md bg-transparent px-1.5 py-0.5 text-[14px] font-semibold leading-snug text-ink outline-none transition-colors hover:bg-surface-2 focus:bg-surface-2"
           />
         )}
         {g.reports.length > 1 && (
-          <span className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-[1px] text-[11.5px] font-medium text-accent">
+          <span className="mt-1 inline-flex h-[22px] items-center gap-1.5 rounded-full bg-[var(--color-accent-soft)] px-2 text-[11.5px] font-medium tabular-nums text-accent">
             {g.reports.length} reports, one ticket
           </span>
         )}
@@ -320,7 +322,7 @@ function GroupHead({
             href={g.ticket.url}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[rgba(46,125,50,0.1)] px-2.5 text-[13px] font-medium text-[#2e7d32] no-underline hover:bg-[rgba(46,125,50,0.16)]"
+            className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] bg-[rgba(46,125,50,0.1)] px-2.5 text-[13px] font-medium text-[#2e7d32] no-underline hover:bg-[rgba(46,125,50,0.16)]"
           >
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M5 12l5 5L20 6" />
@@ -328,12 +330,12 @@ function GroupHead({
             <span className="font-mono text-xs">{g.ticket.identifier ?? "Ticket"}</span>
           </a>
         ) : g.filing ? (
-          <span className="inline-flex h-8 items-center gap-2 px-1 text-[13px] text-accent">
+          <span className="inline-flex h-[30px] items-center gap-2 px-1 text-[13px] text-accent">
             <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
             Creating
           </span>
         ) : (
-          <button type="button" onClick={onFile} disabled={!canFile} className="btn h-8">
+          <button type="button" onClick={onFile} disabled={!canFile} className="btn h-[30px]">
             {g.error ? "Try again" : "Create ticket"}
           </button>
         )}
@@ -373,7 +375,7 @@ function ReportRow({
               e.dataTransfer.effectAllowed = "move";
             }
       }
-      className={`group/r flex items-center gap-2.5 border-b border-hairline px-3.5 py-2 last:border-b-0 ${locked ? "" : "cursor-grab active:cursor-grabbing"}`}
+      className={`group/r flex min-h-9 items-center gap-2.5 px-3.5 py-1 transition-colors duration-100 hover:bg-hover ${locked ? "" : "cursor-grab active:cursor-grabbing"}`}
     >
       <span title={name} className="flex shrink-0">
         <Avatar name={name} imageUrl={person?.imageUrl} size={20} />

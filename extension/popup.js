@@ -16,6 +16,18 @@ const evCount = $('#evCount');
 const descWrap = $('#descWrap');
 const descField = $('#descField');
 const kvList = $('#kvList');
+const recMain = $('#recMain');
+const ways = $('#ways');
+const wayShot = $('#wayShot');
+const wayRep = $('#wayRep');
+const evCard = $('#evCard');
+const evAdd = $('#evAdd');
+const evHead = $('#evHead');
+const evWays = $('#evWays');
+const shotRow = $('#shotRow');
+// While "Add evidence" is open the ways live in its sheet; until this time
+// (the sheet sliding away) they stay there rather than vanish from it.
+let waysBackAt = 0;
 const createBtn = $('#createBtn');
 const reconnectBtn = $('#reconnectBtn');
 const bashRow = $('#bashRow');
@@ -185,62 +197,115 @@ const MIC_OFF_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none"
 function recSettled() { return !draft.uploading && !draft.uploadFailed && !draft.transcribing; }
 function recFootHTML() {
   const transcribing = draft.transcribing && !draft.uploading && !draft.uploadFailed;
-  if (recSettled() && draft.noSpeech && !(draft.transcript || '').trim()) return `<div class="rec-foot novoice" data-rec-voice="1"><span class="ico">${MIC_OFF_SVG}</span>No voice</div>`;
+  const dur = draft.recording?.durationMs ? ` · ${fmtDur(draft.recording.durationMs)}` : '';
   const dotCls = draft.uploading ? 'updot up' : draft.uploadFailed ? 'updot failed' : (transcribing ? 'updot up' : 'updot');
   const footLabel = draft.uploading ? 'Uploading' : draft.uploadFailed ? 'Upload failed' : (transcribing ? 'Transcribing' : 'Recording');
-  return `<div class="rec-foot"><span class="${dotCls}"></span>${footLabel}${draft.recording?.durationMs && recSettled() ? ` ${fmtDur(draft.recording.durationMs)}` : ''}</div>`;
+  return `<div class="rec-foot"><span class="${dotCls}"></span>${footLabel === 'Recording' ? `Video${dur}` : footLabel}</div>`;
 }
 function voiceLineHTML() {
   const said = (draft.transcript || '').trim().replace(/\s+/g, ' ');
-  if (!draft.recording || !recSettled() || !said) return '';
+  if (!draft.recording || !recSettled()) return '';
+  // nothing heard: it says so (a click opens the transcript to type it)
+  if (!said) return draft.noSpeech ? `<button type="button" class="voice-line novoice" data-rec-voice="1" aria-label="Transcript"><span class="ntxt">No voice</span></button>` : '';
   return `<button type="button" class="voice-line" data-rec-voice="1" title="Transcript" aria-label="Transcript"><span class="ico">${MIC_SVG}</span><span class="ntxt">“${esc(said.slice(0, 160))}”</span></button>`;
 }
+const SHEET_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
 const EDIT_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SHEET_X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
-const SHEET_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>';
+let galleryHTML = null, seenTiles = null;
 function renderGallery() {
   const shots = Array.isArray(draft.screenshots) ? draft.screenshots : [];
   let html = '';
   shots.forEach((s, i) => {
     const hasNote = s.description && s.description.trim();
     html += `<div class="tile shot" data-shot="${s.id}">` +
-      `<span class="badge">${i + 1}</span>` +
       `<button class="remove" data-rm="${s.id}" aria-label="Remove screenshot">${X_SVG}</button>` +
       `<div class="thumb"><img src="${s.dataUrl}" alt="Screenshot ${i + 1}"></div>` +
-      (hasNote
-        ? `<div class="note-strip"><span class="ntxt">${esc(s.description)}</span></div>`
-        : `<div class="note-strip empty"><span class="ico"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>Note</div>`) +
+      `<div class="rc-body"><div class="rep-t">Screenshot ${i + 1}</div>` +
+      // its note, typed right here in the row (the picture opens the screenshot)
+      // its note as a line of text, like the video's words; a click on the row
+      // opens the screenshot, where the note is written
+      `<div class="rep-s note-line${hasNote ? '' : ' empty'}">${hasNote ? esc(s.description) : 'Add a note'}</div></div>` +
       `</div>`;
   });
 
-  if (draft.recording) {
-    const poster = draft.recording.poster || REC_FALLBACK;
-    html += `<div class="tile rec" data-rec="1">` +
-      `<button class="remove" data-rm="rec" aria-label="Remove recording">${X_SVG}</button>` +
-      `<div class="thumb"><img src="${poster}" alt="Recording"><span class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span></div>` +
-      recFootHTML() +
-      `</div>`;
-  }
-
-
+  // The last minute, as a row like the others: what it is and how long, and
+  // which site it was on (the same name as its button, "Last minute").
   if (draft.replay) {
     const sites = (draft.replay.sites || []).join(', ');
     html += `<div class="tile rep" data-rep="1" title="${esc(sites)}">` +
-      `<button class="remove" data-rm="replay" aria-label="Remove replay">${X_SVG}</button>` +
-      `<div class="thumb">${draft.replay.poster ? `<img src="${draft.replay.poster}" alt="Replay">` : ''}<span class="play">${PLAY_SVG}</span></div>` +
-      `<div class="rec-foot"><span class="updot"></span>Replay ${fmtDur(draft.replay.durationMs)}</div>` +
+      `<div class="thumb">${draft.replay.poster ? `<img src="${draft.replay.poster}" alt="Last minute">` : ''}<span class="play">${PLAY_SVG}</span></div>` +
+      `<div class="rc-body"><div class="rec-foot rep-t">Last minute · ${fmtDur(draft.replay.durationMs)}</div>${sites ? `<div class="rep-s">${esc(sites)}</div>` : ''}</div>` +
+      `<button class="remove" data-rm="replay" aria-label="Remove the last minute">${X_SVG}</button>` +
       `</div>`;
   }
 
-  const canAddShot = shots.length < MAX_SHOTS;
-  const canAddVideo = !draft.recording;
-  if (canAddShot || canAddVideo || !draft.replay) {
-    html += `<div class="tile add" data-add="1">` +
-      `<span class="plus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>` +
-      `<span class="add-lbl">Add</span></div>`;
+  // The recording is not a thumbnail among others: it is a card in the place
+  // of "Record and talk", saying what Brief took from it (the video, and your
+  // voice with its first words). A click opens it; the words open its transcript.
+  let card = '';
+  if (draft.recording) {
+    const poster = draft.recording.poster || REC_FALLBACK;
+    card = `<div class="tile rec" data-rec="1">` +
+      `<button class="remove" data-rm="rec" aria-label="Remove recording">${X_SVG}</button>` +
+      `<div class="thumb"><img src="${poster}" alt="Recording"><span class="play">${PLAY_SVG}</span></div>` +
+      `<div class="rc-body">${recFootHTML()}${voiceLineHTML()}</div>` +
+      `</div>`;
   }
 
-  gallery.innerHTML = html + voiceLineHTML();
+  // The ways in follow what is still possible.
+  // A way already used up (one video, three screenshots, one last minute) is
+  // not offered. With no evidence the ways are the card; with some, they sit
+  // behind "Add evidence".
+  recMain.hidden = !!draft.recording;
+  wayShot.disabled = shots.length >= MAX_SHOTS;
+  shotRow.hidden = wayShot.disabled;
+  // (looked up here: the delay's own consts are declared further down the file)
+  const optRow = $('#shotOptRow');
+  if (shotRow.hidden && optRow?.classList.contains('open')) {
+    optRow.classList.remove('open'); optRow.inert = true; $('#shotOpt')?.setAttribute('aria-expanded', 'false');
+  }
+  wayRep.disabled = wayRep.hidden = !!draft.replay;
+  const hasEvidence = !!draft.recording || shots.length > 0 || !!draft.replay;
+  const allUsed = recMain.hidden && shotRow.hidden && wayRep.hidden;
+  evCard.classList.toggle('has', hasEvidence);
+  evHead.hidden = !hasEvidence;
+  if (!hasEvidence) evHead.classList.remove('leaving');
+  evAdd.hidden = !hasEvidence || allUsed;
+  // With no evidence the ways are the card itself; with some, "Add evidence"
+  // opens them on a sheet of their own (see openAddEvidence).
+  const inSheet = currentSheet === 'add' || Date.now() < waysBackAt;
+  if (!inSheet && evWays.parentElement !== evCard) evCard.appendChild(evWays);
+  const open = inSheet || (!allUsed && !hasEvidence);
+  evWays.classList.toggle('open', open);
+  evWays.inert = !open;
+
+  // A redraw (an upload finishing, say) must not take the note you are typing.
+  const typing = document.activeElement?.classList?.contains('row-note') ? document.activeElement : null;
+  const keep = typing && { id: typing.dataset.note, value: typing.value, at: typing.selectionStart };
+  // one list, one kind of row: the video first, then the last minute and the screenshots
+  const next = card || html ? `<div class="tiles">${card}${html}</div>` : '';
+  if (next === galleryHTML) return; // nothing changed: no redraw, no replayed animation
+  galleryHTML = next;
+  gallery.innerHTML = next;
+  // What was not there a moment ago comes in softly (not on the first paint).
+  const keys = [...gallery.querySelectorAll('.tile')].map((t) => [t, t.dataset.shot || (t.dataset.rec ? 'rec' : 'replay')]);
+  if (seenTiles) for (const [t, k] of keys) if (!seenTiles.has(k)) t.classList.add('enter');
+  // On opening, what was added a moment ago (the popup reopens after you take
+  // a screenshot or stop a recording) slides in too, a beat after the popup.
+  if (!seenTiles) {
+    const now = Date.now();
+    const fresh = (k) => k === 'rec' ? now - (draft.recording?.recordedAt || 0) < 15000
+      : k === 'replay' ? now - (draft.replay?.addedAt || 0) < 15000
+      : now - ((draft.screenshots || []).find((s) => s.id === k)?.addedAt || 0) < 15000;
+    for (const [t, k] of keys) if (fresh(k)) t.classList.add('enter', 'enter-late');
+  }
+  seenTiles = new Set(keys.map(([, k]) => k));
+  if (keep) {
+    const again = gallery.querySelector(`.row-note[data-note="${keep.id}"]`);
+    if (again) { again.value = keep.value; again.focus(); try { again.setSelectionRange(keep.at, keep.at); } catch {} }
+  }
+
   evCount.textContent = String(shots.length + (draft.recording ? 1 : 0) + (draft.replay ? 1 : 0));
 }
 
@@ -261,6 +326,7 @@ function renderKvRows() {
 // of render() so background updates never clobber what the user is typing.
 function syncAdditionalData() {
   descField.value = draft.description || '';
+  descField.dispatchEvent(new Event('grow'));
   renderKvRows();
 }
 function initAdditionalData() {
@@ -269,6 +335,24 @@ function initAdditionalData() {
   descField.addEventListener('input', () => { clearTimeout(dt); dt = setTimeout(persistDesc, 250); });
   descField.addEventListener('blur', () => { clearTimeout(dt); persistDesc(); });
   attachVoiceDictation(descField, descWrap, persistDesc);
+  // One line until there is more to say: the box grows with its text (up to
+  // about five lines, then it scrolls), whether typed or spoken.
+  // It also takes any spare height of the popup (CSS flex), so the window
+  // never shows an empty gap: grow sets its least height, not its height.
+  const growDesc = () => {
+    descField.style.flex = 'none';
+    descField.style.minHeight = '0';
+    descField.style.height = 'auto';
+    const h = Math.min(descField.scrollHeight + 2, 122);
+    descField.style.height = '';
+    descField.style.flex = '';
+    descField.style.minHeight = `${h}px`;
+  };
+  descField.addEventListener('input', growDesc);
+  // the box can be taller than its text: a click anywhere in it writes
+  descWrap.addEventListener('mousedown', (e) => { if (e.target === descWrap) { e.preventDefault(); descField.focus(); } });
+  descField.addEventListener('grow', growDesc);
+  requestAnimationFrame(growDesc);
   kvList.addEventListener('input', persistKv);
   kvList.addEventListener('click', (e) => { const fx = e.target.closest('.fx'); if (fx) { fx.closest('.sheet-field').remove(); persistKv(); } });
   syncAdditionalData();
@@ -454,14 +538,11 @@ function openSheet(title, bodyHTML, onReady, key, headAction, closeAsCheck) {
   sheet.classList.add('open');
   document.body.classList.add('sheet-open');
   if (onReady) onReady(sheetBody);
-  clearTimeout(sheetFitTimer);
   requestAnimationFrame(fitSheet);
 }
-// The popup is only as tall as the brief, and a sheet is an overlay: a sheet
-// taller than the brief scrolled inside a short popup. While one is open the
-// page is made tall enough to hold it (the popup window follows, up to
-// Chrome's 600px), and it settles back once the sheet has slid away.
-let sheetFitTimer = null;
+// The popup has one fixed size (popup.css) and a sheet slides up inside it:
+// opening the recording or a screenshot never resizes the window. A sheet
+// taller than the popup scrolls inside itself.
 function fitSheet() {
   if (!sheet.classList.contains('open')) return;
   // Measured without the scrollbar: with it the content is 8px narrower, so a
@@ -470,10 +551,10 @@ function fitSheet() {
   sheetBody.style.overflowY = 'hidden';
   const need = sheet.getBoundingClientRect().height - sheetBody.clientHeight + sheetBody.scrollHeight + 16 + 2;
   sheetBody.style.overflowY = '';
-  document.body.style.minHeight = `${Math.min(600, Math.ceil(need))}px`;
   // Fitting, it gets no scrollbar at all (an overflow:auto bar, once shown,
-  // narrows the content just enough to stay); only past 600px does it scroll.
-  sheetBody.classList.toggle('fits', need <= 600);
+  // narrows the content just enough to stay); only past the popup's height
+  // does it scroll.
+  sheetBody.classList.toggle('fits', need <= window.innerHeight);
 }
 // (not on the sheet body's own style: that's fitSheet measuring)
 new MutationObserver((muts) => {
@@ -482,11 +563,12 @@ new MutationObserver((muts) => {
 sheetBody.addEventListener('load', () => requestAnimationFrame(fitSheet), true);
 sheetAction.addEventListener('click', () => { if (sheetActionHandler) sheetActionHandler(); });
 function closeSheet() {
+  // the ways go back to the brief once the sheet has slid away, not while it does
+  if (currentSheet === 'add') { waysBackAt = Date.now() + 300; setTimeout(renderGallery, 320); }
   sheet.classList.remove('open');
   scrim.classList.remove('open');
   document.body.classList.remove('sheet-open');
   currentSheet = null;
-  sheetFitTimer = setTimeout(() => { if (!sheet.classList.contains('open')) document.body.style.minHeight = ''; }, 260);
   // Reflect any edits made in the sheet, then re-baseline the signature so the
   // storage listener doesn't immediately rebuild on our own write.
   render();
@@ -566,9 +648,8 @@ async function openRec(toTranscript = false) {
   const body =
     preview +
     `<div class="field-label">Transcript</div>` +
-    `<div id="trWrap">${transcriptBlockHTML()}</div>` +
-    `<div class="toggle-row"><span class="lbl">Attach the video to the ticket</span>` +
-      `<button class="switch${draft.includeVideo ? ' on' : ''}" id="recAttach" role="switch" aria-checked="${!!draft.includeVideo}"><span class="knob"></span></button></div>`;
+    `<div id="trWrap">${transcriptBlockHTML()}</div>`;
+  // (No "attach the video" switch: the video always goes with the ticket.)
   openSheet('Recording', body, (root) => {
     wireTranscript(root);
     if (toTranscript) $('#recTranscript', root)?.focus();
@@ -577,12 +658,6 @@ async function openRec(toTranscript = false) {
     const edit = () => { openEditorTab(chrome.runtime.getURL(`player.html#${encodeURIComponent(draft.id)}`)).catch(() => {}); };
     $('#recPlay', root)?.addEventListener('click', edit);
     $('#recPlay', root)?.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); edit(); } });
-    const sw = $('#recAttach', root);
-    sw.addEventListener('click', async () => {
-      await persist((d) => { d.includeVideo = !d.includeVideo; });
-      sw.classList.toggle('on', draft.includeVideo);
-      sw.setAttribute('aria-checked', String(!!draft.includeVideo));
-    });
   }, 'rec', { html: REFRESH_SVG, title: 'Re-record', onClick: () => recordBrief() }, true);
 }
 
@@ -634,43 +709,44 @@ function openRep() {
   }, 'rep', { html: REFRESH_SVG, title: 'Take the last 60s again', onClick: again }, true);
 }
 
-// ---------- add chooser ----------
-function openAddChooser() {
-  const shots = (draft.screenshots || []).length;
-  const canShot = shots < MAX_SHOTS;
-  const canVid = !draft.recording;
-  const canUp = canShot || canVid;
-  const canRep = !draft.replay;
-  const upSub = canShot && canVid ? 'Image or video' : canShot ? 'Image' : canVid ? 'Video' : 'Limit reached';
-  const repSub = canRep ? 'The last 60 seconds' : 'Already added';
-  const body = `<div class="chooser">` +
-    `<button class="choice" id="chShot" ${canShot ? '' : 'disabled'}>` +
-      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 17-5-5-4 4-2-2-4 4"/></svg></span>` +
-      `<span class="ctxt"><span class="ct">Screenshot</span><span class="cs">${canShot ? `${shots} of ${MAX_SHOTS}` : 'Limit reached'}</span></span>` +
-      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
-    `<button class="choice" id="chVid" ${canVid ? '' : 'disabled'}>` +
-      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m10 8 6 4-6 4z"/><rect x="3" y="4" width="18" height="16" rx="3"/></svg></span>` +
-      `<span class="ctxt"><span class="ct">Video</span><span class="cs">${canVid ? 'Record the screen' : 'Already added'}</span></span>` +
-      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
-    `<button class="choice" id="chRep" ${canRep ? '' : 'disabled'}>` +
-      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l3 2"/></svg></span>` +
-      `<span class="ctxt"><span class="ct">Replay</span><span class="cs">${esc(repSub)}</span></span>` +
-      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
-    `<button class="choice" id="chUp" ${canUp ? '' : 'disabled'}>` +
-      `<span class="cico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>` +
-      `<span class="ctxt"><span class="ct">Upload</span><span class="cs">${upSub}</span></span>` +
-      `<span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg></span></button>` +
-    `</div>`;
-  openSheet('Add to <em>brief</em>', body, (root) => {
-    if (canShot) $('#chShot', root).addEventListener('click', () => takeScreenshot());
-    if (canVid) $('#chVid', root).addEventListener('click', () => recordBrief());
-    if (canRep) $('#chRep', root).addEventListener('click', async () => {
-      await openEditorTab(chrome.runtime.getURL(`replay.html#at=${Date.now()}&pick=${encodeURIComponent(draft.id)}`));
-      window.close();
-    });
-    if (canUp) $('#chUp', root).addEventListener('click', () => pickFiles(canShot, canVid));
-  }, 'chooser');
+// ---------- the ways in ----------
+// Each has its own button on the brief; there is no Add menu (and no upload).
+recMain.addEventListener('click', () => recordBrief());
+// "Add evidence": the ways on a sheet of their own, over the brief.
+function openAddEvidence() {
+  openSheet('Add evidence', '', (root) => {
+    root.appendChild(evWays);
+    evWays.classList.add('open');
+    evWays.inert = false;
+  }, 'add');
 }
+evAdd.addEventListener('click', openAddEvidence);
+wayShot.addEventListener('click', () => takeScreenshot());
+// Screenshot's one option, behind its little arrow: a time delay (Off, 3s, 6s),
+// to open a menu or hover something before the picture is taken. Remembered;
+// while one is set the arrow shows it.
+const shotOpt = $('#shotOpt'), shotOptRow = $('#shotOptRow'), shotDelayEl = $('#shotDelay');
+let shotDelay = 0;
+function paintShotDelay() {
+  for (const b of shotDelayEl.children) b.setAttribute('aria-checked', String(Number(b.dataset.d) === shotDelay));
+  shotOpt.classList.toggle('set', shotDelay > 0);
+  $('.way-opt-v', shotOpt).textContent = shotDelay ? `${shotDelay}s delay` : 'No delay';
+}
+chrome.storage.local.get('shotDelay').then((r) => { shotDelay = [3, 6].includes(r.shotDelay) ? r.shotDelay : 0; paintShotDelay(); }).catch(() => {});
+shotOpt.addEventListener('click', () => {
+  const open = !shotOptRow.classList.contains('open');
+  shotOptRow.classList.toggle('open', open); shotOptRow.inert = !open;
+  shotOpt.setAttribute('aria-expanded', String(open));
+});
+shotDelayEl.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-d]'); if (!b) return;
+  shotDelay = Number(b.dataset.d); paintShotDelay();
+  chrome.storage.local.set({ shotDelay }).catch(() => {});
+});
+wayRep.addEventListener('click', async () => {
+  await openEditorTab(chrome.runtime.getURL(`replay.html#at=${Date.now()}&pick=${encodeURIComponent(draft.id)}`));
+  window.close();
+});
 
 // ---------- describe sheet (description + custom fields together) ----------
 function fieldRowHTML(f) {
@@ -722,7 +798,7 @@ async function takeScreenshot() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) { showInlineError('Switch to a regular web page to screenshot.'); return; }
-    const res = await chrome.runtime.sendMessage({ type: 'START_SHOT', itemId: draft.id });
+    const res = await chrome.runtime.sendMessage({ type: 'START_SHOT', itemId: draft.id, delay: shotDelay });
     if (res && res.ok === false) { showInlineError(res.error === 'unsupported_page' ? 'Can’t screenshot this page.' : `Couldn’t capture: ${res.error}`); return; }
     window.close();
   } catch (err) { showInlineError(`Couldn’t capture: ${err?.message || err}`); }
@@ -1135,18 +1211,75 @@ function attachVoiceDictation(textarea, container, onCommit) {
 
   let state = 'idle', rec = null, stream = null, chunks = [], capTimer = null;
   let meterCtx = null, meterRaf = null;
+
+  // Live words. While you speak, what was recorded so far is sent to the same
+  // transcription the finished note gets (Brief Cloud, /api/transcribe) every
+  // second or so, and the answer is written straight into the field: you watch
+  // your sentence form instead of waiting for it. Each pass hears the note from
+  // its start, so the text can correct itself as the sentence gets longer, and
+  // the language is whatever you speak. The pass after you stop is the one
+  // that stays; if it fails, the last live words stay instead.
+  // (Not the browser's own speech recognition: that one takes its language
+  // from the browser's settings, not from your voice.)
+  let before = '', heardNow = '', take = 0, liveTimer = null, liveBusy = false, liveSent = 0, liveAt = 0, takeStart = 0;
+  // A transcription model invents words when it is given almost nothing: a
+  // second of audio, or silence, came back as Chinese or as a stock phrase,
+  // and was put right a pass later. So a live pass waits for real speech
+  // (voicedFrames, counted by the meter) and a couple of seconds of audio, and
+  // what it says is only shown once the next pass starts the same way, in the
+  // same script. The first words appear a pass later; nothing wrong flashes.
+  // metered: the meter runs, so voicedFrames means something (no meter, no guard)
+  let voicedFrames = 0, pending = '', metered = false;
+  const firstWord = (t) => (t.trim().split(/\s+/)[0] || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const latin = (t) => { const l = (t.match(/\p{L}/gu) || []); return !l.length || l.filter((c) => /\p{Script=Latin}/u.test(c)).length / l.length > 0.5; };
+  const agrees = (a, b) => !!a && !!b && latin(a) === latin(b) && firstWord(a) === firstWord(b);
+  const heard = () => heardNow.replace(/\s+/g, ' ').trim();
+  const showHeard = () => {
+    const h = heard();
+    textarea.value = before && h ? `${before} ${h}` : before || h;
+    textarea.dispatchEvent(new Event('grow'));
+    textarea.scrollTop = textarea.scrollHeight;
+  };
+  async function livePass() {
+    const mine = take, now = Date.now(), n = chunks.length;
+    // One pass at a time, only when there is more audio than last time, and
+    // further apart as the note grows (a pass re-hears everything said so far).
+    if (state !== 'recording' || liveBusy || n === liveSent || now - liveAt < Math.max(1100, (now - takeStart) / 8)) return;
+    if (now - takeStart < 2200 || (metered && voicedFrames < 25)) return; // too little said yet to transcribe honestly
+    liveBusy = true; liveSent = n; liveAt = now;
+    try {
+      const text = await transcribeNote(new Blob(chunks.slice(0, n), { type: 'audio/webm' }));
+      if (mine === take && state === 'recording' && text) {
+        // shown once two passes in a row agree on how it starts (or it carries on what is already shown)
+        if (agrees(text, heardNow) || agrees(text, pending)) { heardNow = text; showHeard(); }
+        pending = text;
+      }
+    } catch { /* the pass after stop still runs */ }
+    finally { liveBusy = false; }
+  }
+  function startLive() {
+    before = (textarea.value || '').trim(); heardNow = ''; pending = ''; voicedFrames = 0;
+    take++; liveSent = 0; liveAt = 0; liveBusy = false; takeStart = Date.now();
+    textarea.classList.add('hearing');
+    liveTimer = setInterval(livePass, 400);
+  }
+  function stopLive() {
+    if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+    textarea.classList.remove('hearing');
+  }
   function setState(s) {
     state = s;
     btn.classList.toggle('rec', s === 'recording'); btn.classList.toggle('busy', s === 'busy');
     btn.title = s === 'recording' ? 'Stop recording' : 'Record a voice note';
     btn.innerHTML = s === 'recording' ? '<span class="mic-stop"></span>' : s === 'busy' ? '<span class="mic-spin"></span>' : MIC;
   }
-  function teardown() { stopMeter(); if (capTimer) { clearTimeout(capTimer); capTimer = null; } if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } rec = null; chunks = []; }
+  function teardown() { stopMeter(); stopLive(); if (capTimer) { clearTimeout(capTimer); capTimer = null; } if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } rec = null; chunks = []; }
 
   // Live voice halo: an analyser drives a ring around the mic that grows and
   // brightens with your voice, so the button visibly "hears" you.
   function startMeter(s) {
     try {
+      metered = false;
       meterCtx = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = meterCtx.createAnalyser();
       analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.85;
@@ -1158,14 +1291,18 @@ function attachVoiceDictation(textarea, container, onCommit) {
         let peak = 0;
         for (let i = 2; i < 28; i++) if (data[i] > peak) peak = data[i];
         const target = Math.min(1, Math.pow(peak / 255, 1.3));
+        if (target > 0.1) voicedFrames++;
         lvl += (target - lvl) * 0.18; // ease so the ring glides, never jumps
-        const spread = (2 + lvl * 6).toFixed(2);
-        const alpha = (0.1 + lvl * 0.28).toFixed(3);
+        // a small ring: the mic sits inside a field, it must not spill over it
+        const spread = (1 + lvl * 3).toFixed(2);
+        const alpha = (0.1 + lvl * 0.2).toFixed(3);
         btn.style.boxShadow = `0 0 0 ${spread}px rgba(221, 105, 54, ${alpha})`;
+        btn.style.setProperty('--lvl', lvl.toFixed(3));
         meterRaf = requestAnimationFrame(draw);
       };
+      metered = true;
       draw();
-    } catch { meterCtx = null; }
+    } catch { meterCtx = null; metered = false; }
   }
   function stopMeter() {
     if (meterRaf) cancelAnimationFrame(meterRaf);
@@ -1174,30 +1311,43 @@ function attachVoiceDictation(textarea, container, onCommit) {
   }
 
   async function start() {
-    let s; try { s = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { flash('Allow mic access'); return; }
+    let s; try { s = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { textarea.dispatchEvent(new Event('voice-unavailable')); flash('Allow mic access'); return; }
     stream = s; chunks = [];
     const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
-    try { rec = new MediaRecorder(stream, { mimeType: mime }); } catch { teardown(); flash('Recording unavailable'); return; }
+    // 32 kbps: speech needs no more, and the live passes re-send the note as it grows
+    try { rec = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 32000 }); } catch { teardown(); textarea.dispatchEvent(new Event('voice-unavailable')); flash('Recording unavailable'); return; }
     rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    rec.onstop = onStop; rec.start(); setState('recording'); startMeter(stream);
+    rec.onstop = onStop; rec.start(1000); textarea.dispatchEvent(new Event('voice-start')); setState('recording'); startMeter(stream); startLive();
     capTimer = setTimeout(() => { if (state === 'recording') stop(); }, 60000);
   }
   function stop() { if (capTimer) { clearTimeout(capTimer); capTimer = null; } try { if (rec && rec.state !== 'inactive') rec.stop(); } catch {} }
   async function onStop() {
     const blob = new Blob(chunks, { type: 'audio/webm' }); teardown();
-    if (!blob.size) { setState('idle'); return; }
+    take++; // a live pass still on its way no longer writes into the field
+    // What was written live while speaking (empty if no pass came back in time).
+    const liveWords = heard();
+    // The field keeps `before` plus these words: the careful write-up when it
+    // came, the live words otherwise.
+    const settle = async (words) => {
+      textarea.value = before && words ? `${before} ${words}` : before || words;
+      textarea.dispatchEvent(new Event('input'));
+      textarea.focus();
+      try { textarea.setSelectionRange(textarea.value.length, textarea.value.length); } catch {}
+      await onCommit();
+    };
+    if (!blob.size) { if (liveWords) await settle(liveWords); setState('idle'); return; }
+    // Nothing (or barely anything) was said: don't ask for words, the model
+    // would invent some for the silence.
+    if (metered && voicedFrames < 15 && !liveWords) { setState('idle'); flash('Didn’t catch that'); return; }
     setState('busy');
     try {
       const text = await transcribeNote(blob);
-      if (text) {
-        const cur = (textarea.value || '').trim();
-        textarea.value = cur ? `${cur} ${text}` : text;
-        textarea.dispatchEvent(new Event('input'));
-        textarea.focus();
-        try { textarea.setSelectionRange(textarea.value.length, textarea.value.length); } catch {}
-        await onCommit();
-      } else { flash('Didn’t catch that'); }
-    } catch (err) { console.warn('[brief/popup] dictation failed:', err); flash('Transcription failed'); }
+      if (text || liveWords) await settle(text || liveWords);
+      else flash('Didn’t catch that');
+    } catch (err) {
+      console.warn('[brief/popup] dictation failed:', err);
+      if (liveWords) await settle(liveWords); else flash('Transcription failed');
+    }
     finally { setState('idle'); }
   }
   btn.addEventListener('click', () => { if (state === 'recording') stop(); else if (state === 'idle') start(); });
@@ -1280,31 +1430,45 @@ async function bcRefresh() {
 }
 
 // ---------- wiring ----------
+// A screenshot's note is typed in its row.
+let noteTimer = null;
+const saveNote = (el) => persist((d) => { const h = (d.screenshots || []).find((x) => x.id === el.dataset.note); if (h) h.description = el.value; });
+gallery.addEventListener('input', (e) => {
+  const el = e.target.closest('.row-note'); if (!el) return;
+  clearTimeout(noteTimer); noteTimer = setTimeout(() => saveNote(el), 250);
+});
+gallery.addEventListener('focusout', (e) => { const el = e.target.closest('.row-note'); if (el) { clearTimeout(noteTimer); saveNote(el); } });
+gallery.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.closest('.row-note')) e.target.blur(); });
 gallery.addEventListener('click', async (e) => {
+  if (e.target.closest('.row-note')) return;
   const rm = e.target.closest('[data-rm]');
   if (rm) {
     e.stopPropagation();
     const id = rm.getAttribute('data-rm');
     const tile = rm.closest('.tile');
-    if (tile) { tile.classList.add('removing'); await new Promise((r) => setTimeout(r, 230)); }
+    // One of several folds away and the rest close up. The last one fades in
+    // place with the Evidence header (folding would let the text box stretch
+    // into its room for a moment), and the three ways rise in where it was.
+    const last = tile && gallery.querySelectorAll('.tile').length === 1;
+    if (last) {
+      evHead.classList.add('leaving');
+      tile.classList.add('fading');
+      await new Promise((r) => setTimeout(r, 150));
+    } else if (tile) { tile.classList.add('removing'); await new Promise((r) => setTimeout(r, 230)); }
     if (id === 'replay') {
       await persist((d) => { d.replay = null; });
       deleteFile(replayKey(draft.id)).catch(() => {});
       deleteFile(replayVoiceKey(draft.id)).catch(() => {});
-      toast('Replay removed');
     } else if (id === 'rec') {
       await persist((d) => { d.recording = null; d.cloudBriefId = null; d.transcript = ''; d.transcribing = false; d.transcriptFailed = false; d.noSpeech = false; d.includeVideo = false; });
       deleteFile(recKey(draft.id)).catch(() => {});
-      toast('Recording removed');
     } else {
       await persist((d) => { d.screenshots = (d.screenshots || []).filter((x) => x.id !== id); });
       deleteFile(shotKey(id)).catch(() => {});
-      toast('Screenshot removed');
     }
     renderGallery(); updateCreate(); lastSig = sig(draft);
     return;
   }
-  if (e.target.closest('[data-add]')) return openAddChooser();
   if (e.target.closest('[data-rec-voice]')) return openRec(true);
   if (e.target.closest('[data-rec]')) return openRec();
   if (e.target.closest('[data-rep]')) return openRep();

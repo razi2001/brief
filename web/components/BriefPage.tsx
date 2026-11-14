@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import BrandMark from "./BrandMark";
 import EvidenceCard from "./EvidenceCard";
+import { StatusGlyph } from "./StatusBadge";
+import { groupOfState } from "@/lib/status-group";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
 
 /**
@@ -22,8 +24,8 @@ export function BriefPageFrame({
     <div className="flex min-h-dvh flex-col">
       <header className="mx-auto flex w-full max-w-[860px] items-center justify-between gap-3 px-4 pb-3 pt-4 md:px-1">
         <a
-          href={signedIn ? "/dashboard" : "https://cloud.get-brief.app"}
-          className="flex items-center gap-2 rounded-lg px-1.5 py-1 no-underline transition-colors hover:bg-white/50"
+          href={signedIn ? "/tickets" : "https://cloud.get-brief.app"}
+          className="flex items-center gap-2 rounded-lg px-1.5 py-1 no-underline transition-colors hover:bg-hover"
         >
           <BrandMark size={22} />
           <span className="font-display text-[1.375rem] leading-none text-ink">Brief</span>
@@ -84,7 +86,7 @@ export function BriefFooter({ signedIn }: { signedIn: boolean }) {
 }
 
 /**
- * Status dot + label, the ticket id in mono, and the date. A ticket with no
+ * Status mark + label, the ticket id in mono, and the date. A ticket with no
  * readable id (a Notion page, an Asana task) shows its tracker's name there
  * instead, in plain muted text.
  */
@@ -101,14 +103,11 @@ export function TicketMeta({
   trackerName?: string | null;
   reported?: string;
 }) {
-  const sep = <span className="h-3 w-px bg-[rgba(26,22,18,0.14)]" aria-hidden />;
+  const sep = <span className="h-3 w-px bg-[var(--color-line)]" aria-hidden />;
   return (
     <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-muted">
       <span className="inline-flex items-center gap-2 font-medium text-ink-2">
-        <span
-          className="inline-block h-2 w-2 rounded-full"
-          style={{ backgroundColor: stateColor, boxShadow: `0 0 0 2.5px ${stateColor}26` }}
-        />
+        <StatusGlyph kind={/^filing/i.test(stateName) ? "working" : /^draft/i.test(stateName) ? "draft" : groupOfState(stateName)} color={stateColor} />
         {stateName}
       </span>
       {identifier ? (

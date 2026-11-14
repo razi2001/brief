@@ -192,7 +192,9 @@ export async function loadBriefInput(
     // Both run alongside the downloads below. The words: only when the popup
     // didn't give us an edited transcript. The timing (when the reporter said
     // what, to line it up with the pages, clicks and frames): always. Fail-soft.
-    const plain = typeof json.transcript === "string" && json.transcript.trim() ? Promise.resolve(null) : transcribeAudio(hinted);
+    // Not when the extension already listened and heard no voice: for silence
+    // the model makes words up.
+    const plain = (typeof json.transcript === "string" && json.transcript.trim()) || json.noSpeech === true ? Promise.resolve(null) : transcribeAudio(hinted);
     const timed = transcribeTimed(hinted);
 
     // Keyframe storyboard (vision): download all, keep the perceptually-distinct.

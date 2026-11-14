@@ -18,7 +18,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       workspace={
         // A placeholder the size of the team line, so nothing moves when the
         // name arrives.
-        <Suspense fallback={<span className="mt-1 block h-4 w-20 animate-pulse rounded bg-white/50" />}>
+        <Suspense fallback={<span className="mt-1 block h-4 w-20 animate-pulse rounded bg-[var(--color-pressed)]" />}>
           <SidebarWorkspace />
         </Suspense>
       }
@@ -32,7 +32,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <UserButton
           appearance={{
             elements: {
-              userButtonTrigger: "rounded-lg px-1 py-1 hover:bg-white/40 focus:shadow-none",
+              userButtonTrigger: "rounded-lg px-1 py-1 hover:bg-[var(--color-hover)] focus:shadow-none",
             },
           }}
         />

@@ -26,6 +26,12 @@ let previewVideo = null;
 let keyframes = [];
 let keyframeTimer = null;
 let levelTimer = null;
+// How long the microphone heard a voice during the recording (ms), from the
+// same meter as the bar's waveform; null when there is no meter. A recording
+// with (almost) no voice isn't sent for transcription: the model invents
+// words for silence (a lone word in another language, a stock phrase).
+let voicedMs = null;
+const VOICED_MIN_MS = 500;
 let levelAnalyser = null;
 let levelFreq = null;
 let overrunTimer = null;
@@ -390,6 +396,7 @@ async function prepareRecording(streamId, capture = 'tab') {
 // instant recording truly begins - no countdown audio is captured.
 function beginRecording() {
   recordingStartMs = Date.now();
+  voicedMs = levelAnalyser && levelFreq ? 0 : null;
   try { mediaRecorder.start(1000); } catch (err) { log('recorder start failed:', err); }
   if (audioRecorder) {
     try { audioRecorder.start(1000); }
@@ -402,6 +409,10 @@ function beginRecording() {
     if (levelTimer) clearInterval(levelTimer);
     levelTimer = setInterval(() => {
       levelAnalyser.getByteFrequencyData(levelFreq);
+      // a voice: the speech band (≈370 Hz to 5 kHz) clearly above the room
+      let peak = 0;
+      for (let i = 2; i < 28; i++) if (levelFreq[i] > peak) peak = levelFreq[i];
+      if (voicedMs != null && peak > 45) voicedMs += 40;
       // Low-mid voice slice (0..255 per bin); the bar mirrors + maps it.
       const bins = Array.from(levelFreq.subarray(0, 48));
       chrome.runtime
@@ -482,7 +493,10 @@ async function collectRecording() {
   cleanupStreams();
 
   const blob = new Blob(recordedChunks, { type: 'video/webm' });
-  const audioBlob = audioChunks.length ? new Blob(audioChunks, { type: 'audio/webm' }) : null;
+  // nothing said (or barely): no narration to transcribe, the draft says "No voice"
+  const heard = voicedMs == null || voicedMs >= VOICED_MIN_MS;
+  if (!heard) log(`no voice heard (${voicedMs} ms): narration not transcribed`);
+  const audioBlob = heard && audioChunks.length ? new Blob(audioChunks, { type: 'audio/webm' }) : null;
   const collected = {
     blob,
     audioBlob,

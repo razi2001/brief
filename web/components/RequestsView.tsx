@@ -73,7 +73,7 @@ function StatusSelect({ item, onChange }: { item: RequestItem; onChange: (s: Req
 
 function StatusPill({ status }: { status: RequestStatus }) {
   return (
-    <span className="pill gap-2 bg-surface text-ink-2">
+    <span className="inline-flex items-center gap-2 text-[13px] text-ink-2">
       <Dot status={status} />
       {STATUS_LABEL[status]}
     </span>
@@ -113,7 +113,7 @@ function VoteButton({ item, busy, onToggle }: { item: RequestItem; busy: boolean
       disabled={busy}
       aria-pressed={item.voted}
       aria-label={`${item.voted ? "Remove your vote from" : "Vote for"} ${item.title}`}
-      className={`group flex h-14 w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border text-[12px] font-semibold tabular-nums transition-colors disabled:cursor-wait ${
+      className={`group flex h-12 w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-[10px] border text-[12px] font-semibold tabular-nums transition-colors disabled:cursor-wait ${
         item.voted
           ? "border-accent/40 bg-accent/10 text-accent"
           : "border-hairline bg-surface text-ink-2 hover:border-accent/30 hover:bg-accent/5 hover:text-accent"
@@ -213,15 +213,15 @@ function Row({
   return (
     // Vote | text | status in a row from sm up; on a phone the status drops
     // under the text so the title keeps its width.
-    <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3.5 gap-y-2 px-4 py-4 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
+    <li className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3.5 gap-y-2 rounded-[10px] px-2.5 py-3 transition-colors duration-100 hover:bg-hover sm:grid-cols-[auto_minmax(0,1fr)_auto]">
       <div className="row-span-2 sm:row-span-1">
         <VoteButton item={item} busy={busy} onToggle={onVote} />
       </div>
       <div className="min-w-0 flex-1">
         {/* Everything shows in full: no clamping, and a long unbroken string wraps. */}
-        <p className="whitespace-pre-wrap text-[15px] font-medium leading-snug text-ink [overflow-wrap:anywhere]">{item.title}</p>
+        <p className="whitespace-pre-wrap text-[14px] font-medium leading-snug text-ink [overflow-wrap:anywhere]">{item.title}</p>
         {item.body && (
-          <p className="mt-1.5 whitespace-pre-wrap text-[13.5px] leading-relaxed text-ink-2 [overflow-wrap:anywhere]">{item.body}</p>
+          <p className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-2 [overflow-wrap:anywhere]">{item.body}</p>
         )}
         <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
           {item.mine && (
@@ -318,23 +318,23 @@ export default function RequestsView({ initial, admin }: { initial: RequestItem[
   ];
 
   return (
-    <div className="mx-auto w-full max-w-[720px]">
+    <div className="w-full max-w-[720px]">
       <header className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Feature requests</h1>
+          <h1 className="page-title">Feature requests</h1>
           <p className="mt-1.5 text-[13.5px] leading-snug text-ink-2/70">
             Help us build Brief. Send an idea, vote for what matters, and see it ship.
           </p>
         </div>
-        <div role="group" aria-label="Sort" className="flex shrink-0 rounded-lg border hairline bg-surface p-0.5">
+        <div role="group" aria-label="Sort" className="flex shrink-0 gap-0.5 rounded-[8px] bg-[var(--color-hover)] p-0.5">
           {SORTS.map((s) => (
             <button
               key={s.key}
               type="button"
               aria-pressed={sort === s.key}
               onClick={() => setSort(s.key)}
-              className={`rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors ${
-                sort === s.key ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"
+              className={`rounded-[6px] px-2.5 py-1 text-xs font-medium transition-[color,background-color,box-shadow] duration-150 ${
+                sort === s.key ? "bg-surface text-ink shadow-[0_0_0_1px_rgba(26,22,18,.06),0_1px_2px_rgba(26,22,18,.08)]" : "text-muted hover:text-ink"
               }`}
             >
               {s.label}
@@ -346,27 +346,23 @@ export default function RequestsView({ initial, admin }: { initial: RequestItem[
       <Composer onCreated={(item) => setItems((all) => [item, ...all])} />
 
       {chips.length > 2 && (
-        <div role="group" aria-label="Status" className="mt-5 flex flex-wrap gap-1.5">
+        <div role="group" aria-label="Status" className="-ml-2 mt-5 flex flex-wrap gap-0.5">
           {chips.map((c) => (
             <button
               key={c.key}
               type="button"
               aria-pressed={filter === c.key}
               onClick={() => setFilter(c.key)}
-              className={`rounded-full border px-2.5 py-1 text-[13px] font-medium tabular-nums transition-colors ${
-                filter === c.key
-                  ? "border-ink/80 bg-ink text-cream"
-                  : "border-hairline bg-surface text-ink-2 hover:bg-surface-2 hover:text-ink"
-              }`}
+              className="tab"
             >
-              {c.label} <span className={filter === c.key ? "text-cream/70" : "text-muted"}>{counts[c.key]}</span>
+              {c.label} <span className="tab-count">{counts[c.key]}</span>
             </button>
           ))}
         </div>
       )}
 
       {shown.length > 0 && (
-        <ul className="card mt-4 divide-y divide-[color:var(--color-hairline)] overflow-hidden">
+        <ul className="-mx-2.5 mt-3">
           {shown.map((item) => (
             <Row
               key={item.id}

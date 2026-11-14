@@ -24,6 +24,10 @@
       // puts one in every tab). Only the bar: logging starts with BRIEF_START,
       // on the tabs the user actually visits.
       injectBar(message.streamId, message.intent || 'brief', message.mode || 'ship', message.itemId || '', message.resume, message.capture);
+    } else if (message?.type === 'SHOT_COUNTDOWN') {
+      shotCountdown(Number(message.seconds) || 3, message.itemId || '');
+      sendResponse({ ok: true });
+      return false;
     } else if (message?.type === 'INJECT_SHOT') {
       injectShot(message.itemId || '', message.dataUrl || '', message.pageUrl || '', message.pageTitle || '',
         message.shotId || '', message.strokes || []);
@@ -38,6 +42,62 @@
     return false;
   });
 
+  // ---------- Screenshot countdown ----------
+  // A small dark banner at the foot of the page: "Screenshot in 3", Cancel.
+  // At zero it leaves (and the page repaints without it) before the
+  // screenshot is asked for, so it is never in the picture.
+  let cdHost = null, cdTimer = null;
+  function endCountdown() {
+    clearInterval(cdTimer); cdTimer = null;
+    const h = cdHost; cdHost = null;
+    if (h) h.remove();
+  }
+  function shotCountdown(seconds, itemId) {
+    endCountdown();
+    const host = document.createElement('div');
+    host.style.cssText = 'all:initial;position:fixed;left:0;right:0;bottom:24px;z-index:2147483647;display:flex;justify-content:center;pointer-events:none;';
+    const root = host.attachShadow({ mode: 'closed' });
+    root.innerHTML = `<style>
+      .b { pointer-events:auto; display:flex; align-items:center; gap:12px; height:40px; padding:0 6px 0 14px; border-radius:12px;
+        background:#221d18; color:#f5f1e8; font:500 13px/1 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; letter-spacing:-.005em;
+        box-shadow:0 0 0 1px rgba(255,255,255,.06), 0 12px 32px -8px rgba(0,0,0,.45);
+        animation:in 260ms cubic-bezier(.23,1,.32,1) both; }
+      .b.out { animation:out 160ms ease both; }
+      @keyframes in { from { opacity:0; transform:translateY(10px) scale(.98); } }
+      @keyframes out { to { opacity:0; transform:translateY(6px); } }
+      svg { width:16px; height:16px; color:#dd6936; flex:none; }
+      .n { display:inline-block; min-width:9px; font-variant-numeric:tabular-nums; font-weight:600; }
+      .n.tick { animation:tick 300ms cubic-bezier(.23,1,.32,1); }
+      @keyframes tick { from { opacity:.2; transform:translateY(-3px); } }
+      button { all:unset; cursor:pointer; height:28px; padding:0 10px; border-radius:8px; color:#c9c2b6; font:500 12.5px/28px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }
+      button:hover { background:rgba(255,255,255,.08); color:#fff; }
+      @media (prefers-reduced-motion: reduce) { .b, .b.out, .n.tick { animation:none; } }
+    </style>
+    <div class="b" role="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+      <span>Screenshot in <span class="n">${seconds}</span></span><button type="button">Cancel</button></div>`;
+    (document.body || document.documentElement).appendChild(host);
+    cdHost = host;
+    const n = root.querySelector('.n');
+    root.querySelector('button').addEventListener('click', () => { endCountdown(); dropPreload(); });
+    preloadShot(itemId);
+    let left = seconds;
+    cdTimer = setInterval(() => {
+      left--;
+      if (left > 0) { n.textContent = String(left); n.classList.remove('tick'); void n.offsetWidth; n.classList.add('tick'); return; }
+      // Zero: the banner goes at once (no fade: the screenshot shouldn't wait
+      // for it), and the screenshot is asked for as soon as the page has drawn
+      // one frame without it. A tab that isn't drawing (you switched away) runs
+      // no frames, hence the short fallback.
+      endCountdown();
+      // if the picture never comes (taken in another tab, or failed), the hidden editor goes
+      preloadTimer = setTimeout(dropPreload, 8000);
+      let sent = false;
+      const ask = () => { if (sent) return; sent = true; try { chrome.runtime.sendMessage({ type: 'SHOT_COUNTDOWN_DONE', itemId }); } catch {} };
+      requestAnimationFrame(() => setTimeout(ask, 0));
+      setTimeout(ask, 60);
+    }, 1000);
+  }
+
   // ---------- Screenshot annotator overlay ----------
   let shotEl = null;
   let shotImg = '';
@@ -47,13 +107,12 @@
   let shotStrokes = [];
   // `dataUrl` empty + a `shotId` set = editing an existing screenshot: the
   // overlay loads that shot's clean capture itself and replays `strokes`.
-  function injectShot(itemId, dataUrl, pageUrl, pageTitle, id, strokes) {
-    if (shotEl) return;
-    shotImg = dataUrl;
-    shotPageUrl = pageUrl || '';
-    shotPageTitle = pageTitle || '';
-    shotId = id || '';
-    shotStrokes = Array.isArray(strokes) ? strokes : [];
+  // The editor is an iframe that takes a moment to load. During a countdown it
+  // is loaded ahead, hidden (not in the picture, not in your way, no focus),
+  // so at zero it only has to be shown and handed the picture.
+  let shotReady = false, shotPreloaded = false, preloadTimer = null;
+  function createShotFrame(itemId, hidden) {
+    shotReady = false;
     const url = chrome.runtime.getURL('shot.html') + '#itemId=' + encodeURIComponent(itemId);
     shotEl = document.createElement('iframe');
     shotEl.id = '__brief_shot__';
@@ -67,20 +126,51 @@
       background: 'transparent',
       zIndex: '2147483647',
       colorScheme: 'normal',
-    });
+    }, hidden ? { visibility: 'hidden', pointerEvents: 'none' } : {});
     (document.body || document.documentElement).appendChild(shotEl);
     window.addEventListener('message', onShotMessage);
   }
-
+  function preloadShot(itemId) {
+    if (shotEl) return;
+    createShotFrame(itemId, true);
+    shotPreloaded = true;
+  }
+  function dropPreload() {
+    clearTimeout(preloadTimer); preloadTimer = null;
+    if (shotPreloaded) { shotPreloaded = false; removeShot(); }
+  }
+  function postShotImage() {
+    shotEl?.contentWindow?.postMessage({
+      app: 'brief-shot', type: 'image', dataUrl: shotImg, shotId, strokes: shotStrokes,
+    }, '*');
+  }
+  function injectShot(itemId, dataUrl, pageUrl, pageTitle, id, strokes) {
+    const reuse = !!shotEl && shotPreloaded;
+    if (shotEl && !reuse) return;
+    shotImg = dataUrl;
+    shotPageUrl = pageUrl || '';
+    shotPageTitle = pageTitle || '';
+    shotId = id || '';
+    shotStrokes = Array.isArray(strokes) ? strokes : [];
+    if (reuse) {
+      clearTimeout(preloadTimer); preloadTimer = null;
+      shotPreloaded = false;
+      shotEl.style.visibility = '';
+      shotEl.style.pointerEvents = '';
+      if (shotReady) postShotImage();
+      return;
+    }
+    createShotFrame(itemId, false);
+  }
   function onShotMessage(e) {
     if (!shotEl || e.source !== shotEl.contentWindow) return;
     const m = e.data;
     if (!m || m.app !== 'brief-shot') return;
     if (m.type === 'ready') {
-      // hand the captured image (or the shot to edit) into the overlay
-      shotEl.contentWindow.postMessage({
-        app: 'brief-shot', type: 'image', dataUrl: shotImg, shotId, strokes: shotStrokes,
-      }, '*');
+      // hand the captured image (or the shot to edit) into the overlay; a
+      // preloaded one gets it when the picture is taken
+      shotReady = true;
+      if (!shotPreloaded) postShotImage();
     } else if (m.type === 'save') {
       // Relay the annotated PNG (with its source page context) to the background
       // to append to - or replace on - the current draft's screenshots.

@@ -150,10 +150,8 @@ export default function TagFilter({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={active ? `Tag: ${label}` : "Tags"}
-        className={`inline-flex max-w-[220px] items-center gap-1.5 rounded-full py-1.5 pl-2.5 pr-2 text-[13px] transition-colors ${
-          active
-            ? "bg-white font-medium text-ink shadow-[0_0_0_1px_rgba(26,22,18,.14)]"
-            : "bg-white/60 text-ink-2 shadow-[0_0_0_1px_rgba(26,22,18,.07)] hover:bg-white hover:text-ink"
+        className={`inline-flex h-7 max-w-[220px] items-center gap-1.5 rounded-[7px] pl-2 pr-1.5 text-[13px] transition-colors duration-150 ${
+          active || open ? "bg-[var(--color-pressed)] font-medium text-ink" : "text-muted hover:bg-hover hover:text-ink"
         }`}
       >
         <TagIcon color={current ? TAG_COLORS[current.color] : undefined} />
@@ -167,7 +165,7 @@ export default function TagFilter({
         <div
           role="dialog"
           aria-label="Tags"
-          className="animate-rise absolute right-0 top-full z-40 mt-1.5 w-[256px] rounded-xl border border-hairline bg-surface p-1 shadow-[0_14px_40px_-14px_rgba(26,22,18,0.32),0_2px_6px_rgba(26,22,18,0.05)]"
+          className="menu absolute right-0 top-full z-40 mt-1.5 w-[256px] p-1"
         >
           {edited ? (
             <TagEditor

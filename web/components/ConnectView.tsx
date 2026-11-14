@@ -7,7 +7,7 @@ export default function ConnectView({ state }: { state: "idle" | "ok" | "err" })
     <StandalonePage center>
       <div className={`${SHEET} max-w-[400px] px-7 py-8 text-center`}>
         <BrandMark size={36} className="mx-auto" />
-        <h1 className="mt-4 text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">
+        <h1 className="mt-4 page-title">
           Connecting Brief
         </h1>
         {state === "idle" && (

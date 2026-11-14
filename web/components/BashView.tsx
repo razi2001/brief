@@ -3,12 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Avatar from "./Avatar";
+import BashRace from "./BashRace";
 import BashReview from "./BashReview";
 import Crumbs from "./Crumbs";
 import MoreMenu, { ConfirmItem } from "./MoreMenu";
-import { BoardSky, Column } from "./Podium";
-import { Hatted } from "./PodiumHats";
+import { Confetti, CountUp, Medal } from "./Motion";
 import StatusBadge from "./StatusBadge";
+import { groupOfState } from "@/lib/status-group";
 import { clock, lengthLabel, msLeft, phaseOf, reportMarkdown } from "@/lib/bash";
 import { blocksOf } from "@/lib/bash-similar";
 import type { BashSnapshot } from "@/lib/bash-server";
@@ -34,7 +35,7 @@ const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: 
 /**
  * One bug bash: the board of who is in it and found how many (the Home
  * podium's look: the top three on steps with their hats, the others in a row
- * under them), and what was found, as a grid of blocks. Reports whose
+ * under them), and what was found, one block per bug. Reports whose
  * titles read alike share a block (lib/bash-similar.ts), so the same bug hit
  * by five people is one thing on the page, and only the first blocks show
  * until you ask for all. It has a start date and an end date. Before it opens,
@@ -75,6 +76,34 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
   const blocks = useMemo(() => blocksOf(bash.briefs), [bash.briefs]);
   const [showAll, setShowAll] = useState(false);
   const shown = showAll ? blocks : blocks.slice(0, FIRST_BLOCKS);
+  // A report that arrived since the last read flashes once in the list.
+  const [seenIds, setSeenIds] = useState(() => new Set(initial.briefs.map((b) => b.id)));
+  const [fresh, setFresh] = useState<Set<string>>(new Set());
+  if (bash.briefs.some((b) => !seenIds.has(b.id))) {
+    setFresh(new Set(bash.briefs.filter((b) => !seenIds.has(b.id)).map((b) => b.id)));
+    setSeenIds(new Set(bash.briefs.map((b) => b.id)));
+  }
+  // Confetti for the winners, the first time you open it once it is over.
+  const [party, setParty] = useState(false);
+  const hasWinner = bash.people.some((p) => p.count > 0);
+  useEffect(() => {
+    if (!closed || !hasWinner) return;
+    const k = `bash-party-${bash.code}`;
+    try {
+      if (sessionStorage.getItem(k)) return;
+    } catch {
+      /* no storage: once per visit is fine */
+    }
+    const t = setTimeout(() => {
+      try {
+        sessionStorage.setItem(k, "1");
+      } catch {
+        /* same */
+      }
+      setParty(true);
+    }, 450);
+    return () => clearTimeout(t);
+  }, [closed, bash.code, hasWinner]);
 
   useEffect(() => {
     if (offset.current === null) offset.current = initial.now - Date.now();
@@ -166,7 +195,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1040px]">
+    <div className="w-full">
       <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: bash.name }]} />
       <header className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
@@ -202,28 +231,23 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {closed && (
-            <button type="button" onClick={() => void copy("report")} className="btn h-8">
+            <button type="button" onClick={() => void copy("report")} className="btn h-[30px]">
               {copied === "report" ? "Copied" : "Copy report"}
             </button>
           )}
           {!closed && (
-            <button type="button" onClick={() => void copy("link")} className="btn h-8">
+            <button type="button" onClick={() => void copy("link")} className="btn h-[30px]">
               {copied === "link" ? "Copied" : "Copy invite link"}
             </button>
           )}
           {!closed && bash.joined && yourEnd === null && (
-            <button type="button" onClick={() => void post("leave")} disabled={busy} className="btn h-8">
+            <button type="button" onClick={() => void post("leave")} disabled={busy} className="btn h-[30px]">
               Leave
             </button>
           )}
           {phase === "upcoming" && !bash.joined && (
-            <button type="button" onClick={() => void post("join")} disabled={busy} className="btn-accent h-8">
+            <button type="button" onClick={() => void post("join")} disabled={busy} className="btn-accent h-[30px]">
               Join
-            </button>
-          )}
-          {open && yourEnd === null && (
-            <button type="button" onClick={() => void post("start")} disabled={busy} className="btn-accent h-8">
-              Start my {lengthLabel(bash.minutes)}
             </button>
           )}
           {bash.isOwner && (
@@ -255,108 +279,113 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
         </p>
       )}
 
-      <div className="card mt-5 grid grid-cols-3 divide-x divide-hairline p-0">
-        {testing || done ? (
-          <Stat label="Your time">
-            {testing ? <span className="tabular-nums text-accent">{clock(yourEnd! - now)}</span> : <span>Done</span>}
-          </Stat>
-        ) : (
-          <Stat label="Each">
-            <span className="tabular-nums">{lengthLabel(bash.minutes)}</span>
-          </Stat>
-        )}
-        <Stat label={total === 1 ? "Report" : "Reports"}>
-          <span className="tabular-nums">{total}</span>
-        </Stat>
-        <Stat label={bash.people.length === 1 ? "Person" : "People"}>
-          <span className="tabular-nums">{bash.people.length}</span>
-        </Stat>
-      </div>
+      {party && <Confetti />}
+      <Arena bash={bash} now={now} phase={phase} testing={testing} done={done} yourEnd={yourEnd} busy={busy} onStart={() => void post("start")} />
 
-      <Board people={bash.people} open={open} closed={closed} now={now} />
+      <BashRace people={bash.people} briefs={bash.briefs} open={open} closed={closed} now={now} />
+      {bash.people.length === 0 && (
+        <div className="mt-8 rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-10 text-center">
+          <p className="text-[14px] font-medium text-ink">{closed ? "Nobody took part" : "Nobody has joined yet"}</p>
+        </div>
+      )}
 
-      <div className="mt-4">
+      <div className="mt-8">
         {bash.review ? (
           <BashReview code={bash.code} review={bash.review} people={bash.people} onChange={refresh} />
         ) : (
-          <section aria-label="Found" className="card overflow-hidden p-0">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-hairline px-4 py-2.5">
-              <h2 className="text-[13px] font-medium text-ink">Found</h2>
-              <span className="text-xs tabular-nums text-muted">
-                {blocks.length < total && `${blocks.length} ${blocks.length === 1 ? "bug" : "bugs"} from ${total} reports`}
-                {bash.hold && `${blocks.length < total ? " · " : ""}${!closed ? "Held as drafts until the review" : bash.isOwner ? "" : "In review"}`}
+          <section aria-label="Found">
+            <h2 className="section-label">
+              Found
+              <span className="count">
+                {blocks.length < total ? `${blocks.length} ${blocks.length === 1 ? "bug" : "bugs"} from ${total} reports` : total > 0 ? total : ""}
+                {bash.hold && `${blocks.length < total || total > 0 ? " · " : ""}${!closed ? "Held as drafts until the review" : bash.isOwner ? "" : "In review"}`}
               </span>
-            </div>
+            </h2>
             {total > 0 ? (
               <>
-                <ul className="grid grid-cols-1 items-start gap-2.5 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                {/* One block per bug, the way the review shows them: its title on
+                    top, and under it every report of it, so a bug five people
+                    found is one thing with five lines. A bug with a single
+                    report is its head alone: the reporter's face and the age
+                    sit there, and the title opens the report. */}
+                <ul className="flex flex-col gap-3">
                   {shown.map((block) => {
                     const first = block[0];
-                    const who = [...new Set(block.map((r) => r.by))];
                     const filed = block.find((r) => r.ticket || r.state);
+                    const single = block.length === 1;
                     return (
-                      <li key={first.id} className="animate-rise flex min-w-0 flex-col rounded-xl border border-hairline bg-surface p-3">
-                        {first.shareId ? (
-                          <a href={`/b/${first.shareId}`} target="_blank" rel="noreferrer" className="line-clamp-2 text-[14px] leading-snug text-ink no-underline hover:underline">
-                            {first.title}
-                          </a>
-                        ) : (
-                          <p className="line-clamp-2 text-[14px] leading-snug text-ink">{first.title}</p>
-                        )}
-                        {block.length > 1 && (
-                          <details className="mt-2">
-                            <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-accent/10 px-2 py-[1px] text-[11.5px] font-medium text-accent [&::-webkit-details-marker]:hidden">
-                              {block.length} similar reports
-                            </summary>
-                            <ul className="mt-1.5 space-y-1">
-                              {block.slice(1).map((r) => (
-                                <li key={r.id} className="truncate text-[12.5px] text-ink-2">
-                                  {r.shareId ? (
-                                    <a href={`/b/${r.shareId}`} target="_blank" rel="noreferrer" className="text-ink-2 no-underline hover:underline">
-                                      {r.title}
-                                    </a>
-                                  ) : (
-                                    r.title
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          </details>
-                        )}
-                        <div className="mt-2.5 flex items-center gap-2 pt-0.5 text-xs text-muted">
-                          <span className="flex shrink-0 -space-x-1.5">
-                            {who.slice(0, 4).map((i) => (
-                              <span key={i} title={bash.people[i]?.name} className="rounded-full ring-2 ring-surface">
-                                <Avatar name={bash.people[i]?.name ?? "someone"} imageUrl={bash.people[i]?.imageUrl} size={20} />
+                      <li key={first.id} className={`animate-rise min-w-0 rounded-[14px] border border-hairline bg-surface${block.some((r) => fresh.has(r.id)) ? " find-flash" : ""}${single && first.shareId ? " transition-colors duration-100 hover:bg-surface-2" : ""}`}>
+                        <div className={`relative flex gap-2.5 px-3.5 ${single ? "items-center py-2.5" : "items-start py-3"}`}>
+                          <span className={single ? "flex" : "mt-[3px]"}>
+                            {filed?.state ? (
+                              <StatusBadge iconOnly kind={groupOfState(filed.state)} color={filed.stateColor || "#2e7d32"} title={filed.state}>
+                                {filed.state}
+                              </StatusBadge>
+                            ) : (
+                              <StatusBadge iconOnly kind="draft" color="#8a8378" title="Not filed yet">
+                                Not filed yet
+                              </StatusBadge>
+                            )}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            {single && first.shareId ? (
+                              <a href={`/b/${first.shareId}`} target="_blank" rel="noreferrer" className="block text-[14px] font-semibold leading-snug text-ink no-underline [overflow-wrap:anywhere] after:absolute after:inset-0">
+                                {first.title}
+                              </a>
+                            ) : (
+                              <p className="text-[14px] font-semibold leading-snug text-ink [overflow-wrap:anywhere]">{first.title}</p>
+                            )}
+                            {block.length > 1 && (
+                              <span className="mt-1 inline-flex h-[22px] items-center rounded-full bg-[var(--color-accent-soft)] px-2 text-[11.5px] font-medium tabular-nums text-accent">
+                                {block.length} reports, one bug
                               </span>
-                            ))}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">
-                            {bash.people[who[0]]?.name ?? "someone"}
-                            {who.length > 1 && ` +${who.length - 1}`}
-                          </span>
-                          {filed?.ticket && <span className="shrink-0 font-mono">{filed.ticket}</span>}
-                          {filed?.state && (
-                            <span className="shrink-0 max-sm:hidden">
-                              <StatusBadge color={filed.stateColor || "#2e7d32"}>{filed.state}</StatusBadge>
-                            </span>
+                            )}
+                          </div>
+                          {filed?.ticket && <span className={`shrink-0 font-mono text-xs text-muted max-sm:hidden${single ? "" : " mt-0.5"}`}>{filed.ticket}</span>}
+                          {single && (
+                            <>
+                              <span title={bash.people[first.by]?.name} className="flex shrink-0">
+                                <Avatar name={bash.people[first.by]?.name ?? "someone"} imageUrl={bash.people[first.by]?.imageUrl} size={20} />
+                              </span>
+                              <span className="w-8 shrink-0 text-right text-xs tabular-nums text-faint">{ago(first.createdAt, now)}</span>
+                            </>
                           )}
-                          <span className="shrink-0 tabular-nums">{ago(first.createdAt, now)}</span>
                         </div>
+                        {!single && (
+                        <ul className="border-t border-hairline py-1">
+                          {block.map((r) => (
+                            <li key={r.id} className="relative flex min-h-9 items-center gap-2.5 px-3.5 py-1 transition-colors duration-100 hover:bg-hover">
+                              <span title={bash.people[r.by]?.name} className="flex shrink-0">
+                                <Avatar name={bash.people[r.by]?.name ?? "someone"} imageUrl={bash.people[r.by]?.imageUrl} size={20} />
+                              </span>
+                              {r.shareId ? (
+                                <a href={`/b/${r.shareId}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-[13.5px] text-ink-2 no-underline after:absolute after:inset-0">
+                                  {r.title}
+                                </a>
+                              ) : (
+                                <span className="min-w-0 flex-1 truncate text-[13.5px] text-ink-2">{r.title}</span>
+                              )}
+                              <span className="w-8 shrink-0 text-right text-xs tabular-nums text-faint">{ago(r.createdAt, now)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        )}
                       </li>
                     );
                   })}
                 </ul>
                 {blocks.length > FIRST_BLOCKS && (
-                  <div className="border-t border-hairline px-4 py-2.5 text-center">
-                    <button type="button" onClick={() => setShowAll((v) => !v)} className="text-[13px] text-muted hover:text-ink">
+                  <p className="mt-2">
+                    <button type="button" onClick={() => setShowAll((v) => !v)} className="text-[13px] text-muted transition-colors hover:text-ink">
                       {showAll ? "Show fewer" : `Show all ${blocks.length}`}
                     </button>
-                  </div>
+                  </p>
                 )}
               </>
             ) : (
-              <p className="px-4 py-10 text-center text-[13.5px] text-muted">{closed ? "Nothing found" : "Nothing yet"}</p>
+              <div className="rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-12 text-center">
+                <p className="text-[14px] font-medium text-ink">{closed ? "Nothing found" : "Nothing yet"}</p>
+              </div>
             )}
           </section>
         )}
@@ -365,101 +394,153 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
   );
 }
 
-type Person = BashSnapshot["people"][number];
-
-/** A person's picture, with a dot while their own clock is running. */
-function Face({ p, size, active }: { p: Person; size: number; active: boolean }) {
-  return (
-    <span className="relative inline-flex">
-      <Avatar name={p.name} imageUrl={p.imageUrl} size={size} />
-      {active && (
-        <span title="Testing now" aria-label="Testing now" className="dot-pulse absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-surface bg-accent" />
-      )}
-    </span>
-  );
-}
-
 /**
- * The board, in the look of Home's podium. Once someone has found something,
- * the first three stand on steps (2nd, 1st, 3rd, so the leader is in the
- * middle), hats on, with their count on the step; everyone else is a row of
- * names under them. Before the first find there is no race to draw yet, so it
- * is just who is in.
+ * The top of a bug bash, as a game: your clock as a ring that empties (or the
+ * button that starts it), the bugs the team has found so far, who is testing
+ * right now, and your own count and place. Once it is over: the winner.
  */
-function Board({ people, open, closed, now }: { people: Person[]; open: boolean; closed: boolean; now: number }) {
-  const active = (p: Person) => open && p.endsAt !== null && now < new Date(p.endsAt).getTime();
-  const racing = people.some((p) => p.count > 0);
-  const top = racing ? people.slice(0, 3) : [];
-  const rest = racing ? people.slice(3) : people;
-  // 2nd, 1st, 3rd. With two people there is no third step; with one, one step.
-  const order = top.length >= 3 ? [top[1], top[0], top[2]] : top.length === 2 ? [top[1], top[0]] : top;
-  const placeOf = (p: Person) => top.indexOf(p) + 1;
+function Arena({
+  bash,
+  now,
+  phase,
+  testing,
+  done,
+  yourEnd,
+  busy,
+  onStart,
+}: {
+  bash: BashSnapshot;
+  now: number;
+  phase: ReturnType<typeof phaseOf>;
+  testing: boolean;
+  done: boolean;
+  yourEnd: number | null;
+  busy: boolean;
+  onStart: () => void;
+}) {
+  const open = phase === "open";
+  const closed = phase === "closed";
+  const total = bash.briefs.length;
+  const live = bash.people.filter((p) => open && p.endsAt !== null && now < new Date(p.endsAt).getTime());
+  const me = bash.people.find((p) => p.isYou);
+  const winner = bash.people[0] && bash.people[0].count > 0 ? bash.people[0] : null;
+  const span = bash.minutes * 60_000;
+  const left = testing && yourEnd ? Math.max(0, yourEnd - now) : 0;
 
   return (
-    <section aria-label="Board" className="card relative isolate mt-4 overflow-hidden px-4 py-4">
-      {racing && <BoardSky />}
-      <h2 className="relative text-[13px] font-medium text-ink">Board</h2>
-
-      {racing && (
-        <>
-          <ol
-            className={`relative mx-auto mt-4 grid items-end gap-3 ${
-              order.length >= 3 ? "max-w-[560px] grid-cols-[repeat(3,minmax(0,1fr))]" : order.length === 2 ? "max-w-[380px] grid-cols-[repeat(2,minmax(0,1fr))]" : "max-w-[190px] grid-cols-1"
-            }`}
-          >
-            {order.map((p) => {
-              const place = placeOf(p);
-              const first = place === 1;
-              // 3rd rises first, then 2nd, then the leader: drumroll order
-              const step = place === 1 ? 2 : place === 2 ? 1 : 0;
-              return (
-                <li key={place} className="relative flex min-w-0 flex-col items-center text-center">
-                  <div className="animate-rise relative isolate flex flex-col items-center" style={{ animationDelay: `${200 + step * 150}ms` }}>
-                    {first && <span aria-hidden className="lb-rays" />}
-                    <Hatted rank={place}>
-                      <Face p={p} size={first ? 52 : 42} active={active(p)} />
-                    </Hatted>
-                  </div>
-                  <p className="mt-1.5 w-full truncate text-[13px] font-medium text-ink">
-                    {p.name}
-                    {p.isYou && <span className="ml-1 text-[0.6875rem] text-accent">you</span>}
-                  </p>
-                  <Column rank={place} filed={p.count} delay={step * 120} />
-                </li>
-              );
-            })}
-          </ol>
-          {/* the podium stands in a bank of cloud */}
-          <div aria-hidden className="lb-floor relative -mx-4 -mt-4" />
-        </>
-      )}
-
-      {rest.length > 0 && (
-        <ol className={`relative flex flex-wrap gap-1.5 ${racing ? "mt-1 border-t border-hairline pt-3" : "mt-3"}`}>
-          {rest.map((p, i) => (
-            <li key={i} className="flex items-center gap-2 rounded-[12px] bg-surface-2 py-1.5 pl-2 pr-3">
-              {racing && <span className="w-3.5 shrink-0 text-center text-xs tabular-nums text-muted">{p.rank}</span>}
-              <Face p={p} size={24} active={active(p)} />
-              <span className="max-w-[160px] truncate text-[13.5px] text-ink">
-                {p.name}
-                {p.isYou && <span className="ml-1.5 text-xs text-muted">You</span>}
+    <section aria-label="Arena" className="arena mt-6 flex flex-wrap items-center gap-x-7 gap-y-4 rounded-[16px] border border-hairline bg-surface px-5 py-4">
+      <div className="flex items-center gap-3.5">
+        {closed ? (
+          winner ? (
+            <>
+              <span className="arena-trophy grid h-[64px] w-[64px] place-items-center rounded-full bg-[radial-gradient(circle_at_30%_25%,#fff4d6,#f6d77a_60%,#e0b347)] shadow-[0_6px_18px_-6px_rgba(201,150,42,.6)]">
+                <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#8a5d0f" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" /><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" /></svg>
               </span>
-              {racing && <span className="text-[13px] tabular-nums text-muted">{p.count}</span>}
-            </li>
-          ))}
-        </ol>
-      )}
+              <span>
+                <span className="block text-[12.5px] text-muted">Winner</span>
+                <span className="flex items-center gap-2 text-[17px] font-semibold tracking-[-0.01em] text-ink">
+                  <Avatar name={winner.name} imageUrl={winner.imageUrl} size={22} />
+                  {winner.name}
+                </span>
+                <span className="block text-[12.5px] text-muted">
+                  {winner.count} {winner.count === 1 ? "bug" : "bugs"}
+                </span>
+              </span>
+            </>
+          ) : (
+            <span className="text-[15px] font-medium text-ink">It&apos;s over</span>
+          )
+        ) : testing ? (
+          <Ring progress={span ? left / span : 0} label="Your time">
+            <span className="text-[16px] font-semibold tabular-nums tracking-[-0.02em] text-accent">{clock(left)}</span>
+          </Ring>
+        ) : open && yourEnd === null ? (
+          <button type="button" onClick={onStart} disabled={busy} className="arena-start group flex items-center gap-3.5 text-left">
+            <span className="arena-go grid h-[64px] w-[64px] place-items-center rounded-full bg-accent text-white shadow-[0_8px_22px_-8px_rgba(221,105,54,.75)] transition-transform duration-200 group-hover:scale-[1.04] group-active:scale-[.96]">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5-11-6.5Z" /></svg>
+            </span>
+            <span>
+              <span className="block text-[15px] font-semibold text-ink">Start my {lengthLabel(bash.minutes)}</span>
+              <span className="block text-[12.5px] text-muted">Your clock starts now</span>
+            </span>
+          </button>
+        ) : done ? (
+          <Ring progress={0} label="Your time">
+            <span className="text-[13px] font-semibold text-[#2f7d4f]">Done</span>
+          </Ring>
+        ) : (
+          <Ring progress={1} label={phase === "upcoming" ? "Starts in" : "Each"} quiet>
+            <span className="text-[13px] font-semibold tabular-nums text-ink">
+              {phase === "upcoming" ? clock(new Date(bash.startsAt).getTime() - now) : lengthLabel(bash.minutes)}
+            </span>
+          </Ring>
+        )}
+      </div>
 
-      {people.length === 0 && <p className="relative py-6 text-center text-[13.5px] text-muted">{closed ? "Nobody took part" : "Nobody has joined yet"}</p>}
+      <div className="flex flex-1 flex-wrap items-center justify-end gap-x-8 gap-y-3">
+        <Num label={total === 1 ? "Bug found" : "Bugs found"}>
+          <CountUp value={total} fromZero />
+        </Num>
+        {!closed && (
+          <Num label="Testing now">
+            <span className="flex items-center gap-2" title={live.map((p) => p.name).join(", ")}>
+              <CountUp value={live.length} />
+              {live.length > 0 && <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />}
+            </span>
+          </Num>
+        )}
+        {closed && (
+          <Num label={bash.people.length === 1 ? "Person" : "People"}>
+            <CountUp value={bash.people.length} fromZero />
+          </Num>
+        )}
+        {me && (
+          <Num label="You">
+            <span className="flex items-center gap-2">
+              <CountUp value={me.count} fromZero />
+              {me.count > 0 && <Medal rank={me.rank} size={20} />}
+            </span>
+          </Num>
+        )}
+      </div>
     </section>
   );
 }
 
-function Stat({ label, children }: { label: string; children: React.ReactNode }) {
+/** A ring that empties as time runs out, a label under it. */
+function Ring({ progress, label, quiet = false, children }: { progress: number; label: string; quiet?: boolean; children: React.ReactNode }) {
+  const r = 28;
+  const c = 2 * Math.PI * r;
   return (
-    <div className="px-4 py-3 sm:px-5">
+    <span className="flex items-center gap-3.5">
+      <span className="relative grid h-[64px] w-[64px] place-items-center">
+        <svg viewBox="0 0 64 64" width="64" height="64" className="absolute inset-0 -rotate-90" aria-hidden="true">
+          <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(26,22,18,.08)" strokeWidth="5" />
+          <circle
+            cx="32"
+            cy="32"
+            r={r}
+            fill="none"
+            stroke={quiet ? "rgba(26,22,18,.18)" : "#dd6936"}
+            strokeWidth="5"
+            strokeLinecap="round"
+            strokeDasharray={c}
+            strokeDashoffset={c * (1 - Math.max(0, Math.min(1, progress)))}
+            style={{ transition: "stroke-dashoffset 1s linear" }}
+          />
+        </svg>
+        <span className="relative">{children}</span>
+      </span>
+      <span className="text-[12.5px] text-muted">{label}</span>
+    </span>
+  );
+}
+
+function Num({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
       <div className="text-[12.5px] text-muted">{label}</div>
-      <div className="mt-0.5 text-[22px] font-semibold leading-tight tracking-[-0.02em] text-ink">{children}</div>
+      <div className="mt-0.5 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">{children}</div>
     </div>
   );
 }

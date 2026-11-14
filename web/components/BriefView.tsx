@@ -144,12 +144,12 @@ function Breadcrumb({ section, identifier, title }: { section: "tickets" | "draf
   );
   return (
     <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-[13px]">
-      <Link href={back} aria-label={`Back to ${label}`} title={`Back to ${label}`} className="btn mr-1.5 h-8 w-8 shrink-0 justify-center !p-0 text-muted">
+      <Link href={back} aria-label={`Back to ${label}`} title={`Back to ${label}`} className="btn-ghost -ml-2 mr-0.5 h-[30px] w-[30px] shrink-0">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M19 12H5M11 6l-6 6 6 6" />
         </svg>
       </Link>
-      <Link href={back} className="shrink-0 rounded-md px-1 py-0.5 text-muted no-underline transition-colors hover:bg-white/60 hover:text-ink">
+      <Link href={back} className="shrink-0 rounded-md px-1 py-0.5 text-muted no-underline transition-colors hover:bg-hover hover:text-ink">
         {label}
       </Link>
       {chevron}
@@ -165,7 +165,7 @@ function Breadcrumb({ section, identifier, title }: { section: "tickets" | "draf
 }
 
 /** The sheet's surroundings: the app's breadcrumb, or the public page's top bar and footer. */
-function Frame({
+export function BriefFrame({
   home,
   signedIn,
   identifier,
@@ -183,7 +183,7 @@ function Frame({
     return (
       <div>
         <Breadcrumb section={home} identifier={identifier} title={title} />
-        <div className="card mt-4 overflow-hidden">{children}</div>
+        <div className="mt-2">{children}</div>
       </div>
     );
   }
@@ -221,15 +221,15 @@ export default async function BriefView({ shareId, section }: { shareId: string;
   // ── Couldn't be written ──
   if (phase === "failed") {
     return (
-      <Frame home={inApp ? home : undefined} signedIn={!!viewerId} title={brief.title || "Bug report"}>
+      <BriefFrame home={inApp ? home : undefined} signedIn={!!viewerId} title={brief.title || "Bug report"}>
         <ReadingColumn className="flex flex-col items-center gap-3 py-24 text-center sm:py-28">
           <BrandMark size={32} />
-          <p className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">This one couldn&apos;t be written up.</p>
+          <p className="page-title">This one couldn&apos;t be written up.</p>
           <p className="max-w-xs text-[13px] text-muted">
             Something went wrong turning this capture into a ticket. Try again from the Brief extension.
           </p>
         </ReadingColumn>
-      </Frame>
+      </BriefFrame>
     );
   }
 
@@ -360,7 +360,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
         is a floating panel (below), so it reserves no column and leaves no empty
         space beside the doc. Extra bottom padding on owner drafts clears the
         floating panel. */}
-    <Frame home={inApp ? home : undefined} signedIn={!!viewerId} identifier={shortId} title={docTitle || "Untitled draft"}>
+    <BriefFrame home={inApp ? home : undefined} signedIn={!!viewerId} identifier={shortId} title={docTitle || "Untitled draft"}>
       <ReadingColumn className={withRail ? "pb-44 sm:pb-48" : ""}>
       {/* The writing state doesn't fade in - only the resolved ticket does, so
           the writing→ready hand-off is ONE gentle settle, not two page fades
@@ -445,7 +445,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
       )}
       </article>
       </ReadingColumn>
-    </Frame>
+    </BriefFrame>
 
     {/* Floating assistant - fixed to the viewport, reserves no layout column. */}
     {withRail && (

@@ -45,34 +45,65 @@ function tryOpenPopup(briefId) {
   } catch {}
 }
 
+// A delayed screenshot fires with the popup long closed: a failure shows on
+// the toolbar icon for a few seconds instead.
+async function delayedShot(itemId, windowId) {
+  const res = await startShot(itemId, 0, windowId);
+  if (!res?.ok) {
+    await chrome.action.setBadgeBackgroundColor({ color: '#cf3b2e' }).catch(() => {});
+    await chrome.action.setBadgeText({ text: '!' }).catch(() => {});
+    setTimeout(() => refreshBadge(), 4000);
+  }
+  return res;
+}
+
 // ---------- Capture entry points ----------
 // Capture the visible tab, then inject the annotator overlay and hand it the
 // screenshot. Capture must happen here (content scripts can't).
-async function startShot(itemId) {
+// With a delay (3 or 6 seconds, picked in the popup), the popup closes at once
+// and the toolbar icon counts down, so there is time to open a menu or hover
+// something first. The screenshot is of whatever tab is in front when it fires.
+async function startShot(itemId, delay = 0, windowId = null) {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // After a delay, the window is the one the screenshot was asked from (the
+    // "current" window is unknown to a worker once focus has moved elsewhere).
+    const [tab] = await chrome.tabs.query(windowId != null ? { active: true, windowId } : { active: true, currentWindow: true });
     if (!tab?.id || !tab?.url || /^(chrome|edge|chrome-extension|about):/.test(tab.url)) return { ok: false, error: 'unsupported_page' };
+    if (delay === 3 || delay === 6) {
+      // The page counts down in a small banner at its foot (with Cancel), hides
+      // it, and asks for the screenshot (SHOT_COUNTDOWN_DONE). A page that
+      // can't host the banner still gets its screenshot after the delay.
+      try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }); } catch {}
+      try {
+        const r = await chrome.tabs.sendMessage(tab.id, { type: 'SHOT_COUNTDOWN', seconds: delay, itemId });
+        if (!r?.ok) throw new Error('no banner');
+      } catch {
+        setTimeout(() => { delayedShot(itemId, tab.windowId); }, delay * 1000);
+      }
+      return { ok: true, delayed: delay };
+    }
     await captureStarted();
     const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
     // Mint the screenshot's id HERE and keep the clean capture in the blob
     // store under it, so "Edit drawing" can later reopen the annotator on the
     // unmarked image with the strokes editable.
     const shotId = genId();
-    try {
-      await putFile(shotKey(shotId), await (await fetch(dataUrl)).blob());
-    } catch (err) {
+    // Kept alongside, not before: the editor opens without waiting for it.
+    (async () => {
+      try { await putFile(shotKey(shotId), await (await fetch(dataUrl)).blob()); }
       // Non-fatal: the screenshot still lands, it just won't be re-editable.
-      console.warn('[brief/background] stash clean capture:', err);
-    }
+      catch (err) { console.warn('[brief/background] stash clean capture:', err); }
+    })();
     // The page URL/title ride through the overlay round-trip so SHOT_SAVED can
     // pin them onto THIS screenshot, even if the user navigates away first.
-    try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-    } catch {}
-    await chrome.tabs.sendMessage(tab.id, {
-      type: 'INJECT_SHOT', itemId, dataUrl, shotId,
-      pageUrl: tab.url || null, pageTitle: tab.title || null,
-    });
+    const inject = { type: 'INJECT_SHOT', itemId, dataUrl, shotId, pageUrl: tab.url || null, pageTitle: tab.title || null };
+    // The page script is usually there already (always after a countdown):
+    // hand it the picture straight away, and inject it only when it isn't.
+    try { await chrome.tabs.sendMessage(tab.id, inject); }
+    catch {
+      try { await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] }); } catch {}
+      await chrome.tabs.sendMessage(tab.id, inject);
+    }
     return { ok: true };
   } catch (err) {
     console.error('[brief/background] START_SHOT:', err);
@@ -1289,7 +1320,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
 
         case 'START_SHOT':
-          sendResponse(await startShot(message.itemId));
+          sendResponse(await startShot(message.itemId, Number(message.delay) || 0));
+          break;
+
+        case 'SHOT_COUNTDOWN_DONE':
+          sendResponse(await delayedShot(message.itemId, sender.tab?.windowId ?? null));
           break;
 
         case 'SHOT_SAVED': {

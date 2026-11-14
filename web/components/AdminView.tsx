@@ -246,7 +246,7 @@ export default function AdminView({ rows, initial }: { rows: AdminRow[]; initial
   return (
     <section>
       <header className="flex items-center justify-between gap-4">
-        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">All tickets</h1>
+        <h1 className="page-title">All tickets</h1>
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"

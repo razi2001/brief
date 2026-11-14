@@ -4,15 +4,15 @@ import Link from "next/link";
 import RetryButton from "./RetryButton";
 import { explainFilingError } from "@/lib/filing-errors";
 import ArchiveButton from "./ArchiveButton";
-import StatusBadge from "./StatusBadge";
+import StatusBadge, { type StatusKind } from "./StatusBadge";
 import { TrackerLogo } from "./TrackerLogo";
 import { displayIdentifier } from "@/lib/ticket-sync";
 import TicketIdText from "./TicketIdText";
 import { PROVIDER_LABELS } from "./provider-labels";
-import BrandMark from "./BrandMark";
 import Elapsed from "./Elapsed";
 import type { DashboardBrief } from "@/lib/brief-types";
 import { TAG_COLORS, type Tag } from "@/lib/tags";
+import { groupOfState } from "@/lib/status-group";
 
 const NO_TAGS: Tag[] = [];
 /** Tag labels a row shows before the rest fold into "+n". */
@@ -35,77 +35,30 @@ function relativeTime(iso?: string | null): string {
   return `${Math.round(mo / 12)}y`;
 }
 
-function initial(name?: string): string {
-  const n = (name ?? "").trim();
-  return n ? n[0].toUpperCase() : "?";
-}
-
 /**
- * One Linear-like row in the Briefs feed, laid out on the shared `.ticket-grid`
- * column tracks (checkbox · id · title · status · assignee · updated · actions)
- * so every row's meta lands in the same column down the whole list - even when
- * a cell is empty, its track still holds the space.
- *
- * Every cell is a DIRECT grid child. Navigation for filed rows is a full-row
- * absolute overlay <a> (covers the row, but isn't a grid cell); the interactive
- * cells (checkbox, retry, archive) sit above it via `relative z-10`, so
- * clicking them never navigates. Processing rows show a live "Filing m:ss";
- * failed rows show a Retry; the exit animation (`brief-leaving`) lives here.
+ * What a brief is, read once for every place that shows one (a row, the latest
+ * ticket's card, a card that needs you): its title, where a click goes, and
+ * where it stands.
  */
-export default function BriefListRow({
-  brief: b,
-  view = "tickets",
-  onArchive,
-  onArchiveFailed,
-  leaving = false,
-  selected = false,
-  anySelected = false,
-  onToggleSelect,
-  tags = NO_TAGS,
-  onRemoveTag,
-}: {
-  /** The tags it carries, shown as small labels after the title. */
-  tags?: Tag[];
-  /** Take one of its tags off. Without it the labels are read-only. */
-  onRemoveTag?: (tagId: string) => void;
-  brief: DashboardBrief;
-  /** The list it's in. A processing brief marked as a draft is being written, not filed. */
-  view?: "tickets" | "drafts";
-  onArchive?: (id: string) => void;
-  onArchiveFailed?: (id: string) => void;
-  leaving?: boolean;
-  /** This row is selected. */
-  selected?: boolean;
-  /** Any row is selected (keeps every checkbox visible while a selection is active). */
-  anySelected?: boolean;
-  onToggleSelect?: (id: string) => void;
-}) {
+export function briefFacts(b: DashboardBrief) {
   const ti = b.ticket ?? null;
   const isFiled = b.status === "filed";
   const isFailed = b.status === "failed";
   const isDraft = b.status === "drafted";
   const isProcessing = b.status === "processing" || b.status === "uploaded";
 
-  // The row opens the Brief page (canonical view) for both drafts and filed
-  // tickets; filed rows also get a "open in tracker" action. Old filed briefs
-  // without a share link fall back to opening the tracker directly.
-  // the brief opens inside the app: drafts under Drafts, the rest under Tickets
-  const writing = isProcessing && (view === "drafts" || !!b.draft);
+  // The brief opens inside the app: drafts under Drafts, the rest under Tickets.
+  const writing = isProcessing && !!b.draft;
   const briefHref = b.share_id ? `/${isDraft || writing ? "drafts" : "tickets"}/${b.share_id}` : undefined;
-  // A ticket the tracker no longer has: nothing to open there, so the row and
-  // its id chip fall back to the Brief page.
+  // A ticket the tracker no longer has: nothing to open there, so a click
+  // falls back to the Brief page.
   const trackerHref = ti?.deleted ? undefined : ti?.url || b.ticket_url || undefined;
   // A filed ticket opens where it lives now - Linear, Jira, GitHub - in a new
   // tab. Everything else (drafts, filing, didn't file, a ticket the tracker
   // deleted) opens inside the app.
   const href = (isFiled && trackerHref) || briefHref;
-  const asLink = !!href;
-  const hrefExternal = !!href && href !== briefHref; // tracker link → new tab
-  // Linear, Jira, GitHub - every tracker by its own name, so its id opens it there
+  const hrefExternal = !!href && href !== briefHref;
   const providerName = PROVIDER_LABELS[b.provider ?? "linear"] ?? "Linear";
-  // Empty for trackers with no readable key (Notion, Asana), whose raw page id
-  // or task gid stays out of the tooltip too.
-  const shownId = displayIdentifier(b.ticket_identifier, b.provider);
 
   const title =
     ti?.title ||
@@ -121,41 +74,92 @@ export default function BriefListRow({
             ? `${b.source_kind} brief`
             : "Untitled brief");
 
-  // Checkbox is faint until you hover the row; it stays visible once it's
-  // checked or while any selection is active. Clicking it selects (never navigates).
+  // The mark: Brief's own states first, then the tracker's.
+  const mark: { kind: StatusKind; color: string; name: string; tip?: string } = isProcessing
+    ? { kind: "working", color: "#dd6936", name: writing ? "Writing" : "Filing" }
+    : isFailed
+      ? { kind: "failed", color: "#d14343", name: "Didn't file", tip: "Didn't file" }
+      : isDraft
+        ? { kind: "draft", color: "#8a8378", name: "Draft", tip: "Draft, not filed" }
+        : {
+            kind: ti?.deleted ? "closed" : groupOfState(ti?.stateName || "Done"),
+            color: ti?.stateColor || "#2e7d32",
+            name: ti?.stateName || "Filed",
+            tip: ti?.deleted ? `Deleted in ${providerName}` : ti?.stateName || "Filed",
+          };
+
+  return { ti, isFiled, isFailed, isDraft, isProcessing, writing, briefHref, trackerHref, href, hrefExternal, providerName, title, mark };
+}
+
+function initial(name?: string): string {
+  const n = (name ?? "").trim();
+  return n ? n[0].toUpperCase() : "?";
+}
+
+/**
+ * One line of the Tickets list: a status mark, the title, and on the right the
+ * little that helps find it again (its id in the tracker, who has it, how old).
+ * The mark says where the ticket stands (its name is in the tooltip), so the
+ * row needs no status column. Brief's own states are the only ones written
+ * out, because they are the ones that need you: a draft, one being filed, one
+ * that didn't file (with its reason and a Retry).
+ *
+ * The whole row is the link (an absolute overlay); the checkbox, the id, a
+ * tag's remove button, Retry and Archive sit above it, so using them never
+ * opens the ticket. The checkbox and Archive show on hover.
+ */
+export default function BriefListRow({
+  brief: b,
+  onArchive,
+  onArchiveFailed,
+  leaving = false,
+  selected = false,
+  anySelected = false,
+  onToggleSelect,
+  tags = NO_TAGS,
+  onRemoveTag,
+}: {
+  /** The tags it carries, shown as small labels after the title. */
+  tags?: Tag[];
+  /** Take one of its tags off. Without it the labels are read-only. */
+  onRemoveTag?: (tagId: string) => void;
+  brief: DashboardBrief;
+  onArchive?: (id: string) => void;
+  onArchiveFailed?: (id: string) => void;
+  leaving?: boolean;
+  /** This row is selected. */
+  selected?: boolean;
+  /** Any row is selected (keeps every checkbox visible while a selection is active). */
+  anySelected?: boolean;
+  onToggleSelect?: (id: string) => void;
+}) {
+  const f = briefFacts(b);
+  const { ti, isFailed, isDraft, isProcessing, writing, trackerHref, href, hrefExternal, providerName, title } = f;
+  // Empty for trackers with no readable key (Notion, Asana), whose raw page id
+  // or task gid stays out of the tooltip too.
+  const shownId = displayIdentifier(b.ticket_identifier, b.provider);
+
   const boxVisible = selected || anySelected;
-  // Archived rows recede - dim the content cells so they read as "put away" at a
-  // glance, while the checkbox + hover actions (incl. restore) stay full strength.
   const dim = b.archived ? " opacity-55" : "";
+  const idClass = "inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted";
 
   return (
     <li
-      className={`group animate-rise ticket-grid relative min-h-[42px] py-2 pl-3 pr-2.5 transition-colors max-sm:gap-x-2 max-sm:[grid-template-columns:1.5rem_5.25rem_minmax(0,1fr)_0.75rem_1.75rem] ${
-        selected ? "bg-accent/[0.05] hover:bg-accent/[0.07]" : "hover:bg-surface-2"
-      }${leaving ? " brief-leaving" : ""}`}
+      data-selected={selected ? "" : undefined}
+      className={`list-row group overflow-hidden sm:pl-0 sm:pr-9 ${selected ? "bg-[var(--color-accent-soft)]" : ""}${leaving ? " brief-leaving" : ""}`}
     >
       {isProcessing && <span aria-hidden className="queue-bar" />}
 
-      {/* Full-row click target for filed rows. Absolutely positioned, so it
-          covers the row without being a grid cell; interactive cells layer over
-          it with `relative z-10`. */}
-      {/* In-app pages go through the router (a plain <a> reloaded the whole
-          app - the sidebar flickered and it felt slow); the tracker opens in a
-          new tab. */}
-      {asLink && href &&
+      {/* The row is the link. In-app pages go through the router; the tracker
+          opens in a new tab. */}
+      {href &&
         (hrefExternal ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`${title}, open in ${providerName}`}
-            className="absolute inset-0"
-          />
+          <a href={href} target="_blank" rel="noreferrer" aria-label={`${title}, open in ${providerName}`} className="absolute inset-0" />
         ) : (
           <Link href={href} aria-label={title} className="absolute inset-0" />
         ))}
 
-      {/* 1 · Checkbox (always reserves its track - no layout shift on hover) */}
+      {/* Checkbox, in the page's gutter: there on hover, and while selecting */}
       <button
         type="button"
         role="checkbox"
@@ -166,15 +170,13 @@ export default function BriefListRow({
           e.stopPropagation();
           onToggleSelect?.(b.id);
         }}
-        className={`relative z-10 flex items-center justify-center transition-opacity duration-150 ${
-          boxVisible ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center transition-opacity duration-150 max-sm:hidden ${
+          boxVisible ? "opacity-100" : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
         }`}
       >
         <span
           className={`flex h-[15px] w-[15px] items-center justify-center rounded-[4px] border transition-colors ${
-            selected
-              ? "border-accent bg-accent text-white"
-              : "border-[rgba(26,22,18,0.22)] bg-surface text-transparent"
+            selected ? "border-accent bg-accent text-white" : "border-[rgba(26,22,18,0.25)] bg-surface text-transparent"
           }`}
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -183,65 +185,17 @@ export default function BriefListRow({
         </span>
       </button>
 
-      {/* 2 · Tracker id, or Retry on a live failed brief */}
-      <div className={`flex min-w-0 items-center${dim}`}>
-        {isFailed && !b.archived ? (
-          <span className="relative z-10">
-            <RetryButton briefId={b.id} />
-          </span>
-        ) : !isFailed && b.ticket_identifier ? (
-          // Filed → the row opens it here in the app; the tracker id (logo + id)
-          // opens the ticket in Linear/Jira.
-          <span className="inline-flex min-w-0 items-center gap-1.5">
-            {trackerHref ? (
-              <a
-                href={trackerHref}
-                target="_blank"
-                rel="noreferrer"
-                title={shownId ? `${shownId} - open in ${providerName}` : `Open in ${providerName}`}
-                aria-label={`Open in ${providerName}`}
-                className="relative z-10 inline-flex min-w-0 items-center gap-1.5 py-0.5 font-mono text-xs text-muted no-underline transition-colors hover:text-ink"
-              >
-                <TrackerLogo kind={b.provider ?? "linear"} size={12} />
-                <TicketIdText identifier={b.ticket_identifier} provider={b.provider} />
-              </a>
-            ) : (
-              <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
-                <TrackerLogo kind={b.provider ?? "linear"} size={12} />
-                <TicketIdText identifier={b.ticket_identifier} provider={b.provider} />
-              </span>
-            )}
-          </span>
-        ) : isDraft || isProcessing ? (
-          // No tracker id yet → its own Brief identity (brief-N), the way Linear
-          // shows ENG-1. It opens the Brief page.
-          briefHref ? (
-            <Link
-              href={briefHref}
-              title="Open the Brief page"
-              aria-label="Open the Brief page"
-              className="relative z-10 inline-flex min-w-0 items-center gap-1.5 py-0.5 font-mono text-xs text-muted no-underline transition-colors hover:text-ink"
-            >
-              <BrandMark size={14} className="shrink-0 rounded-[3px]" />
-              <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
-            </Link>
-          ) : (
-            <span className="inline-flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted">
-              <BrandMark size={14} className="shrink-0 rounded-[3px]" />
-              <span className="truncate">{b.seq ? `brief-${b.seq}` : "brief"}</span>
-            </span>
-          )
-        ) : (
-          <span aria-hidden />
-        )}
-      </div>
+      {/* Where it stands: the mark, its name in the tooltip */}
+      <span className={`flex shrink-0${dim}`}>
+        <StatusBadge iconOnly kind={f.mark.kind} color={f.mark.color} title={f.mark.tip}>
+          {f.mark.name}
+        </StatusBadge>
+      </span>
 
-      {/* 3 · Title (+ inline error on failed rows) */}
-      <div className={`min-w-0${dim}`}>
+      {/* Title, its tags, and why it didn't file */}
+      <div className={`min-w-0 flex-1${dim}`}>
         <div className="flex min-w-0 items-center gap-2">
-          <p className={`min-w-0 truncate text-[13.5px] leading-snug ${isFailed ? "text-[#c62828]" : "text-ink"}`}>
-            {title}
-          </p>
+          <p className="min-w-0 truncate text-[13.5px] leading-snug text-ink">{title}</p>
           {tags.length > 0 && (
             <span className="flex shrink-0 items-center gap-1 max-sm:hidden">
               {tags.slice(0, MAX_TAG_LABELS).map((t) => (
@@ -281,80 +235,73 @@ export default function BriefListRow({
           )}
         </div>
         {isFailed && b.error && (
-          <p className="mt-0.5 text-xs text-muted" title={explainFilingError(b.error)}>
+          <p className="mt-0.5 truncate text-xs text-[#b3402f]" title={explainFilingError(b.error)}>
             {explainFilingError(b.error)}
           </p>
         )}
       </div>
 
-      {/* 4 · Status (filing / didn't file / tracker state) */}
-      <div className={`min-w-0${dim}`}>
-        {isProcessing ? (
-          <StatusBadge compact color="#dd6936">
-            {writing ? "Writing" : "Filing"} <Elapsed since={b.updated_at || b.created_at} />
-          </StatusBadge>
-        ) : isFailed ? (
-          <StatusBadge compact color="#c62828" title="Didn't file">
-            Didn&apos;t file
-          </StatusBadge>
-        ) : isDraft ? (
-          <StatusBadge compact color="#8a8378" title="Draft - not filed">
-            Draft
-          </StatusBadge>
-        ) : (
-          <StatusBadge
-            compact
-            color={ti?.stateColor || "#2e7d32"}
-            title={ti?.deleted ? `Deleted in ${providerName}` : ti?.stateName || "Filed"}
-          >
-            {ti?.stateName || "Filed"}
-          </StatusBadge>
-        )}
-      </div>
+      {/* Brief's own state, in words: only what needs you */}
+      {isProcessing ? (
+        <span className={`shrink-0 text-xs tabular-nums text-accent${dim}`}>
+          {writing ? "Writing" : "Filing"} <Elapsed since={b.updated_at || b.created_at} />
+        </span>
+      ) : isFailed && !b.archived ? (
+        <span className="relative z-10 shrink-0">
+          <RetryButton briefId={b.id} />
+        </span>
+      ) : isDraft ? (
+        <span className={`shrink-0 text-xs text-muted${dim}`}>Draft</span>
+      ) : null}
 
-      {/* 5 · Assignee - avatar + name (hidden < sm) */}
-      <div className={`hidden min-w-0 items-center gap-2 sm:flex${dim}`}>
-        {ti?.assignee ? (
-          <>
-            {ti.assignee.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={ti.assignee.avatarUrl}
-                alt=""
-                title={ti.assignee.name}
-                className="h-5 w-5 shrink-0 rounded-full object-cover ring-1 ring-hairline"
-              />
-            ) : (
-              <span
-                title={ti.assignee.name}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cream-2 text-[10px] font-medium text-ink-2"
-              >
-                {initial(ti.assignee.name)}
-              </span>
-            )}
-            <span className="truncate text-[13px] text-ink-2">{ti.assignee.name}</span>
-          </>
-        ) : (
-          <span
-            title="Unassigned"
-            className="h-5 w-5 shrink-0 rounded-full border border-dashed border-[rgba(26,22,18,0.25)]"
-          />
-        )}
-      </div>
+      {/* Its id in the tracker, which opens it there */}
+      {!isFailed && b.ticket_identifier && (
+        <span className={`hidden shrink-0 sm:flex${dim}`}>
+          {trackerHref ? (
+            <a
+              href={trackerHref}
+              target="_blank"
+              rel="noreferrer"
+              title={shownId ? `${shownId} - open in ${providerName}` : `Open in ${providerName}`}
+              aria-label={`Open in ${providerName}`}
+              className={`${idClass} relative z-10 py-0.5 no-underline transition-colors hover:text-ink`}
+            >
+              <TrackerLogo kind={b.provider ?? "linear"} size={12} />
+              <TicketIdText identifier={b.ticket_identifier} provider={b.provider} />
+            </a>
+          ) : (
+            <span className={idClass}>
+              <TrackerLogo kind={b.provider ?? "linear"} size={12} />
+              <TicketIdText identifier={b.ticket_identifier} provider={b.provider} />
+            </span>
+          )}
+        </span>
+      )}
 
-      {/* 6 · Updated (hidden < sm) */}
-      <span className={`hidden truncate text-xs tabular-nums text-muted sm:block${dim}`}>
-        {relativeTime(b.created_at)}
+      {/* Who has it: the face only, the name in the tooltip */}
+      <span className={`hidden w-5 shrink-0 sm:block${dim}`}>
+        {ti?.assignee &&
+          (ti.assignee.avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={ti.assignee.avatarUrl} alt="" title={ti.assignee.name} className="h-5 w-5 rounded-full object-cover ring-1 ring-hairline" />
+          ) : (
+            <span title={ti.assignee.name} className="flex h-5 w-5 items-center justify-center rounded-full bg-cream-2 text-[10px] font-medium text-ink-2">
+              {initial(ti.assignee.name)}
+            </span>
+          ))}
       </span>
 
-      {/* 7 · Row action - Archive is the only removal (acts like delete). Faint
-          until hover; hidden while a batch selection is active (the floating
-          bar handles that); the cell still holds its track. */}
-      <div className="relative z-10 flex items-center justify-end gap-0.5">
+      {/* How old, and Archive in its place on hover (the bulk bar does it while selecting) */}
+      <span className="relative flex h-7 w-9 shrink-0 items-center justify-end">
+        <span className={`text-xs tabular-nums text-faint transition-opacity duration-150 ${anySelected ? "" : "sm:group-hover:opacity-0"}${dim}`}>
+          {relativeTime(b.created_at)}
+        </span>
         {!anySelected && (
-          <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+          <span className="absolute inset-y-0 right-0 z-10 flex items-center max-sm:hidden">
+            <ArchiveButton briefId={b.id} onArchive={onArchive} onArchiveFailed={onArchiveFailed} />
+          </span>
         )}
-      </div>
+      </span>
     </li>
   );
 }

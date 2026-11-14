@@ -25,6 +25,13 @@ describe("mergeBriefOverrides", () => {
     expect(json).toEqual({ transcript: "kept", description: "kept" });
   });
 
+  it("carries 'no voice heard', unless there are words to keep", () => {
+    expect(mergeBriefOverrides({}, { noSpeech: true }).noSpeech).toBe(true);
+    expect(mergeBriefOverrides({}, { noSpeech: true, transcript: "typed after" }).noSpeech).toBeUndefined();
+    expect(mergeBriefOverrides({ transcript: "said" }, { noSpeech: true }).noSpeech).toBeUndefined();
+    expect(mergeBriefOverrides({}, { noSpeech: false }).noSpeech).toBeUndefined();
+  });
+
   it("treats null/garbage overrides as no-op", () => {
     expect(mergeBriefOverrides({ a: 1 }, undefined)).toEqual({ a: 1 });
     expect(mergeBriefOverrides({ a: 1 }, null)).toEqual({ a: 1 });

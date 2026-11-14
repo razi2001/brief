@@ -37,7 +37,7 @@ export default function ActivityTimeline({
       <header className="mt-3 flex items-center gap-3">
         <Avatar name={p.name || p.email || "?"} imageUrl={p.image ?? undefined} size={36} />
         <div className="min-w-0">
-          <h1 className="truncate text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">
+          <h1 className="truncate page-title">
             {p.name || p.email}
           </h1>
           {p.name && <p className="truncate text-[13px] text-muted">{p.email}</p>}

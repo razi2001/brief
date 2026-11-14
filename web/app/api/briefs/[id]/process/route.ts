@@ -24,6 +24,8 @@ type FileBody = {
   screenshots?: Array<{ file: string; description?: string; annotated?: boolean }>;
   /** false when the popup's bug bash switch is off for this brief. */
   bash?: boolean;
+  /** The extension transcribed the recording and heard no voice. */
+  noSpeech?: boolean;
 };
 
 export function OPTIONS() {
@@ -78,6 +80,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     description: typeof body?.description === "string" ? body.description : undefined,
     extra: Array.isArray(body?.extra) ? body.extra : undefined,
     screenshots: Array.isArray(body?.screenshots) ? body.screenshots : undefined,
+    noSpeech: body?.noSpeech === true,
   };
 
   // Mark it queued (processing) right away, scoped to the caller, and mint the
@@ -144,6 +147,7 @@ async function holdForReview(body: FileBody, userId: string, id: string, bashId:
     description: typeof body?.description === "string" ? body.description : undefined,
     extra: Array.isArray(body?.extra) ? body.extra : undefined,
     screenshots: Array.isArray(body?.screenshots) ? body.screenshots : undefined,
+    noSpeech: body?.noSpeech === true,
   };
 
   const admin = createAdminSupabase();

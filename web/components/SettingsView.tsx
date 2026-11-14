@@ -48,15 +48,15 @@ export default function SettingsView({
   const rule = guidance.effective.trim().split(/\r?\n/)[0] ?? "";
 
   const group = (label: string) => (
-    <h2 className="mb-2 px-0.5 text-[13px] font-medium text-ink-2">{label}</h2>
+    <h2 className="group-title mb-2 px-0.5">{label}</h2>
   );
 
   return (
     // The app shell is wide (for the tickets table); settings read better
     // narrower, so clamp this page to a Linear-width column.
-    <div className="mx-auto w-full max-w-[720px]">
+    <div className="w-full max-w-[720px]">
       <header className="flex items-center justify-between gap-4">
-        <h1 className="text-[22px] font-semibold leading-tight tracking-[-0.015em] text-ink">Settings</h1>
+        <h1 className="page-title">Settings</h1>
       </header>
 
       <div className="mt-7">

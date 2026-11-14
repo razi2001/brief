@@ -36,7 +36,7 @@ export default function MoreMenu({ label, children }: { label: string; children:
         aria-expanded={open}
         aria-label={label}
         title={label}
-        className={`flex h-8 w-8 items-center justify-center rounded-lg text-muted transition-colors hover:bg-[rgba(26,22,18,0.06)] hover:text-ink ${open ? "bg-[rgba(26,22,18,0.06)] text-ink" : ""}`}
+        className={`btn-ghost h-[30px] w-[30px] ${open ? "bg-[var(--color-pressed)] text-ink" : ""}`}
       >
         <svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">
           <circle cx="3.5" cy="8" r="1.25" />
@@ -47,7 +47,7 @@ export default function MoreMenu({ label, children }: { label: string; children:
       {open && (
         <div
           role="menu"
-          className="animate-rise absolute right-0 top-full z-40 mt-1 w-[216px] rounded-xl border border-hairline bg-surface p-1 shadow-[0_14px_40px_-14px_rgba(26,22,18,0.32),0_2px_6px_rgba(26,22,18,0.05)]"
+          className="menu absolute right-0 top-full z-40 mt-1 w-[216px] p-1"
         >
           {children(() => setOpen(false))}
         </div>
