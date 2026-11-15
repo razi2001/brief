@@ -16,39 +16,32 @@ type BashS = {
 };
 
 const BASH = { name: "Checkout", left: "24:10", hold: true };
-const VIDEO: Tile = { kind: "video", label: "Recording" };
-const TEAM = (you: number) => [
-  { name: "Sam Rivera", n: 4 },
-  { name: "Ana Costa", n: 3 },
-  { name: "You", n: you, you: true },
-  { name: "Lee Park", n: 1 },
-];
-const sorted = (you: number) => TEAM(you).sort((x, y) => y.n - x.n);
+const VIDEO: Tile = { kind: "video" };
 
 export const bugbash = scene<BashS>({
-  poster: 8,
+  poster: 9,
   frames: [
-    // 0: make one, from the list (or one of the suggested areas)
-    { ms: 1100, step: 0, target: "bash-suggested", click: true, s: { list: { suggestOn: true } } },
+    // 0: make one, from the list (Suggested has the areas your tickets break in)
+    { ms: 1200, step: 0, target: "bash-suggested", click: true, s: { list: { suggestOn: true } } },
     { ms: 1000, step: 0, target: "bash-new", click: true, s: { list: { newOn: true } } },
-    { ms: 1800, step: 0, target: "bash-name", s: { form: { name: "Checkout", typing: true, hold: true } } },
-    // 1: reports wait for a review, then the invite link
-    { ms: 1100, step: 1, target: "bash-hold", s: { form: { name: "Checkout", hold: true, holdOn: true } } },
-    { ms: 1000, step: 1, target: "bash-create", click: true, s: { form: { name: "Checkout", hold: true, createOn: true } } },
-    { ms: 1300, step: 1, target: "bash-copy", click: true, s: { page: { me: "join", copied: true, copyOn: true } } },
+    { ms: 1800, step: 0, target: "bash-name", s: { form: { name: "Checkout", typing: true } } },
+    // 1: reports wait for a review, Create, then the invite link
+    { ms: 1100, step: 1, target: "bash-hold", s: { form: { name: "Checkout", holdOn: true } } },
+    { ms: 1000, step: 1, target: "bash-create", click: true, s: { form: { name: "Checkout", createOn: true } } },
+    { ms: 1300, step: 1, target: "bash-copy", click: true, s: { page: { me: "join", copied: true, copyOn: true, joined: 2 } } },
     // 2: join, then start your own clock
-    { ms: 1000, step: 2, target: "bash-join", click: true, s: { page: { me: "join", meOn: true, board: [{ name: "Sam Rivera", n: 0 }] } } },
-    { ms: 1100, step: 2, target: "bash-start", click: true, s: { page: { me: "start", meOn: true, board: [{ name: "Sam Rivera", n: 0 }, { name: "You", n: 0, you: true }] } } },
-    { ms: 1600, step: 2, cursor: AT.rest, s: { page: { me: "testing", left: "30:00", ring: 1, found: 5, board: sorted(0) } } },
-    // 3: what you file from the extension counts
-    { ms: 1300, step: 3, target: "bash-row", s: { popup: { tiles: [VIDEO], desc: "Pay does nothing" } } },
+    { ms: 1000, step: 2, target: "bash-join", click: true, s: { page: { me: "join", meOn: true, joined: 2 } } },
+    { ms: 1100, step: 2, target: "bash-start", click: true, s: { page: { me: "start", meOn: true, joined: 4, counts: [1, 0, 0, 0] } } },
+    { ms: 1600, step: 2, cursor: AT.rest, s: { page: { me: "testing", left: 1800, joined: 4, counts: [2, 1, 0, 0] } } },
+    // 3: what you file from the extension counts for it
+    { ms: 1400, step: 3, target: "bash-row", s: { popup: { tiles: [VIDEO], desc: "Pay does nothing" } } },
     { ms: 1000, step: 3, target: "create", click: true, s: { popup: { tiles: [VIDEO], desc: "Pay does nothing", createDown: true } } },
-    { ms: 1500, step: 3, target: "create", s: { popup: { fly: true, cloud: "landed", toast: "Ticket queued" } } },
+    { ms: 1600, step: 3, target: "create", s: { popup: { fly: true, cloud: "landed", toast: "Added to Checkout" } } },
     // 4: the board, then the review once it is over
-    { ms: 1700, step: 4, cursor: AT.rest, s: { page: { me: "testing", left: "21:40", ring: 0.72, found: 7, board: sorted(2) } } },
-    { ms: 1300, step: 4, target: "bash-file", s: { page: { review: true } } },
-    { ms: 1000, step: 4, target: "bash-file", click: true, s: { page: { review: true, fileOn: true } } },
-    { ms: 2000, step: 4, cursor: AT.rest, s: { page: { review: true, filed: true } } },
+    { ms: 2000, step: 4, cursor: AT.rest, s: { page: { me: "testing", left: 1450, joined: 4, counts: [4, 3, 2, 1] } } },
+    { ms: 1400, step: 4, target: "bash-file", s: { page: { review: true, counts: [4, 3, 2, 1] } } },
+    { ms: 1000, step: 4, target: "bash-file", click: true, s: { page: { review: true, counts: [4, 3, 2, 1] } } },
+    { ms: 2000, step: 4, cursor: AT.rest, s: { page: { review: true, filed: true, counts: [4, 3, 2, 1] } } },
   ],
   View: ({ s }) =>
     s.popup ? (
@@ -56,10 +49,8 @@ export const bugbash = scene<BashS>({
         <MockAcme page="checkout" />
       </BrowserFrame>
     ) : (
-      <BrowserFrame url={`${APP}/bash`} title="Bug bash · Brief" fav="#dd6936">
-        <MockApp active="Bug bash">
-          {s.form ? <MockBashNew s={s.form} /> : s.page ? <MockBashPage s={s.page} /> : <MockBashList s={s.list ?? {}} />}
-        </MockApp>
+      <BrowserFrame url={`${APP}/bash${s.form ? "/new" : s.page ? "/k7m2q9" : ""}`} title="Bug bash · Brief Cloud" fav="#dd6936">
+        <MockApp active="Bug bash">{s.form ? <MockBashNew s={s.form} /> : s.page ? <MockBashPage s={s.page} /> : <MockBashList s={s.list ?? {}} />}</MockApp>
       </BrowserFrame>
     ),
 });

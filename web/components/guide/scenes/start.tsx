@@ -1,8 +1,13 @@
+import { Real } from "../mock/Real";
+import * as PERMISSION from "../mock/real/permission";
+import ConnectView from "@/components/ConnectView";
+import CloudBackground from "@/components/CloudBackground";
 import BrandMark from "@/components/BrandMark";
 import { BrowserFrame } from "../mock/Browser";
-import { MockApp, MockSettings, TRACKERS, type SettingsState } from "../mock/App";
+import { MockApp, MockSettings, type SettingsState } from "../mock/App";
+import { TrackerLogo } from "@/components/TrackerLogo";
 import { Mark, u } from "../mock/Stage";
-import { IconCheck, IconMic, IconPin, IconPuzzle } from "../mock/icons";
+import { IconMic, IconPin, IconPuzzle } from "../mock/icons";
 import { AT, scene } from "./types";
 
 const APP = "cloud.get-brief.app";
@@ -65,37 +70,20 @@ function Store({ installed, dialog }: { installed?: boolean; dialog?: boolean })
   );
 }
 
-/** permission.html: the setup tab the extension opens when it's installed. */
+/** permission.html, from its own copy (real/permission.ts): the setup tab the extension opens when it's installed. Granted, it says so as permission.js does. */
 function Permission({ prompt, granted }: { prompt?: boolean; granted?: boolean }) {
+  const body = PERMISSION.BODY.replace('<button id="grantBtn" class="primary">Grant microphone access</button>', `<button id="grantBtn" class="primary" data-gd="grant"${granted ? " disabled" : ""}>${granted ? "✓ Microphone granted" : "Grant microphone access"}</button>`).replace(
+    '<div id="status" class="status"></div>',
+    granted ? '<div id="status" class="status ok show">Granted - continuing to setup…</div>' : '<div id="status" class="status"></div>',
+  );
   return (
-    <div style={{ position: "absolute", inset: 0, background: "#f5f1e8", display: "grid", placeItems: "center" }}>
-      <div style={{ width: u(330), textAlign: "center", fontFamily: "var(--font-mono)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: u(8) }}>
-          <Mark size={28} />
-          <span className="gd-serif" style={{ fontSize: u(24) }}>
-            Brief <em>Cloud</em>
-          </span>
-        </div>
-        <div className="gd-serif" style={{ fontSize: u(19), marginTop: u(18) }}>
-          Quick setup
-        </div>
-        <div style={{ fontSize: u(9.5), color: "#8a8378", margin: `${u(8)} 0 ${u(16)}`, lineHeight: 1.6 }}>
-          Click the button below. Chrome will ask, choose <b>Allow</b>.
-        </div>
-        <span
-          key={granted ? "g" : "n"}
-          data-gd="grant"
-          className="gd-in"
-          style={{ display: "inline-flex", alignItems: "center", gap: u(7), padding: `${u(10)} ${u(18)}`, borderRadius: u(10), background: granted ? "#2f7d4f" : "#dd6936", color: "#f5f1e8", fontSize: u(10.5) }}
-        >
-          <span className="gd-fill" style={{ display: "inline-block", width: u(12), height: u(12) }}>
-            {granted ? <IconCheck /> : <IconMic />}
-          </span>
-          {granted ? "Microphone ready" : "Grant microphone access"}
-        </span>
-      </div>
+    <>
+      <Real>
+        <style>{PERMISSION.CSS}</style>
+        <div className="xm gd-perm" dangerouslySetInnerHTML={{ __html: body }} />
+      </Real>
       {prompt && (
-        <div className="gd-pop" style={{ position: "absolute", top: u(2), left: u(60), width: u(300), padding: u(16), borderRadius: u(10), background: "#fff", boxShadow: `0 ${u(4)} ${u(16)} rgba(0,0,0,.25)`, fontFamily: "system-ui, sans-serif", fontSize: u(11), color: "#202124" }}>
+        <div className="gd-pop" style={{ position: "absolute", top: u(2), left: u(60), width: u(300), padding: u(16), borderRadius: u(10), background: "#fff", boxShadow: `0 ${u(4)} ${u(16)} rgba(0,0,0,.25)`, fontFamily: "system-ui, sans-serif", fontSize: u(11), color: "#202124", zIndex: 5 }}>
           <div style={{ fontWeight: 500 }}>Brief Cloud wants to</div>
           <div style={{ display: "flex", alignItems: "center", gap: u(8), margin: `${u(10)} 0 ${u(14)}`, color: "#3c4043" }}>
             <span className="gd-fill" style={{ display: "inline-block", width: u(14), height: u(14) }}>
@@ -112,22 +100,19 @@ function Permission({ prompt, granted }: { prompt?: boolean; granted?: boolean }
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 
+/** /connect in Brief Cloud: the real ConnectView, paired. */
 function Connected() {
   return (
-    <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "linear-gradient(180deg,#eef3f8,#f6f1e9)" }}>
-      <div className="gd-pop" style={{ width: u(280), padding: u(26), borderRadius: u(14), background: "#fffdfa", border: `${u(1)} solid rgba(26,22,18,.09)`, textAlign: "center" }}>
-        <span className="gd-check" style={{ margin: `0 auto ${u(10)}`, width: u(30), height: u(30) }}>
-          <IconCheck />
-        </span>
-        <div className="gd-serif" style={{ fontSize: u(22) }}>
-          Connected <em>✓</em>
-        </div>
+    <Real>
+      <div className="gd-standalone relative h-full">
+        <CloudBackground />
+        <ConnectView state="ok" />
       </div>
-    </div>
+    </Real>
   );
 }
 
@@ -209,7 +194,7 @@ export const connect = scene<ConnectS>({
               </span>
               <span className="dots">···</span>
               <span>
-                <TRACKERS.linear.Logo />
+                <TrackerLogo kind="linear" size={22} />
               </span>
             </div>
             <div style={{ fontWeight: 600 }}>Brief Cloud wants to access your Linear workspace</div>

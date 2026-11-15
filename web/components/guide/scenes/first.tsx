@@ -5,7 +5,6 @@ import { MockBar } from "../mock/Bar";
 import { MockEditor } from "../mock/Editor";
 import { MockShot } from "../mock/Shot";
 import { MockApp, MockFeed, type Row } from "../mock/App";
-import { MockTicket, type Assistant } from "../mock/Ticket";
 import { AT, scene } from "./types";
 
 const APP = "cloud.get-brief.app";
@@ -47,7 +46,7 @@ const VIDEO: Tile = { kind: "video", label: "Recording" };
 const SHOT: Tile = { kind: "shot" };
 const NOTE = "Pay does nothing, no error";
 // the red loop, around Pay on the checkout capture
-const AROUND_PAY = { left: 57, top: 37, width: 40, height: 18 };
+const AROUND_PAY = { left: 59, top: 28.5, width: 39, height: 14 };
 
 export const record = scene<RecordS>({
   poster: 10,
@@ -98,8 +97,8 @@ type CreateS = { popup?: PopupState; feed?: "filing" | "filed" | "drafts" };
 
 const DESC = "Pay does nothing, no error";
 const OLDER: Row[] = [
-  { id: "ENG-139", title: "Search hangs on order numbers", status: { label: "In Progress", color: "#f2c94c" }, who: "Sam Rivera", when: "1d" },
-  { id: "ENG-131", title: "Coupon field accepts expired codes", status: { label: "Done", color: "#5e6ad2" }, who: "Sam Rivera", when: "3d" },
+  { id: "ENG-139", title: "Search hangs on order numbers", status: { label: "In Progress", type: "started" }, ago: 190 },
+  { id: "ENG-131", title: "Coupon field accepts expired codes", status: { label: "Done", type: "completed" }, ago: 2900 },
 ];
 
 export const create = scene<CreateS>({
@@ -123,19 +122,18 @@ export const create = scene<CreateS>({
         <MockApp active="Tickets">
           {s.feed === "drafts" ? (
             <MockFeed
-              view="Drafts"
+              draftsOnly
               rows={[
-                { id: "brief-15", title: "Pay fails silently at checkout", status: "draft", when: "now", fresh: true },
-                { id: "brief-12", title: "Coupon field accepts expired codes", status: "draft", when: "2d" },
+                { id: "brief-15", title: "Pay fails silently at checkout", status: "draft", ago: 0, fresh: true },
+                { id: "brief-12", title: "Coupon field accepts expired codes", status: "draft", ago: 2900 },
               ]}
             />
           ) : (
             <MockFeed
-              view="Tickets"
               rows={[
                 s.feed === "filing"
-                  ? { id: "brief-14", title: "Pay fails silently at checkout", status: "filing", when: "now", fresh: true }
-                  : { id: "ENG-142", title: "Pay fails silently at checkout", status: { label: "Todo", color: "#d6d3ce" }, who: "Sam Rivera", when: "now", fresh: true },
+                  ? { id: "brief-14", title: "Pay fails silently at checkout", status: "filing", ago: 0, fresh: true }
+                  : { id: "ENG-142", title: "Pay fails silently at checkout", status: { label: "Todo", type: "unstarted" }, ago: 0, fresh: true },
                 ...OLDER,
               ]}
             />
@@ -145,41 +143,4 @@ export const create = scene<CreateS>({
     ) : (
       <OnCheckout popup={s.popup} />
     ),
-});
-
-// ---------------------------------------------------------------- edit a ticket
-
-type EditS = {
-  caret?: boolean;
-  select?: boolean;
-  bubble?: "idle" | "B" | "Improve" | "Ask AI";
-  bold?: boolean;
-  improved?: boolean;
-  saved?: boolean;
-  repro?: boolean;
-  assistant?: Assistant;
-};
-
-export const editticket = scene<EditS>({
-  poster: 3,
-  frames: [
-    { ms: 1100, step: 0, target: "first", click: true, s: { caret: true, assistant: "pill" } },
-    { ms: 700, step: 1, target: "first:left", s: { assistant: "pill" } },
-    { ms: 1000, step: 1, target: "first:right", s: { select: true, bubble: "idle", assistant: "pill" } },
-    { ms: 1000, step: 1, target: "bub-b", click: true, s: { select: true, bubble: "idle", assistant: "pill" } },
-    { ms: 900, step: 1, target: "bub-b", s: { select: true, bubble: "B", bold: true, assistant: "pill" } },
-    { ms: 1000, step: 2, target: "bub-improve", click: true, s: { select: true, bubble: "Improve", bold: true, assistant: "pill" } },
-    { ms: 2000, step: 2, target: "improved", s: { improved: true, saved: true, assistant: "pill" } },
-    { ms: 1500, step: 3, keys: ["Ctrl", "K"], s: { improved: true, assistant: "pill" } },
-    { ms: 1000, step: 3, target: "chip-repro", click: true, s: { improved: true, assistant: { chip: "Add repro steps" } } },
-    { ms: 1300, step: 3, cursor: [70, 62], s: { improved: true, assistant: { ask: "Add repro steps" } } },
-    { ms: 2400, step: 3, cursor: [70, 62], s: { improved: true, repro: true, saved: true, assistant: { ask: "Add repro steps", done: true } } },
-  ],
-  View: ({ s }) => (
-    <BrowserFrame url={`${APP}/tickets/ENG-142`} title="Pay fails silently at checkout" fav="#dd6936">
-      <MockApp active="Tickets">
-        <MockTicket {...s} repro={!!s.repro} />
-      </MockApp>
-    </BrowserFrame>
-  ),
 });

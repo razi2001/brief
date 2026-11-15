@@ -175,10 +175,10 @@ export const briefit = scene<BriefItS>({
       <BrowserFrame url={`${APP}/tickets?show=drafts`} title="Tickets · Brief Cloud" fav="#dd6936">
         <MockApp active="Tickets">
           <MockFeed
-            view="Drafts"
+            draftsOnly
             rows={[
-              { id: "brief-16", title: "Save changes on Profile does nothing", status: "draft", when: "now", fresh: true },
-              { id: "brief-12", title: "Coupon field accepts expired codes", status: "draft", when: "2d" },
+              { id: "brief-16", title: "Save changes on Profile does nothing", status: "draft", ago: 0, fresh: true },
+              { id: "brief-12", title: "Coupon field accepts expired codes", status: "draft", ago: 2900 },
             ]}
           />
         </MockApp>

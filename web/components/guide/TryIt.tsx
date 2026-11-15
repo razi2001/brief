@@ -1,14 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import type { ComponentType } from "react";
-import type { Lesson, SandboxKey } from "@/lib/guide/lessons";
+import type { Lesson } from "@/lib/guide/lessons";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
-import EditorSandbox from "./sandboxes/EditorSandbox";
-
-const SANDBOXES: Record<SandboxKey, ComponentType<{ onUsed?: () => void }>> = {
-  editor: EditorSandbox,
-};
 
 const check = (
   <svg viewBox="0 0 12 12" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -60,21 +54,4 @@ export function LessonAction({ lesson }: { lesson: Lesson }) {
       </div>
     );
   return null;
-}
-
-/** The sandbox to play with, when the lesson has one. */
-export default function TryIt({ lesson, onDone }: { lesson: Lesson; onDone: () => void }) {
-  const t = lesson.tryIt;
-  if (t.kind !== "sandbox") return null;
-  const Sandbox = SANDBOXES[t.sandbox];
-  return (
-    <section aria-labelledby="try-it" className="card p-5 sm:p-6">
-      <h2 id="try-it" className="text-[15px] font-semibold text-ink">
-        Try it
-      </h2>
-      <div className="mt-4">
-        <Sandbox onUsed={onDone} />
-      </div>
-    </section>
-  );
 }

@@ -3,7 +3,7 @@ import { GROUPS, LESSONS, lessonBySlug, neighbours } from "./lessons";
 
 describe("guide lessons", () => {
   it("has one lesson per feature, each slug once", () => {
-    expect(LESSONS).toHaveLength(9);
+    expect(LESSONS).toHaveLength(8);
     expect(new Set(LESSONS.map((l) => l.slug)).size).toBe(LESSONS.length);
   });
 

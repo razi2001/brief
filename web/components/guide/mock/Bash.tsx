@@ -1,106 +1,113 @@
-import type { CSSProperties, ReactNode } from "react";
-import { IconCheck, IconPlus } from "./icons";
+"use client";
+import Crumbs from "@/components/Crumbs";
+import BashRace from "@/components/BashRace";
+import BashReview from "@/components/BashReview";
+import { Medal } from "@/components/Motion";
+import { DURATIONS, lengthLabel } from "@/lib/bash";
+import type { BashBrief, BashPerson, BashReview as Review } from "@/lib/bash-server";
 
-/** A length in the app's scale (see guide.css --a). */
-const a = (n: number) => `calc(${n} * var(--a))`;
+/*
+ * Bug bash in the Guide, from the app's own markup: the list (BashHome), the
+ * form (BashNew), and a bug bash's page (BashView's header and Arena, then the
+ * real BashRace board and the real BashReview). Drawn inside MockApp.
+ */
 
-const INK = "#1a1612";
-const MUTED = "#8a8378";
-const ACCENT = "#dd6936";
-const LINE = "rgba(26, 22, 18, 0.09)";
+const plus = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+const sparkle = (
+  <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true" className="text-accent">
+    <path d="M8 1.5c.4 2.9 1.7 4.2 4.6 4.6-2.9.4-4.2 1.7-4.6 4.6-.4-2.9-1.7-4.2-4.6-4.6 2.9-.4 4.2-1.7 4.6-4.6ZM12.5 10.5c.2 1.3.8 1.9 2.1 2.1-1.3.2-1.9.8-2.1 2.1-.2-1.3-.8-1.9-2.1-2.1 1.3-.2 1.9-.8 2.1-2.1Z" />
+  </svg>
+);
 
-const btn = (accent: boolean, on?: boolean): CSSProperties => ({
-  display: "inline-flex",
-  alignItems: "center",
-  gap: a(5),
-  height: a(28),
-  padding: `0 ${a(11)}`,
-  borderRadius: a(8),
-  fontSize: a(12),
-  fontWeight: 500,
-  whiteSpace: "nowrap",
-  background: accent ? (on ? "#c95e2c" : ACCENT) : on ? "rgba(26,22,18,.08)" : "#fffdfa",
-  color: accent ? "#fff" : INK,
-  border: accent ? "none" : `${a(1)} solid ${LINE}`,
-});
+const SUGGESTED = [
+  { name: "Checkout", bugs: 6, open: 4 },
+  { name: "Search", bugs: 4, open: 2 },
+];
 
-function Plus() {
-  return (
-    <span style={{ display: "grid", width: a(12), height: a(12) }}>
-      <IconPlus />
-    </span>
-  );
-}
+export type BashListS = { newOn?: boolean; suggestOn?: boolean; rows?: Array<{ name: string; dates: string; people: number; fresh?: boolean }> };
 
-function Sparkle() {
-  return (
-    <svg viewBox="0 0 16 16" width="100%" height="100%" fill={ACCENT} aria-hidden="true" style={{ width: a(12), height: a(12) }}>
-      <path d="M8 1.5c.4 2.9 1.7 4.2 4.6 4.6-2.9.4-4.2 1.7-4.6 4.6-.4-2.9-1.7-4.2-4.6-4.6 2.9-.4 4.2-1.7 4.6-4.6Z" />
-    </svg>
-  );
-}
-
-function Header({ title, children }: { title: ReactNode; children?: ReactNode }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: a(10) }}>
-      <div className="gd-h1">{title}</div>
-      <div style={{ display: "flex", gap: a(6) }}>{children}</div>
-    </div>
-  );
-}
-
-export type BashListS = { newOn?: boolean; suggestOn?: boolean; rows?: Array<{ name: string; meta: string; state: string; fresh?: boolean }> };
-
-/** Bug bash (BashHome): the tabs, a line per bug bash, Suggested and New bug bash at the top. */
+/** BashHome: the tabs, a line per bug bash, Suggested and New bug bash at the top. */
 export function MockBashList({ s }: { s: BashListS }) {
   const rows = s.rows ?? [];
   return (
-    <div>
-      <Header title="Bug bash">
-        <span data-gd="bash-suggested" style={btn(false, s.suggestOn)}>
-          <Sparkle />
-          Suggested <span style={{ color: MUTED }}>2</span>
+    <div className="w-full">
+      <header className="flex items-center justify-between gap-4">
+        <h1 className="page-title">Bug bash</h1>
+        <span className="flex shrink-0 items-center gap-1.5">
+          <div className="relative">
+            <span data-gd="bash-suggested" className={`btn h-[30px] gap-1.5 ${s.suggestOn ? "bg-[var(--color-pressed)]" : ""}`}>
+              {sparkle}
+              Suggested
+              <span className="tabular-nums text-faint">{SUGGESTED.length}</span>
+            </span>
+            {s.suggestOn && (
+              <div className="menu gd-pop absolute right-0 top-full z-40 mt-1 w-[280px] p-1">
+                {SUGGESTED.map((x, i) => (
+                  <span key={x.name} className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left ${i === 0 ? "bg-[var(--color-hover)]" : ""}`}>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-ink">{x.name}</span>
+                      <span className="block truncate text-[12px] tabular-nums text-muted">
+                        {x.bugs} bugs · {x.open} open
+                      </span>
+                    </span>
+                    <span className={`inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium ${i === 0 ? "bg-accent text-cream" : "text-muted"}`}>Create</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          <span data-gd="bash-new" className={`btn-accent h-[30px] shrink-0${s.newOn ? " gd-press" : ""}`}>
+            {plus}
+            New bug bash
+          </span>
         </span>
-        <span data-gd="bash-new" style={btn(true, s.newOn)}>
-          <Plus />
-          New bug bash
-        </span>
-      </Header>
-      {s.suggestOn && (
-        <div className="gd-card gd-pop" style={{ position: "absolute", right: a(32), top: a(76), width: a(220), padding: a(4), zIndex: 3 }}>
-          {[
-            ["Checkout", "6 bugs · 4 open"],
-            ["Search", "4 bugs · 2 open"],
-          ].map(([n, m], i) => (
-            <div key={n} style={{ display: "flex", alignItems: "center", padding: `${a(6)} ${a(8)}`, borderRadius: a(6), background: i === 0 ? "rgba(26,22,18,.05)" : undefined }}>
-              <span style={{ flex: 1 }}>
-                <span style={{ display: "block", fontSize: a(12), fontWeight: 500 }}>{n}</span>
-                <span style={{ display: "block", fontSize: a(10.5), color: MUTED }}>{m}</span>
-              </span>
-              <span style={{ fontSize: a(11), color: i === 0 ? "#fff" : MUTED, background: i === 0 ? ACCENT : undefined, padding: `${a(3)} ${a(6)}`, borderRadius: a(5) }}>Create</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ display: "flex", gap: a(4), marginTop: a(14), fontSize: a(12) }}>
-        {["Assigned to me", "All", "Closed"].map((t, i) => (
-          <span key={t} style={{ padding: `${a(4)} ${a(9)}`, borderRadius: a(7), background: i === 1 ? "rgba(26,22,18,.08)" : undefined, color: i === 1 ? INK : MUTED, fontWeight: i === 1 ? 500 : 400 }}>
-            {t} <span style={{ color: MUTED }}>{i === 1 ? rows.length : 0}</span>
+      </header>
+
+      <div className="-ml-2 mt-4 flex flex-wrap items-center gap-0.5">
+        {(
+          [
+            ["Assigned to me", rows.length],
+            ["All", rows.length],
+            ["Closed", 0],
+          ] as const
+        ).map(([t, n], i) => (
+          <span key={t} aria-selected={i === 0} className="tab">
+            <span className="truncate">{t}</span>
+            <span className="tab-count">{n}</span>
           </span>
         ))}
       </div>
-      <div style={{ marginTop: a(12) }}>
-        {rows.length === 0 ? (
-          <div style={{ border: `${a(1)} dashed rgba(26,22,18,.16)`, borderRadius: a(12), padding: `${a(34)} 0`, textAlign: "center", fontSize: a(12.5), fontWeight: 500 }}>No bug bash running</div>
+
+      <div className="mt-4">
+        {rows.length > 0 ? (
+          <ul className="-mx-2.5">
+            {rows.map((b) => (
+              <li key={b.name} className={`list-row${b.fresh ? " animate-rise" : ""}`}>
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" className="relative shrink-0 text-accent">
+                  <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+                  <path d="M8 2a6 6 0 0 1 0 12Z" fill="currentColor" />
+                </svg>
+                <span className="flex min-w-0 flex-1 items-baseline gap-2.5">
+                  <span className="truncate text-[13.5px] leading-snug text-ink">{b.name}</span>
+                  <span className="truncate text-xs tabular-nums text-muted">
+                    {b.dates} · 30 min each · {b.people} {b.people === 1 ? "person" : "people"}
+                  </span>
+                </span>
+                <span className="relative z-10 flex shrink-0 items-center gap-2">
+                  <span className="text-[12.5px] tabular-nums text-muted">Open until 18 Nov</span>
+                  <span className="btn-accent h-7 !px-2.5 !py-0">Start 30 min</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         ) : (
-          rows.map((r) => (
-            <div key={r.name} className={r.fresh ? "gd-pop" : ""} style={{ display: "flex", alignItems: "center", gap: a(10), padding: `${a(9)} ${a(10)}`, borderRadius: a(8), background: r.fresh ? "rgba(221,105,54,.06)" : undefined }}>
-              <span style={{ width: a(12), height: a(12), borderRadius: "50%", border: `${a(1.5)} solid ${ACCENT}`, background: `linear-gradient(90deg, transparent 50%, ${ACCENT} 50%)` }} />
-              <span style={{ fontSize: a(12.5) }}>{r.name}</span>
-              <span style={{ fontSize: a(11), color: MUTED }}>{r.meta}</span>
-              <span style={{ marginLeft: "auto", fontSize: a(11), color: MUTED }}>{r.state}</span>
-            </div>
-          ))
+          <div className="rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-12 text-center">
+            <p className="text-[14px] font-medium text-ink">Nothing assigned to you</p>
+          </div>
         )}
       </div>
     </div>
@@ -109,39 +116,61 @@ export function MockBashList({ s }: { s: BashListS }) {
 
 export type BashNewS = { name?: string; typing?: boolean; hold?: boolean; holdOn?: boolean; createOn?: boolean };
 
-/** New bug bash (BashNew): a name, the dates, the time each person gets, and Review before filing. */
+/** BashNew: the name (with the suggested areas under it), the dates, the duration, Review before filing. */
 export function MockBashNew({ s }: { s: BashNewS }) {
-  const field = (label: string, value: ReactNode, gd?: string, on?: boolean) => (
-    <div style={{ flex: 1 }}>
-      <div style={{ fontSize: a(11), color: MUTED, marginBottom: a(5) }}>{label}</div>
-      <div
-        data-gd={gd}
-        style={{ height: a(30), display: "flex", alignItems: "center", padding: `0 ${a(10)}`, borderRadius: a(8), border: `${a(1)} solid ${on ? ACCENT : LINE}`, background: "#fffdfa", fontSize: a(12.5) }}
-      >
-        {value}
-      </div>
-    </div>
-  );
+  const label = "text-[12.5px] font-medium text-ink-2";
+  const dateInput = "mt-1.5 flex h-10 w-full items-center rounded-[10px] border border-hairline bg-surface px-3 text-[14px] tabular-nums text-ink";
+  const hold = s.hold ?? true;
   return (
-    <div style={{ maxWidth: a(420) }}>
-      <div style={{ fontSize: a(11), color: MUTED, marginBottom: a(6) }}>Bug bash › New</div>
-      <div className="gd-h1">New bug bash</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: a(12), marginTop: a(16) }}>
-        {field("Name", s.name ? <span className={s.typing ? "gd-type gd-caret" : ""}>{s.name}</span> : <span style={{ color: MUTED }}>Release 2.4</span>, "bash-name", s.typing)}
-        <div style={{ display: "flex", gap: a(10) }}>
-          {field("From", "15 Nov")}
-          {field("To", "18 Nov")}
-          {field("Each person gets", "30 min")}
+    <div className="w-full max-w-[640px]">
+      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: "New" }]} />
+      <h1 className="mt-3 page-title">New bug bash</h1>
+      <div className="card mt-5 p-6">
+        <span className={label}>Name</span>
+        <div data-gd="bash-name" className={`mt-1.5 flex h-10 w-full items-center rounded-[10px] border bg-surface px-3 text-[15px] font-medium text-ink ${s.typing ? "border-accent" : "border-hairline"}`}>
+          {s.name ? <span className={s.typing ? "gd-type gd-caret" : ""}>{s.name}</span> : <span className="font-normal text-[rgba(26,22,18,0.3)]">Release 2.4</span>}
         </div>
-        <div data-gd="bash-hold" style={{ display: "flex", alignItems: "center", gap: a(10), padding: `${a(9)} ${a(11)}`, borderRadius: a(10), border: `${a(1)} solid ${s.holdOn ? ACCENT : LINE}`, background: "#fffdfa" }}>
-          <span style={{ flex: 1, fontSize: a(12.5), fontWeight: 500 }}>Review before filing</span>
-          <span style={{ width: a(28), height: a(16), borderRadius: a(16), background: s.hold ? ACCENT : "rgba(26,22,18,.16)", position: "relative", transition: "background .2s" }}>
-            <span style={{ position: "absolute", top: a(2), left: s.hold ? a(14) : a(2), width: a(12), height: a(12), borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+        <div className="mt-3">
+          <span className="text-xs text-muted">Suggested</span>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+            {SUGGESTED.map((x) => (
+              <li key={x.name}>
+                <span className={`inline-block rounded-full border px-2.5 py-1 text-[13px] ${s.name === x.name && !s.typing ? "border-accent bg-accent/[0.06] text-ink" : "border-hairline text-ink-2"}`}>
+                  {x.name}
+                  <span className="ml-1.5 tabular-nums text-muted">{x.bugs} bugs</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-4">
+          <div>
+            <span className={label}>Start date</span>
+            <div className={dateInput}>15/11/2026</div>
+          </div>
+          <div>
+            <span className={label}>End date</span>
+            <div className={dateInput}>18/11/2026</div>
+          </div>
+        </div>
+        <span className={`mt-5 block ${label}`}>Duration</span>
+        <div className="mt-1.5 grid gap-1 rounded-[12px] bg-surface-2 p-1" style={{ gridTemplateColumns: `repeat(${DURATIONS.length}, minmax(0, 1fr))` }}>
+          {DURATIONS.map((m) => (
+            <span key={m} className={`rounded-[9px] py-2 text-center text-[13.5px] tabular-nums ${m === 30 ? "bg-surface font-medium text-ink shadow-[0_1px_2px_rgba(26,22,18,.08),0_0_0_1px_rgba(26,22,18,.06)]" : "text-muted"}`}>
+              {lengthLabel(m)}
+            </span>
+          ))}
+        </div>
+        <p className="mt-1.5 text-xs text-muted">Each person gets this much time, from when they press Start.</p>
+        <div data-gd="bash-hold" className={`-mx-2 mt-3 flex items-center justify-between gap-3 rounded-[10px] px-2 py-2 ${s.holdOn ? "bg-[var(--color-hover)]" : ""}`}>
+          <span className="text-[13.5px] text-ink">Review before filing</span>
+          <span className={`relative h-[26px] w-[44px] shrink-0 rounded-full transition-colors ${hold ? "bg-accent" : "bg-[rgba(26,22,18,0.18)]"}`}>
+            <span className={`absolute left-[3px] top-[3px] h-5 w-5 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,.2)] transition-transform ${hold ? "translate-x-[18px]" : ""}`} />
           </span>
         </div>
-        <div style={{ display: "flex", gap: a(6), justifyContent: "flex-end" }}>
-          <span style={btn(false)}>Cancel</span>
-          <span data-gd="bash-create" style={btn(true, s.createOn)}>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <span className="btn h-9">Cancel</span>
+          <span data-gd="bash-create" className={`btn-accent h-9${s.name ? "" : " opacity-50"}${s.createOn ? " gd-press" : ""}`}>
             Create
           </span>
         </div>
@@ -153,123 +182,182 @@ export function MockBashNew({ s }: { s: BashNewS }) {
 export type BashPageS = {
   copied?: boolean;
   copyOn?: boolean;
-  /** Before you start: Join, then Start. */
+  /** Where you stand: not in it (Join), in it (Start), your clock running. */
   me?: "join" | "start" | "testing";
   meOn?: boolean;
-  left?: string;
-  /** How much of your time is left, 0 to 1. */
-  ring?: number;
-  board?: Array<{ name: string; n: number; you?: boolean }>;
-  found?: number;
+  /** Your time left, in seconds. */
+  left?: number;
+  /** The board: each person's count. Sam, Ana, you, Lee. */
+  counts?: [number, number, number, number];
+  /** Who has joined so far (the first n of Sam, Ana, you, Lee). */
+  joined?: number;
   review?: boolean;
-  fileOn?: boolean;
   filed?: boolean;
 };
 
-const HAT = ["#f2c94c", "#c9ced6", "#d99a6c"];
+const NOW = Date.UTC(2026, 10, 15, 15, 0, 0);
+const NAMES = ["Sam Rivera", "Ana Costa", "Razi", "Lee Park"];
+const FINDS = ["Pay button does nothing", "Coupon accepts expired codes", "Card form loses the postcode", "Total ignores the discount", "Pay spins forever on retry", "Empty cart shows $0.00 shipping", "Can't remove the last item"];
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-/** A bug bash's page (BashView): your clock, the board, and once it is over the review (BashReview). */
+/** The people and their finds, as the bug bash's snapshot gives them. */
+function board(s: BashPageS): { people: BashPerson[]; briefs: BashBrief[] } {
+  const counts = s.counts ?? [0, 0, 0, 0];
+  const joined = s.joined ?? 4;
+  const raw = NAMES.slice(0, joined).map((name, i) => ({ i, name, count: counts[i], you: i === 2 }));
+  const sorted = [...raw].sort((a, b) => b.count - a.count || a.i - b.i);
+  const people: BashPerson[] = sorted.map((p, r) => ({
+    key: `p${p.i}`,
+    name: p.name,
+    isYou: p.you,
+    count: p.count,
+    rank: r + 1,
+    endsAt: p.you && s.me !== "testing" ? null : new Date(NOW + 20 * 60000).toISOString(),
+  }));
+  const briefs: BashBrief[] = [];
+  let n = 0;
+  sorted.forEach((p, idx) => {
+    for (let k = 0; k < p.count; k++) briefs.push({ id: `b${n}`, title: FINDS[n++ % FINDS.length], by: idx, createdAt: new Date(NOW - (n * 3 + 30) * 60000).toISOString() });
+  });
+  return { people, briefs: briefs.reverse() };
+}
+
+const REVIEW: Review = {
+  grouped: true,
+  dropped: [],
+  groups: [
+    {
+      id: "g1",
+      title: "Pay button does nothing at checkout",
+      filing: false,
+      reports: [
+        { id: "r1", title: "Pay button does nothing", by: 0, writing: false, unwritten: false },
+        { id: "r2", title: "Nothing happens when I click Pay", by: 1, writing: false, unwritten: false },
+        { id: "r3", title: "Can't pay, the button is dead", by: 2, writing: false, unwritten: false },
+      ],
+    },
+    {
+      id: "g2",
+      title: "Coupon field accepts expired codes",
+      filing: false,
+      reports: [
+        { id: "r4", title: "Coupon accepts expired codes", by: 1, writing: false, unwritten: false },
+        { id: "r5", title: "EXPIRED10 still gives 10% off", by: 3, writing: false, unwritten: false },
+      ],
+    },
+  ],
+};
+
+/** A bug bash's page: BashView's header and Arena, the real BashRace, and the real BashReview once it is over. */
 export function MockBashPage({ s }: { s: BashPageS }) {
-  const board = s.board ?? [];
-  const r = 15;
+  const { people, briefs } = board(s);
+  const closed = !!s.review;
+  const me = people.find((p) => p.isYou);
+  const live = people.filter((p) => p.endsAt !== null).length;
+  const review: Review = s.filed ? { ...REVIEW, groups: REVIEW.groups.map((g) => ({ ...g, ticket: { url: "#", identifier: g.id === "g1" ? "ENG-151" : "ENG-152" } })) } : REVIEW;
+  const r = 28;
   const c = 2 * Math.PI * r;
   return (
-    <div>
-      <div style={{ fontSize: a(11), color: MUTED, marginBottom: a(6) }}>Bug bash › Checkout</div>
-      <Header title="Checkout">
-        <span data-gd="bash-copy" style={btn(false, s.copyOn)}>
-          {s.copied ? "Copied" : "Copy invite link"}
-        </span>
-        {s.me === "join" && (
-          <span data-gd="bash-join" style={btn(true, s.meOn)}>
-            Join
-          </span>
-        )}
-      </Header>
-      <div style={{ fontSize: a(11.5), color: MUTED, marginTop: a(4) }}>15 Nov to 18 Nov · 30 min each{s.review ? " · Closed" : ""}</div>
-
-      {!s.review ? (
-        <div style={{ display: "flex", gap: a(12), marginTop: a(16) }}>
-          <div className="gd-card" style={{ flex: "0 0 auto", width: a(150), padding: a(12), display: "flex", flexDirection: "column", alignItems: "center", gap: a(6) }}>
-            {s.me === "testing" ? (
-              <>
-                <svg viewBox="0 0 36 36" style={{ width: a(54), height: a(54) }} aria-hidden="true">
-                  <circle cx="18" cy="18" r={r} fill="none" stroke="rgba(26,22,18,.08)" strokeWidth="3" />
-                  <circle cx="18" cy="18" r={r} fill="none" stroke={ACCENT} strokeWidth="3" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - (s.ring ?? 1))} transform="rotate(-90 18 18)" style={{ transition: "stroke-dashoffset 1s linear" }} />
-                </svg>
-                <span style={{ fontSize: a(13), fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{s.left}</span>
-                <span style={{ fontSize: a(10.5), color: MUTED }}>Your time</span>
-              </>
+    <div className="w-full">
+      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: "Checkout" }]} />
+      <header className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink">Checkout</h1>
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] tabular-nums text-muted">
+            {closed ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(26,22,18,0.06)] px-2 py-0.5 text-[12.5px] font-medium text-ink-2">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#b9b2a4]" aria-hidden />
+                Closed
+              </span>
             ) : (
-              <span data-gd="bash-start" style={{ ...btn(true, s.meOn), height: a(40), opacity: s.me === "join" ? 0.45 : 1 }}>
-                Start my 30 min
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[12.5px] font-medium text-accent">
+                <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+                Open
               </span>
             )}
-          </div>
-          <div className="gd-card" style={{ flex: 1, padding: a(12) }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: a(11), color: MUTED, marginBottom: a(6) }}>
-              <span>Podium</span>
-              <span>
-                <b style={{ color: INK }}>{s.found ?? 0}</b> bugs found
-              </span>
-            </div>
-            {board.length === 0 ? (
-              <div style={{ fontSize: a(11.5), color: MUTED, padding: `${a(10)} 0` }}>Nobody has joined yet</div>
-            ) : (
-              board.map((p, i) => (
-                <div key={p.name} style={{ display: "flex", alignItems: "center", gap: a(8), padding: `${a(4)} ${a(6)}`, borderRadius: a(7), background: p.you ? "rgba(221,105,54,.07)" : undefined }}>
-                  <span style={{ width: a(14), fontSize: a(10.5), color: MUTED, textAlign: "center" }}>{i + 1}</span>
-                  <span className="gd-av" style={{ boxShadow: i < 3 && p.n > 0 ? `0 0 0 ${a(2)} ${HAT[i]}` : undefined }}>
-                    {p.name[0]}
-                  </span>
-                  <span style={{ flex: 1, fontSize: a(12) }}>
-                    {p.name}
-                    {p.you && <span style={{ color: ACCENT, fontSize: a(10.5), marginLeft: a(4) }}>you</span>}
-                  </span>
-                  <span style={{ width: a(60), height: a(5), borderRadius: a(5), background: "rgba(26,22,18,.07)", overflow: "hidden" }}>
-                    <span style={{ display: "block", height: "100%", width: `${Math.max(p.n ? 10 : 0, (p.n / Math.max(1, ...board.map((b) => b.n))) * 100)}%`, background: p.you ? ACCENT : "rgba(26,22,18,.25)", transition: "width .6s" }} />
-                  </span>
-                  <span style={{ width: a(16), textAlign: "right", fontSize: a(12.5), fontWeight: 600 }}>{p.n}</span>
-                </div>
-              ))
-            )}
-          </div>
+            <span>{closed ? "18 Nov" : "closes in 2d 9h"}</span>
+            <span aria-hidden>·</span>
+            <span>30 min each</span>
+            <span aria-hidden>·</span>
+            <span>Review before filing</span>
+          </p>
         </div>
-      ) : (
-        <div style={{ marginTop: a(14) }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: a(8) }}>
-            <span style={{ fontSize: a(13), fontWeight: 600 }}>Review</span>
-            <span data-gd="bash-file" style={btn(true, s.fileOn)}>
-              {s.filed ? (
-                <>
-                  <span style={{ display: "grid", width: a(12), height: a(12) }}>
-                    <IconCheck />
-                  </span>
-                  Filed
-                </>
-              ) : (
-                "Create 2 tickets"
-              )}
+        <div className="flex flex-wrap items-center gap-2">
+          {closed ? (
+            <span className="btn h-[30px]">Copy report</span>
+          ) : (
+            <span data-gd="bash-copy" className={`btn h-[30px]${s.copyOn ? " gd-press" : ""}`}>
+              {s.copied ? "Copied" : "Copy invite link"}
             </span>
+          )}
+          {s.me === "join" && (
+            <span data-gd="bash-join" className={`btn-accent h-[30px]${s.meOn ? " gd-press" : ""}`}>
+              Join
+            </span>
+          )}
+        </div>
+      </header>
+
+      {!closed && (
+        <section className="arena mt-6 flex flex-wrap items-center gap-x-7 gap-y-4 rounded-[16px] border border-hairline bg-surface px-5 py-4">
+          <div className="flex items-center gap-3.5">
+            {s.me === "testing" ? (
+              <span className="flex items-center gap-3.5">
+                <span className="relative grid h-[64px] w-[64px] place-items-center">
+                  <svg viewBox="0 0 64 64" width="64" height="64" className="absolute inset-0 -rotate-90" aria-hidden="true">
+                    <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(26,22,18,.08)" strokeWidth="5" />
+                    <circle cx="32" cy="32" r={r} fill="none" stroke="#dd6936" strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - (s.left ?? 1800) / 1800)} style={{ transition: "stroke-dashoffset 1s linear" }} />
+                  </svg>
+                  <span className="relative text-[16px] font-semibold tabular-nums tracking-[-0.02em] text-accent">{clock(s.left ?? 1800)}</span>
+                </span>
+                <span className="text-[12.5px] text-muted">Your time</span>
+              </span>
+            ) : (
+              <span data-gd="bash-start" className={`arena-start group flex items-center gap-3.5 text-left${s.me === "join" ? " opacity-50" : ""}`}>
+                <span className={`arena-go grid h-[64px] w-[64px] place-items-center rounded-full bg-accent text-white shadow-[0_8px_22px_-8px_rgba(221,105,54,.75)]${s.meOn && s.me === "start" ? " scale-[.96]" : ""}`}>
+                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true">
+                    <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+                  </svg>
+                </span>
+                <span>
+                  <span className="block text-[15px] font-semibold text-ink">Start my 30 min</span>
+                  <span className="block text-[12.5px] text-muted">Your clock starts now</span>
+                </span>
+              </span>
+            )}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: a(10) }}>
-            {[
-              { t: "Pay does nothing", n: ["Sam: Pay button dead", "Ana: Nothing on Pay", "Lee: Can't pay"] },
-              { t: "Coupon accepts expired codes", n: ["Ana: Old coupon worked", "Sam: EXPIRED10 applies"] },
-            ].map((g) => (
-              <div key={g.t} className="gd-card" style={{ padding: a(10) }}>
-                <div style={{ display: "flex", alignItems: "center", gap: a(6), fontSize: a(12), fontWeight: 600 }}>
-                  {g.t}
-                  {s.filed && <span style={{ marginLeft: "auto", fontSize: a(10.5), color: "#2e7d32", fontWeight: 500 }}>Ticket</span>}
-                </div>
-                {g.n.map((x) => (
-                  <div key={x} style={{ marginTop: a(6), padding: `${a(5)} ${a(7)}`, borderRadius: a(6), border: `${a(1)} solid ${LINE}`, fontSize: a(10.5), color: "#3a3530" }}>
-                    {x}
-                  </div>
-                ))}
+          <div className="flex flex-1 flex-wrap items-center justify-end gap-x-8 gap-y-3">
+            <div>
+              <div className="text-[12.5px] text-muted">{briefs.length === 1 ? "Bug found" : "Bugs found"}</div>
+              <div className="mt-0.5 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">{briefs.length}</div>
+            </div>
+            <div>
+              <div className="text-[12.5px] text-muted">Testing now</div>
+              <div className="mt-0.5 flex items-center gap-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">
+                {live}
+                {live > 0 && <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />}
               </div>
-            ))}
+            </div>
+            {me && (
+              <div>
+                <div className="text-[12.5px] text-muted">You</div>
+                <div className="mt-0.5 flex items-center gap-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">
+                  {me.count}
+                  {me.count > 0 && <Medal rank={me.rank} size={20} />}
+                </div>
+              </div>
+            )}
           </div>
+        </section>
+      )}
+
+      {!closed && <BashRace people={people} briefs={briefs} open closed={false} now={NOW} />}
+
+      {closed && (
+        <div className="relative mt-8">
+          {/* where the review's "Create 2 tickets" sits, for the cursor */}
+          <span data-gd="bash-file" aria-hidden className="absolute right-0 top-0 h-[30px] w-[132px]" />
+          <BashReview code="guide" review={review} people={people} onChange={async () => {}} />
         </div>
       )}
     </div>

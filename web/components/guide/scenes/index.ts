@@ -1,7 +1,7 @@
 import type { SceneKey } from "@/lib/guide/lessons";
 import type { SceneDef } from "./types";
 import { connect, install } from "./start";
-import { create, editticket, record } from "./first";
+import { create, record } from "./first";
 import { briefit, replay, rules } from "./more";
 import { bugbash } from "./team";
 
@@ -12,7 +12,6 @@ export const SCENES: Record<SceneKey, SceneDef<any>> = {
   connect,
   record,
   create,
-  editticket,
   replay,
   briefit,
   rules,

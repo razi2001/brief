@@ -7,7 +7,7 @@ import { isDone } from "@/lib/guide/progress";
 import { SCENES } from "./scenes";
 import { SceneFrame, useInView, useReducedMotion } from "./ScenePlayer";
 import StepText from "./StepText";
-import TryIt, { DoneToggle, LessonAction } from "./TryIt";
+import { DoneToggle, LessonAction } from "./TryIt";
 import { useGuideProgress } from "./useGuideProgress";
 import { useGuideFacts } from "./GuideFacts";
 import { useScene } from "./useScene";
@@ -105,11 +105,6 @@ export default function LessonView({ slug }: { slug: string }) {
         </div>
       </div>
 
-      {lesson.tryIt.kind === "sandbox" && (
-        <div className="mt-8">
-          <TryIt lesson={lesson} onDone={() => markTried(lesson.slug)} />
-        </div>
-      )}
 
       <nav aria-label="Lessons" className="mt-10 flex items-center justify-between gap-4 border-t hairline pt-5">
         {prev ? (

@@ -11,25 +11,20 @@ import { CHROME_STORE_URL } from "@/lib/chrome-store";
  * steps as its lesson.
  */
 
-export type GroupKey = "start" | "first" | "more" | "team";
+export type GroupKey = "start" | "first" | "more";
 
 export const GROUPS: ReadonlyArray<{ key: GroupKey; title: string }> = [
   { key: "start", title: "Get started" },
   { key: "first", title: "Your first ticket" },
   { key: "more", title: "Go further" },
-  { key: "team", title: "With your team" },
 ];
 
-export type SceneKey = "install" | "connect" | "rules" | "record" | "replay" | "create" | "editticket" | "briefit" | "bugbash";
+export type SceneKey = "install" | "connect" | "rules" | "record" | "replay" | "create" | "bugbash" | "briefit";
 
 /** Facts the server knows, which tick a lesson on their own. */
 export type AutoKey = "tracker" | "extension" | "brief" | "rules" | "replaySites";
 
-export type SandboxKey = "editor";
-
 export type TryIt =
-  /** Play with it right here, nothing saved. */
-  | { kind: "sandbox"; sandbox: SandboxKey }
   /** The real thing lives elsewhere in the app. */
   | { kind: "link"; href: string; label: string }
   | { kind: "install" }
@@ -137,21 +132,22 @@ export const LESSONS: readonly Lesson[] = [
     tryIt: { kind: "link", href: "/tickets", label: "Open Tickets" },
     auto: "brief",
   },
+
   {
-    slug: "edit-ticket",
+    slug: "bug-bash",
     group: "more",
-    title: "Edit a ticket",
-    blurb: "Every ticket and draft is a page you can edit in place. It saves as you type.",
+    title: "Run a bug bash",
+    blurb: "Get the team testing one area for a set time. Everyone files from the extension, and a board shows who found the most.",
     steps: [
-      "Open a ticket or a draft from **Tickets** and click into the text.",
-      "Select a passage: **H**, **B**, *I* and Code format it.",
-      "**Improve** or **Shorten** rewrites just the selection.",
-      "Anything else: press [[Ctrl+K]] and ask the assistant.",
+      "Open **Bug bash**, then **New bug bash**. Name it, pick the dates and the time each person gets. **Suggested** offers the areas your tickets keep breaking in.",
+      "Leave **Review before filing** on to keep the reports as drafts until you check them. Click **Create**, then **Copy invite link** and send it.",
+      "Each person clicks **Join**, then **Start** when it suits them. Their own clock starts: nobody has to test at the same time.",
+      "While the clock runs, the popup shows the bug bash and the time left. Every brief counts for it. Its switch leaves one out.",
+      "The board ranks who found the most. Once it closes, the reports wait in groups of the same bug: check them, then file each group as one ticket.",
     ],
-    scene: "editticket",
-    tryIt: { kind: "sandbox", sandbox: "editor" },
-  },
-  {
+    scene: "bugbash",
+    tryIt: { kind: "link", href: "/bash", label: "Open Bug bash" },
+  },  {
     slug: "brief-it",
     group: "more",
     title: "Brief it in one click",
@@ -165,21 +161,7 @@ export const LESSONS: readonly Lesson[] = [
     scene: "briefit",
     tryIt: { kind: "mark" },
   },
-  {
-    slug: "bug-bash",
-    group: "team",
-    title: "Run a bug bash",
-    blurb: "Get the team testing one area for a set time. Everyone files from the extension, and a board shows who found the most.",
-    steps: [
-      "Open **Bug bash**, then **New bug bash**. Name it, pick the dates and the time each person gets. **Suggested** offers the areas your tickets keep breaking in.",
-      "Leave **Review before filing** on to keep the reports as drafts until you check them. Click **Create**, then **Copy invite link** and send it.",
-      "Each person clicks **Join**, then **Start** when it suits them. Their own clock starts: nobody has to test at the same time.",
-      "While the clock runs, the popup shows the bug bash and the time left. Every brief counts for it. Its switch leaves one out.",
-      "The board ranks who found the most. Once it closes, the reports wait in groups of the same bug: check them, then file each group as one ticket.",
-    ],
-    scene: "bugbash",
-    tryIt: { kind: "link", href: "/bash", label: "Open Bug bash" },
-  },
+
 ];
 
 export function lessonBySlug(slug: string): Lesson | undefined {
