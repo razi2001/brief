@@ -15,7 +15,7 @@ const ACME_URL: Record<AcmePage, string> = {
   profile: "acme.com/profile",
 };
 
-type PopupState = { tiles?: Tile[]; addOn?: boolean; sheet?: Sheet };
+type PopupState = { tiles?: Tile[]; addOn?: boolean; wayOn?: "shot" | "video" | "replay"; sheet?: Sheet };
 
 function OnAcme({
   page,
@@ -88,12 +88,11 @@ function WhatItKeeps() {
 const REPLAY: Tile = { kind: "replay", label: "Replay" };
 
 export const replay = scene<ReplayS>({
-  poster: 12,
+  poster: 11,
   frames: [
     { ms: 1200, step: 0, target: "search-btn", click: true, s: { query: true } },
     { ms: 1300, step: 0, target: "brief-icon", click: true, s: { query: true, searching: true } },
-    { ms: 1000, step: 0, target: "add", click: true, s: { query: true, searching: true, popup: { addOn: true } } },
-    { ms: 1100, step: 0, target: "choice-replay", click: true, s: { query: true, searching: true, popup: { sheet: { kind: "chooser", on: "replay" } } } },
+    { ms: 1300, step: 0, target: "choice-replay", click: true, s: { query: true, searching: true, popup: { wayOn: "replay" } } },
     { ms: 900, step: 1, target: "h-start", s: { ed: { keep: [0, 100] } } },
     { ms: 1100, step: 1, target: "h-start", s: { ed: { keep: [45, 100] } } },
     // a take plays the kept part from its start and stops at its end

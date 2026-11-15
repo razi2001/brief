@@ -13,6 +13,8 @@ const APP = "cloud.get-brief.app";
 type PopupState = {
   tiles?: Tile[];
   addOn?: boolean;
+  wayOn?: "shot" | "video" | "replay";
+  bash?: { name: string; left: string; hold?: boolean };
   sheet?: Sheet;
   desc?: string;
   typing?: boolean;
@@ -48,12 +50,11 @@ const NOTE = "Pay does nothing, no error";
 const AROUND_PAY = { left: 57, top: 37, width: 40, height: 18 };
 
 export const record = scene<RecordS>({
-  poster: 11,
+  poster: 10,
   frames: [
     { ms: 900, step: 0, cursor: AT.rest, s: {} },
     { ms: 1000, step: 0, target: "brief-icon", click: true, s: {} },
-    { ms: 1000, step: 0, target: "add", click: true, s: { popup: { addOn: true } } },
-    { ms: 1200, step: 0, target: "choice-video", click: true, s: { popup: { sheet: { kind: "chooser", on: "video" } } } },
+    { ms: 1300, step: 0, target: "choice-video", click: true, s: { popup: { wayOn: "video" } } },
     { ms: 650, step: 0, s: { count: 3 } },
     { ms: 650, step: 0, s: { count: 2 } },
     { ms: 650, step: 0, s: { count: 1 } },
@@ -70,7 +71,7 @@ export const record = scene<RecordS>({
     { ms: 1600, step: 2, target: "tool-mark", s: { ed: { keep: [30, 100], crop: true, mark: { at: 52, note: "Pay does nothing" } } } },
     { ms: 1100, step: 2, target: "ed-save", click: true, s: { ed: { keep: [30, 100], crop: true, mark: { at: 52 }, saveOn: true } } },
     { ms: 1000, step: 3, target: "add", click: true, s: { popup: { tiles: [VIDEO], addOn: true } } },
-    { ms: 1100, step: 3, target: "choice-shot", click: true, s: { popup: { tiles: [VIDEO], sheet: { kind: "chooser", on: "shot", shots: 0 } } } },
+    { ms: 1100, step: 3, target: "choice-shot", click: true, s: { popup: { tiles: [VIDEO], sheet: { kind: "chooser", on: "shot" } } } },
     { ms: 1800, step: 3, target: "shot-mark:right", s: { shot: { drawn: true } } },
     { ms: 1100, step: 3, target: "shot-save", click: true, s: { shot: { drawn: true, saveOn: true } } },
     { ms: 1000, step: 4, target: "tile-1", click: true, s: { popup: { tiles: [VIDEO, { ...SHOT, on: true }] } } },

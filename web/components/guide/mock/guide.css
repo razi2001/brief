@@ -290,7 +290,7 @@
   background: #f5f1e8;
   border-radius: calc(8 * var(--p));
   box-shadow: 0 0 0 calc(1 * var(--p)) rgba(0, 0, 0, 0.12), 0 calc(8 * var(--p)) calc(28 * var(--p)) rgba(0, 0, 0, 0.28);
-  font-family: var(--font-mono), ui-monospace, monospace;
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   color: #1a1612;
   overflow: hidden;
   transform-origin: top right;
@@ -966,3 +966,21 @@
 @keyframes gd-draw { to { stroke-dashoffset: 0; } }
 /* the editor sandbox's rewritten paragraph (outside a stage, so no --u) */
 .gd-flashing { animation: gd-flash 1.6s ease-out both; border-radius: 4px; }
+
+/* the popup as it is now: "+ Add" beside Evidence, the ways inline while empty, the bug bash row */
+.gd-pp .lbl.ev { display: flex; align-items: center; }
+.gd-pp .evadd { margin-left: auto; display: inline-flex; align-items: center; gap: calc(4 * var(--p)); padding: calc(3 * var(--p)) calc(7 * var(--p)); border-radius: calc(7 * var(--p)); color: #dd6936; letter-spacing: 0; text-transform: none; font-size: calc(12.5 * var(--p)); font-weight: 500; }
+.gd-pp .evadd svg { width: calc(13 * var(--p)); height: calc(13 * var(--p)); }
+.gd-pp .evadd.on { background: rgba(221, 105, 54, 0.1); color: #b9541f; }
+.gd-pp .part > .choices { margin-top: 0; gap: calc(6 * var(--p)); }
+.gd-pp .part > .choices .choice { padding: calc(9 * var(--p)) calc(12 * var(--p)); }
+.gd-pp .part > .choices .choice .ci { width: calc(32 * var(--p)); height: calc(32 * var(--p)); border-radius: calc(10 * var(--p)); }
+.gd-pp .field.desc { margin-top: calc(12 * var(--p)); }
+.gd-pp .bashrow { display: flex; align-items: center; gap: calc(10 * var(--p)); margin-bottom: calc(10 * var(--p)); padding: calc(8 * var(--p)) calc(12 * var(--p)); border-radius: calc(12 * var(--p)); background: rgba(221, 105, 54, 0.07); }
+.gd-pp .bashrow .bico { width: calc(8 * var(--p)); height: calc(8 * var(--p)); border-radius: 50%; background: #dd6936; animation: gd-pulse 1.4s ease-in-out infinite; }
+.gd-pp .bashrow .btxt { flex: 1; display: flex; flex-direction: column; gap: calc(2 * var(--p)); }
+.gd-pp .bashrow .bl { font-size: calc(10.5 * var(--p)); color: #8a8378; }
+.gd-pp .bashrow .bt { color: #dd6936; font-variant-numeric: tabular-nums; margin-left: calc(4 * var(--p)); }
+.gd-pp .bashrow .bn { font-size: calc(12.5 * var(--p)); font-weight: 500; }
+.gd-pp .bashrow .bsw { width: calc(28 * var(--p)); height: calc(16 * var(--p)); border-radius: calc(16 * var(--p)); background: #dd6936; position: relative; }
+.gd-pp .bashrow .bsw span { position: absolute; right: calc(2 * var(--p)); top: calc(2 * var(--p)); width: calc(12 * var(--p)); height: calc(12 * var(--p)); border-radius: 50%; background: #fff; }

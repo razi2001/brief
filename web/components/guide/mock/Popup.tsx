@@ -15,7 +15,6 @@ import {
   IconReset,
   IconShot,
   IconTerminal,
-  IconUpload,
   IconVideo,
   IconX,
 } from "./icons";
@@ -28,18 +27,37 @@ export type Tile = {
   on?: boolean;
 };
 
-export type ChoiceKey = "shot" | "video" | "replay" | "upload";
+export type ChoiceKey = "shot" | "video" | "replay";
 
 export type Sheet =
-  | { kind: "chooser"; on?: ChoiceKey; shots?: number }
+  | { kind: "chooser"; on?: ChoiceKey }
   | { kind: "shot"; note?: string; typing?: boolean; editOn?: boolean };
 
-const CHOICES: Array<{ key: ChoiceKey; title: string; sub: (shots: number) => string; icon: ReactNode }> = [
-  { key: "shot", title: "Screenshot", sub: (n) => `${n} of 3`, icon: <IconShot /> },
-  { key: "video", title: "Video", sub: () => "Record the screen", icon: <IconVideo /> },
-  { key: "replay", title: "Replay", sub: () => "The last 60 seconds", icon: <IconReplay /> },
-  { key: "upload", title: "Upload", sub: () => "Image or video", icon: <IconUpload /> },
+/** The ways to add evidence, as popup.html names them. */
+const CHOICES: Array<{ key: ChoiceKey; title: string; sub: string; icon: ReactNode }> = [
+  { key: "video", title: "Record and talk", sub: "Brief writes it", icon: <IconVideo /> },
+  { key: "shot", title: "Screenshot", sub: "Mark what is wrong on it", icon: <IconShot /> },
+  { key: "replay", title: "Last minute", sub: "Replay this tab", icon: <IconReplay /> },
 ];
+
+function Ways({ on }: { on?: ChoiceKey }) {
+  return (
+    <div className="choices">
+      {CHOICES.map((c) => (
+        <div key={c.key} data-gd={`choice-${c.key}`} className={`choice${on === c.key ? " on" : ""}`}>
+          <span className="ci">{c.icon}</span>
+          <span>
+            <div className="ct">{c.title}</div>
+            <div className="cs">{c.sub}</div>
+          </span>
+          <span className="chev">
+            <IconChevron />
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** The checkout capture, Pay circled in red: a screenshot's picture. */
 export function ShotPicture({ circled = true }: { circled?: boolean }) {
@@ -90,11 +108,13 @@ const MENU: Array<{ key: CreateMode; icon: ReactNode; t: string; s: string }> = 
 ];
 
 /**
- * The extension popup, as popup.html draws it: the header (reset, cloud),
- * Evidence with its tiles and Add, Additional data, and the Create button
- * with its menu (Create in Linear, Share link, Fix prompt); with the + chooser or a screenshot's
- * sheet over it, the "Ticket queued" toast, and the dot that flies into the
- * cloud.
+ * The extension popup, as popup.html draws it: the header (reset, Home), the
+ * Evidence card (with nothing yet, the ways to add it: Record and talk,
+ * Screenshot, Last minute; then the tiles, and "+ Add" beside Evidence), the
+ * "What went wrong?" field, the bug bash row while your clock runs in one, and
+ * the Create button with its menu (Create in Linear, Share link, Fix prompt);
+ * with the Add evidence sheet or a screenshot's sheet over it, the "Ticket
+ * queued" toast, and the dot that flies into Home.
  */
 export function MockPopup({
   tiles = [],
@@ -110,9 +130,15 @@ export function MockPopup({
   toast,
   fly,
   cloud,
+  wayOn,
+  bash,
 }: {
   tiles?: Tile[];
   addOn?: boolean;
+  /** With no evidence yet: the way the cursor is on. */
+  wayOn?: ChoiceKey;
+  /** The bug bash your clock runs in: its name, the time left, and whether it holds reports for a review. */
+  bash?: { name: string; left: string; hold?: boolean };
   desc?: string;
   typing?: boolean;
   fieldOn?: boolean;
@@ -146,45 +172,48 @@ export function MockPopup({
       </div>
 
       <div className="part">
-        <div className="lbl">
-          Evidence<span className="n">{tiles.length}</span>
-        </div>
-        <div className="gal">
-          {tiles.map((t, i) => {
-            if (t.kind === "shot") shotNo++;
-            return (
-              <div key={`${t.kind}${i}`} data-gd={`tile-${i}`} className={`tile gd-pop${t.on ? " on" : ""}`}>
-                <div className="th">
-                  <Thumb kind={t.kind} />
-                  {t.kind === "shot" && <span className="badge">{shotNo}</span>}
-                  <span className="x">
-                    <IconX />
-                  </span>
-                </div>
-                {t.kind === "shot" && !t.label ? (
-                  <div className="strip empty">+ Note</div>
-                ) : (
-                  <div className="strip">
-                    {t.kind !== "shot" && <span className={`ok${t.uploading ? " up" : ""}`} />}
-                    {t.label ?? (t.kind === "video" ? "Recording" : "Replay")}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          <div data-gd="add" className={`tile add${addOn ? " on" : ""}`}>
-            <span className="plus">
+        <div className="lbl ev">
+          Evidence
+          {tiles.length > 0 && (
+            <span data-gd="add" className={`evadd${addOn ? " on" : ""}`}>
               <IconPlus />
+              Add
             </span>
-            <span className="al">Add</span>
-          </div>
+          )}
         </div>
+        {tiles.length === 0 ? (
+          <Ways on={wayOn} />
+        ) : (
+          <div className="gal">
+            {tiles.map((t, i) => {
+              if (t.kind === "shot") shotNo++;
+              return (
+                <div key={`${t.kind}${i}`} data-gd={`tile-${i}`} className={`tile gd-pop${t.on ? " on" : ""}`}>
+                  <div className="th">
+                    <Thumb kind={t.kind} />
+                    {t.kind === "shot" && <span className="badge">{shotNo}</span>}
+                    <span className="x">
+                      <IconX />
+                    </span>
+                  </div>
+                  {t.kind === "shot" && !t.label ? (
+                    <div className="strip empty">Describe it</div>
+                  ) : (
+                    <div className="strip">
+                      {t.kind !== "shot" && <span className={`ok${t.uploading ? " up" : ""}`} />}
+                      {t.label ?? (t.kind === "video" ? "Recording" : "Replay")}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="part">
-        <div className="lbl">Additional data</div>
-        <div data-gd="field" className={`field${fieldOn ? " on" : ""}`}>
-          {desc ? <span className={typing ? "gd-type gd-caret" : ""}>{desc}</span> : <span className="ph">Describe the brief…</span>}
+        <div data-gd="field" className={`field desc${fieldOn ? " on" : ""}`}>
+          {desc ? <span className={typing ? "gd-type gd-caret" : ""}>{desc}</span> : <span className="ph">What went wrong? What did you expect?</span>}
           <span className="mic">
             <IconMic />
           </span>
@@ -192,6 +221,20 @@ export function MockPopup({
       </div>
 
       <div className="go">
+        {bash && (
+          <div data-gd="bash-row" className="bashrow">
+            <span className="bico" />
+            <span className="btxt">
+              <span className="bl">
+                Bug bash <span className="bt">{bash.left}</span>
+              </span>
+              <span className="bn">{bash.name}</span>
+            </span>
+            <span className="bsw">
+              <span />
+            </span>
+          </div>
+        )}
         {menuOn && (
           <div className="cmenu">
             {MENU.map((m) => (
@@ -213,7 +256,7 @@ export function MockPopup({
         <div className="split">
           <div data-gd="create" className={`create${createDown ? " down" : ""}`}>
             {mode === "draft" ? <IconLink /> : mode === "prompt" ? <IconTerminal /> : null}
-            {MODE_LABEL[mode]}
+            {mode === "ticket" && bash?.hold ? `Add to ${bash.name}` : MODE_LABEL[mode]}
           </div>
           <div data-gd="caret" className={`caret${menuOn ? " open" : ""}`}>
             <IconChevronDown />
@@ -230,27 +273,14 @@ export function MockPopup({
               <>
                 <div className="sh">
                   <span className="st">
-                    Add to <em>brief</em>
+                    Add <em>evidence</em>
                   </span>
                   <span className="sbtn">
                     <IconX />
                   </span>
                 </div>
                 <div className="sb">
-                  <div className="choices">
-                    {CHOICES.map((c) => (
-                      <div key={c.key} data-gd={`choice-${c.key}`} className={`choice${sheet.on === c.key ? " on" : ""}`}>
-                        <span className="ci">{c.icon}</span>
-                        <span>
-                          <div className="ct">{c.title}</div>
-                          <div className="cs">{c.sub(sheet.shots ?? 0)}</div>
-                        </span>
-                        <span className="chev">
-                          <IconChevron />
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                  <Ways on={sheet.on} />
                 </div>
               </>
             ) : (
@@ -275,7 +305,7 @@ export function MockPopup({
                     {sheet.note ? (
                       <span className={sheet.typing ? "gd-type gd-caret" : ""}>{sheet.note}</span>
                     ) : (
-                      <span className="ph">Add a note for this screenshot</span>
+                      <span className="ph">What is wrong in this screenshot?</span>
                     )}
                     <span className="mic">
                       <IconMic />
