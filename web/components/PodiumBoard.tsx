@@ -37,8 +37,8 @@ const TINT: Record<number, string> = {
  * while their numbers count up; the leader may say something in a bubble.
  * Under each name: their badges (an earned title, First find, On fire), and a
  * green arrow over whoever just climbed. Everyone else is a compact row with a
- * bar against the leader's count; your row is marked and rows slide when the
- * order changes. Before anyone has a count there is no race to draw: everyone
+ * bar against the leader's count, in a box of about seven rows that scrolls;
+ * your row is marked and rows slide when the order changes. Before anyone has a count there is no race to draw: everyone
  * is a row.
  */
 export default function PodiumBoard({ rows, quip }: { rows: RaceRow[]; quip?: string }) {
@@ -101,7 +101,10 @@ export default function PodiumBoard({ rows, quip }: { rows: RaceRow[]; quip?: st
       )}
 
       {rest.length > 0 && (
-        <ol ref={box} className={`mx-auto flex max-w-[620px] flex-col gap-1 ${racing ? "border-t border-hairline pt-2" : ""}`}>
+        <ol
+          ref={box}
+          className={`thin-scroll mx-auto flex max-h-[320px] max-w-[620px] flex-col gap-1 overflow-y-auto overscroll-contain ${racing ? "border-t border-hairline pt-2" : ""}`}
+        >
           {rest.map((r) => (
             <li
               key={r.key}

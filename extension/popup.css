@@ -77,6 +77,11 @@ body.sheet-open { overflow:hidden; }
 .hbtn svg { width:17px; height:17px; }
 .reset-btn:hover svg { transform:rotate(-45deg); }
 .reset-btn svg { transition:transform var(--t); }
+/* Home: on hover the house lifts a hair and settles back on press */
+.cloud-btn svg { transition:transform 220ms cubic-bezier(.23,1,.32,1), color var(--t); }
+.cloud-btn:hover svg { transform:translateY(-1.5px); }
+.cloud-btn:active svg { transform:translateY(0); }
+@media (prefers-reduced-motion: reduce) { .cloud-btn svg { transition:none; } .cloud-btn:hover svg { transform:none; } }
 
 /* ---------- COMPOSER ---------- */
 /* One card: the description on top, the evidence right under it, the way a
@@ -155,7 +160,6 @@ body.sheet-open { overflow:hidden; }
   border:1px dashed rgba(26,22,18,.24); background:transparent; color:var(--muted); box-shadow:none; }
 .tile.add:hover { border-color:var(--accent); color:var(--accent); background:rgba(221,105,54,.05); box-shadow:none; }
 .tile.add .plus { display:grid; place-items:center; transition:transform var(--t); }
-.tile.add:hover .plus { transform:rotate(90deg); }
 .tile.add .plus svg { width:15px; height:15px; }
 .tile.add .add-lbl { font-size:10.5px; }
 
@@ -1041,14 +1045,11 @@ body:has(#bashRow:not([hidden])):has(#reconnectBtn:not([hidden])) { --h:262px; }
 .ev-head-t, .ev-head .ev-add, .ev-head .ev-add:hover { font-size:12.5px; font-weight:500; }
 .ev-head .ev-add { background:none; color:var(--accent); padding:0 4px 0 4px; margin-right:-4px; }
 .ev-head .ev-add:hover { background:none; color:#c95e2c; text-decoration:underline; text-underline-offset:3px; }
-/* hover on "+ Add": the colour only deepens; nothing else moves or appears */
-.ev-head .ev-add, .ev-head .ev-add:hover, .ev-head .ev-add:active, .ev-head .ev-add:focus { border:0; box-shadow:none; transform:none; text-decoration:none; background:none; }
-.ev-head .ev-add { transition:color var(--t); }
-.ev-head .ev-add:hover { color:#b9541f; }
+/* hover on "+ Add": a soft accent tint behind it; nothing turns or moves */
+.ev-head .ev-add, .ev-head .ev-add:hover, .ev-head .ev-add:active, .ev-head .ev-add:focus { border:0; box-shadow:none; transform:none; text-decoration:none; }
+.ev-head .ev-add, .ev-head .ev-add:hover, .ev-head .ev-add:active { padding:0 7px 0 5px; margin:0 -7px 0 0; height:24px; gap:4px; width:auto; border-radius:7px; }
+.ev-head .ev-add { background:transparent; transition:background-color var(--t), color var(--t); }
+.ev-head .ev-add:hover { background:rgba(221,105,54,.10); color:#b9541f; }
+.ev-head .ev-add:active { background:rgba(221,105,54,.16); }
 .ev-head .ev-add:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-.ev-head .ev-add, .ev-head .ev-add:hover, .ev-head .ev-add:active { padding:0 4px; margin:0 -4px 0 0; height:24px; gap:4px; width:auto; }
-/* hover: the plus turns a quarter turn; a press, a small give. The button keeps its size. */
-.ev-head .ev-add svg { transition:transform 280ms cubic-bezier(.23,1,.32,1); }
-.ev-head .ev-add:hover svg { transform:rotate(90deg); }
-.ev-head .ev-add:active svg { transform:rotate(90deg) scale(.85); transition-duration:120ms; }
-@media (prefers-reduced-motion: reduce) { .ev-head .ev-add svg { transition:none; } .ev-head .ev-add:hover svg { transform:none; } }
+.ev-head .ev-add svg { transform:none; transition:none; }

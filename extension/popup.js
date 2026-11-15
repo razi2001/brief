@@ -225,7 +225,7 @@ function renderGallery() {
       // its note, typed right here in the row (the picture opens the screenshot)
       // its note as a line of text, like the video's words; a click on the row
       // opens the screenshot, where the note is written
-      `<div class="rep-s note-line${hasNote ? '' : ' empty'}">${hasNote ? esc(s.description) : 'Add a note'}</div></div>` +
+      `<div class="rep-s note-line${hasNote ? '' : ' empty'}">${hasNote ? esc(s.description) : 'Describe what this shows'}</div></div>` +
       `</div>`;
   });
 
@@ -587,7 +587,7 @@ function openShot(id) {
   const body =
     `<button class="shot-preview shot-open" id="shotEdit" type="button" title="Edit" aria-label="Edit the screenshot"><img src="${s.dataUrl}" alt="Screenshot ${idx + 1}"><span class="rec-edit">${EDIT_SVG}Edit</span></button>` +
     `<div class="field-label">Note</div>` +
-    `<div class="ai-wrap" id="shotNoteWrap"><textarea class="ai-field has-mic" id="shotNote" placeholder="Add a note for this screenshot">${esc(s.description || '')}</textarea></div>`;
+    `<div class="ai-wrap" id="shotNoteWrap"><textarea class="ai-field has-mic" id="shotNote" placeholder="What is wrong in this screenshot?">${esc(s.description || '')}</textarea></div>`;
   openSheet(`Screenshot <em>${idx + 1}</em>`, body, (root) => {
     $('#shotEdit', root).addEventListener('click', async () => {
       await openEditorTab(chrome.runtime.getURL(`image.html#${encodeURIComponent(id)}`)).catch(() => {});
@@ -682,7 +682,7 @@ function openRep() {
       `<span class="rec-edit">${EDIT_SVG}Edit</span>` +
     `</button>` +
     `<div class="field-label">Note</div>` +
-    `<div class="ai-wrap" id="repNoteWrap"><textarea class="ai-field has-mic" id="repNote" placeholder="Add a note for this replay">${esc(r.note || '')}</textarea></div>` +
+    `<div class="ai-wrap" id="repNoteWrap"><textarea class="ai-field has-mic" id="repNote" placeholder="What goes wrong in this replay?">${esc(r.note || '')}</textarea></div>` +
     `<div class="toggle-row"><span class="lbl">Attach the replay to the ticket</span>` +
       `<button class="switch${attach ? ' on' : ''}" id="repAttach" role="switch" aria-checked="${attach}"><span class="knob"></span></button></div>`;
   const again = async () => {

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import MoreMenu, { ConfirmItem } from "./MoreMenu";
 import { DEFAULT_DURATION, DEFAULT_OPEN_DAYS, lengthLabel } from "@/lib/bash";
 import type { BashListItem } from "@/lib/bash-server";
@@ -59,9 +59,9 @@ const FAILED: Record<Act | "delete" | "create", string> = {
  * person gets and who is in, with its one action on the right. The whole line
  * opens its page. One you created can be deleted from its menu.
  *
- * "New bug bash" goes to the form (/bash/new). Under the list, when the
- * tickets already filed cluster somewhere, those areas are offered as bug
- * bashes: one click creates it (the usual length, open for the usual days,
+ * "New bug bash" goes to the form (/bash/new). Beside it, when the tickets
+ * already filed cluster somewhere, a "Suggested" menu offers those areas as
+ * bug bashes: one click creates it (the usual length, open for the usual days,
  * reviewed before filing) and opens it.
  */
 export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
@@ -151,12 +151,15 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
     <div className="w-full">
       <header className="flex items-center justify-between gap-4">
         <h1 className="page-title">Bug bash</h1>
-        <Link href="/bash/new" className="btn-accent h-[30px] shrink-0">
+        <span className="flex shrink-0 items-center gap-1.5">
+          {offered.length > 0 && <Suggested items={offered} busy={busy} onPick={(name) => void createFrom(name)} />}
+          <Link href="/bash/new" className="btn-accent h-[30px] shrink-0">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
           New bug bash
-        </Link>
+          </Link>
+        </span>
       </header>
 
       <div role="tablist" aria-label="Bug bashes" className="-ml-2 mt-4 flex flex-wrap items-center gap-0.5">
@@ -259,51 +262,91 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
         )}
       </div>
 
-      {offered.length > 0 && (
-        <section aria-labelledby="bash-suggested" className="animate-rise mt-7">
-          <h2 id="bash-suggested" className="section-label !items-center !gap-1.5">
-            <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true" className="text-accent">
-              <path d="M8 1.5c.4 2.9 1.7 4.2 4.6 4.6-2.9.4-4.2 1.7-4.6 4.6-.4-2.9-1.7-4.2-4.6-4.6 2.9-.4 4.2-1.7 4.6-4.6ZM12.5 10.5c.2 1.3.8 1.9 2.1 2.1-1.3.2-1.9.8-2.1 2.1-.2-1.3-.8-1.9-2.1-2.1 1.3-.2 1.9-.8 2.1-2.1Z" />
-            </svg>
-            Suggested
-          </h2>
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {offered.map((s) => {
-              const creating = busy === `new:${s.name}`;
-              return (
-                <li key={s.name} className="min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => void createFrom(s.name)}
-                    disabled={!!busy}
-                    aria-label={`Create a bug bash for ${s.name}`}
-                    className="group/s flex w-full items-center gap-3 rounded-[14px] border border-hairline bg-cream py-2.5 pl-3.5 pr-2.5 text-left transition-colors hover:border-[var(--color-line)] disabled:cursor-default disabled:opacity-60"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] font-medium text-ink">{s.name}</span>
-                      <span className="mt-0.5 block truncate text-[12.5px] tabular-nums text-muted">
-                        {s.bugs} {s.bugs === 1 ? "bug" : "bugs"}
-                        {s.open > 0 && ` · ${s.open} open`}
-                      </span>
-                    </span>
-                    <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[12.5px] font-medium text-ink-2 transition-colors group-hover/s:bg-accent group-hover/s:text-cream">
-                      {creating ? (
-                        "Creating"
-                      ) : (
-                        <>
-                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-                            <path d="M12 5v14M5 12h14" />
-                          </svg>
-                          Create
-                        </>
-                      )}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+    </div>
+  );
+}
+
+const Sparkle = ({ size = 13 }: { size?: number }) => (
+  <svg viewBox="0 0 16 16" width={size} height={size} fill="currentColor" aria-hidden="true" className="text-accent">
+    <path d="M8 1.5c.4 2.9 1.7 4.2 4.6 4.6-2.9.4-4.2 1.7-4.6 4.6-.4-2.9-1.7-4.2-4.6-4.6 2.9-.4 4.2-1.7 4.6-4.6ZM12.5 10.5c.2 1.3.8 1.9 2.1 2.1-1.3.2-1.9.8-2.1 2.1-.2-1.3-.8-1.9-2.1-2.1 1.3-.2 1.9-.8 2.1-2.1Z" />
+  </svg>
+);
+
+/**
+ * The suggested bug bashes, behind one button beside "New bug bash": each line
+ * is an area the filed tickets cluster in; a click creates it and opens it.
+ * Closes on Escape and on a click outside.
+ */
+function Suggested({ items, busy, onPick }: { items: Suggestion[]; busy: string | null; onPick: (name: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="animate-rise relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`btn h-[30px] gap-1.5 ${open ? "bg-[var(--color-pressed)]" : ""}`}
+      >
+        <Sparkle />
+        Suggested
+        <span className="tabular-nums text-faint">{items.length}</span>
+      </button>
+      {open && (
+        <div role="menu" aria-label="Suggested bug bashes" className="menu absolute right-0 top-full z-40 mt-1 w-[280px] p-1">
+          {items.map((s) => {
+            const creating = busy === `new:${s.name}`;
+            return (
+              <button
+                key={s.name}
+                type="button"
+                role="menuitem"
+                onClick={() => onPick(s.name)}
+                disabled={!!busy}
+                aria-label={`Create a bug bash for ${s.name}`}
+                className="group/s flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-hover)] disabled:cursor-default disabled:opacity-60"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-ink">{s.name}</span>
+                  <span className="block truncate text-[12px] tabular-nums text-muted">
+                    {s.bugs} {s.bugs === 1 ? "bug" : "bugs"}
+                    {s.open > 0 && ` · ${s.open} open`}
+                  </span>
+                </span>
+                <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-muted transition-colors group-hover/s:bg-accent group-hover/s:text-cream">
+                  {creating ? (
+                    "Creating"
+                  ) : (
+                    <>
+                      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                      Create
+                    </>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
