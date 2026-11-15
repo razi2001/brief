@@ -1,3 +1,4 @@
+import FreshOnReturn from "@/components/FreshOnReturn";
 import NudgeAdmin, { EveryoneRow } from "@/components/NudgeAdmin";
 import NudgePeople from "@/components/NudgePeople";
 import { requireAdmin } from "@/lib/admin-server";
@@ -13,6 +14,7 @@ export default async function CardPage() {
   const [saved, { people, everyone, now }] = await Promise.all([getSavedText(), loadCardPeople()]);
   return (
     <NudgeAdmin saved={saved}>
+      <FreshOnReturn renderId={crypto.randomUUID()} />
       <EveryoneRow last={everyone} />
       <NudgePeople people={people} now={now} />
     </NudgeAdmin>

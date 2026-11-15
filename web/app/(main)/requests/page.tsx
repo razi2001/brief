@@ -1,3 +1,4 @@
+import FreshOnReturn from "@/components/FreshOnReturn";
 import RequestsView from "@/components/RequestsView";
 import { requireUserId } from "@/lib/auth";
 import { loadRequests } from "@/lib/requests-server";
@@ -6,5 +7,10 @@ import { loadRequests } from "@/lib/requests-server";
 export default async function RequestsPage() {
   const userId = await requireUserId();
   const { items, admin } = await loadRequests(userId);
-  return <RequestsView initial={items} admin={admin} />;
+  return (
+    <>
+      <FreshOnReturn renderId={crypto.randomUUID()} />
+      <RequestsView initial={items} admin={admin} />
+    </>
+  );
 }

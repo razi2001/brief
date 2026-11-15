@@ -1,3 +1,4 @@
+import FreshOnReturn from "@/components/FreshOnReturn";
 import { notFound } from "next/navigation";
 import BashView from "@/components/BashView";
 import { requireUserId } from "@/lib/auth";
@@ -11,5 +12,10 @@ export default async function BashCodePage({ params }: { params: Promise<{ code:
   if (!isBashCode(code)) notFound();
   const bash = await loadBash(code, userId);
   if (!bash) notFound();
-  return <BashView initial={bash} />;
+  return (
+    <>
+      <FreshOnReturn renderId={crypto.randomUUID()} />
+      <BashView initial={bash} />
+    </>
+  );
 }

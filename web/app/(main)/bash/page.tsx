@@ -1,3 +1,4 @@
+import FreshOnReturn from "@/components/FreshOnReturn";
 import BashHome from "@/components/BashHome";
 import { requireUserId } from "@/lib/auth";
 import { listBashes, type BashListItem } from "@/lib/bash-server";
@@ -7,5 +8,10 @@ export default async function BashPage() {
   const userId = await requireUserId();
   // If the list can't be read, making one still works.
   const bashes = await listBashes(userId).catch((): BashListItem[] => []);
-  return <BashHome bashes={bashes} />;
+  return (
+    <>
+      <FreshOnReturn renderId={crypto.randomUUID()} />
+      <BashHome bashes={bashes} />
+    </>
+  );
 }

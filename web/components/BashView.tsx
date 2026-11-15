@@ -54,6 +54,12 @@ const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: 
  */
 export default function BashView({ initial }: { initial: BashSnapshot }) {
   const [bash, setBash] = useState(initial);
+  // A newer snapshot from the server (a return to this page) replaces it.
+  const [from, setFrom] = useState(initial);
+  if (from !== initial) {
+    setFrom(initial);
+    setBash(initial);
+  }
   // Time is the server's: each read carries its clock, and this browser only
   // counts the seconds since. A laptop with a wrong clock still ends on time.
   const [now, setNow] = useState(initial.now);

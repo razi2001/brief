@@ -1,3 +1,4 @@
+import FreshOnReturn from "@/components/FreshOnReturn";
 import ActivityView from "@/components/ActivityView";
 import { loadActivity } from "@/lib/activity-server";
 import { RANGES } from "@/lib/activity-stats";
@@ -13,5 +14,10 @@ export default async function ActivityPage({
   const asked = Number((await searchParams).days);
   const days = (RANGES as readonly number[]).includes(asked) ? asked : 30;
   const { people, site, dashboard, nudge, now } = await loadActivity(days);
-  return <ActivityView people={people} site={site} dashboard={dashboard} nudge={nudge} days={days} now={now} />;
+  return (
+    <>
+      <FreshOnReturn renderId={crypto.randomUUID()} />
+      <ActivityView people={people} site={site} dashboard={dashboard} nudge={nudge} days={days} now={now} />
+    </>
+  );
 }

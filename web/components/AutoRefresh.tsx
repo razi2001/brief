@@ -1,9 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-
-/** Server renders this tab has already put on screen. */
-const shownRenders = new Set<string>();
+import { useFreshOnReturn } from "./FreshOnReturn";
 
 /**
  * Keeps the server-rendered feed in sync without a manual reload:
@@ -33,19 +31,10 @@ export default function AutoRefresh({
 }) {
   const router = useRouter();
   const lastRefresh = useRef(0);
-  const handled = useRef<string | null>(null);
 
-  useEffect(() => {
-    // (Strict mode runs this twice for one mount; only the first counts.)
-    if (!renderId || handled.current === renderId) return;
-    handled.current = renderId;
-    if (shownRenders.has(renderId)) {
-      lastRefresh.current = Date.now();
-      router.refresh();
-    } else {
-      shownRenders.add(renderId);
-    }
-  }, [renderId, router]);
+  useFreshOnReturn(renderId, () => {
+    lastRefresh.current = Date.now();
+  });
 
   useEffect(() => {
     const every = active ? intervalMs : idleIntervalMs;

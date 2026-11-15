@@ -1,3 +1,4 @@
+import FreshOnReturn from "@/components/FreshOnReturn";
 import AdminView from "@/components/AdminView";
 import { loadAdminRows, requireAdmin } from "@/lib/admin-server";
 import { parseFilters } from "@/lib/admin-view";
@@ -10,5 +11,10 @@ export default async function AdminPage({
 }) {
   await requireAdmin();
   const [rows, params] = await Promise.all([loadAdminRows(), searchParams]);
-  return <AdminView rows={rows} initial={parseFilters(params)} />;
+  return (
+    <>
+      <FreshOnReturn renderId={crypto.randomUUID()} />
+      <AdminView rows={rows} initial={parseFilters(params)} />
+    </>
+  );
 }

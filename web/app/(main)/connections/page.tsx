@@ -1,3 +1,4 @@
+import FreshOnReturn from "@/components/FreshOnReturn";
 import { requireUserId } from "@/lib/auth";
 import SettingsView from "@/components/SettingsView";
 import { getTrackerContext } from "@/lib/briefs-server";
@@ -18,7 +19,9 @@ export default async function ConnectionsPage({
   const pickP = ctxP
     .then(async (ctx) => {
       const provider = ctx.connected[0];
-      return provider ? { provider, list: await workspacesToPick(userId, provider) } : null;
+      return provider
+        ? { provider, list: await workspacesToPick(userId, provider) }
+        : null;
     })
     .catch(() => null);
   const [ctx, guidance, team, me, params] = await Promise.all([
@@ -28,7 +31,10 @@ export default async function ConnectionsPage({
     getOrg(userId)
       .then(async (org) => {
         if (!org) return null;
-        const [members, replaySites] = await Promise.all([getOrgTeam(org.key, userId), getOrgReplaySites(org.key)]);
+        const [members, replaySites] = await Promise.all([
+          getOrgTeam(org.key, userId),
+          getOrgReplaySites(org.key),
+        ]);
         return { org, members, replaySites };
       })
       .catch(() => null),
@@ -43,7 +49,11 @@ export default async function ConnectionsPage({
   const pick = guidance.hasOrg ? null : await pickP;
   const workspaces =
     pick && pick.list.length > 0
-      ? { provider: pick.provider, noun: WORKSPACE_NOUN[pick.provider], list: pick.list }
+      ? {
+          provider: pick.provider,
+          noun: WORKSPACE_NOUN[pick.provider],
+          list: pick.list,
+        }
       : null;
   // The connect callback lands here with ?pick=<provider> when the account has
   // several workspaces, so the row with the choice opens by itself.
@@ -53,15 +63,18 @@ export default async function ConnectionsPage({
   const openTracker = typeof params.error === "string" && params.error !== "";
 
   return (
-    <SettingsView
-      tracker={ctx.connected[0] ?? null}
-      team={team}
-      workspaces={workspaces}
-      guidance={guidance}
-      mySites={me.sites}
-      replayMode={me.mode}
-      openTeam={openTeam}
-      openTracker={openTracker}
-    />
+    <>
+      <FreshOnReturn renderId={crypto.randomUUID()} />
+      <SettingsView
+        tracker={ctx.connected[0] ?? null}
+        team={team}
+        workspaces={workspaces}
+        guidance={guidance}
+        mySites={me.sites}
+        replayMode={me.mode}
+        openTeam={openTeam}
+        openTracker={openTracker}
+      />
+    </>
   );
 }

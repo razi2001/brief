@@ -273,6 +273,12 @@ function Row({
 
 export default function RequestsView({ initial, admin }: { initial: RequestItem[]; admin: boolean }) {
   const [items, setItems] = useState(initial);
+  // A newer list from the server (a refresh, or a return to this page) replaces it.
+  const [from, setFrom] = useState(initial);
+  if (from !== initial) {
+    setFrom(initial);
+    setItems(initial);
+  }
   const [sort, setSort] = useState<RequestSort>("top");
   const [filter, setFilter] = useState<StatusFilter>("all");
   // Rows with a vote on its way: the button waits, so answers can't cross.
