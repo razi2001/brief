@@ -35,7 +35,8 @@ function endOfDay(day: string): Date {
  * suggests those areas as names ("Checkout, 6 bugs"). Picking one fills the
  * name in. With nothing to suggest, nothing shows.
  */
-export default function BashNew() {
+/** suggested: the answer the server already kept, drawn with the form; null when it has none yet, and then it is asked once the form shows. */
+export default function BashNew({ suggested = null }: { suggested?: Suggestion[] | null } = {}) {
   const router = useRouter();
   const nameRef = useRef<HTMLInputElement>(null);
   // Today, as this browser sees it, fixed for the life of the form.
@@ -47,12 +48,15 @@ export default function BashNew() {
   const [hold, setHold] = useState<boolean>(HOLDS_BY_DEFAULT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(suggested ?? []);
+  // What the server gave as the page first drew: only without it is it asked.
+  const [given] = useState(suggested !== null);
 
   useEffect(() => {
     nameRef.current?.focus();
     // Asked once the form is drawn: reading the tickets takes a few seconds,
     // and an empty answer is a normal one.
+    if (given) return;
     let on = true;
     fetch("/api/bashes/suggestions", { credentials: "same-origin" })
       .then((r) => (r.ok && !r.redirected ? r.json() : { suggestions: [] }))
@@ -63,7 +67,7 @@ export default function BashNew() {
     return () => {
       on = false;
     };
-  }, []);
+  }, [given]);
 
   const lastDay = from ? inputDay(addDays(startOf(from, ""), MAX_OPEN_DAYS)) : undefined;
   const datesOk = !!from && !!to && to >= from && from >= today;

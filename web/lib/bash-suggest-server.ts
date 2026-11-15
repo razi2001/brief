@@ -8,9 +8,12 @@ import { MAX_TICKETS, MIN_TICKETS, WINDOW_DAYS, type PastTicket, type Suggestion
  * cluster in. "Their team" is the tracker workspace Brief already knows they
  * share (org_members); without one, their own tickets.
  *
- * The answer is kept for a few hours per person, in this server process (the
- * app runs as one always-on machine): the start page asks every time it opens,
- * and the tickets of the last two months don't change by the minute.
+ * The answer is kept per person in this server process (the app runs as one
+ * always-on machine): the tickets of the last two months don't change by the
+ * minute. After a few hours it is worked out again in the background while the
+ * old answer is still given, so only the very first ask waits for the model.
+ * The bug bash pages read a kept answer as they render (peekSuggestions), so
+ * the suggestions draw with the page.
  */
 
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -20,7 +23,23 @@ const asking = new Map<string, Promise<Suggestion[]>>();
 
 export function suggestBashes(userId: string): Promise<Suggestion[]> {
   const hit = cache.get(userId);
-  if (hit && Date.now() - hit.at < TTL_MS) return Promise.resolve(hit.value);
+  if (hit) {
+    if (Date.now() - hit.at >= TTL_MS) void ask(userId).catch(() => {});
+    return Promise.resolve(hit.value);
+  }
+  return ask(userId);
+}
+
+/**
+ * The kept answer, old or not, or null when there is none yet. Starts working
+ * one out when there is none or it is old, so a later ask finds it sooner.
+ */
+export function peekSuggestions(userId: string): Suggestion[] | null {
+  void suggestBashes(userId).catch(() => {});
+  return cache.get(userId)?.value ?? null;
+}
+
+function ask(userId: string): Promise<Suggestion[]> {
   const running = asking.get(userId);
   if (running) return running;
   const job = work(userId).finally(() => asking.delete(userId));

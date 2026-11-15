@@ -64,15 +64,19 @@ const FAILED: Record<Act | "delete" | "create", string> = {
  * bug bashes: one click creates it (the usual length, open for the usual days,
  * reviewed before filing) and opens it.
  */
-export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
+/** suggested: the answer the server already kept, drawn with the page; null when it has none yet, and then it is asked once the page shows. */
+export default function BashHome({ bashes, suggested = null }: { bashes: BashListItem[]; suggested?: Suggestion[] | null }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(suggested ?? []);
+  // What the server gave as the page first drew: only without it is it asked.
+  const [given] = useState(suggested !== null);
 
   useEffect(() => {
     // Asked once the page is drawn: reading the tickets takes a few seconds,
     // and an empty answer is a normal one.
+    if (given) return;
     let on = true;
     fetch("/api/bashes/suggestions", { credentials: "same-origin" })
       .then((r) => (r.ok && !r.redirected ? r.json() : { suggestions: [] }))
@@ -83,7 +87,7 @@ export default function BashHome({ bashes }: { bashes: BashListItem[] }) {
     return () => {
       on = false;
     };
-  }, []);
+  }, [given]);
 
   const running = bashes.filter((b) => b.phase !== "closed").sort((a, b) => RANK[partOf(a)] - RANK[partOf(b)]);
   const lists: Record<Tab, BashListItem[]> = {
