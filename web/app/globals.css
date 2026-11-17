@@ -1109,6 +1109,27 @@ body {
 @keyframes find-flash { 0% { background: rgba(221, 105, 54, 0.16); box-shadow: 0 0 0 3px rgba(221, 105, 54, 0.18); } 100% { box-shadow: 0 0 0 0 rgba(221, 105, 54, 0); } }
 .arena { animation: brief-rise 420ms var(--ease-out) both; background: radial-gradient(120% 140% at 0% 0%, rgba(240, 131, 80, 0.07), transparent 55%), var(--color-surface); }
 .arena-go { animation: go-breathe 2.4s ease-in-out infinite; }
+/* The start button: an arcade button with a stopwatch, a GO sticker, a lip it sinks into. */
+.go-btn { position: relative; display: inline-flex; align-items: center; gap: 12px; height: 56px; padding: 0 24px 0 8px; border-radius: 999px; cursor: pointer;
+  color: #fff; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; text-shadow: 0 1px 0 rgba(150, 56, 18, 0.35);
+  background: linear-gradient(180deg, #f8a476 0%, #e8783f 52%, #d9622f 100%);
+  box-shadow: 0 5px 0 #b24a1d, 0 12px 24px -10px rgba(178, 74, 29, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out); animation: go-nudge 5s ease-in-out 1.2s infinite; }
+.go-btn:hover { transform: translateY(-2px); box-shadow: 0 7px 0 #b24a1d, 0 16px 28px -10px rgba(178, 74, 29, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.5); animation-play-state: paused; }
+.go-btn:active, .go-btn[data-pressed] { transform: translateY(4px); box-shadow: 0 1px 0 #b24a1d, 0 4px 10px -6px rgba(178, 74, 29, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4); animation: none; }
+.go-btn:disabled { cursor: default; opacity: 0.65; animation: none; }
+.go-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; }
+.go-face { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 999px; background: #fff; box-shadow: inset 0 -2px 0 rgba(26, 22, 18, 0.08), 0 1px 2px rgba(150, 56, 18, 0.3); }
+.go-hand { transform-box: view-box; transform-origin: 12px 13.2px; animation: go-tick 8s steps(8) infinite; }
+.go-btn:hover .go-hand { animation: go-tick 0.9s linear infinite; }
+@keyframes go-tick { to { transform: rotate(360deg); } }
+.go-tag { position: absolute; top: -9px; right: -8px; padding: 2px 6px; border-radius: 6px; background: #ffd84d; color: #7a4a00; font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em;
+  text-shadow: none; box-shadow: 0 2px 0 #d9a400; rotate: 12deg; transition: rotate 200ms var(--ease-out); }
+.go-btn:hover .go-tag { rotate: -6deg; }
+@keyframes go-nudge { 0%, 84%, 100% { rotate: 0deg; } 87% { rotate: -2.5deg; } 90% { rotate: 2.5deg; } 93% { rotate: -1.5deg; } 96% { rotate: 1deg; } }
+.go-count { font-size: 64px; font-weight: 800; letter-spacing: -0.04em; color: var(--color-accent); animation: go-count 620ms cubic-bezier(.34, 1.56, .64, 1) both; }
+.go-count-go { color: #2f7d4f; animation-duration: 750ms; }
+@keyframes go-count { 0% { opacity: 0; transform: scale(0.3); } 35% { opacity: 1; transform: scale(1.12); } 70% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.5); } }
 @keyframes go-breathe { 0%, 100% { box-shadow: 0 8px 22px -8px rgba(221, 105, 54, 0.75), 0 0 0 0 rgba(221, 105, 54, 0.22); } 50% { box-shadow: 0 8px 22px -8px rgba(221, 105, 54, 0.75), 0 0 0 10px rgba(221, 105, 54, 0); } }
 .arena-trophy { animation: trophy-in 700ms cubic-bezier(.34, 1.56, .64, 1) both 150ms; }
 @keyframes trophy-in { from { opacity: 0; transform: scale(0.4) rotate(-20deg); } to { opacity: 1; transform: none; } }
@@ -1116,7 +1137,7 @@ body {
 @keyframes confetti-fall { 0% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0); } 85% { opacity: 1; } 100% { opacity: 0; transform: translate3d(var(--drift), 105vh, 0) rotate(var(--spin)); } }
 .lead-bar { transition: width 900ms var(--ease-out); animation: bar-in 1s var(--ease-out) both 250ms; transform-origin: left; }
 @media (prefers-reduced-motion: reduce) {
-  .count-pop, .race-bar, .race-row, .race-badge-hot svg, .race-up, .find-flash, .arena, .arena-go, .arena-trophy, .lead-bar { animation: none; }
+  .count-pop, .race-bar, .race-row, .race-badge-hot svg, .race-up, .find-flash, .arena, .arena-go, .arena-trophy, .lead-bar, .go-btn, .go-hand, .go-count { animation: none; }
 }
 .race-badge-title { background: rgba(26, 22, 18, 0.05); color: var(--color-ink-2); font-weight: 500; }
 /* the leader's step: a slow shine across it, now and then */

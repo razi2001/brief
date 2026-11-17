@@ -3,6 +3,8 @@ import Crumbs from "@/components/Crumbs";
 import BashRace from "@/components/BashRace";
 import BashReview from "@/components/BashReview";
 import CompetitionPanel from "@/components/CompetitionPanel";
+import StartButton from "@/components/StartButton";
+import { Ring } from "@/components/BashView";
 import { DURATIONS, lengthLabel } from "@/lib/bash";
 import type { BashBrief, BashPerson, BashReview as Review } from "@/lib/bash-server";
 import type { PodiumEntry } from "@/lib/org-server";
@@ -259,10 +261,8 @@ const REVIEW: Review = {
 export function MockBashPage({ s }: { s: BashPageS }) {
   const { people, briefs } = board(s);
   const closed = !!s.review;
-  const live = people.filter((p) => p.endsAt !== null).length;
+  const live = people.filter((p) => p.endsAt !== null && !p.isYou).length;
   const review: Review = s.filed ? { ...REVIEW, groups: REVIEW.groups.map((g) => ({ ...g, ticket: { url: "#", identifier: g.id === "g1" ? "ENG-151" : "ENG-152" } })) } : REVIEW;
-  const r = 28;
-  const c = 2 * Math.PI * r;
   return (
     <div className="w-full">
       <Crumbs items={[{ label: "Quality competition", href: "/competition" }, { label: "Checkout" }]} />
@@ -303,24 +303,12 @@ export function MockBashPage({ s }: { s: BashPageS }) {
         <section className="arena mt-6 flex flex-wrap items-center gap-x-7 gap-y-4 rounded-[16px] border border-hairline bg-surface px-5 py-4">
           <div className="flex items-center gap-3.5">
             {s.me === "testing" ? (
-              <span className="flex items-center gap-3.5">
-                <span className="relative grid h-[64px] w-[64px] place-items-center">
-                  <svg viewBox="0 0 64 64" width="64" height="64" className="absolute inset-0 -rotate-90" aria-hidden="true">
-                    <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(26,22,18,.08)" strokeWidth="5" />
-                    <circle cx="32" cy="32" r={r} fill="none" stroke="#dd6936" strokeWidth="5" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - (s.left ?? 1800) / 1800)} style={{ transition: "stroke-dashoffset 1s linear" }} />
-                  </svg>
-                  <span className="relative text-[16px] font-semibold tabular-nums tracking-[-0.02em] text-accent">{clock(s.left ?? 1800)}</span>
-                </span>
-                <span className="text-[12.5px] text-muted">Your time</span>
-              </span>
+              <Ring progress={(s.left ?? 1800) / 1800} label="Your time" icon="watch">
+                <span className="text-accent">{clock(s.left ?? 1800)}</span>
+              </Ring>
             ) : (
-              <span data-gd="bash-start" className={`arena-start group flex items-center gap-3.5 text-left${s.me === "join" ? " opacity-50" : ""}`}>
-                <span className={`arena-go grid h-[64px] w-[64px] place-items-center rounded-full bg-accent text-white shadow-[0_8px_22px_-8px_rgba(221,105,54,.75)]${s.meOn && s.me === "start" ? " scale-[.96]" : ""}`}>
-                  <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true">
-                    <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-                  </svg>
-                </span>
-                <span className="block text-[15px] font-semibold text-ink">Start my 30 min</span>
+              <span data-gd="bash-start" className={`inline-flex${s.me === "join" ? " opacity-50" : ""}`}>
+                <StartButton label="Start my 30 min" pressed={!!s.meOn && s.me === "start"} />
               </span>
             )}
           </div>

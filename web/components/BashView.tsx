@@ -8,6 +8,7 @@ import BashReview from "./BashReview";
 import Crumbs from "./Crumbs";
 import MoreMenu, { ConfirmItem } from "./MoreMenu";
 import { Confetti, CountUp } from "./Motion";
+import StartButton, { Countdown } from "./StartButton";
 import StatusBadge from "./StatusBadge";
 import { groupOfState } from "@/lib/status-group";
 import { clock, lengthLabel, msLeft, phaseOf, reportMarkdown, roughly } from "@/lib/bash";
@@ -426,9 +427,11 @@ function Arena({
   const winner = bash.people[0] && bash.people[0].count > 0 ? bash.people[0] : null;
   const span = bash.minutes * 60_000;
   const left = testing && yourEnd ? Math.max(0, yourEnd - now) : 0;
+  // Each press plays 3, 2, 1, GO! over the arena while the clock is started.
+  const [go, setGo] = useState<number | null>(null);
 
   return (
-    <section aria-label="Arena" className="arena mt-6 flex flex-wrap items-center gap-x-7 gap-y-4 rounded-[16px] border border-hairline bg-surface px-5 py-4">
+    <section aria-label="Arena" className="arena relative mt-6 flex flex-wrap items-center gap-x-7 gap-y-4 rounded-[16px] border border-hairline bg-surface px-5 py-4">
       <div className="flex items-center gap-3.5">
         {closed ? (
           winner ? (
@@ -451,27 +454,25 @@ function Arena({
             <span className="text-[15px] font-medium text-ink">It&apos;s over</span>
           )
         ) : testing ? (
-          <Ring progress={span ? left / span : 0} label="Your time">
-            <span className="text-[16px] font-semibold tabular-nums tracking-[-0.02em] text-accent">{clock(left)}</span>
+          <Ring progress={span ? left / span : 0} label="Your time" icon="watch">
+            <span className="text-accent">{clock(left)}</span>
           </Ring>
         ) : open && yourEnd === null ? (
-          <button type="button" onClick={onStart} disabled={busy} className="arena-start group flex items-center gap-3.5 text-left">
-            <span className="arena-go grid h-[64px] w-[64px] place-items-center rounded-full bg-accent text-white shadow-[0_8px_22px_-8px_rgba(221,105,54,.75)] transition-transform duration-200 group-hover:scale-[1.04] group-active:scale-[.96]">
-              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5-11-6.5Z" /></svg>
-            </span>
-            <span>
-              <span className="block text-[15px] font-semibold text-ink">Start my {lengthLabel(bash.minutes)}</span>
-            </span>
-          </button>
+          <StartButton
+            label={`Start my ${lengthLabel(bash.minutes)}`}
+            disabled={busy}
+            onStart={() => {
+              setGo((n) => (n ?? 0) + 1);
+              onStart();
+            }}
+          />
         ) : done ? (
-          <Ring progress={0} label="Your time">
-            <span className="text-[13px] font-semibold text-[#2f7d4f]">Done</span>
+          <Ring progress={1} label="Your time" icon="check" tone="#2f7d4f">
+            <span className="text-[#2f7d4f]">Done</span>
           </Ring>
         ) : (
-          <Ring progress={1} label={phase === "upcoming" ? "Starts in" : "Each"} quiet>
-            <span className="text-[13px] font-semibold tabular-nums text-ink">
-              {phase === "upcoming" ? clock(new Date(bash.startsAt).getTime() - now) : lengthLabel(bash.minutes)}
-            </span>
+          <Ring progress={1} label={phase === "upcoming" ? "Starts in" : "Each"} icon="watch" quiet>
+            {phase === "upcoming" ? clock(new Date(bash.startsAt).getTime() - now) : lengthLabel(bash.minutes)}
           </Ring>
         )}
       </div>
@@ -482,11 +483,11 @@ function Arena({
             <CountUp value={total} fromZero />
           </Num>
         )}
-        {!closed && live.length > 0 && (
+        {!closed && live.some((p) => !p.isYou) && (
           <Num label="Testing now">
             <span className="flex items-center gap-2" title={live.map((p) => p.name).join(", ")}>
               <CountUp value={live.length} />
-              {live.length > 0 && <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />}
+              <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />
             </span>
           </Num>
         )}
@@ -496,25 +497,45 @@ function Arena({
           </Num>
         )}
       </div>
+      <Countdown run={go} />
     </section>
   );
 }
 
-/** A ring that empties as time runs out, a label under it. */
-function Ring({ progress, label, quiet = false, children }: { progress: number; label: string; quiet?: boolean; children: React.ReactNode }) {
-  const r = 28;
+/**
+ * A ring that empties as time runs out, a small mark in it, and beside it the
+ * value large under its label, so a long time ("2:59:41", "1d 4h") never has
+ * to fit inside the ring.
+ */
+export function Ring({
+  progress,
+  label,
+  icon,
+  tone = "#dd6936",
+  quiet = false,
+  children,
+}: {
+  progress: number;
+  label: string;
+  icon: "watch" | "check";
+  tone?: string;
+  quiet?: boolean;
+  children: React.ReactNode;
+}) {
+  const r = 24;
   const c = 2 * Math.PI * r;
+  const stroke = quiet ? "rgba(26,22,18,.18)" : tone;
   return (
     <span className="flex items-center gap-3.5">
-      <span className="relative grid h-[64px] w-[64px] place-items-center">
-        <svg viewBox="0 0 64 64" width="64" height="64" className="absolute inset-0 -rotate-90" aria-hidden="true">
-          <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(26,22,18,.08)" strokeWidth="5" />
+      <span className="relative grid h-[56px] w-[56px] shrink-0 place-items-center">
+        <svg viewBox="0 0 56 56" width="56" height="56" className="absolute inset-0 -rotate-90" aria-hidden="true">
+          <circle cx="28" cy="28" r={r} fill="none" stroke="rgba(26,22,18,.08)" strokeWidth="5" />
           <circle
-            cx="32"
-            cy="32"
+            cx="28"
+            cy="28"
             r={r}
             fill="none"
-            stroke={quiet ? "rgba(26,22,18,.18)" : "#dd6936"}
+            stroke={stroke}
             strokeWidth="5"
             strokeLinecap="round"
             strokeDasharray={c}
@@ -522,9 +543,14 @@ function Ring({ progress, label, quiet = false, children }: { progress: number; 
             style={{ transition: "stroke-dashoffset 1s linear" }}
           />
         </svg>
-        <span className="relative">{children}</span>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke={quiet ? "#8a8378" : tone} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="relative" aria-hidden="true">
+          {icon === "check" ? <path d="m5 12.5 4.5 4.5L19 7.5" /> : <><path d="M10 2.5h4M12 2.5v2.4" /><circle cx="12" cy="13.2" r="7.4" /><path d="M12 13.2V9.4" /></>}
+        </svg>
       </span>
-      <span className="text-[12.5px] text-muted">{label}</span>
+      <span>
+        <span className="block text-[12.5px] text-muted">{label}</span>
+        <span className={`block text-[26px] font-semibold leading-tight tracking-[-0.02em] tabular-nums ${quiet ? "text-ink" : ""}`}>{children}</span>
+      </span>
     </span>
   );
 }
