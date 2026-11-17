@@ -13,7 +13,7 @@ import { runDraftJob } from "@/lib/agent/draft-jobs";
 import { resolveTrackerOrError } from "@/lib/trackers/registry";
 
 /**
- * The review of a live bug bash, written with the service-role client. Only
+ * The review of a live quality competition, written with the service-role client. Only
  * whoever started the bash may do any of it; for anyone else the bash reads as
  * missing. Every entry point takes the signed-in user's id from the route's own
  * auth() call.
@@ -21,7 +21,7 @@ import { resolveTrackerOrError } from "@/lib/trackers/registry";
 
 const appOrigin = () => (process.env.APP_URL || BRIEF_URL).replace(/\/+$/, "");
 
-/** The bug bash, when this person started it, it holds its reports, and it is over. */
+/** The quality competition, when this person started it, it holds its reports, and it is over. */
 async function reviewable(db: SupabaseClient, code: string, userId: string): Promise<BashRow | "missing" | "running"> {
   const bash = await findBash(code, db);
   if (!bash || bash.created_by !== userId || !bash.hold) return "missing";
@@ -129,7 +129,7 @@ export async function ensureGrouped(code: string, userId: string): Promise<Group
         .select("id, position");
       if (made.error || !made.data) throw new Error(made.error?.message ?? "no groups saved");
       const idAt = new Map((made.data as { id: string; position: number }[]).map((g) => [g.position, g.id]));
-      // The reports are already this bug bash's (marked as they were sent): give each its group.
+      // The reports are already this quality competition's (marked as they were sent): give each its group.
       for (let i = 0; i < groups.length; i++) {
         const placed = await db.from("bash_briefs").update({ group_id: idAt.get(i)!, dropped: false }).eq("bash_id", bash.id).in("brief_id", groups[i].ids);
         if (placed.error) throw new Error(placed.error.message);

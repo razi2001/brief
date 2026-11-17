@@ -129,7 +129,7 @@ describe("pickPrimary", () => {
 
 describe("mergedDescription", () => {
   it("adds where it was found and every report, with links", () => {
-    const md = mergedDescription("**Summary**\n\nPay does nothing.\n", "Release 2.4 bug bash", [
+    const md = mergedDescription("**Summary**\n\nPay does nothing.\n", "Release 2.4 quality competition", [
       { name: "Ana", title: "Pay button does nothing", url: "https://x/b/aaa" },
       { name: "Ben", title: "Checkout  button\nunresponsive", url: "https://x/b/bbb" },
       { name: "Ana", title: "Pay again" },
@@ -137,7 +137,7 @@ describe("mergedDescription", () => {
     expect(md).toBe(
       [
         "**Summary**\n\nPay does nothing.",
-        "**Bug bash**\n\nFound in Release 2.4 bug bash. Reported 3 times, by 2 people.",
+        "**Quality competition**\n\nFound in Release 2.4 quality competition. Reported 3 times, by 2 people.",
         "**Reports**\n\n- Ana: [Pay button does nothing](https://x/b/aaa)\n- Ben: [Checkout button unresponsive](https://x/b/bbb)\n- Ana: Pay again",
       ].join("\n\n"),
     );
@@ -147,7 +147,7 @@ describe("mergedDescription", () => {
     expect(md).toContain("Found in Bash. Reported by Ana.");
   });
   it("still lists the reports when nothing was written up", () => {
-    expect(mergedDescription("  ", "Bash", [{ name: "Ana", title: "T" }]).startsWith("**Bug bash**")).toBe(true);
+    expect(mergedDescription("  ", "Bash", [{ name: "Ana", title: "T" }]).startsWith("**Quality competition**")).toBe(true);
   });
 });
 

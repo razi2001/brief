@@ -16,7 +16,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ code: stri
   return NextResponse.json(bash, { headers: { "cache-control": "no-store" } });
 }
 
-/** Delete a bug bash for good. Only whoever created it may; for anyone else it is a 404. */
+/** Delete a quality competition for good. Only whoever created it may; for anyone else it is a 404. */
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ code: string }> }) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

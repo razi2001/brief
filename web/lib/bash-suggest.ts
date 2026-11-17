@@ -2,7 +2,7 @@ import type { StatusGroup } from "@/lib/status-group";
 
 /**
  * Bash suggestions: the parts of the product that keep producing bugs, read
- * from the tickets already filed, each offered as a bug bash to start. The
+ * from the tickets already filed, each offered as a quality competition to start. The
  * pure rules; loading and the model call live in bash-suggest-server.ts.
  */
 
@@ -35,7 +35,7 @@ An area is a part of the product a tester could open and try: a page, a flow or 
 Rules:
 - Return at most ${MAX_SUGGESTIONS} areas, the ones with the most tickets. Return fewer, or none, when the tickets don't cluster: a made-up area is worse than no suggestion.
 - An area needs at least ${MIN_AREA_BUGS} tickets that are clearly about it. List those ticket numbers. A ticket belongs to at most one area.
-- Name each area in 1 to 3 words, in the language of the titles, the way the team writes it. No "bug bash", no "issues", no punctuation at the end.`;
+- Name each area in 1 to 3 words, in the language of the titles, the way the team writes it. No "bug bash", no "quality competition", no "issues", no punctuation at the end.`;
 
 export const SUGGEST_SCHEMA = {
   type: "object",
@@ -68,7 +68,7 @@ function cleanAreaName(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const name = v
     .replace(/\s+/g, " ")
-    .replace(/\bbug bash\b/gi, "")
+    .replace(/\b(bug bash|quality competition)\b/gi, "")
     .replace(/[.:;,!?\s]+$/, "")
     .trim()
     .slice(0, MAX_AREA_NAME)

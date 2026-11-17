@@ -12,7 +12,7 @@ import { MAX_TICKETS, MIN_TICKETS, WINDOW_DAYS, type PastTicket, type Suggestion
  * always-on machine): the tickets of the last two months don't change by the
  * minute. After a few hours it is worked out again in the background while the
  * old answer is still given, so only the very first ask waits for the model.
- * The bug bash pages read a kept answer as they render (peekSuggestions), so
+ * The quality competition pages read a kept answer as they render (peekSuggestions), so
  * the suggestions draw with the page.
  */
 

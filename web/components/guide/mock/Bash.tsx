@@ -7,8 +7,8 @@ import { DURATIONS, lengthLabel } from "@/lib/bash";
 import type { BashBrief, BashPerson, BashReview as Review } from "@/lib/bash-server";
 
 /*
- * Bug bash in the Guide, from the app's own markup: the list (BashHome), the
- * form (BashNew), and a bug bash's page (BashView's header and Arena, then the
+ * Quality competition in the Guide, from the app's own markup: the list (BashHome), the
+ * form (BashNew), and a quality competition's page (BashView's header and Arena, then the
  * real BashRace board and the real BashReview). Drawn inside MockApp.
  */
 
@@ -30,13 +30,13 @@ const SUGGESTED = [
 
 export type BashListS = { newOn?: boolean; suggestOn?: boolean; rows?: Array<{ name: string; dates: string; people: number; fresh?: boolean }> };
 
-/** BashHome: the tabs, a line per bug bash, Suggested and New bug bash at the top. */
+/** BashHome: the tabs, a line per quality competition, Suggested and New quality competition at the top. */
 export function MockBashList({ s }: { s: BashListS }) {
   const rows = s.rows ?? [];
   return (
     <div className="w-full">
       <header className="flex items-center justify-between gap-4">
-        <h1 className="page-title">Bug bash</h1>
+        <h1 className="page-title">Quality competition</h1>
         <span className="flex shrink-0 items-center gap-1.5">
           <div className="relative">
             <span data-gd="bash-suggested" className={`btn h-[30px] gap-1.5 ${s.suggestOn ? "bg-[var(--color-pressed)]" : ""}`}>
@@ -62,7 +62,7 @@ export function MockBashList({ s }: { s: BashListS }) {
           </div>
           <span data-gd="bash-new" className={`btn-accent h-[30px] shrink-0${s.newOn ? " gd-press" : ""}`}>
             {plus}
-            New bug bash
+            New quality competition
           </span>
         </span>
       </header>
@@ -123,8 +123,8 @@ export function MockBashNew({ s }: { s: BashNewS }) {
   const hold = s.hold ?? true;
   return (
     <div className="w-full max-w-[640px]">
-      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: "New" }]} />
-      <h1 className="mt-3 page-title">New bug bash</h1>
+      <Crumbs items={[{ label: "Quality competition", href: "/competition" }, { label: "New" }]} />
+      <h1 className="mt-3 page-title">New quality competition</h1>
       <div className="card mt-5 p-6">
         <span className={label}>Name</span>
         <div data-gd="bash-name" className={`mt-1.5 flex h-10 w-full items-center rounded-[10px] border bg-surface px-3 text-[15px] font-medium text-ink ${s.typing ? "border-accent" : "border-hairline"}`}>
@@ -200,7 +200,7 @@ const NAMES = ["Sam Rivera", "Ana Costa", "Razi", "Lee Park"];
 const FINDS = ["Pay button does nothing", "Coupon accepts expired codes", "Card form loses the postcode", "Total ignores the discount", "Pay spins forever on retry", "Empty cart shows $0.00 shipping", "Can't remove the last item"];
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-/** The people and their finds, as the bug bash's snapshot gives them. */
+/** The people and their finds, as the quality competition's snapshot gives them. */
 function board(s: BashPageS): { people: BashPerson[]; briefs: BashBrief[] } {
   const counts = s.counts ?? [0, 0, 0, 0];
   const joined = s.joined ?? 4;
@@ -248,7 +248,7 @@ const REVIEW: Review = {
   ],
 };
 
-/** A bug bash's page: BashView's header and Arena, the real BashRace, and the real BashReview once it is over. */
+/** A quality competition's page: BashView's header and Arena, the real BashRace, and the real BashReview once it is over. */
 export function MockBashPage({ s }: { s: BashPageS }) {
   const { people, briefs } = board(s);
   const closed = !!s.review;
@@ -259,7 +259,7 @@ export function MockBashPage({ s }: { s: BashPageS }) {
   const c = 2 * Math.PI * r;
   return (
     <div className="w-full">
-      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: "Checkout" }]} />
+      <Crumbs items={[{ label: "Quality competition", href: "/competition" }, { label: "Checkout" }]} />
       <header className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink">Checkout</h1>

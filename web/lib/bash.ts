@@ -1,12 +1,12 @@
 /**
- * Bug bash: people test the same thing and a shared board shows who found
+ * Quality competition: people test the same thing and a shared board shows who found
  * what. The pure rules; loading and writing live in bash-server.ts.
  *
- * A bug bash has a start date, an end date and a duration. Between the two
+ * A quality competition has a start date, an end date and a duration. Between the two
  * dates it is OPEN; before, it is upcoming and people can already join. Nobody
  * has to be there at the same time: the duration is each person's own clock,
  * up to 3 hours, starting the moment they press Start while it is open. What
- * they report in that time, with the popup's button set to the bug bash,
+ * they report in that time, with the popup's button set to the quality competition,
  * counts for it.
  *
  * By default it holds what is reported as drafts, reviewed together once it
@@ -17,19 +17,19 @@
 /** How long each person may get, in minutes: 15 minutes to 3 hours. */
 export const DURATIONS: readonly number[] = [15, 30, 45, 60, 120, 180];
 export const DEFAULT_DURATION = 60;
-/** The longest a bug bash may stay open, from its start date to its end date, in days. */
+/** The longest a quality competition may stay open, from its start date to its end date, in days. */
 export const MAX_OPEN_DAYS = 31;
-/** How far ahead a bug bash may be planned, in days. */
+/** How far ahead a quality competition may be planned, in days. */
 export const MAX_AHEAD_DAYS = 90;
-/** How many days a new bug bash is open for, until its dates are changed in the form. */
+/** How many days a new quality competition is open for, until its dates are changed in the form. */
 export const DEFAULT_OPEN_DAYS = 3;
-/** A bug bash holds its reports for a review unless it was started otherwise. */
+/** A quality competition holds its reports for a review unless it was started otherwise. */
 export const HOLDS_BY_DEFAULT = true;
 
 export const MAX_BASH_NAME = 60;
-/** Bug bashes one person may start in a day. */
+/** Quality competitions one person may start in a day. */
 export const DAILY_BASH_LIMIT = 10;
-/** People one bug bash holds. */
+/** People one quality competition holds. */
 export const MAX_BASH_MEMBERS = 100;
 
 export function isDuration(v: unknown): v is number {
@@ -39,7 +39,7 @@ export function isDuration(v: unknown): v is number {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * The start and end a new bug bash was asked for, checked. A start in the
+ * The start and end a new quality competition was asked for, checked. A start in the
  * recent past ("today", picked a few hours ago or in another time zone) means
  * now. Null when the dates are not dates, the end is not after the start and
  * after now, it would stay open too long, or it is planned too far ahead.
@@ -60,19 +60,19 @@ export function lengthLabel(minutes: number): string {
   return minutes >= 60 && minutes % 60 === 0 ? `${minutes / 60} h` : `${minutes} min`;
 }
 
-/** A bug bash's name as typed: one line, single spaces, capped. Null when empty. */
+/** A quality competition's name as typed: one line, single spaces, capped. Null when empty. */
 export function cleanBashName(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const name = v.replace(/\s+/g, " ").trim().slice(0, MAX_BASH_NAME).trim();
   return name || null;
 }
 
-/** A bug bash's link code: the same 12-character shape as a brief's share token. */
+/** A quality competition's link code: the same 12-character shape as a brief's share token. */
 export function isBashCode(v: unknown): v is string {
   return typeof v === "string" && /^[A-Za-z0-9_-]{12}$/.test(v);
 }
 
-/** When the bug bash opened, when it is due to close, and when it was closed early, if it was. */
+/** When the quality competition opened, when it is due to close, and when it was closed early, if it was. */
 export type BashTimes = { startsAt: string; endsAt: string; endedAt: string | null };
 
 /** When it closed or will close: the early close when there is one. */
@@ -100,7 +100,7 @@ export function msLeft(b: BashTimes, now: number): number {
 
 /**
  * When one person's own time runs out: their minutes after they started, or
- * the moment the bug bash closes, whichever comes first.
+ * the moment the quality competition closes, whichever comes first.
  */
 export function personEnd(b: BashTimes, startedAt: string, minutes: number): number {
   return Math.min(new Date(startedAt).getTime() + minutes * 60_000, endOf(b));
@@ -168,7 +168,7 @@ export type ReportInput = {
   briefs: { title: string; by: string; url?: string; ticket?: string }[];
 };
 
-/** The bug bash as Markdown, to paste into a channel or a doc. */
+/** The quality competition as Markdown, to paste into a channel or a doc. */
 export function reportMarkdown(r: ReportInput): string {
   const total = r.briefs.length;
   const lines = [

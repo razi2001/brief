@@ -17,7 +17,7 @@ function datesOf(b: { startsAt: string; endsAt: string; endedAt: string | null }
 }
 
 /**
- * Where you stand in one bug bash:
+ * Where you stand in one quality competition:
  *  - testing: your clock is running;
  *  - todo: you joined, it is open, and you have not started your time;
  *  - invited: you can take part and have not joined (it is not closed);
@@ -47,7 +47,7 @@ const FAILED: Record<Act | "delete" | "create", string> = {
 };
 
 /**
- * Bug bash: the bug bashes you can take part in, and two ways to make one.
+ * Quality competition: the quality competitions you can take part in, and two ways to make one.
  *
  * Three tabs:
  *  - Assigned to me: the running and upcoming ones you are in, what needs
@@ -55,13 +55,13 @@ const FAILED: Record<Act | "delete" | "create", string> = {
  *  - All: every running or upcoming one in your org, yours included, so you
  *    see what is going on and can join;
  *  - Closed: the ones that are over.
- * Each line is a bug bash: where it stands, its name, its dates, the time each
+ * Each line is a quality competition: where it stands, its name, its dates, the time each
  * person gets and who is in, with its one action on the right. The whole line
  * opens its page. One you created can be deleted from its menu.
  *
- * "New bug bash" goes to the form (/bash/new). Beside it, when the tickets
+ * "New quality competition" goes to the form (/competition/new). Beside it, when the tickets
  * already filed cluster somewhere, a "Suggested" menu offers those areas as
- * bug bashes: one click creates it (the usual length, open for the usual days,
+ * quality competitions: one click creates it (the usual length, open for the usual days,
  * reviewed before filing) and opens it.
  */
 /** suggested: the answer the server already kept, drawn with the page; null when it has none yet, and then it is asked once the page shows. */
@@ -125,13 +125,13 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
     setError(null);
     const res = what === "delete" ? await send(`/api/bashes/${code}`, "DELETE") : await send(`/api/bashes/${code}/${what}`, "POST");
     if (!res) setError(FAILED[what]);
-    // Starting your time takes you to the bug bash, where your clock is.
-    if (res && what === "start") router.push(`/bash/${code}`);
+    // Starting your time takes you to the quality competition, where your clock is.
+    if (res && what === "start") router.push(`/competition/${code}`);
     else router.refresh();
     setBusy(null);
   };
 
-  /** A suggested area, made into a bug bash with the usual settings, then opened. */
+  /** A suggested area, made into a quality competition with the usual settings, then opened. */
   const createFrom = async (name: string) => {
     if (busy) return;
     setBusy(`new:${name}`);
@@ -141,32 +141,32 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
     const res = await send("/api/bashes", "POST", { name, minutes: DEFAULT_DURATION, startsAt: now.toISOString(), endsAt: end.toISOString() });
     const code = res ? ((await res.json().catch(() => null)) as { code?: string } | null)?.code : null;
     // Stays busy while its page opens, so a second click can't make a second one.
-    if (code) return router.push(`/bash/${code}`);
+    if (code) return router.push(`/competition/${code}`);
     setError(FAILED.create);
     setBusy(null);
   };
 
   const items = lists[tab];
-  // An area that already has a running bug bash of that name is not offered again.
+  // An area that already has a running quality competition of that name is not offered again.
   const taken = new Set(running.map((b) => b.name.trim().toLowerCase()));
   const offered = suggestions.filter((s) => !taken.has(s.name.trim().toLowerCase()));
 
   return (
     <div className="w-full">
       <header className="flex items-center justify-between gap-4">
-        <h1 className="page-title">Bug bash</h1>
+        <h1 className="page-title">Quality competition</h1>
         <span className="flex shrink-0 items-center gap-1.5">
           {offered.length > 0 && <Suggested items={offered} busy={busy} onPick={(name) => void createFrom(name)} />}
-          <Link href="/bash/new" className="btn-accent h-[30px] shrink-0">
+          <Link href="/competition/new" className="btn-accent h-[30px] shrink-0">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          New bug bash
+          New quality competition
           </Link>
         </span>
       </header>
 
-      <div role="tablist" aria-label="Bug bashes" className="-ml-2 mt-4 flex flex-wrap items-center gap-0.5">
+      <div role="tablist" aria-label="Quality competitions" className="-ml-2 mt-4 flex flex-wrap items-center gap-0.5">
         {tabs.map((t) => {
           const on = tab === t.key;
           return (
@@ -202,8 +202,8 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
                   key={b.code}
                   className="list-row has-[[aria-expanded=true]]:z-20 max-sm:flex-wrap"
                 >
-                  {/* The whole line opens the bug bash; its actions sit above that. */}
-                  <Link href={`/bash/${b.code}`} aria-label={b.name} className="absolute inset-0 rounded-[inherit]" />
+                  {/* The whole line opens the quality competition; its actions sit above that. */}
+                  <Link href={`/competition/${b.code}`} aria-label={b.name} className="absolute inset-0 rounded-[inherit]" />
                   <PhaseMark part={part} phase={b.phase} />
                   <span className="flex min-w-0 flex-1 items-baseline gap-2.5">
                     <span className={`truncate text-[13.5px] leading-snug ${part === "closed" ? "text-ink-2" : "text-ink"}`}>{b.name}</span>
@@ -220,7 +220,7 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
                         </button>
                       )}
                       {part === "testing" && (
-                        <Link href={`/bash/${b.code}`} className="btn h-7 !px-2.5 !py-0">
+                        <Link href={`/competition/${b.code}`} className="btn h-7 !px-2.5 !py-0">
                           Open
                         </Link>
                       )}
@@ -239,7 +239,7 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
                           {(close) => (
                             <ConfirmItem
                               label="Delete"
-                              question="Delete this bug bash?"
+                              question="Delete this quality competition?"
                               confirm="Delete"
                               disabled={busy === b.code}
                               onConfirm={() => {
@@ -261,7 +261,7 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
           </ul>
         ) : (
           <div className="rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-12 text-center">
-            <p className="text-[14px] font-medium text-ink">{tab === "mine" ? "Nothing assigned to you" : tab === "team" ? "No bug bash running" : "No closed bug bash"}</p>
+            <p className="text-[14px] font-medium text-ink">{tab === "mine" ? "Nothing assigned to you" : tab === "team" ? "No quality competition running" : "No closed quality competition"}</p>
           </div>
         )}
       </div>
@@ -277,7 +277,7 @@ const Sparkle = ({ size = 13 }: { size?: number }) => (
 );
 
 /**
- * The suggested bug bashes, behind one button beside "New bug bash": each line
+ * The suggested quality competitions, behind one button beside "New quality competition": each line
  * is an area the filed tickets cluster in; a click creates it and opens it.
  * Closes on Escape and on a click outside.
  */
@@ -315,7 +315,7 @@ function Suggested({ items, busy, onPick }: { items: Suggestion[]; busy: string 
         <span className="tabular-nums text-faint">{items.length}</span>
       </button>
       {open && (
-        <div role="menu" aria-label="Suggested bug bashes" className="menu absolute right-0 top-full z-40 mt-1 w-[280px] p-1">
+        <div role="menu" aria-label="Suggested quality competitions" className="menu absolute right-0 top-full z-40 mt-1 w-[280px] p-1">
           {items.map((s) => {
             const creating = busy === `new:${s.name}`;
             return (
@@ -325,7 +325,7 @@ function Suggested({ items, busy, onPick }: { items: Suggestion[]; busy: string 
                 role="menuitem"
                 onClick={() => onPick(s.name)}
                 disabled={!!busy}
-                aria-label={`Create a bug bash for ${s.name}`}
+                aria-label={`Create a quality competition for ${s.name}`}
                 className="group/s flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-hover)] disabled:cursor-default disabled:opacity-60"
               >
                 <span className="min-w-0 flex-1">
@@ -356,7 +356,7 @@ function Suggested({ items, busy, onPick }: { items: Suggestion[]; busy: string 
   );
 }
 
-/** Where the bug bash stands, as one small mark before its name. */
+/** Where the quality competition stands, as one small mark before its name. */
 function PhaseMark({ part, phase }: { part: Part; phase: BashListItem["phase"] }) {
   if (part === "closed") {
     return (
@@ -382,7 +382,7 @@ function PhaseMark({ part, phase }: { part: Part; phase: BashListItem["phase"] }
   );
 }
 
-/** Where the bug bash stands, and you in it, in a few words beside the action. */
+/** Where the quality competition stands, and you in it, in a few words beside the action. */
 function State({ item: b, part }: { item: BashListItem; part: Part }) {
   const quiet = "text-[12.5px] tabular-nums text-muted";
   if (part === "testing") return <span className="text-[12.5px] font-medium text-accent">Testing</span>;

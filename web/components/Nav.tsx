@@ -14,7 +14,7 @@ const icon = (d: ReactNode) => (
 export const NAV_ITEMS = [
   // The first page. An open draft (/drafts/<id>) still lights this item.
   { href: "/tickets", label: "Tickets", also: "/drafts", icon: icon(<><path d="M3 4h10M3 8h10M3 12h6" /></>) },
-  { href: "/bash", label: "Bug bash", icon: icon(<><ellipse cx="8" cy="9.2" rx="3.2" ry="4" /><path d="M6.2 5.6a1.9 1.9 0 0 1 3.6 0M8 5.4v7.8M4.8 8H2.4M13.6 8h-2.4M5 11.2l-2 1.4M11 11.2l2 1.4M5.2 6.2 3.4 4.6M10.8 6.2l1.8-1.6" /></>) },
+  { href: "/competition", label: "Quality competition", icon: icon(<><path d="M4.5 2.5h7v3.8a3.5 3.5 0 0 1-7 0Z" /><path d="M4.5 4H3a1.5 1.5 0 0 0 0 3h1.7M11.5 4H13a1.5 1.5 0 0 1 0 3h-1.7" /><path d="M8 9.8v2.4M5.5 13.5h5" /></>) },
   { href: "/connections", label: "Settings", icon: icon(<><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.6M8 12.6v1.6M14.2 8h-1.6M3.4 8H1.8M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1M12.4 12.4l-1.1-1.1M4.7 4.7 3.6 3.6" /></>) },
   { href: "/guide", label: "How to use Brief", icon: icon(<><path d="M8 4.2C6.6 3.1 4.6 2.7 2.5 2.9v9.4c2.1-.2 4.1.2 5.5 1.3 1.4-1.1 3.4-1.5 5.5-1.3V2.9c-2.1-.2-4.1.2-5.5 1.3Z" /><path d="M8 4.2v9.4" /></>) },
   // Always the last item: Nav draws it after the owner's links too.

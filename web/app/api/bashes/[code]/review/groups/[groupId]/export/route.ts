@@ -34,6 +34,6 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ code: str
           ? "Nothing to file yet: its reports are still being written up."
           : start.reason === "unwritten"
             ? "Brief's AI service didn't answer while writing these reports. Try again in a minute."
-          : "The bug bash is still running.";
+          : "The quality competition is still running.";
   return NextResponse.json({ error: start.reason, message }, { status: 409 });
 }

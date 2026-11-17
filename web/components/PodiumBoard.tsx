@@ -12,7 +12,7 @@ export type RaceRow = {
   count: number;
   rank: number;
   isYou: boolean;
-  /** Their own clock is running (a bug bash). */
+  /** Their own clock is running (a quality competition). */
   live?: boolean;
   /** Small chips after the name: First find, On fire, an earned title. */
   badges?: React.ReactNode;
@@ -31,7 +31,7 @@ const TINT: Record<number, string> = {
 
 /**
  * The board every competition in Brief uses: the Quality competition on the
- * Tickets page, a bug bash as it runs, and a bug bash once it is over. The
+ * Tickets page, a quality competition as it runs, and a quality competition once it is over. The
  * first three stand on a podium (2nd, 1st, 3rd, the leader in the middle),
  * hats on, on steps tinted gold, silver and bronze that rise in drumroll order
  * while their numbers count up; the leader may say something in a bubble.

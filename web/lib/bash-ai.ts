@@ -22,7 +22,7 @@ import {
 } from "@/lib/bash-suggest";
 
 /**
- * The two questions a bug bash asks the model: which reports are the same bug,
+ * The two questions a quality competition asks the model: which reports are the same bug,
  * and which parts of the product keep breaking. Both answers go through a
  * normalizer that never trusts them (lib/bash-review.ts, lib/bash-suggest.ts),
  * and both fall back to "no opinion" when the model can't be asked: every

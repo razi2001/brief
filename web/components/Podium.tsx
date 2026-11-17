@@ -229,7 +229,7 @@ export default function Podium({
         </div>
         <RangeToggle range={range} onChange={setRange} />
       </div>
-      {/* The same board as a bug bash: keyed by range so a switch replays it. */}
+      {/* The same board as a quality competition: keyed by range so a switch replays it. */}
       <div key={range} className="mt-4">
         <PodiumBoard
           quip={entries[0]?.filed ? quipOf(quipSeed ?? entries[0].filed) : undefined}

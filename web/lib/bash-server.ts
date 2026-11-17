@@ -20,21 +20,21 @@ import {
 } from "@/lib/bash";
 
 /**
- * Bug bashes, read and written with the service-role client. Every entry point
+ * Quality competitions, read and written with the service-role client. Every entry point
  * takes the signed-in user's id from the route's own auth() call.
  *
- * A bug bash has a start date, an end date and a duration. It is reached by
+ * A quality competition has a start date, an end date and a duration. It is reached by
  * its link code alone: whoever holds the link and is signed in may look and
  * join, before it opens or while it is open. Joining shows your name to the
  * others in it. The duration is each person's own clock: it starts when THEY
- * press Start, while the bug bash is open (bash_members.started_at).
+ * press Start, while the quality competition is open (bash_members.started_at).
  *
- * A brief counts for a bug bash when it was sent with the popup's button set
+ * A brief counts for a quality competition when it was sent with the popup's button set
  * to it (a row in bash_briefs, written as it is filed or drafted), which the
  * popup only offers while that person's own clock runs. Being in one never
  * sweeps in everything a person reports.
  *
- * A bug bash that HOLDS keeps those briefs as drafts, to be grouped and filed
+ * A quality competition that HOLDS keeps those briefs as drafts, to be grouped and filed
  * by whoever created it once it is closed (the review, bash-review-server.ts).
  * One that doesn't lets each be filed as usual, with its name as a label.
  */
@@ -109,7 +109,7 @@ export type ReviewGroup = {
   error?: string;
 };
 
-/** The review of a bug bash that held its reports, for whoever created it. */
+/** The review of a quality competition that held its reports, for whoever created it. */
 export type BashReview = {
   /** The reports have been put in groups. Until then there is nothing to review. */
   grouped: boolean;
@@ -143,7 +143,7 @@ export type BashSnapshot = {
   review?: BashReview;
 };
 
-/** Where you stand in a bug bash: not in it, in it, your clock running, or your time used. */
+/** Where you stand in a quality competition: not in it, in it, your clock running, or your time used. */
 export type YourPart = "none" | "joined" | "testing" | "done";
 
 export type BashListItem = {
@@ -166,7 +166,7 @@ export const timesOf = (b: BashRow) => ({ startsAt: b.starts_at, endsAt: b.ends_
 export type CreateBashResult = { ok: true; code: string } | { ok: false; reason: "limit" | "error" };
 
 /**
- * Create a bug bash open from `startsAt` to `endsAt` (already checked by
+ * Create a quality competition open from `startsAt` to `endsAt` (already checked by
  * cleanWindow), giving each person `minutes` of their own. Its creator joins
  * it, like anyone else would; nobody's clock starts here. `hold` says whether
  * its reports wait for a review; left out, they do.
@@ -220,7 +220,7 @@ export async function findBash(code: string, db?: SupabaseClient): Promise<BashR
 
 export type JoinResult = "ok" | "missing" | "ended" | "full" | "error";
 
-/** Join a bug bash that is upcoming or open. Joining twice changes nothing. */
+/** Join a quality competition that is upcoming or open. Joining twice changes nothing. */
 export async function joinBash(userId: string, code: string): Promise<JoinResult> {
   const bash = await findBash(code);
   if (!bash) return "missing";
@@ -240,7 +240,7 @@ export async function joinBash(userId: string, code: string): Promise<JoinResult
 export type StartResult = "ok" | "missing" | "upcoming" | "ended" | "full" | "error";
 
 /**
- * Start your own time in an open bug bash, joining it first if you had not.
+ * Start your own time in an open quality competition, joining it first if you had not.
  * Starting twice changes nothing: the clock is never reset.
  */
 export async function startBash(userId: string, code: string): Promise<StartResult> {
@@ -261,7 +261,7 @@ export async function startBash(userId: string, code: string): Promise<StartResu
   return error ? "error" : "ok";
 }
 
-/** Leave a bug bash you joined. Once your time has started you stay on its board. */
+/** Leave a quality competition you joined. Once your time has started you stay on its board. */
 export async function leaveBash(userId: string, code: string): Promise<"ok" | "missing" | "started" | "error"> {
   const bash = await findBash(code);
   if (!bash) return "missing";
@@ -274,7 +274,7 @@ export async function leaveBash(userId: string, code: string): Promise<"ok" | "m
   return error ? "error" : "ok";
 }
 
-/** Close a bug bash now. Only whoever created it may; for anyone else it is missing. */
+/** Close a quality competition now. Only whoever created it may; for anyone else it is missing. */
 export async function endBash(userId: string, code: string): Promise<"ok" | "missing" | "error"> {
   const bash = await findBash(code);
   if (!bash || bash.created_by !== userId) return "missing";
@@ -288,7 +288,7 @@ export async function endBash(userId: string, code: string): Promise<"ok" | "mis
 }
 
 /**
- * Delete a bug bash for good. Only whoever created it may; for anyone else it
+ * Delete a quality competition for good. Only whoever created it may; for anyone else it
  * is missing. Its people, its review groups and the marks on its reports go
  * with it (the database cascades them). The reports themselves stay with who
  * sent them: a held one is a draft in their Tickets, a filed one keeps its
@@ -302,9 +302,9 @@ export async function deleteBash(userId: string, code: string): Promise<"ok" | "
 }
 
 /**
- * The open bug bash in which this person's own clock is running, if any: what
+ * The open quality competition in which this person's own clock is running, if any: what
  * the brief they are sending right now can count for, and whether it is then
- * held for a review or filed with the bug bash's label. In several at once,
+ * held for a review or filed with the quality competition's label. In several at once,
  * one that holds wins, then the one started last.
  */
 export async function runningBashOf(
@@ -334,7 +334,7 @@ export async function runningBashOf(
   return { id: best.id, name: best.name, hold: best.hold, endsAt: personEnd(timesOf(best), started.get(best.id)!, minutesOf(best)) };
 }
 
-/** Mark a brief as part of a bug bash. Marking it twice changes nothing; a brief is in one bug bash only. */
+/** Mark a brief as part of a quality competition. Marking it twice changes nothing; a brief is in one quality competition only. */
 export async function markForBash(bashId: string, briefId: string, db?: SupabaseClient): Promise<void> {
   await (db ?? createAdminSupabase())
     .from("bash_briefs")
@@ -360,7 +360,7 @@ export type CountedBrief = {
 type Member = BashMemberRow & { startedAt: string | null };
 
 /**
- * Is this brief one a bug bash holds for its review? Then a failed write-up is
+ * Is this brief one a quality competition holds for its review? Then a failed write-up is
  * written again, never filed around the review.
  */
 export async function heldByBash(briefId: string, db?: SupabaseClient): Promise<boolean> {
@@ -372,7 +372,7 @@ export async function heldByBash(briefId: string, db?: SupabaseClient): Promise<
   return (held.data ?? []).length > 0;
 }
 
-/** Who is in a bug bash and the briefs sent to it, newest first. */
+/** Who is in a quality competition and the briefs sent to it, newest first. */
 export async function loadCounted(bash: BashRow, db?: SupabaseClient): Promise<{ members: Member[]; briefs: CountedBrief[] }> {
   const admin = db ?? createAdminSupabase();
   const memberRows = await admin.from("bash_members").select("user_id, joined_at, started_at").eq("bash_id", bash.id);
@@ -413,7 +413,7 @@ async function countedRows(admin: SupabaseClient, ids: string[]): Promise<Counte
 
 const titleOf = (b: CountedBrief) => b.ticket_title || b.title || "Untitled";
 
-/** The bug bash as its page shows it: the board and what was found. Null when no such bug bash. */
+/** The quality competition as its page shows it: the board and what was found. Null when no such quality competition. */
 export async function loadBash(code: string, viewerId: string): Promise<BashSnapshot | null> {
   const db = createAdminSupabase();
   const bash = await findBash(code, db);
@@ -549,12 +549,12 @@ async function loadReview(
   return { grouped: true, groups, dropped };
 }
 
-/** Closed bug bashes stay on the list this long. */
+/** Closed quality competitions stay on the list this long. */
 const KEEP_CLOSED_DAYS = 30;
 const ORDER: Record<BashPhase, number> = { open: 0, upcoming: 1, closed: 2 };
 
 /**
- * The bug bashes this person can take part in or has: the ones they created
+ * The quality competitions this person can take part in or has: the ones they created
  * or joined, and the ones people of their team created. "Their team" is the
  * tracker workspace Brief already knows they share (org_members). Open ones
  * first, then upcoming (soonest first), then the closed ones of the last

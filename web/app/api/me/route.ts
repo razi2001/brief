@@ -23,7 +23,7 @@ export function OPTIONS() {
  *    (actionFor), else null
  *  - with none: "pick" or "reconnect" for the connected tracker that can't
  *    file yet (named in `trackerName`), else "connect"
- * `bash` is the running bug bash the account is in, if any.
+ * `bash` is the running quality competition the account is in, if any.
  */
 export async function GET(req: NextRequest) {
   const token = bearerFromHeader(req.headers.get("authorization"));
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
 
   const trackerAction = tracker ? await actionFor(userId, tracker) : (fix?.action ?? "connect");
 
-  // The bug bash in which this person's own clock is running, so the popup can
+  // The quality competition in which this person's own clock is running, so the popup can
   // show it with the time they have left and a switch to count a brief or not.
   // `hold` means a brief sent to it is kept as a draft for the review (no
   // tracker needed). `leftMs` is time left, not a clock time, so a computer

@@ -49,8 +49,8 @@ export const bugbash = scene<BashS>({
         <MockAcme page="checkout" />
       </BrowserFrame>
     ) : (
-      <BrowserFrame url={`${APP}/bash${s.form ? "/new" : s.page ? "/k7m2q9" : ""}`} title="Bug bash · Brief Cloud" fav="#dd6936">
-        <MockApp active="Bug bash">{s.form ? <MockBashNew s={s.form} /> : s.page ? <MockBashPage s={s.page} /> : <MockBashList s={s.list ?? {}} />}</MockApp>
+      <BrowserFrame url={`${APP}/competition${s.form ? "/new" : s.page ? "/k7m2q9" : ""}`} title="Quality competition · Brief Cloud" fav="#dd6936">
+        <MockApp active="Quality competition">{s.form ? <MockBashNew s={s.form} /> : s.page ? <MockBashPage s={s.page} /> : <MockBashList s={s.list ?? {}} />}</MockApp>
       </BrowserFrame>
     ),
 });

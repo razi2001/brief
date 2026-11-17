@@ -122,7 +122,7 @@ describe("GET /api/bashes/[code]", () => {
     expect(server.loadBash).not.toHaveBeenCalled();
   });
 
-  it("answers with the bug bash as the caller sees it, never cached", async () => {
+  it("answers with the quality competition as the caller sees it, never cached", async () => {
     const res = await read(none, params());
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
@@ -134,7 +134,7 @@ describe("GET /api/bashes/[code]", () => {
     expect(server.loadBash).not.toHaveBeenCalled();
   });
 
-  it("answers 404 when there is no such bug bash", async () => {
+  it("answers 404 when there is no such quality competition", async () => {
     server.loadBash.mockResolvedValue(null);
     expect((await read(none, params())).status).toBe(404);
   });

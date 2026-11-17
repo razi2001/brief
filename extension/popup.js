@@ -58,12 +58,12 @@ let bcTracker;
 let bcTrackerName = null; // the server's display name for bcTracker, or with none, for the tracker to fix
 let bcTrackerIssue = null; // with no tracker, why a connected one can't file yet, when the server said
 let bcTrackerAction = null; // with a tracker, 'reconnect' (still on Clerk); with none, 'reconnect' | 'pick' | 'connect'
-let bcBash = null; // the bug bash your own clock is running in ({ name, hold, endsAt }), or null
-// Is this brief for the bug bash? Yes while your time in one is running,
+let bcBash = null; // the quality competition your own clock is running in ({ name, hold, endsAt }), or null
+// Is this brief for the quality competition? Yes while your time in one is running,
 // unless its switch was turned off for THIS brief (kept on the draft as
-// bashOff, so the next brief is for the bug bash again).
+// bashOff, so the next brief is for the quality competition again).
 const inBash = () => !!bcBash && !draft.bashOff;
-// ...and is that bug bash one that holds its reports for a review? Then the
+// ...and is that quality competition one that holds its reports for a review? Then the
 // brief is kept as a draft there: nothing is filed, and no tracker is needed.
 const heldByBash = () => inBash() && bcBash.hold;
 // What the orange button does, picked in its menu and remembered:
@@ -378,7 +378,7 @@ function updateCreate() {
   if (label) {
     if (filing) label.innerHTML = `<span class="btn-spin"></span> ${draft.filingMode === 'ticket' ? 'Filing…' : 'Saving…'}`;
     else if (uploading) label.textContent = 'Uploading…';
-    // held for the bug bash: the button says where it goes
+    // held for the quality competition: the button says where it goes
     else if (mode === 'ticket' && heldByBash()) label.innerHTML = `<span>Add to</span> <span class="ctk-name">${esc(bcBash.name)}</span>`;
     else label.innerHTML = mode === 'ticket' ? esc(createLabel()) : `${MODE_ICON[mode]}${esc(mode === 'prompt' ? promptLabel() : MODE_LABEL[mode])}`;
   }
@@ -426,7 +426,7 @@ function renderCreateMenu() {
   const items = [
     fix
       ? { key: 'fix', icon: 'send', t: createLabel(), s: why, pill }
-      : { key: 'ticket', icon: 'send', t: createLabel(), s: heldByBash() ? 'Held for the bug bash review' : inBash() ? 'Filed now, with the bug bash label' : 'File the ticket now' },
+      : { key: 'ticket', icon: 'send', t: createLabel(), s: heldByBash() ? 'Held for the quality competition review' : inBash() ? 'Filed now, with the quality competition label' : 'File the ticket now' },
     { key: 'draft', icon: 'link', t: 'Share link', s: 'Public page, kept in Drafts' },
     { key: 'prompt', icon: 'prompt', t: promptLabel(), s: FIX_AGENTS[fixAgent]?.name ? `Copies the prompt, opens ${FIX_AGENTS[fixAgent].name}` : 'Copies a prompt for your agent' },
   ];
@@ -956,7 +956,7 @@ async function startFiling(mode, kind = 'link') {
   // The link is copied now, before anything uploads: its id is picked here
   // and the server takes it, so the page is there by the time anyone opens
   // it. Kept on the draft, so a retry after a failure keeps the same link.
-  // sent to the bug bash: say which one (a long name is cut, the toast is one line)
+  // sent to the quality competition: say which one (a long name is cut, the toast is one line)
   const sentTo = inBash() ? (bcBash.name.length > 26 ? `${bcBash.name.slice(0, 25).trimEnd()}…` : bcBash.name) : null;
   let done = mode === 'ticket' && sentTo ? `Added to ${sentTo}` : 'Ticket queued';
   let launchAfter = null;
@@ -1017,7 +1017,7 @@ function fixPrompt(description, mdUrl) {
 // plain connect. Null while a tracker files, or before a paired account's
 // status is known.
 function trackerFixLabel() {
-  // held for a bug bash's review: nothing is filed, so there is nothing to fix
+  // held for a quality competition's review: nothing is filed, so there is nothing to fix
   if (heldByBash()) return null;
   if (bcTracker !== null) return null;
   const name = bcTrackerName || 'your tracker';
@@ -1139,7 +1139,7 @@ function renderCloudLink() {
 // A tracker that files but should be reconnected (still on Clerk). With none
 // that files, the fix is the first item of Create's menu instead, and a dot
 // on its ▾ says so.
-// The bug bash your own clock is running in, above Create: its name, the
+// The quality competition your own clock is running in, above Create: its name, the
 // time you have left, and a switch for THIS brief.
 const clockText = (ms) => {
   const t = Math.max(0, Math.ceil(ms / 1000));
@@ -1374,7 +1374,7 @@ async function readTrackerCache() {
       trackerName: typeof c.trackerName === 'string' ? c.trackerName : null,
       trackerIssue: typeof c.trackerIssue === 'string' ? c.trackerIssue : null,
       trackerAction: TRACKER_ACTIONS.includes(c.trackerAction) ? c.trackerAction : null,
-      // the bug bash seen last time, so its row is there from the first paint
+      // the quality competition seen last time, so its row is there from the first paint
       bash: c.bash && typeof c.bash.name === 'string' && Number(c.bash.endsAt) > Date.now() ? { name: c.bash.name, hold: c.bash.hold === true, endsAt: Number(c.bash.endsAt) } : null,
     };
   } catch { return { tracker: undefined, trackerName: null, trackerIssue: null, trackerAction: null, bash: null }; }

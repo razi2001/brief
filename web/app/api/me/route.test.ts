@@ -7,7 +7,7 @@ vi.mock("@/lib/extauth", () => ({
   userIdForToken: async (token: string) => (token === "good" ? "user_1" : null),
 }));
 
-// The running bug bash the account is in, if any.
+// The running quality competition the account is in, if any.
 const running = vi.hoisted(() => ({ current: null as { id: string; name: string; hold: boolean; endsAt: number } | null, fail: false }));
 vi.mock("@/lib/bash-server", () => ({
   runningBashOf: async () => {
@@ -178,7 +178,7 @@ describe("/api/me", () => {
     expect((await me("bad")).status).toBe(401);
   });
 
-  describe("the running bug bash", () => {
+  describe("the running quality competition", () => {
     it("is named, with whether it holds and the time left, when the account's clock is running in one", async () => {
       running.current = { id: "b1", name: "Release 2.4", hold: true, endsAt: Date.now() + 40 * 60_000 };
       try {

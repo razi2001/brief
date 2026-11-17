@@ -32,7 +32,7 @@ export const TICKETS_URL = `${APP_URL}/tickets`;
 // into the void. Network errors return null so callers keep last-known state
 // (don't block offline users).
 export const TRACKER_ACTIONS = ['reconnect', 'pick', 'connect'];
-// The bug bash in which your own clock is running, as /api/me names it:
+// The quality competition in which your own clock is running, as /api/me names it:
 // { name, hold, endsAt }, or null. `hold` means a brief sent to it is kept as
 // a draft for the review at its end, so it needs no tracker. The server sends
 // the time LEFT; `endsAt` is that, on this computer's own clock.

@@ -8,7 +8,7 @@ const shownRenders = new Set<string>();
 /**
  * Pages are kept in the client router for a while (staleTimes in
  * next.config.ts), so a link back to one shows it at once. That copy may
- * predate what you just did elsewhere: a bug bash you created, a request you
+ * predate what you just did elsewhere: a quality competition you created, a request you
  * posted. Each server render carries a fresh id; seeing an id a second time
  * means the page came from that cache, so it is asked again from the server.
  * Calls onRefresh (if given) when it does.

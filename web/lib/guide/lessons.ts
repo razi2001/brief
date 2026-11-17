@@ -134,19 +134,19 @@ export const LESSONS: readonly Lesson[] = [
   },
 
   {
-    slug: "bug-bash",
+    slug: "quality-competition",
     group: "more",
-    title: "Run a bug bash",
+    title: "Run a quality competition",
     blurb: "Get the team testing one area for a set time. Everyone files from the extension, and a board shows who found the most.",
     steps: [
-      "Open **Bug bash**, then **New bug bash**. Name it, pick the dates and the time each person gets. **Suggested** offers the areas your tickets keep breaking in.",
+      "Open **Quality competition**, then **New quality competition**. Name it, pick the dates and the time each person gets. **Suggested** offers the areas your tickets keep breaking in.",
       "Leave **Review before filing** on to keep the reports as drafts until you check them. Click **Create**, then **Copy invite link** and send it.",
       "Each person clicks **Join**, then **Start** when it suits them. Their own clock starts: nobody has to test at the same time.",
-      "While the clock runs, the popup shows the bug bash and the time left. Every brief counts for it. Its switch leaves one out.",
+      "While the clock runs, the popup shows the quality competition and the time left. Every brief counts for it. Its switch leaves one out.",
       "The board ranks who found the most. Once it closes, the reports wait in groups of the same bug: check them, then file each group as one ticket.",
     ],
     scene: "bugbash",
-    tryIt: { kind: "link", href: "/bash", label: "Open Bug bash" },
+    tryIt: { kind: "link", href: "/competition", label: "Open Quality competition" },
   },  {
     slug: "brief-it",
     group: "more",

@@ -9,7 +9,7 @@ import "./real/popup.css";
  * (real/popup.css, a scoped copy of extension/popup.css) on popup.html's own
  * markup, filled the way popup.js fills it: the ways (Record and talk,
  * Screenshot, Last minute) while there is no evidence, then the evidence as
- * rows with "+ Add" over them; the field; the bug bash row while your clock
+ * rows with "+ Add" over them; the field; the quality competition row while your clock
  * runs in one; the Create button and its menu; the Add evidence and
  * screenshot sheets, the toast, and the dot that flies into Home.
  *
@@ -212,7 +212,7 @@ export function MockPopup({
   /** The dot from Create to Home. */
   fly?: boolean;
   cloud?: "landed" | "unseen" | "sending";
-  /** The bug bash your clock runs in: its name, the time left, and whether it holds reports for a review. */
+  /** The quality competition your clock runs in: its name, the time left, and whether it holds reports for a review. */
   bash?: { name: string; left: string; hold?: boolean; off?: boolean };
 }) {
   const used = { video: tiles.some((t) => t.kind === "video"), shots: tiles.filter((t) => t.kind === "shot").length, replay: tiles.some((t) => t.kind === "replay") };
@@ -298,13 +298,13 @@ export function MockPopup({
               <div data-gd="bash-row" className={`bash-row${bash.off ? " off" : ""}`} id="bashRow">
                 <span className="bash-ico" aria-hidden="true">
                   {svg(
-                    '<path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3 3 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/>',
+                    '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
                     1.9,
                   )}
                 </span>
                 <span className="bash-txt">
                   <span className="bash-label">
-                    Bug bash <span className="bash-timer">{bash.left}</span>
+                    Quality competition <span className="bash-timer">{bash.left}</span>
                   </span>
                   <span className="bash-name">{bash.name}</span>
                 </span>
@@ -338,7 +338,7 @@ export function MockPopup({
                   <span className="cm-ico">{svg(m.icon, 1.9)}</span>
                   <span className="cm-txt">
                     <span className="cm-t">{m.t}</span>
-                    <span className="cm-s">{m.key === "ticket" && bash ? (bash.hold ? "Held for the bug bash review" : "Filed now, with the bug bash label") : m.s}</span>
+                    <span className="cm-s">{m.key === "ticket" && bash ? (bash.hold ? "Held for the quality competition review" : "Filed now, with the quality competition label") : m.s}</span>
                   </span>
                   <span className="cm-check">{svg(ICON.check, 1.9)}</span>
                 </button>

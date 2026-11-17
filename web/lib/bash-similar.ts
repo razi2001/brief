@@ -1,5 +1,5 @@
 /**
- * Putting look-alike reports of a bug bash in one block on its page, so ten
+ * Putting look-alike reports of a quality competition in one block on its page, so ten
  * people hitting the same bug read as one thing found, not ten lines.
  *
  * This is a quick read of the TITLES only, done in the browser as reports come

@@ -4,7 +4,7 @@ import { isBashCode } from "@/lib/bash";
 import { startBash } from "@/lib/bash-server";
 import { track } from "@/lib/events";
 
-/** Start your own time in an open bug bash (joining it first if you had not). */
+/** Start your own time in an open quality competition (joining it first if you had not). */
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ code: string }> }) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

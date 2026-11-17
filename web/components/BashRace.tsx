@@ -13,7 +13,7 @@ const STREAK_MS = 10 * 60_000;
 const MOVE_MS = 4500;
 
 /**
- * The race: everyone in the bug bash, ranked, as it happens. A medal for the
+ * The race: everyone in the quality competition, ranked, as it happens. A medal for the
  * first three, a bar for how far each is from the leader, a flame while
  * someone is on a streak (two finds in ten minutes), "First find" for whoever
  * found the first bug. When the board changes the rows slide to their new

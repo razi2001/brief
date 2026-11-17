@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Retry files a failed brief. The one exception: a report a bug bash holds
+// Retry files a failed brief. The one exception: a report a quality competition holds
 // for its review, whose write-up failed. That one is written up again and
 // stays a draft, so it never reaches the tracker around the review.
 
@@ -62,7 +62,7 @@ describe("POST /api/briefs/[id]/retry", () => {
     expect((await call()).status).toBe(401);
   });
 
-  it("files a failed brief that no bug bash holds, as before", async () => {
+  it("files a failed brief that no quality competition holds, as before", async () => {
     db.reads = [failed];
     const res = await call();
     expect(res.status).toBe(200);

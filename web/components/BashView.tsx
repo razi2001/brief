@@ -33,7 +33,7 @@ function ago(iso: string, now: number): string {
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
 /**
- * One bug bash: the board of who is in it and found how many (the Home
+ * One quality competition: the board of who is in it and found how many (the Home
  * podium's look: the top three on steps with their hats, the others in a row
  * under them), and what was found, one block per bug. Reports whose
  * titles read alike share a block (lib/bash-similar.ts), so the same bug hit
@@ -49,7 +49,7 @@ const dayOf = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: 
  * One that holds its reports keeps them as drafts. Once it is closed, whoever
  * created it gets the review in place of the list (BashReview): the reports in
  * groups of the same bug, to check and file as one ticket each. Everyone else,
- * and a bug bash that doesn't hold, keeps the list, which is also the report
+ * and a quality competition that doesn't hold, keeps the list, which is also the report
  * to copy.
  */
 export default function BashView({ initial }: { initial: BashSnapshot }) {
@@ -167,7 +167,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
     try {
       const res = await fetch(`/api/bashes/${bash.code}`, { method: "DELETE", credentials: "same-origin" });
       // Stays busy while the list opens.
-      if (res.ok && !res.redirected) return router.push("/bash");
+      if (res.ok && !res.redirected) return router.push("/competition");
     } catch {
       /* same as a refusal */
     }
@@ -179,7 +179,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
     const origin = window.location.origin;
     const text =
       what === "link"
-        ? `${origin}/bash/${bash.code}`
+        ? `${origin}/competition/${bash.code}`
         : reportMarkdown({
             name: bash.name,
             minutes: bash.minutes,
@@ -202,7 +202,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
 
   return (
     <div className="w-full">
-      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: bash.name }]} />
+      <Crumbs items={[{ label: "Quality competition", href: "/competition" }, { label: bash.name }]} />
       <header className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink [overflow-wrap:anywhere]">{bash.name}</h1>
@@ -263,7 +263,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
                   {!closed && (
                     <ConfirmItem
                       label="Close"
-                      question="Close this bug bash now?"
+                      question="Close this quality competition now?"
                       confirm="Close now"
                       disabled={busy}
                       onConfirm={() => {
@@ -272,7 +272,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
                       }}
                     />
                   )}
-                  <ConfirmItem label="Delete" question="Delete this bug bash?" confirm="Delete" disabled={busy} onConfirm={() => void remove()} />
+                  <ConfirmItem label="Delete" question="Delete this quality competition?" confirm="Delete" disabled={busy} onConfirm={() => void remove()} />
                 </>
               )}
             </MoreMenu>
@@ -401,7 +401,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
 }
 
 /**
- * The top of a bug bash, as a game: your clock as a ring that empties (or the
+ * The top of a quality competition, as a game: your clock as a ring that empties (or the
  * button that starts it), the bugs the team has found so far, who is testing
  * right now, and your own count and place. Once it is over: the winner.
  */

@@ -238,7 +238,7 @@ body {
     color: var(--color-muted);
   }
 
-  /* One line of any list (a ticket, a bug bash, a request, a person): the
+  /* One line of any list (a ticket, a quality competition, a request, a person): the
      same height, the same rounded hover, on every page. */
   .list-row {
     position: relative;
@@ -277,7 +277,7 @@ body {
     padding: 0.875rem;
   }
 
-  /* A filter tab (Tickets' status, Bug bash, Feature requests): plain text
+  /* A filter tab (Tickets' status, Quality competition, Feature requests): plain text
      until it is the one picked, then a soft fill. */
   .tab {
     display: inline-flex;
@@ -1086,7 +1086,7 @@ body {
   box-shadow: none;
 }
 
-/* ---------- Game motion (bug bash race, leaderboards) ----------
+/* ---------- Game motion (quality competition race, leaderboards) ----------
    Numbers count and pop, bars fill, rows slide to their new place (Motion.tsx),
    a climb shows its arrow, a new find flashes, the winner gets confetti. */
 @keyframes count-pop { 0% { transform: scale(1); } 40% { transform: scale(1.18); } 100% { transform: scale(1); } }

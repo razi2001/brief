@@ -12,7 +12,7 @@ const REPORT_DRAG_TYPE = "application/x-bash-report";
 type Api = (path: string, method: "POST" | "PATCH", body?: unknown) => Promise<{ ok: boolean; status: number; message?: string }>;
 
 /**
- * The review of a bug bash that held its reports, for whoever started it: every report, in
+ * The review of a quality competition that held its reports, for whoever started it: every report, in
  * groups of the same bug, each group one ticket to be. Brief groups them; here
  * they are checked (rename a group, move a report by dragging it or from its
  * menu, leave one out) and filed, one group or all at once. A group that is a

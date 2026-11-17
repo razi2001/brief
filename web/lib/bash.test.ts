@@ -87,7 +87,7 @@ describe("cleanWindow", () => {
   });
 });
 
-describe("the bug bash's own window", () => {
+describe("the quality competition's own window", () => {
   it("is open until it is due to close", () => {
     expect(isLive(bash, ms(14))).toBe(true);
     expect(isLive(bash, ms(15))).toBe(false);
@@ -112,7 +112,7 @@ describe("each person's own clock", () => {
     expect(personEnd(bash, day(12, "10:00"), 60)).toBe(ms(12, "11:00"));
     expect(personEnd(bash, day(14, "16:00"), 60)).toBe(ms(14, "17:00"));
   });
-  it("stops when the bug bash closes, even with time left", () => {
+  it("stops when the quality competition closes, even with time left", () => {
     expect(personEnd(bash, day(15, "09:30"), 180)).toBe(ms(15, "10:00"));
     const early = { ...bash, endedAt: day(13, "09:20") };
     expect(personEnd(early, day(13, "09:00"), 180)).toBe(ms(13, "09:20"));

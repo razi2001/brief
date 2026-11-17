@@ -26,7 +26,7 @@ function endOfDay(day: string): Date {
 }
 
 /**
- * New bug bash, on its own page: a name, a start date, an end date, a
+ * New quality competition, on its own page: a name, a start date, an end date, a
  * duration (the time each person gets, on their own clock), and whether the
  * reports wait for a review. Creating it opens its page, where the link to
  * share is; Cancel goes back to the list.
@@ -86,7 +86,7 @@ export default function BashNew({ suggested = null }: { suggested?: Suggestion[]
       // A signed-out call is redirected to the sign-in page, which answers 200.
       if (res.ok && !res.redirected) {
         const { code } = (await res.json()) as { code: string };
-        router.push(`/bash/${code}`);
+        router.push(`/competition/${code}`);
         return;
       }
       const why = res.status === 400 ? ((await res.json().catch(() => null)) as { error?: string } | null)?.error : null;
@@ -109,8 +109,8 @@ export default function BashNew({ suggested = null }: { suggested?: Suggestion[]
 
   return (
     <div className="w-full max-w-[640px]">
-      <Crumbs items={[{ label: "Bug bash", href: "/bash" }, { label: "New" }]} />
-      <h1 className="mt-3 page-title">New bug bash</h1>
+      <Crumbs items={[{ label: "Quality competition", href: "/competition" }, { label: "New" }]} />
+      <h1 className="mt-3 page-title">New quality competition</h1>
 
       <form
         className="card mt-5 p-5 sm:p-6"
@@ -238,7 +238,7 @@ export default function BashNew({ suggested = null }: { suggested?: Suggestion[]
 
         {error && <p className="mt-4 text-[13px] text-[#c62828]">{error}</p>}
         <div className="mt-6 flex items-center justify-end gap-2">
-          <Link href="/bash" className="btn h-9">
+          <Link href="/competition" className="btn h-9">
             Cancel
           </Link>
           <button type="submit" disabled={!name.trim() || !datesOk || busy} className="btn-accent h-9">

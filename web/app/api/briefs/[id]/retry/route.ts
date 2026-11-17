@@ -30,7 +30,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     .maybeSingle();
   if (!brief) return Response.json({ error: "not found" }, { status: 404 });
 
-  // A report a bug bash holds for its review, whose write-up failed: Retry
+  // A report a quality competition holds for its review, whose write-up failed: Retry
   // writes it up again. Filing it here would go around the review.
   if (brief.status === "failed" && !brief.ticket_body && !brief.ticket_url && !brief.filing_started_at && (await heldByBash(id, admin).catch(() => false))) {
     const marked = await admin

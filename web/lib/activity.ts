@@ -150,11 +150,11 @@ export function lineOf(e: Pick<EventRow, "name" | "props">): Line | null {
     case "brief.deleted":
       return { kind: "brief", text: "Deleted a brief" };
     case "bash.started":
-      return { kind: "brief", text: `Started a bug bash (${str(p.minutes) || "?"} min)` };
+      return { kind: "brief", text: `Started a quality competition (${str(p.minutes) || "?"} min)` };
     case "bash.joined":
-      return { kind: "brief", text: "Joined a bug bash" };
+      return { kind: "brief", text: "Joined a quality competition" };
     case "bash.deleted":
-      return { kind: "brief", text: "Deleted a bug bash" };
+      return { kind: "brief", text: "Deleted a quality competition" };
     default:
       return null;
   }

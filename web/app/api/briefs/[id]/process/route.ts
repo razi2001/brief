@@ -14,7 +14,7 @@ import { track } from "@/lib/events";
 
 export const maxDuration = 300;
 
-/** What the popup sends at file time: the reporter's edits, and whether this brief is for their bug bash. */
+/** What the popup sends at file time: the reporter's edits, and whether this brief is for their quality competition. */
 type FileBody = {
   title?: string;
   includeVideo?: boolean;
@@ -22,7 +22,7 @@ type FileBody = {
   description?: string;
   extra?: Array<{ key: string; value: string }>;
   screenshots?: Array<{ file: string; description?: string; annotated?: boolean }>;
-  /** false when the popup's bug bash switch is off for this brief. */
+  /** false when the popup's quality competition switch is off for this brief. */
   bash?: boolean;
   /** The extension transcribed the recording and heard no voice. */
   noSpeech?: boolean;
@@ -40,12 +40,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const body = (await req.json().catch(() => ({}))) as FileBody;
 
-  // For a bug bash? Only when the reporter is in a running one and left the
+  // For a quality competition? Only when the reporter is in a running one and left the
   // popup's switch on for this brief (an extension from before the switch
   // sends nothing, which counts as on). One that holds keeps the brief as a
   // draft for the review at its end, so no tracker is needed to take part;
-  // otherwise it is filed as usual, with the bug bash's name as a label.
-  // Never a reason to fail: if the bug bash can't be read, the brief files
+  // otherwise it is filed as usual, with the quality competition's name as a label.
+  // Never a reason to fail: if the quality competition can't be read, the brief files
   // the normal way.
   const bash = body?.bash === false ? null : await runningBashOf(userId).catch(() => null);
   if (bash?.hold) return holdForReview(body, userId, id, bash.id);
@@ -132,8 +132,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 }
 
 /**
- * "Create ticket" for a bug bash that holds its reports: the brief is written
- * up and kept as a draft. Whoever started the bug bash files one ticket per
+ * "Create ticket" for a quality competition that holds its reports: the brief is written
+ * up and kept as a draft. Whoever started the quality competition files one ticket per
  * bug once it is over.
  * Answers like a queued filing, plus `held`, so an extension that knows about
  * bashes can say so and one that doesn't still carries on.

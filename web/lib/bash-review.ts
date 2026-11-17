@@ -1,5 +1,5 @@
 /**
- * Reviewing a live bug bash: its reports are put in groups, one per bug, and
+ * Reviewing a live quality competition: its reports are put in groups, one per bug, and
  * each group becomes one ticket. The pure rules: what the model is asked, how
  * its answer is made safe, which report leads a group and what the ticket
  * says. Loading and writing live in bash-review-server.ts.
@@ -136,12 +136,12 @@ export function mergedDescription(body: string, bashName: string, reports: Repor
     const title = oneLine(r.title) || "Untitled";
     return `- ${r.name}: ${r.url ? `[${title}](${r.url})` : title}`;
   });
-  return [body.trim(), `**Bug bash**\n\nFound in ${bashName}. ${who}`, `**Reports**\n\n${lines.join("\n")}`]
+  return [body.trim(), `**Quality competition**\n\nFound in ${bashName}. ${who}`, `**Reports**\n\n${lines.join("\n")}`]
     .filter(Boolean)
     .join("\n\n");
 }
 
 /** What the filing agent is told about the label: the bash's name, on the ticket. */
 export function labelInstruction(bashName: string): string {
-  return `This ticket comes from the bug bash "${bashName}". Put the label "${bashName}" on it, exactly that name: use it if it exists, create it if the tracker allows, and add it beside the labels you would choose anyway. If this tracker has no labels, leave it out.`;
+  return `This ticket comes from the quality competition "${bashName}". Put the label "${bashName}" on it, exactly that name: use it if it exists, create it if the tracker allows, and add it beside the labels you would choose anyway. If this tracker has no labels, leave it out.`;
 }

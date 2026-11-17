@@ -8,7 +8,7 @@ import { ensureGrouped } from "@/lib/bash-review-server";
 export const maxDuration = 120;
 
 /**
- * Open the review of a bug bash that is over and held its reports: put them in groups
+ * Open the review of a quality competition that is over and held its reports: put them in groups
  * (the first time only) and answer with the bash as its page shows it. Only
  * whoever started it may; for anyone else it is a 404.
  */

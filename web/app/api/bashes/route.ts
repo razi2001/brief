@@ -5,7 +5,7 @@ import { createBash } from "@/lib/bash-server";
 import { track } from "@/lib/events";
 
 /**
- * Create a bug bash: a name, a start and an end, and the time each person
+ * Create a quality competition: a name, a start and an end, and the time each person
  * gets. Answers with its link code.
  */
 export async function POST(req: NextRequest) {

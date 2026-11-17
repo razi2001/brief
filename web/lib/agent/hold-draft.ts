@@ -4,7 +4,7 @@ import { mergeBriefOverrides, type BriefOverrides } from "@/lib/agent/overrides"
 
 /**
  * Get a brief ready to be written up as a draft when its reporter asked for a
- * TICKET but is in a live bug bash: the session holds every report for one
+ * TICKET but is in a live quality competition: the session holds every report for one
  * review at the end, so nothing reaches the tracker yet.
  *
  * The same preparation the /draft route does for "Share link": the popup's

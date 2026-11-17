@@ -23,7 +23,7 @@
    lines of description, a row of evidence, what the voice said, Create) and
    stays that tall with less in it: the description takes the few pixels left.
    A sheet (the recording, a screenshot) slides up inside that same frame, so
-   the window never jumps under the pointer. In a bug bash the frame is taller
+   the window never jumps under the pointer. In a quality competition the frame is taller
    by its row. Only something rare (an error message) can add to it. */
 html, body { width:360px; background:var(--cream); }
 body { --h:316px; min-height:var(--h); }
@@ -171,7 +171,7 @@ body.sheet-open { overflow:hidden; }
    pick is remembered (createDefault). With no tracker that files it starts on
    the draft, and the fix (Connect a tracker...) is the slim link above. */
 .create-wrap { position:relative; padding:10px 12px 12px; }
-/* The bug bash your own clock is running in: its name, the time you have
+/* The quality competition your own clock is running in: its name, the time you have
    left, and a switch for THIS brief. Off, the row goes quiet and the brief is
    sent as if you were in none. */
 .bash-row { display:flex; align-items:center; gap:10px; margin:0 0 8px; padding:7px 10px 7px 12px; border-radius:10px;
@@ -187,7 +187,7 @@ body.sheet-open { overflow:hidden; }
 .bash-name { font-size:13px; font-weight:500; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .bash-row.off .bash-name { color:var(--muted); }
 .bash-row .switch.on { background:var(--accent); }
-/* In a bug bash the Create button reads "Add to <its name>": the name is cut
+/* In a quality competition the Create button reads "Add to <its name>": the name is cut
    with an ellipsis so the button never grows past the popup. */
 #createBtn { min-width:0; }
 #createBtn .ctk-label { min-width:0; max-width:100%; }

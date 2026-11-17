@@ -101,11 +101,11 @@ export async function processBriefById(
     // Export of a draft the reporter already iterated on: file the stored
     // title/body verbatim (only route + set fields), don't rewrite.
     useExistingContent?: boolean;
-    // A bug bash group: file exactly this title and body (the leading
+    // A quality competition group: file exactly this title and body (the leading
     // report's write-up plus every report of the bug).
     fixed?: { title: string; description: string };
     // Whose tracker and ticket preferences to file with, when not the brief's
-    // owner: whoever started the bug bash files its tickets.
+    // owner: whoever started the quality competition files its tickets.
     fileAs?: string;
     // An extra line of standing instructions for this one filing (the bash's
     // label).

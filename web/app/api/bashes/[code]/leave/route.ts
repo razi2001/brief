@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { isBashCode } from "@/lib/bash";
 import { leaveBash } from "@/lib/bash-server";
 
-/** Leave a bug bash you joined. Once your own time has started you stay on its board. */
+/** Leave a quality competition you joined. Once your own time has started you stay on its board. */
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ code: string }> }) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });

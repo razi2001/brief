@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// What a bug bash changes about "Create ticket", when the reporter is in a
+// What a quality competition changes about "Create ticket", when the reporter is in a
 // running one and left the popup switch on: one that holds keeps the brief as
 // a draft (no tracker needed, nothing filed); one that doesn't files it with
-// its name as a label. With the switch off, or in no bug bash, it files
+// its name as a label. With the switch off, or in no quality competition, it files
 // exactly as before and counts for nothing.
 
 const who = vi.hoisted(() => ({ userId: "user_1" as string | null }));
@@ -96,7 +96,7 @@ describe("POST /api/briefs/[id]/process", () => {
     expect((await res.json()).error).toBe("no_tracker");
   });
 
-  it("holds the brief as a draft for a bug bash that holds: no tracker asked, nothing filed", async () => {
+  it("holds the brief as a draft for a quality competition that holds: no tracker asked, nothing filed", async () => {
     bash.runningBashOf.mockResolvedValue({ id: "b1", name: "Release 2.4", hold: true });
     tracker.trackerStatus.mockResolvedValue({ tracker: null, issue: "Connect a tracker." });
     const res = await call({ title: "Pay fails", description: "It does nothing" });
@@ -118,7 +118,7 @@ describe("POST /api/briefs/[id]/process", () => {
     expect(run.processBriefById).not.toHaveBeenCalled();
   });
 
-  it("leaves the bug bash out when the popup switch is off: filed as usual, not counted, not even looked up", async () => {
+  it("leaves the quality competition out when the popup switch is off: filed as usual, not counted, not even looked up", async () => {
     bash.runningBashOf.mockResolvedValue({ id: "b1", name: "Release 2.4", hold: true });
     const res = await call({ title: "Unrelated bug", bash: false });
     expect(res.status).toBe(200);
@@ -164,7 +164,7 @@ describe("POST /api/briefs/[id]/process", () => {
     expect(run.draftBriefById).not.toHaveBeenCalled();
   });
 
-  it("files with the bug bash's name as a label when it doesn't hold, and counts the brief", async () => {
+  it("files with the quality competition's name as a label when it doesn't hold, and counts the brief", async () => {
     bash.runningBashOf.mockResolvedValue({ id: "b2", name: "November quality", hold: false });
     expect((await call()).status).toBe(200);
     expect(bash.markForBash).toHaveBeenCalledWith("b2", ID, expect.anything());

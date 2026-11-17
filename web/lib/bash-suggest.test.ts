@@ -57,7 +57,7 @@ describe("normalizeSuggestions", () => {
   it("cleans the name and drops a repeat or an empty one", () => {
     const got = normalizeSuggestions(tickets, {
       areas: [
-        { name: "  Checkout  bug bash. ", tickets: [1, 2] },
+        { name: "  Checkout  quality competition. ", tickets: [1, 2] },
         { name: "checkout", tickets: [3, 4] },
         { name: " ", tickets: [5, 6] },
       ],

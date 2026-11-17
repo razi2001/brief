@@ -36,7 +36,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     screenshots?: Array<{ file: string; description?: string; annotated?: boolean }>;
     /** The token Public link or Fix prompt already copied. */
     shareId?: string;
-    /** false when the popup's bug bash switch is off for this brief. */
+    /** false when the popup's quality competition switch is off for this brief. */
     bash?: boolean;
     /** The extension transcribed the recording and heard no voice. */
     noSpeech?: boolean;
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     await markWriting();
   }
 
-  // A draft counts for the reporter's running bug bash too, unless the popup's
+  // A draft counts for the reporter's running quality competition too, unless the popup's
   // switch was off for it. Never a reason to fail.
   if (body?.bash !== false) {
     const bash = await runningBashOf(userId, admin).catch(() => null);
