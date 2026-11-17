@@ -2,9 +2,11 @@
 import Crumbs from "@/components/Crumbs";
 import BashRace from "@/components/BashRace";
 import BashReview from "@/components/BashReview";
+import CompetitionPanel from "@/components/CompetitionPanel";
 import { Medal } from "@/components/Motion";
 import { DURATIONS, lengthLabel } from "@/lib/bash";
 import type { BashBrief, BashPerson, BashReview as Review } from "@/lib/bash-server";
+import type { PodiumEntry } from "@/lib/org-server";
 
 /*
  * Quality competition in the Guide, from the app's own markup: the list (BashHome), the
@@ -26,6 +28,13 @@ const sparkle = (
 const SUGGESTED = [
   { name: "Checkout", bugs: 6, open: 4 },
   { name: "Search", bugs: 4, open: 2 },
+];
+
+/** The team's monthly competition, first on the list page. */
+const MONTH: PodiumEntry[] = [
+  { userId: "a", rank: 1, filed: 12, title: "chief bug officer", name: "Ana Ruiz", isYou: false },
+  { userId: "y", rank: 2, filed: 9, title: "the closer", name: "You", isYou: true },
+  { userId: "l", rank: 3, filed: 7, title: "on a tear", name: "Leo Martin", isYou: false },
 ];
 
 export type BashListS = { newOn?: boolean; suggestOn?: boolean; rows?: Array<{ name: string; dates: string; people: number; fresh?: boolean }> };
@@ -67,7 +76,11 @@ export function MockBashList({ s }: { s: BashListS }) {
         </span>
       </header>
 
-      <div className="-ml-2 mt-4 flex flex-wrap items-center gap-0.5">
+      <div className="mt-4">
+        <CompetitionPanel month={MONTH} all={MONTH} orgName="Acme" quipSeed={1} />
+      </div>
+
+      <div className="-ml-2 mt-5 flex flex-wrap items-center gap-0.5">
         {(
           [
             ["Assigned to me", rows.length],

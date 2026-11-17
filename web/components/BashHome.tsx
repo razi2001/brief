@@ -4,6 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import MoreMenu, { ConfirmItem } from "./MoreMenu";
+import Avatar from "./Avatar";
+import CompetitionPanel from "./CompetitionPanel";
+import { Medal } from "./Motion";
+import type { PodiumEntry } from "@/lib/org-server";
 import { DEFAULT_DURATION, DEFAULT_OPEN_DAYS, lengthLabel } from "@/lib/bash";
 import type { BashListItem } from "@/lib/bash-server";
 import type { Suggestion } from "@/lib/bash-suggest";
@@ -65,7 +69,16 @@ const FAILED: Record<Act | "delete" | "create", string> = {
  * reviewed before filing) and opens it.
  */
 /** suggested: the answer the server already kept, drawn with the page; null when it has none yet, and then it is asked once the page shows. */
-export default function BashHome({ bashes, suggested = null }: { bashes: BashListItem[]; suggested?: Suggestion[] | null }) {
+export default function BashHome({
+  bashes,
+  suggested = null,
+  monthly,
+}: {
+  bashes: BashListItem[];
+  suggested?: Suggestion[] | null;
+  /** The team's monthly competition, the one everyone is in: first on the page. */
+  monthly?: { month: PodiumEntry[]; all: PodiumEntry[]; orgName: string | null };
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -166,7 +179,13 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
         </span>
       </header>
 
-      <div role="tablist" aria-label="Quality competitions" className="-ml-2 mt-4 flex flex-wrap items-center gap-0.5">
+      {monthly && (
+        <div className="mt-4">
+          <CompetitionPanel month={monthly.month} all={monthly.all} orgName={monthly.orgName} quipSeed={new Date().getTime() % 9973} />
+        </div>
+      )}
+
+      <div role="tablist" aria-label="Quality competitions" className="-ml-2 mt-5 flex flex-wrap items-center gap-0.5">
         {tabs.map((t) => {
           const on = tab === t.key;
           return (
@@ -211,6 +230,7 @@ export default function BashHome({ bashes, suggested = null }: { bashes: BashLis
                       {datesOf(b)} · {lengthLabel(b.minutes)} each · {b.people} {b.people === 1 ? "person" : "people"}
                     </span>
                   </span>
+                  <Leaders item={b} />
                   <span className="relative z-10 flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-between max-sm:pl-[30px]">
                     <State item={b} part={part} />
                     <span className="flex items-center gap-1">
@@ -379,6 +399,29 @@ function PhaseMark({ part, phase }: { part: Part; phase: BashListItem["phase"] }
       <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
       {part === "testing" ? <circle cx="8" cy="8" r="3.2" fill="currentColor" className="dot-pulse" /> : <path d="M8 2a6 6 0 0 1 0 12Z" fill="currentColor" />}
     </svg>
+  );
+}
+
+/** The race at a glance: the first three who found something, and your place once you have one. */
+function Leaders({ item: b }: { item: BashListItem }) {
+  if (b.top.length === 0) return null;
+  const names = b.top.map((p) => `${p.rank}. ${p.isYou ? "You" : p.name}`).join(", ");
+  return (
+    <span className="flex shrink-0 items-center gap-2 max-sm:hidden" aria-label={`Ranking: ${names}`} title={names}>
+      <span className="flex items-center" aria-hidden="true">
+        {b.top.map((p, i) => (
+          <span key={i} className="ml-1 first:ml-0">
+            <Avatar name={p.name} imageUrl={p.imageUrl} size={22} />
+          </span>
+        ))}
+      </span>
+      {b.yourRank !== null && (
+        <span className="inline-flex items-center gap-1 text-[12.5px] font-medium tabular-nums text-ink-2">
+          <Medal rank={b.yourRank} size={15} />
+          You #{b.yourRank}
+        </span>
+      )}
+    </span>
   );
 }
 

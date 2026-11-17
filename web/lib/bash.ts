@@ -160,6 +160,16 @@ export function board(members: BashMemberRow[], briefs: BashBriefRow[]): BoardRo
   });
 }
 
+/**
+ * The race at a glance, for a quality competition's line on the list: the
+ * first three on its board who found something, and the viewer's place once
+ * they found something too (null before).
+ */
+export function leaders(members: BashMemberRow[], briefs: BashBriefRow[], viewerId: string): { top: BoardRow[]; yourRank: number | null } {
+  const ranked = board(members, briefs).filter((r) => r.count > 0);
+  return { top: ranked.slice(0, 3), yourRank: ranked.find((r) => r.userId === viewerId)?.rank ?? null };
+}
+
 export type ReportInput = {
   name: string;
   /** The time each person got, in minutes. */

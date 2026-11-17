@@ -12,9 +12,11 @@ import {
   MAX_BASH_MEMBERS,
   board,
   isLive,
+  leaders,
   personActive,
   personEnd,
   phaseOf,
+  type BashBriefRow,
   type BashMemberRow,
   type BashPhase,
 } from "@/lib/bash";
@@ -159,7 +161,14 @@ export type BashListItem = {
   you: YourPart;
   /** You created it. */
   mine: boolean;
+  /** The first three on its board who found something, for a glance at the race. */
+  top: BashLeader[];
+  /** Your place on its board, once you found something. */
+  yourRank: number | null;
 };
+
+/** One of the first three of a quality competition, as its line on the list shows them. */
+export type BashLeader = { name: string; imageUrl?: string; rank: number; isYou: boolean };
 
 export const timesOf = (b: BashRow) => ({ startsAt: b.starts_at, endsAt: b.ends_at, endedAt: b.ended_at });
 
@@ -592,6 +601,8 @@ export async function listBashes(userId: string): Promise<BashListItem[]> {
   for (const r of [...((made.data ?? []) as unknown as Row[]), ...((joined.data ?? []) as unknown as Row[])]) rows.set(r.id, r);
 
   const now = Date.now();
+  // The race at a glance is an extra: without it the list still shows.
+  const boards = await leadersOf([...rows.keys()], userId, db).catch(() => new Map<string, { top: BashLeader[]; yourRank: number | null }>());
   return [...rows.values()]
     .map((b): BashListItem => {
       const times = timesOf(b);
@@ -608,6 +619,8 @@ export async function listBashes(userId: string): Promise<BashListItem[]> {
         people: b.bash_members?.[0]?.count ?? 0,
         you,
         mine: b.created_by === userId,
+        top: boards.get(b.id)?.top ?? [],
+        yourRank: boards.get(b.id)?.yourRank ?? null,
       };
     })
     .sort(
@@ -615,4 +628,62 @@ export async function listBashes(userId: string): Promise<BashListItem[]> {
         ORDER[a.phase] - ORDER[b.phase] ||
         (a.phase === "upcoming" ? a.startsAt.localeCompare(b.startsAt) : (b.endedAt ?? b.endsAt).localeCompare(a.endedAt ?? a.endsAt)),
     );
+}
+
+/**
+ * The board of each listed quality competition, read in a few requests for all
+ * of them at once: the first three who found something, and your place.
+ */
+async function leadersOf(
+  bashIds: string[],
+  viewerId: string,
+  db: SupabaseClient,
+): Promise<Map<string, { top: BashLeader[]; yourRank: number | null }>> {
+  const out = new Map<string, { top: BashLeader[]; yourRank: number | null }>();
+  if (bashIds.length === 0) return out;
+  const [memberRows, marked] = await Promise.all([
+    db.from("bash_members").select("bash_id, user_id, joined_at").in("bash_id", bashIds).limit(5000),
+    db.from("bash_briefs").select("bash_id, brief_id").in("bash_id", bashIds).limit(5000),
+  ]);
+  if (memberRows.error) throw new Error(memberRows.error.message);
+  if (marked.error) throw new Error(marked.error.message);
+  const marks = (marked.data ?? []) as { bash_id: string; brief_id: string }[];
+
+  // In lots: a long list of ids in one request's URL has a limit.
+  const ids = marks.map((m) => m.brief_id);
+  const lots: string[][] = [];
+  for (let i = 0; i < ids.length; i += 100) lots.push(ids.slice(i, i + 100));
+  const parts = await Promise.all(
+    lots.map(async (lot) => {
+      const r = await db.from("briefs").select("id, user_id, created_at").in("id", lot).in("status", COUNTED).is("archived_at", null);
+      if (r.error) throw new Error(r.error.message);
+      return (r.data ?? []) as { id: string; user_id: string; created_at: string }[];
+    }),
+  );
+  const briefOf = new Map(parts.flat().map((b) => [b.id, b]));
+
+  const members = new Map<string, BashMemberRow[]>();
+  for (const m of (memberRows.data ?? []) as { bash_id: string; user_id: string; joined_at: string }[]) {
+    members.set(m.bash_id, [...(members.get(m.bash_id) ?? []), { userId: m.user_id, joinedAt: m.joined_at }]);
+  }
+  const found = new Map<string, BashBriefRow[]>();
+  for (const m of marks) {
+    const b = briefOf.get(m.brief_id);
+    if (b) found.set(m.bash_id, [...(found.get(m.bash_id) ?? []), { id: b.id, userId: b.user_id, createdAt: b.created_at }]);
+  }
+
+  const ranked = new Map(bashIds.map((id) => [id, leaders(members.get(id) ?? [], found.get(id) ?? [], viewerId)]));
+  const names = await lookupNames([...ranked.values()].flatMap((l) => l.top.map((r) => r.userId)));
+  for (const [id, l] of ranked) {
+    out.set(id, {
+      top: l.top.map((r) => ({
+        name: names.get(r.userId)?.fullName ?? "someone",
+        imageUrl: names.get(r.userId)?.imageUrl,
+        rank: r.rank,
+        isYou: r.userId === viewerId,
+      })),
+      yourRank: l.yourRank,
+    });
+  }
+  return out;
 }

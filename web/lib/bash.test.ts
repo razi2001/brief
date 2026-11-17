@@ -10,6 +10,7 @@ import {
   isBashCode,
   isDuration,
   isLive,
+  leaders,
   lengthLabel,
   msLeft,
   personActive,
@@ -159,6 +160,27 @@ describe("board", () => {
   });
   it("orders people with nothing by when they started", () => {
     expect(board(members, []).map((r) => r.userId)).toEqual(["ana", "ben", "cy"]);
+  });
+
+  describe("leaders, for the line on the list", () => {
+    const four = [...members, { userId: "dee", joinedAt: day(14, "10:03") }];
+    it("gives the first three who found something, and your place", () => {
+      const got = leaders(four, [brief("ben", "10:05"), brief("ben", "10:06"), brief("ana", "10:07"), brief("cy", "10:08"), brief("dee", "10:09")], "dee");
+      expect(got.top.map((r) => [r.userId, r.rank])).toEqual([
+        ["ben", 1],
+        ["ana", 2],
+        ["cy", 2],
+      ]);
+      expect(got.yourRank).toBe(2);
+    });
+    it("leaves out anyone with nothing yet, you included", () => {
+      const got = leaders(members, [brief("ana", "10:07")], "ben");
+      expect(got.top.map((r) => r.userId)).toEqual(["ana"]);
+      expect(got.yourRank).toBeNull();
+    });
+    it("is empty before anyone found anything", () => {
+      expect(leaders(members, [], "ana")).toEqual({ top: [], yourRank: null });
+    });
   });
 });
 
