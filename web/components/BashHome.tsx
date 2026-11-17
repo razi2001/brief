@@ -8,7 +8,7 @@ import Avatar from "./Avatar";
 import CompetitionPanel from "./CompetitionPanel";
 import { Medal } from "./Motion";
 import type { PodiumEntry } from "@/lib/org-server";
-import { DEFAULT_DURATION, DEFAULT_OPEN_DAYS, lengthLabel } from "@/lib/bash";
+import { DEFAULT_DURATION, DEFAULT_OPEN_DAYS, lengthLabel, roughly } from "@/lib/bash";
 import type { BashListItem } from "@/lib/bash-server";
 import type { Suggestion } from "@/lib/bash-suggest";
 
@@ -81,6 +81,8 @@ export default function BashHome({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
+  // The short times on the lines ("3d left") are read against when the page drew.
+  const [now] = useState(() => Date.now());
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>(suggested ?? []);
   // What the server gave as the page first drew: only without it is it asked.
@@ -224,15 +226,10 @@ export default function BashHome({
                   {/* The whole line opens the quality competition; its actions sit above that. */}
                   <Link href={`/competition/${b.code}`} aria-label={b.name} className="absolute inset-0 rounded-[inherit]" />
                   <PhaseMark part={part} phase={b.phase} />
-                  <span className="flex min-w-0 flex-1 items-baseline gap-2.5">
-                    <span className={`truncate text-[13.5px] leading-snug ${part === "closed" ? "text-ink-2" : "text-ink"}`}>{b.name}</span>
-                    <span className="truncate text-xs tabular-nums text-muted">
-                      {datesOf(b)} · {lengthLabel(b.minutes)} each · {b.people} {b.people === 1 ? "person" : "people"}
-                    </span>
-                  </span>
+                  <span className={`min-w-0 flex-1 truncate text-[13.5px] leading-snug ${part === "closed" ? "text-ink-2" : "text-ink"}`}>{b.name}</span>
                   <Leaders item={b} />
                   <span className="relative z-10 flex shrink-0 items-center gap-2 max-sm:w-full max-sm:justify-between max-sm:pl-[30px]">
-                    <State item={b} part={part} />
+                    <State item={b} part={part} now={now} />
                     <span className="flex items-center gap-1">
                       {part === "todo" && (
                         <button type="button" onClick={() => void act("start", b.code)} disabled={busy === b.code} className="btn-accent h-7 !px-2.5 !py-0">
@@ -426,18 +423,11 @@ function Leaders({ item: b }: { item: BashListItem }) {
 }
 
 /** Where the quality competition stands, and you in it, in a few words beside the action. */
-function State({ item: b, part }: { item: BashListItem; part: Part }) {
+function State({ item: b, part, now }: { item: BashListItem; part: Part; now: number }) {
   const quiet = "text-[12.5px] tabular-nums text-muted";
   if (part === "testing") return <span className="text-[12.5px] font-medium text-accent">Testing</span>;
-  if (part === "closed") {
-    return (
-      <span className={quiet}>
-        Closed {dayOf(b.endedAt ?? b.endsAt)}
-        {b.you !== "none" && " · you took part"}
-      </span>
-    );
-  }
-  if (part === "used") return <span className={quiet}>Your time is used</span>;
-  if (b.phase === "upcoming") return <span className={quiet}>Starts {dayOf(b.startsAt)}</span>;
-  return <span className={quiet}>Open until {dayOf(b.endsAt)}</span>;
+  if (part === "closed") return <span className={quiet} title={datesOf(b)}>Closed</span>;
+  if (part === "used") return <span className={quiet}>Done</span>;
+  if (b.phase === "upcoming") return <span className={quiet} title={datesOf(b)}>In {roughly(new Date(b.startsAt).getTime() - now)}</span>;
+  return <span className={quiet} title={datesOf(b)}>{roughly(new Date(b.endsAt).getTime() - now)} left</span>;
 }

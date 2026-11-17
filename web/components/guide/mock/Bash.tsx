@@ -3,7 +3,6 @@ import Crumbs from "@/components/Crumbs";
 import BashRace from "@/components/BashRace";
 import BashReview from "@/components/BashReview";
 import CompetitionPanel from "@/components/CompetitionPanel";
-import { Medal } from "@/components/Motion";
 import { DURATIONS, lengthLabel } from "@/lib/bash";
 import type { BashBrief, BashPerson, BashReview as Review } from "@/lib/bash-server";
 import type { PodiumEntry } from "@/lib/org-server";
@@ -104,14 +103,9 @@ export function MockBashList({ s }: { s: BashListS }) {
                   <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
                   <path d="M8 2a6 6 0 0 1 0 12Z" fill="currentColor" />
                 </svg>
-                <span className="flex min-w-0 flex-1 items-baseline gap-2.5">
-                  <span className="truncate text-[13.5px] leading-snug text-ink">{b.name}</span>
-                  <span className="truncate text-xs tabular-nums text-muted">
-                    {b.dates} · 30 min each · {b.people} {b.people === 1 ? "person" : "people"}
-                  </span>
-                </span>
+                <span className="min-w-0 flex-1 truncate text-[13.5px] leading-snug text-ink">{b.name}</span>
                 <span className="relative z-10 flex shrink-0 items-center gap-2">
-                  <span className="text-[12.5px] tabular-nums text-muted">Open until 18 Nov</span>
+                  <span className="text-[12.5px] tabular-nums text-muted">2d left</span>
                   <span className="btn-accent h-7 !px-2.5 !py-0">Start 30 min</span>
                 </span>
               </li>
@@ -265,7 +259,6 @@ const REVIEW: Review = {
 export function MockBashPage({ s }: { s: BashPageS }) {
   const { people, briefs } = board(s);
   const closed = !!s.review;
-  const me = people.find((p) => p.isYou);
   const live = people.filter((p) => p.endsAt !== null).length;
   const review: Review = s.filed ? { ...REVIEW, groups: REVIEW.groups.map((g) => ({ ...g, ticket: { url: "#", identifier: g.id === "g1" ? "ENG-151" : "ENG-152" } })) } : REVIEW;
   const r = 28;
@@ -276,23 +269,18 @@ export function MockBashPage({ s }: { s: BashPageS }) {
       <header className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink">Checkout</h1>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] tabular-nums text-muted">
+          <p className="mt-2">
             {closed ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(26,22,18,0.06)] px-2 py-0.5 text-[12.5px] font-medium text-ink-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(26,22,18,0.06)] px-2.5 py-0.5 text-[12.5px] font-medium tabular-nums text-ink-2">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#b9b2a4]" aria-hidden />
                 Closed
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[12.5px] font-medium text-accent">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5 text-[12.5px] font-medium tabular-nums text-accent">
                 <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-                Open
+                2d left
               </span>
             )}
-            <span>{closed ? "18 Nov" : "closes in 2d 9h"}</span>
-            <span aria-hidden>·</span>
-            <span>30 min each</span>
-            <span aria-hidden>·</span>
-            <span>Review before filing</span>
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -300,7 +288,7 @@ export function MockBashPage({ s }: { s: BashPageS }) {
             <span className="btn h-[30px]">Copy report</span>
           ) : (
             <span data-gd="bash-copy" className={`btn h-[30px]${s.copyOn ? " gd-press" : ""}`}>
-              {s.copied ? "Copied" : "Copy invite link"}
+              {s.copied ? "Link copied" : "Invite"}
             </span>
           )}
           {s.me === "join" && (
@@ -332,33 +320,25 @@ export function MockBashPage({ s }: { s: BashPageS }) {
                     <path d="M8 5.5v13l11-6.5-11-6.5Z" />
                   </svg>
                 </span>
-                <span>
-                  <span className="block text-[15px] font-semibold text-ink">Start my 30 min</span>
-                  <span className="block text-[12.5px] text-muted">Your clock starts now</span>
-                </span>
+                <span className="block text-[15px] font-semibold text-ink">Start my 30 min</span>
               </span>
             )}
           </div>
           <div className="flex flex-1 flex-wrap items-center justify-end gap-x-8 gap-y-3">
+            {briefs.length > 0 && (
             <div>
               <div className="text-[12.5px] text-muted">{briefs.length === 1 ? "Bug found" : "Bugs found"}</div>
               <div className="mt-0.5 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">{briefs.length}</div>
             </div>
+            )}
+            {live > 0 && (
             <div>
               <div className="text-[12.5px] text-muted">Testing now</div>
               <div className="mt-0.5 flex items-center gap-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">
                 {live}
-                {live > 0 && <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />}
+                <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />
               </div>
             </div>
-            {me && (
-              <div>
-                <div className="text-[12.5px] text-muted">You</div>
-                <div className="mt-0.5 flex items-center gap-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">
-                  {me.count}
-                  {me.count > 0 && <Medal rank={me.rank} size={20} />}
-                </div>
-              </div>
             )}
           </div>
         </section>

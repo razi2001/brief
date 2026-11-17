@@ -7,10 +7,10 @@ import BashRace from "./BashRace";
 import BashReview from "./BashReview";
 import Crumbs from "./Crumbs";
 import MoreMenu, { ConfirmItem } from "./MoreMenu";
-import { Confetti, CountUp, Medal } from "./Motion";
+import { Confetti, CountUp } from "./Motion";
 import StatusBadge from "./StatusBadge";
 import { groupOfState } from "@/lib/status-group";
-import { clock, lengthLabel, msLeft, phaseOf, reportMarkdown } from "@/lib/bash";
+import { clock, lengthLabel, msLeft, phaseOf, reportMarkdown, roughly } from "@/lib/bash";
 import { blocksOf } from "@/lib/bash-similar";
 import type { BashSnapshot } from "@/lib/bash-server";
 
@@ -76,6 +76,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
   // Your own clock is running; or you have used your time.
   const testing = open && yourEnd !== null && now < yourEnd;
   const done = yourEnd !== null && !testing;
+  const canLeave = !closed && bash.joined && yourEnd === null;
   const total = bash.briefs.length;
   const reviewBusy = !!bash.review && (!bash.review.grouped || bash.review.groups.some((g) => g.filing));
   // What was found, look-alikes together, newest block first.
@@ -206,32 +207,17 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
       <header className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
           <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink [overflow-wrap:anywhere]">{bash.name}</h1>
-          <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] tabular-nums text-muted">
+          <p className="mt-2" title={`${dayOf(bash.startsAt)} to ${dayOf(bash.endedAt ?? bash.endsAt)}`}>
             {open ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2 py-0.5 text-[12.5px] font-medium text-accent">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-0.5 text-[12.5px] font-medium tabular-nums text-accent">
                 <span className="dot-pulse h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-                Open
+                {roughly(msLeft(bash, now))} left
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(26,22,18,0.06)] px-2 py-0.5 text-[12.5px] font-medium text-ink-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgba(26,22,18,0.06)] px-2.5 py-0.5 text-[12.5px] font-medium tabular-nums text-ink-2">
                 <span className={`h-1.5 w-1.5 rounded-full ${closed ? "bg-[#b9b2a4]" : "border border-muted"}`} aria-hidden />
-                {closed ? "Closed" : "Upcoming"}
+                {closed ? "Closed" : `Starts in ${roughly(new Date(bash.startsAt).getTime() - now)}`}
               </span>
-            )}
-            <span>
-              {open
-                ? `closes in ${clock(msLeft(bash, now))}`
-                : closed
-                  ? dayOf(bash.endedAt ?? bash.endsAt)
-                  : `${dayOf(bash.startsAt)} to ${dayOf(bash.endsAt)}, starts in ${clock(new Date(bash.startsAt).getTime() - now)}`}
-            </span>
-            <span aria-hidden>·</span>
-            <span>{lengthLabel(bash.minutes)} each</span>
-            {bash.hold && (
-              <>
-                <span aria-hidden>·</span>
-                <span>Review before filing</span>
-              </>
             )}
           </p>
         </div>
@@ -243,12 +229,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
           )}
           {!closed && (
             <button type="button" onClick={() => void copy("link")} className="btn h-[30px]">
-              {copied === "link" ? "Copied" : "Copy invite link"}
-            </button>
-          )}
-          {!closed && bash.joined && yourEnd === null && (
-            <button type="button" onClick={() => void post("leave")} disabled={busy} className="btn h-[30px]">
-              Leave
+              {copied === "link" ? "Link copied" : "Invite"}
             </button>
           )}
           {phase === "upcoming" && !bash.joined && (
@@ -256,11 +237,25 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
               Join
             </button>
           )}
-          {bash.isOwner && (
+          {(bash.isOwner || canLeave) && (
             <MoreMenu label="More">
               {(close) => (
                 <>
-                  {!closed && (
+                  {canLeave && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="flex h-8 w-full items-center rounded-md px-2 text-left text-[13px] text-ink-2 transition-colors hover:bg-hover hover:text-ink"
+                      disabled={busy}
+                      onClick={() => {
+                        close();
+                        void post("leave");
+                      }}
+                    >
+                      Leave
+                    </button>
+                  )}
+                  {bash.isOwner && !closed && (
                     <ConfirmItem
                       label="Close"
                       question="Close this quality competition now?"
@@ -272,7 +267,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
                       }}
                     />
                   )}
-                  <ConfirmItem label="Delete" question="Delete this quality competition?" confirm="Delete" disabled={busy} onConfirm={() => void remove()} />
+                  {bash.isOwner && <ConfirmItem label="Delete" question="Delete this quality competition?" confirm="Delete" disabled={busy} onConfirm={() => void remove()} />}
                 </>
               )}
             </MoreMenu>
@@ -288,13 +283,14 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
       {party && <Confetti />}
       <Arena bash={bash} now={now} phase={phase} testing={testing} done={done} yourEnd={yourEnd} busy={busy} onStart={() => void post("start")} />
 
-      <BashRace people={bash.people} briefs={bash.briefs} open={open} closed={closed} now={now} />
+      {(bash.people.length > 1 || total > 0) && <BashRace people={bash.people} briefs={bash.briefs} open={open} closed={closed} now={now} />}
       {bash.people.length === 0 && (
         <div className="mt-8 rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-10 text-center">
           <p className="text-[14px] font-medium text-ink">{closed ? "Nobody took part" : "Nobody has joined yet"}</p>
         </div>
       )}
 
+      {(bash.review || total > 0 || closed) && (
       <div className="mt-8">
         {bash.review ? (
           <BashReview code={bash.code} review={bash.review} people={bash.people} onChange={refresh} />
@@ -304,7 +300,7 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
               Found
               <span className="count">
                 {blocks.length < total ? `${blocks.length} ${blocks.length === 1 ? "bug" : "bugs"} from ${total} reports` : total > 0 ? total : ""}
-                {bash.hold && `${blocks.length < total || total > 0 ? " · " : ""}${!closed ? "Held as drafts until the review" : bash.isOwner ? "" : "In review"}`}
+                {bash.hold && total > 0 && ` · ${!closed ? "held for review" : bash.isOwner ? "" : "in review"}`}
               </span>
             </h2>
             {total > 0 ? (
@@ -389,13 +385,12 @@ export default function BashView({ initial }: { initial: BashSnapshot }) {
                 )}
               </>
             ) : (
-              <div className="rounded-[14px] border border-dashed border-[var(--color-line)] px-4 py-12 text-center">
-                <p className="text-[14px] font-medium text-ink">{closed ? "Nothing found" : "Nothing yet"}</p>
-              </div>
+              <p className="text-[13.5px] text-muted">Nothing found</p>
             )}
           </section>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -428,7 +423,6 @@ function Arena({
   const closed = phase === "closed";
   const total = bash.briefs.length;
   const live = bash.people.filter((p) => open && p.endsAt !== null && now < new Date(p.endsAt).getTime());
-  const me = bash.people.find((p) => p.isYou);
   const winner = bash.people[0] && bash.people[0].count > 0 ? bash.people[0] : null;
   const span = bash.minutes * 60_000;
   const left = testing && yourEnd ? Math.max(0, yourEnd - now) : 0;
@@ -467,7 +461,6 @@ function Arena({
             </span>
             <span>
               <span className="block text-[15px] font-semibold text-ink">Start my {lengthLabel(bash.minutes)}</span>
-              <span className="block text-[12.5px] text-muted">Your clock starts now</span>
             </span>
           </button>
         ) : done ? (
@@ -484,10 +477,12 @@ function Arena({
       </div>
 
       <div className="flex flex-1 flex-wrap items-center justify-end gap-x-8 gap-y-3">
-        <Num label={total === 1 ? "Bug found" : "Bugs found"}>
-          <CountUp value={total} fromZero />
-        </Num>
-        {!closed && (
+        {total > 0 && (
+          <Num label={total === 1 ? "Bug found" : "Bugs found"}>
+            <CountUp value={total} fromZero />
+          </Num>
+        )}
+        {!closed && live.length > 0 && (
           <Num label="Testing now">
             <span className="flex items-center gap-2" title={live.map((p) => p.name).join(", ")}>
               <CountUp value={live.length} />
@@ -498,14 +493,6 @@ function Arena({
         {closed && (
           <Num label={bash.people.length === 1 ? "Person" : "People"}>
             <CountUp value={bash.people.length} fromZero />
-          </Num>
-        )}
-        {me && (
-          <Num label="You">
-            <span className="flex items-center gap-2">
-              <CountUp value={me.count} fromZero />
-              {me.count > 0 && <Medal rank={me.rank} size={20} />}
-            </span>
           </Num>
         )}
       </div>

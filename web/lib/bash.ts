@@ -112,6 +112,14 @@ export function personActive(b: BashTimes, startedAt: string, minutes: number, n
 }
 
 /** "12:05" left, "1:02:05" past the hour, "2d 4h" past the day. */
+/** A time left or to wait, roughly, for a glance: "3d", "5h", "40 min". */
+export function roughly(ms: number): string {
+  const min = Math.max(1, Math.ceil(ms / 60_000));
+  if (min >= 24 * 60) return `${Math.floor(min / (24 * 60))}d`;
+  if (min >= 60) return `${Math.floor(min / 60)}h`;
+  return `${min} min`;
+}
+
 export function clock(ms: number): string {
   const total = Math.ceil(ms / 1000);
   if (total >= 24 * 3600) {

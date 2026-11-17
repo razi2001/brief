@@ -17,6 +17,7 @@ import {
   personEnd,
   phaseOf,
   reportMarkdown,
+  roughly,
 } from "./bash";
 
 const day = (d: number, hhmm = "10:00") => `2026-11-${String(d).padStart(2, "0")}T${hhmm}:00.000Z`;
@@ -118,6 +119,15 @@ describe("each person's own clock", () => {
     const early = { ...bash, endedAt: day(13, "09:20") };
     expect(personEnd(early, day(13, "09:00"), 180)).toBe(ms(13, "09:20"));
     expect(personActive(early, day(13, "09:00"), 180, ms(13, "09:30"))).toBe(false);
+  });
+});
+
+describe("roughly", () => {
+  it("says days, then hours, then minutes, rounded down", () => {
+    expect(roughly(3.5 * 24 * 3600_000)).toBe("3d");
+    expect(roughly(5 * 3600_000 + 59 * 60_000)).toBe("5h");
+    expect(roughly(40 * 60_000)).toBe("40 min");
+    expect(roughly(0)).toBe("1 min");
   });
 });
 
