@@ -300,19 +300,17 @@ export function MockBashPage({ s }: { s: BashPageS }) {
       </header>
 
       {!closed && (
-        <section className="arena mt-6 flex flex-wrap items-center gap-x-7 gap-y-4 rounded-[16px] border border-hairline bg-surface px-5 py-4">
-          <div className="flex items-center gap-3.5">
+        <section className="arena mt-6 flex flex-col items-center gap-6 rounded-[16px] border border-hairline bg-surface px-5 py-8 text-center">
+          <div className="flex flex-col items-center">
             {s.me === "testing" ? (
-              <Ring progress={(s.left ?? 1800) / 1800} label="Your time" icon="watch">
-                <span className="text-accent">{clock(s.left ?? 1800)}</span>
-              </Ring>
+              <Ring progress={(s.left ?? 1800) / 1800} label="Your time" value={clock(s.left ?? 1800)} />
             ) : (
               <span data-gd="bash-start" className={`inline-flex${s.me === "join" ? " opacity-50" : ""}`}>
                 <StartButton label="Start my 30 min" pressed={!!s.meOn && s.me === "start"} />
               </span>
             )}
           </div>
-          <div className="flex flex-1 flex-wrap items-center justify-end gap-x-8 gap-y-3">
+          <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-3 empty:hidden">
             {briefs.length > 0 && (
             <div>
               <div className="text-[12.5px] text-muted">{briefs.length === 1 ? "Bug found" : "Bugs found"}</div>
@@ -322,7 +320,7 @@ export function MockBashPage({ s }: { s: BashPageS }) {
             {live > 0 && (
             <div>
               <div className="text-[12.5px] text-muted">Testing now</div>
-              <div className="mt-0.5 flex items-center gap-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">
+              <div className="mt-0.5 flex items-center justify-center gap-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-ink">
                 {live}
                 <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />
               </div>

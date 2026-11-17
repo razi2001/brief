@@ -431,17 +431,17 @@ function Arena({
   const [go, setGo] = useState<number | null>(null);
 
   return (
-    <section aria-label="Arena" className="arena relative mt-6 flex flex-wrap items-center gap-x-7 gap-y-4 rounded-[16px] border border-hairline bg-surface px-5 py-4">
-      <div className="flex items-center gap-3.5">
+    <section aria-label="Arena" className="arena relative mt-6 flex flex-col items-center gap-6 rounded-[16px] border border-hairline bg-surface px-5 py-8 text-center">
+      <div className="flex flex-col items-center">
         {closed ? (
           winner ? (
             <>
-              <span className="arena-trophy grid h-[64px] w-[64px] place-items-center rounded-full bg-[radial-gradient(circle_at_30%_25%,#fff4d6,#f6d77a_60%,#e0b347)] shadow-[0_6px_18px_-6px_rgba(201,150,42,.6)]">
+              <span className="arena-trophy mb-3 grid h-[64px] w-[64px] place-items-center rounded-full bg-[radial-gradient(circle_at_30%_25%,#fff4d6,#f6d77a_60%,#e0b347)] shadow-[0_6px_18px_-6px_rgba(201,150,42,.6)]">
                 <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#8a5d0f" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z" /><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3" /></svg>
               </span>
               <span>
                 <span className="block text-[12.5px] text-muted">Winner</span>
-                <span className="flex items-center gap-2 text-[17px] font-semibold tracking-[-0.01em] text-ink">
+                <span className="flex items-center justify-center gap-2 text-[17px] font-semibold tracking-[-0.01em] text-ink">
                   <Avatar name={winner.name} imageUrl={winner.imageUrl} size={22} />
                   {winner.name}
                 </span>
@@ -454,9 +454,7 @@ function Arena({
             <span className="text-[15px] font-medium text-ink">It&apos;s over</span>
           )
         ) : testing ? (
-          <Ring progress={span ? left / span : 0} label="Your time" icon="watch">
-            <span className="text-accent">{clock(left)}</span>
-          </Ring>
+          <Ring progress={span ? left / span : 0} label="Your time" value={clock(left)} />
         ) : open && yourEnd === null ? (
           <StartButton
             label={`Start my ${lengthLabel(bash.minutes)}`}
@@ -467,17 +465,18 @@ function Arena({
             }}
           />
         ) : done ? (
-          <Ring progress={1} label="Your time" icon="check" tone="#2f7d4f">
-            <span className="text-[#2f7d4f]">Done</span>
-          </Ring>
+          <Ring progress={1} label="Your time" value="Done" check tone="#2f7d4f" />
         ) : (
-          <Ring progress={1} label={phase === "upcoming" ? "Starts in" : "Each"} icon="watch" quiet>
-            {phase === "upcoming" ? clock(new Date(bash.startsAt).getTime() - now) : lengthLabel(bash.minutes)}
-          </Ring>
+          <Ring
+            progress={1}
+            label={phase === "upcoming" ? "Starts in" : "Each"}
+            value={phase === "upcoming" ? clock(new Date(bash.startsAt).getTime() - now) : lengthLabel(bash.minutes)}
+            quiet
+          />
         )}
       </div>
 
-      <div className="flex flex-1 flex-wrap items-center justify-end gap-x-8 gap-y-3">
+      <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-3 empty:hidden">
         {total > 0 && (
           <Num label={total === 1 ? "Bug found" : "Bugs found"}>
             <CountUp value={total} fromZero />
@@ -485,7 +484,7 @@ function Arena({
         )}
         {!closed && live.some((p) => !p.isYou) && (
           <Num label="Testing now">
-            <span className="flex items-center gap-2" title={live.map((p) => p.name).join(", ")}>
+            <span className="flex items-center justify-center gap-2" title={live.map((p) => p.name).join(", ")}>
               <CountUp value={live.length} />
               <span className="dot-pulse h-2 w-2 rounded-full bg-accent" aria-hidden />
             </span>
@@ -503,53 +502,56 @@ function Arena({
 }
 
 /**
- * A ring that empties as time runs out, a small mark in it, and beside it the
- * value large under its label, so a long time ("2:59:41", "1d 4h") never has
- * to fit inside the ring.
+ * Your clock: a large ring that empties as time runs out, the time centered
+ * in it and its label under it. The type shrinks for a long time ("2:59:41",
+ * "1d 4h") so it always fits inside.
  */
 export function Ring({
   progress,
   label,
-  icon,
+  value,
+  check = false,
   tone = "#dd6936",
   quiet = false,
-  children,
 }: {
   progress: number;
   label: string;
-  icon: "watch" | "check";
+  value: string;
+  check?: boolean;
   tone?: string;
   quiet?: boolean;
-  children: React.ReactNode;
 }) {
-  const r = 24;
+  const r = 68;
   const c = 2 * Math.PI * r;
-  const stroke = quiet ? "rgba(26,22,18,.18)" : tone;
+  const stroke = quiet ? "rgba(26,22,18,.2)" : tone;
+  const size = value === "Done" ? 28 : value.length <= 5 ? 36 : value.length <= 7 ? 29 : 23;
   return (
-    <span className="flex items-center gap-3.5">
-      <span className="relative grid h-[56px] w-[56px] shrink-0 place-items-center">
-        <svg viewBox="0 0 56 56" width="56" height="56" className="absolute inset-0 -rotate-90" aria-hidden="true">
-          <circle cx="28" cy="28" r={r} fill="none" stroke="rgba(26,22,18,.08)" strokeWidth="5" />
-          <circle
-            cx="28"
-            cy="28"
-            r={r}
-            fill="none"
-            stroke={stroke}
-            strokeWidth="5"
-            strokeLinecap="round"
-            strokeDasharray={c}
-            strokeDashoffset={c * (1 - Math.max(0, Math.min(1, progress)))}
-            style={{ transition: "stroke-dashoffset 1s linear" }}
-          />
-        </svg>
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke={quiet ? "#8a8378" : tone} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="relative" aria-hidden="true">
-          {icon === "check" ? <path d="m5 12.5 4.5 4.5L19 7.5" /> : <><path d="M10 2.5h4M12 2.5v2.4" /><circle cx="12" cy="13.2" r="7.4" /><path d="M12 13.2V9.4" /></>}
-        </svg>
-      </span>
-      <span>
-        <span className="block text-[12.5px] text-muted">{label}</span>
-        <span className={`block text-[26px] font-semibold leading-tight tracking-[-0.02em] tabular-nums ${quiet ? "text-ink" : ""}`}>{children}</span>
+    <span className="relative grid h-[152px] w-[152px] shrink-0 place-items-center">
+      <svg viewBox="0 0 152 152" width="152" height="152" className="absolute inset-0 -rotate-90" aria-hidden="true">
+        <circle cx="76" cy="76" r={r} fill="none" stroke="rgba(26,22,18,.07)" strokeWidth="8" />
+        <circle
+          cx="76"
+          cy="76"
+          r={r}
+          fill="none"
+          stroke={stroke}
+          strokeWidth="8"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - Math.max(0, Math.min(1, progress)))}
+          style={{ transition: "stroke-dashoffset 1s linear" }}
+        />
+      </svg>
+      <span className="relative flex flex-col items-center">
+        {check && (
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke={tone} strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" className="mb-0.5" aria-hidden="true">
+            <path d="m5 12.5 4.5 4.5L19 7.5" />
+          </svg>
+        )}
+        <span className="font-semibold leading-none tracking-[-0.02em] tabular-nums" style={{ fontSize: size, color: quiet ? "var(--color-ink)" : tone }}>
+          {value}
+        </span>
+        <span className="mt-1.5 text-[12px] text-muted">{label}</span>
       </span>
     </span>
   );

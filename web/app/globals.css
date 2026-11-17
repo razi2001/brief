@@ -1107,7 +1107,7 @@ body {
 @keyframes up-in { 0% { opacity: 0; transform: translateY(6px); } 10%, 80% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 .find-flash { animation: find-flash 1.8s var(--ease-out) both; }
 @keyframes find-flash { 0% { background: rgba(221, 105, 54, 0.16); box-shadow: 0 0 0 3px rgba(221, 105, 54, 0.18); } 100% { box-shadow: 0 0 0 0 rgba(221, 105, 54, 0); } }
-.arena { animation: brief-rise 420ms var(--ease-out) both; background: radial-gradient(120% 140% at 0% 0%, rgba(240, 131, 80, 0.07), transparent 55%), var(--color-surface); }
+.arena { animation: brief-rise 420ms var(--ease-out) both; background: radial-gradient(90% 120% at 50% 0%, rgba(240, 131, 80, 0.07), transparent 55%), var(--color-surface); }
 .arena-go { animation: go-breathe 2.4s ease-in-out infinite; }
 /* The start button: an arcade button with a stopwatch, a GO sticker, a lip it sinks into. */
 .go-btn { position: relative; display: inline-flex; align-items: center; gap: 12px; height: 56px; padding: 0 24px 0 8px; border-radius: 999px; cursor: pointer;
