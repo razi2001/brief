@@ -15,6 +15,12 @@ primary_region = 'cdg'
     NEXT_PUBLIC_CLERK_SIGN_UP_URL = '/sign-up'
     NEXT_PUBLIC_SUPABASE_URL = 'https://zoztsincbmaozuulcfez.supabase.co'
 
+[env]
+  # Node sizes its heap from the machine and stopped at ~490 MB on this 1 GB
+  # VM: a filing on 2026-11-18 died with "heap out of memory" while half the
+  # RAM sat unused. 768 MB leaves room for buffers, zlib and the OS.
+  NODE_OPTIONS = '--max-old-space-size=768'
+
 [http_service]
   internal_port = 3000
   force_https = true
