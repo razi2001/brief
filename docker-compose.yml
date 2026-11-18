@@ -1,5 +1,5 @@
 # Self-hosted Brief: `docker compose up -d --build`, then open http://localhost:3000.
-# Fill .env first (cp .env.example .env). SELF_HOSTING.md has the whole setup.
+# Fill .env first (cp .env.example .env). docs/SELF_HOSTING.md has the whole setup.
 services:
   migrate:
     build:

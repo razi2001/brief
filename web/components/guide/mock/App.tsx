@@ -112,14 +112,15 @@ const ageText = (ago: number) => (ago < 1 ? "just now" : ago < 60 ? `${Math.roun
  * one you just filed as a card, then everything else as rows by day. With
  * `draftsOnly`, what needs you: the drafts, each a card with Finish.
  */
-export function MockFeed({ rows, draftsOnly = false }: { rows: Row[]; draftsOnly?: boolean }) {
+export function MockFeed({ rows, draftsOnly = false, top }: { rows: Row[]; draftsOnly?: boolean; /** Above the header, like BriefsFeed's `top` (the competition podium). */ top?: ReactNode }) {
   const [latest, ...rest] = draftsOnly ? [] : rows;
   const today = rest.filter((r) => r.ago < 1440);
   const week = rest.filter((r) => r.ago >= 1440);
   const todo = draftsOnly ? rows : [];
   return (
     <section>
-      <header className="flex items-center gap-2">
+      {top && <div>{top}</div>}
+      <header className={`flex items-center gap-2 ${top ? "pt-6" : ""}`}>
         <h1 className="page-title mr-auto">Tickets</h1>
         <label className="flex h-[30px] w-[150px] items-center gap-2 rounded-[7px] bg-[var(--color-hover)] px-2.5 text-muted">
           <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true" className="shrink-0">

@@ -243,7 +243,7 @@ export default function PrivacyPage() {
           </p>
           <p>
             Brief is open source, so you can check this yourself, or{" "}
-            <a href="https://github.com/razi2001/brief/blob/main/SELF_HOSTING.md" className="underline">
+            <a href="https://github.com/razi2001/brief/blob/main/docs/SELF_HOSTING.md" className="underline">
               run your own copy
             </a>{" "}
             so that nobody but your team holds your data. Our database is not

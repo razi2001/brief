@@ -6,7 +6,7 @@ Run Brief on your own machine or server, with your own accounts. Your recordings
 
 ## With a coding agent
 
-Ask Claude Code (or any agent that can run commands): *Clone https://github.com/razi2001/brief and set it up for me by following SELF_HOSTING.md.*
+Ask Claude Code (or any agent that can run commands): *Clone https://github.com/razi2001/brief and set it up for me by following docs/SELF_HOSTING.md.*
 
 **Agent: do these steps, one at a time. "Me" is the person you are setting it up for.**
 
@@ -58,7 +58,7 @@ Create a key at [platform.openai.com/api-keys](https://platform.openai.com/api-k
 
 ### 5. Your tracker
 
-Brief connects to trackers with OAuth apps that you own. Fill only the ones your team uses: [web/TRACKERS.md](web/TRACKERS.md) has the steps for each. The redirect URI is always:
+Brief connects to trackers with OAuth apps that you own. Fill only the ones your team uses: [web/TRACKERS.md](../web/TRACKERS.md) has the steps for each. The redirect URI is always:
 
 ```
 <APP_URL>/api/connect/<provider>/callback      e.g. http://localhost:3000/api/connect/linear/callback
