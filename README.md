@@ -8,9 +8,9 @@
 
 </div>
 
-<img src="docs/screenshots/record.png" alt="Recording a bug on a checkout page" width="100%">
+<img src="docs/screenshots/extension.png" alt="The Brief extension on a website, with a recording and a note" width="100%">
 
-<img src="docs/screenshots/describe.png" alt="The Brief popup with the recording and a note" width="49%"> <img src="docs/screenshots/filed.png" alt="The filed ticket in Brief" width="49%">
+<img src="docs/screenshots/app.png" alt="The filed ticket in the Brief app" width="100%">
 
 ## How it works
 
