@@ -34,7 +34,7 @@ function Store({ installed, dialog }: { installed?: boolean; dialog?: boolean })
       <div style={{ display: "flex", alignItems: "center", gap: u(16), padding: `${u(24)} ${u(40)}` }}>
         <Mark size={56} />
         <span style={{ flex: 1 }}>
-          <div style={{ fontSize: u(19), fontWeight: 500 }}>Brief Cloud</div>
+          <div style={{ fontSize: u(19), fontWeight: 500 }}>Brief</div>
           <div style={{ fontSize: u(10), color: "#5f6368", marginTop: u(3) }}>get-brief.app · Workflow and planning</div>
         </span>
         <span
@@ -57,7 +57,7 @@ function Store({ installed, dialog }: { installed?: boolean; dialog?: boolean })
         <div className="gd-pop" style={{ position: "absolute", top: u(8), left: "50%", marginLeft: u(-170), width: u(340), padding: u(20), borderRadius: u(10), background: "#fff", boxShadow: `0 ${u(4)} ${u(16)} rgba(0,0,0,.25)`, fontSize: u(11) }}>
           <div style={{ display: "flex", alignItems: "center", gap: u(10), fontSize: u(14), fontWeight: 500 }}>
             <Mark size={22} />
-            Add &quot;Brief Cloud&quot;?
+            Add &quot;Brief&quot;?
           </div>
           <div style={{ color: "#5f6368", margin: `${u(12)} 0 ${u(16)}`, lineHeight: 1.5 }}>It can: read and change your data on the websites you visit</div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: u(8) }}>
@@ -84,7 +84,7 @@ function Permission({ prompt, granted }: { prompt?: boolean; granted?: boolean }
       </Real>
       {prompt && (
         <div className="gd-pop" style={{ position: "absolute", top: u(2), left: u(60), width: u(300), padding: u(16), borderRadius: u(10), background: "#fff", boxShadow: `0 ${u(4)} ${u(16)} rgba(0,0,0,.25)`, fontFamily: "system-ui, sans-serif", fontSize: u(11), color: "#202124", zIndex: 5 }}>
-          <div style={{ fontWeight: 500 }}>Brief Cloud wants to</div>
+          <div style={{ fontWeight: 500 }}>Brief wants to</div>
           <div style={{ display: "flex", alignItems: "center", gap: u(8), margin: `${u(10)} 0 ${u(14)}`, color: "#3c4043" }}>
             <span className="gd-fill" style={{ display: "inline-block", width: u(14), height: u(14) }}>
               <IconMic />
@@ -104,7 +104,7 @@ function Permission({ prompt, granted }: { prompt?: boolean; granted?: boolean }
   );
 }
 
-/** /connect in Brief Cloud: the real ConnectView, paired. */
+/** /connect in Brief: the real ConnectView, paired. */
 function Connected() {
   return (
     <Real>
@@ -134,8 +134,8 @@ export const install = scene<InstallS>({
   ],
   View: ({ s }) => (
     <BrowserFrame
-      url={s.page === "store" ? "chromewebstore.google.com/detail/brief-cloud" : s.page === "perm" ? "Brief Cloud" : `${APP}/connect`}
-      title={s.page === "store" ? "Brief Cloud - Chrome Web Store" : s.page === "perm" ? "Brief - Microphone access" : "Brief Cloud"}
+      url={s.page === "store" ? "chromewebstore.google.com/detail/brief-cloud" : s.page === "perm" ? "Brief" : `${APP}/connect`}
+      title={s.page === "store" ? "Brief - Chrome Web Store" : s.page === "perm" ? "Brief - Microphone access" : "Brief"}
       fav={s.page === "store" ? "#34a853" : "#dd6936"}
       brief={{ pinned: !!s.pinned }}
       puzzleOn={s.menu}
@@ -146,7 +146,7 @@ export const install = scene<InstallS>({
               <div className="head">Extensions</div>
               <div className="item on">
                 <Mark size={14} />
-                <span className="grow">Brief Cloud</span>
+                <span className="grow">Brief</span>
                 <span className="pinned" data-gd="pin">
                   <IconPin />
                 </span>
@@ -185,7 +185,7 @@ export const connect = scene<ConnectS>({
   ],
   View: ({ s }) =>
     s.consent ? (
-      <BrowserFrame url="linear.app/oauth/authorize" title="Authorize Brief Cloud" fav="#5e6ad2" brief={{ pinned: true }}>
+      <BrowserFrame url="linear.app/oauth/authorize" title="Authorize Brief" fav="#5e6ad2" brief={{ pinned: true }}>
         <div className="gd-consent">
           <div className="box gd-pop">
             <div className="logos">
@@ -197,14 +197,14 @@ export const connect = scene<ConnectS>({
                 <TrackerLogo kind="linear" size={22} />
               </span>
             </div>
-            <div style={{ fontWeight: 600 }}>Brief Cloud wants to access your Linear workspace</div>
+            <div style={{ fontWeight: 600 }}>Brief wants to access your Linear workspace</div>
             <div className="s">Create issues, and read teams, labels and states</div>
             <div className="go" data-gd="authorize">Authorize</div>
           </div>
         </div>
       </BrowserFrame>
     ) : (
-      <BrowserFrame url={`${APP}/connections`} title="Settings · Brief Cloud" fav="#dd6936" brief={{ pinned: true }}>
+      <BrowserFrame url={`${APP}/connections`} title="Settings · Brief" fav="#dd6936" brief={{ pinned: true }}>
         <MockApp active="Settings">
           <MockSettings s={s} />
         </MockApp>

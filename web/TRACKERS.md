@@ -237,6 +237,6 @@ Once no user on either Clerk instance has an `oauth_linear`, `oauth_atlassian` o
      MONDAY_CLIENT_ID=<id> MONDAY_CLIENT_SECRET=<secret>
    ```
    To keep them out of shell history: put the `NAME=value` lines in a file, `fly secrets import --stage < file`, delete the file. Partial is fine: a tracker whose secrets are missing stays "Soon" in Settings, except Linear, Jira and GitHub, which keep connecting through Clerk.
-4. **Chrome Web Store**: once the Linear, Jira or GitHub secrets are live, Brief Cloud stores those trackers' tokens itself. Update the listing's "Privacy practices" data disclosure to match the privacy page (`app/privacy/page.tsx`), which already covers both places a token can be held.
+4. **Chrome Web Store**: once the Linear, Jira or GitHub secrets are live, Brief stores those trackers' tokens itself. Update the listing's "Privacy practices" data disclosure to match the privacy page (`app/privacy/page.tsx`), which already covers both places a token can be held.
 5. **Deploy**: `fly deploy` from `web/`.
 6. **Check**: Settings, Tracker lists all ten with no "Soon" tag on the ones you configured; connect each once and file a test ticket. For Linear, Jira and GitHub, check that the connect left no Clerk account behind (Clerk dashboard, the user's connected accounts).

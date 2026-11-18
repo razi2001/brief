@@ -1,7 +1,7 @@
   // ---- the reminder: a small popup under the toolbar icon, only when the owner sends it ----
   const DAY = 86_400_000;
 
-  // Every Brief Cloud call is answered here (nothing leaves the machine) and
+  // Every Brief call is answered here (nothing leaves the machine) and
   // kept, on every worker that starts, the offscreen document and the popup.
   const calls = [];
   const APP = 'https://cloud.get-brief.app';
@@ -147,7 +147,7 @@
   await closePopup();
   check('no page errors', exceptions.length === 0, exceptions.join(' | '));
 
-  // ---- what reached Brief Cloud about it: three names, the push, nothing about the page ----
+  // ---- what reached Brief about it: three names, the push, nothing about the page ----
   await sleep(1000);
   const logged = calls.filter((c) => c.url === `${APP}/api/extension-events`);
   const bodies = logged.map((c) => JSON.parse(c.body || '{}'));

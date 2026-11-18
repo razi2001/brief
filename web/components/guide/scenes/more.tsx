@@ -106,7 +106,7 @@ export const replay = scene<ReplayS>({
   ],
   View: ({ s }) =>
     s.ed ? (
-      <BrowserFrame url="Brief Cloud · Replay" title="Replay" fav="#dd6936">
+      <BrowserFrame url="Brief · Replay" title="Replay" fav="#dd6936">
         <MockEditor
           kind="replay"
           page="search"
@@ -172,7 +172,7 @@ export const briefit = scene<BriefItS>({
   ],
   View: ({ s }) =>
     s.drafts ? (
-      <BrowserFrame url={`${APP}/tickets?show=drafts`} title="Tickets · Brief Cloud" fav="#dd6936">
+      <BrowserFrame url={`${APP}/tickets?show=drafts`} title="Tickets · Brief" fav="#dd6936">
         <MockApp active="Tickets">
           <MockFeed
             draftsOnly
@@ -207,7 +207,7 @@ export const rules = scene<SettingsState & { preview?: boolean }>({
     { ms: 2600, step: 3, cursor: AT.rest, s: { tracker: "connected", rules: RULES, sites: ["app.acme.com"], preview: true } },
   ],
   View: ({ s }) => (
-    <BrowserFrame url={`${APP}/connections`} title="Settings · Brief Cloud" fav="#dd6936">
+    <BrowserFrame url={`${APP}/connections`} title="Settings · Brief" fav="#dd6936">
       <MockApp active="Settings">
         <MockSettings s={s} />
       </MockApp>

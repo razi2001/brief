@@ -26,7 +26,7 @@ CHROME_PATH=<the chrome binary it printed> node extension/test/e2e/run.mjs
 `node extension/test/e2e/run.mjs editor` runs one suite. Screenshots and the
 rendered replay video are written to `$E2E_OUT` (a temp folder by default).
 
-The suites intercept every call to Brief Cloud (nothing leaves the machine).
+The suites intercept every call to Brief (nothing leaves the machine).
 `node --check` on a `.js` file misses syntax errors in these ES modules: check a
 `.mjs` copy, or just run the suites.
 

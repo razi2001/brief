@@ -1,4 +1,4 @@
-// Brief Cloud client. The backend URL lives in config.js - change ENV there to
+// Brief client. The backend URL lives in config.js - change ENV there to
 // switch between local / fly / prod, then reload the extension.
 import { APP_URL } from "./config.js";
 export { APP_URL };
@@ -99,7 +99,7 @@ async function fetchOrThrow(url, init, label) {
 // network/auth/server failure so the caller can show a friendly hint.
 export async function transcribeNote(blob, tokenOverride) {
   const token = tokenOverride || (await getCloudToken());
-  if (!token) throw new Error("Not connected to Brief Cloud");
+  if (!token) throw new Error("Not connected to Brief");
   const res = await fetchOrThrow(
     `${APP_URL}/api/transcribe`,
     {
@@ -128,7 +128,7 @@ export async function transcribeNote(blob, tokenOverride) {
 // `via`: 'nudge' for a brief the "Seen a bug?" card started (the server logs it).
 export async function uploadDraft(files, meta, tokenOverride, { shareId, via } = {}) {
   const token = tokenOverride || (await getCloudToken());
-  if (!token) throw new Error("Not connected to Brief Cloud");
+  if (!token) throw new Error("Not connected to Brief");
   const create = await fetchOrThrow(`${APP_URL}/api/briefs`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -152,7 +152,7 @@ export async function uploadDraft(files, meta, tokenOverride, { shareId, via } =
 // overwrites it instead of failing.
 export async function uploadFilesToDraft(briefId, files, tokenOverride) {
   const token = tokenOverride || (await getCloudToken());
-  if (!token) throw new Error("Not connected to Brief Cloud");
+  if (!token) throw new Error("Not connected to Brief");
   const create = await fetchOrThrow(`${APP_URL}/api/briefs/${briefId}/files`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -193,7 +193,7 @@ async function putAll(files, uploads, extraHeaders, parallel = 4) {
 // actionable "connect your tracker" message instead of a generic failure.
 export async function processBrief(briefId, overrides = {}) {
   const token = await getCloudToken();
-  if (!token) throw new Error("Not connected to Brief Cloud");
+  if (!token) throw new Error("Not connected to Brief");
   const res = await fetch(`${APP_URL}/api/briefs/${briefId}/process`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -225,7 +225,7 @@ export async function processBrief(briefId, overrides = {}) {
 // the path for people with no tracker connected. Returns the share id.
 export async function createDraft(briefId, overrides = {}) {
   const token = await getCloudToken();
-  if (!token) throw new Error("Not connected to Brief Cloud");
+  if (!token) throw new Error("Not connected to Brief");
   const res = await fetch(`${APP_URL}/api/briefs/${briefId}/draft`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },

@@ -7,7 +7,7 @@
 // Talks to background.js via chrome.runtime messages. The bar iframe never
 // touches mic or MediaRecorder directly - it only sends control messages.
 //
-// When connected to Brief Cloud, THIS document also uploads the finished
+// When connected to Brief, THIS document also uploads the finished
 // draft (it holds the blob and outlives the bar, which closes immediately) -
 // the bar shows "saved" right away and the upload runs in the background.
 // Background keeps this document alive until it reports OFFSCREEN_DONE.
@@ -650,7 +650,7 @@ async function uploadAndFinish({ briefId, intent, blob, audioBlob, mimeType, fil
     // No pairing token: say so plainly. (uploadDraft would otherwise fall back
     // to chrome.storage, which doesn't exist in this document, and the failure
     // would read as "Cannot read properties of undefined".)
-    if (!token) throw new Error('Not connected to Brief Cloud');
+    if (!token) throw new Error('Not connected to Brief');
 
     // Transient network/server hiccups: retry before declaring failure -
     // there is no local fallback anymore, so we try hard here.

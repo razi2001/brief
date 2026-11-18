@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Brief Cloud",
+  "name": "Brief",
   "version": "1.8.2",
-  "description": "Record a bug, hit stop. Brief Cloud writes the ticket and files it to your Linear or Jira automatically. No local agent.",
+  "description": "Record a bug, hit stop. Brief writes the ticket and files it to your Linear or Jira automatically. No local agent.",
   "author": "razi2001",
   "homepage_url": "https://get-brief.app",
   "permissions": [

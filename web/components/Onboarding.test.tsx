@@ -160,7 +160,7 @@ describe("Onboarding's extension step", () => {
     renderWizard();
     await screen.findByText("Install the extension");
     expect(screen.getByRole("link", { name: /Add to Chrome/ })).toBeTruthy();
-    expect(screen.queryByText(/Connect to Brief Cloud/)).toBeNull();
+    expect(screen.queryByText(/Connect to Brief/)).toBeNull();
   });
 
   it("shows the extension connected once it pairs with this account, in this tab or the setup tab", async () => {

@@ -1102,7 +1102,7 @@ chrome.storage.local.get('ticketsUnseen').then(({ ticketsUnseen }) => {
   if (ticketsUnseen) briefCloudBtn?.classList.add('unseen');
 }).catch(() => {});
 
-// Take `url` in a Brief Cloud tab already open, rather than piling up tabs:
+// Take `url` in a Brief tab already open, rather than piling up tabs:
 // one already on `prefer` (URL patterns) first, else any app tab, else a new one.
 async function openAppTab(url, prefer) {
   try {
@@ -1130,7 +1130,7 @@ async function openTicketsTab() {
 // page instead of the tickets list.
 function renderCloudLink() {
   briefCloudBtn?.classList.toggle('unlinked', !bcConnected);
-  briefCloudBtn?.setAttribute('aria-label', bcConnected ? 'Open Brief Cloud' : 'Connect to Brief Cloud');
+  briefCloudBtn?.setAttribute('aria-label', bcConnected ? 'Open Brief' : 'Connect to Brief');
 }
 
 // A tracker that files but should be reconnected (Linear, Jira or GitHub still
@@ -1213,7 +1213,7 @@ function attachVoiceDictation(textarea, container, onCommit) {
   let meterCtx = null, meterRaf = null;
 
   // Live words. While you speak, what was recorded so far is sent to the same
-  // transcription the finished note gets (Brief Cloud, /api/transcribe) every
+  // transcription the finished note gets (Brief, /api/transcribe) every
   // second or so, and the answer is written straight into the field: you watch
   // your sentence form instead of waiting for it. Each pass hears the note from
   // its start, so the text can correct itself as the sentence gets longer, and

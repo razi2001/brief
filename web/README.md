@@ -1,4 +1,4 @@
-# Brief Cloud — web app
+# Brief — web app
 
 The hosted side of Brief. You connect a tracker (Linear today, Jira ready), pair the
 Brief extension, and recorded bugs are turned into well-written tickets **by a hosted
@@ -99,7 +99,7 @@ than rendered as permanently broken images.
 ## Pair the extension
 
 Load `../extension` unpacked at `chrome://extensions`, open the ✦ popup, click
-**Connect to Brief Cloud** → sign in → the web app pushes a token to the extension.
+**Connect to Brief** → sign in → the web app pushes a token to the extension.
 Then record a bug and hit stop — it uploads and files automatically. (Not connected →
 the extension falls back to the original local zip export.)
 

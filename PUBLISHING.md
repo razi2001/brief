@@ -1,11 +1,11 @@
-# Publishing Brief Cloud to the Chrome Web Store
+# Publishing Brief to the Chrome Web Store
 
-A complete, copy-paste-ready runbook to take the **Brief Cloud** extension live today:
+A complete, copy-paste-ready runbook to take the **Brief** extension live today:
 what was changed to pass review, how to package it, the icons and listing art, the
 exact permission justifications and privacy disclosures, and the click-by-click
 submission steps.
 
-> Brief Cloud is a **separate item** from the existing local "Brief" listing. You are
+> Brief is a **separate item** from the existing local "Brief" listing. You are
 > creating a brand-new Web Store item here, not updating the old one.
 
 ---
@@ -34,7 +34,7 @@ a `localhost` entry in a production build. We cleared all of them.
 | 1 | Removed `downloads` and `downloads.ui` permissions | `extension/manifest.json` | Dead code. The cloud build uploads recordings to the API; there is no local-zip download path, so no `chrome.downloads.*` call exists anywhere. Unused permissions trigger rejection / clarification requests. |
 | 2 | Deleted `extension/lib/zip.js` and removed it from `web_accessible_resources` | `extension/lib/zip.js`, `manifest.json` | The local-zip builder is never imported. Dead code. |
 | 3 | Removed `http://localhost:3000/*` from `externally_connectable.matches` | `extension/manifest.json` | Shipping a `localhost` origin in a production build lets any local page message the extension and plant or wipe the pairing token. Reviewers flag this. The prod build uses `cloud.get-brief.app`, so it is unused. (Dev note in section 12.) |
-| 4 | Hardened `onMessageExternal` with an explicit sender-origin allowlist | `extension/background.js` | Defense in depth: even an allowlisted origin is re-checked before the pairing token is stored or cleared, so only the real Brief Cloud web app can touch it. |
+| 4 | Hardened `onMessageExternal` with an explicit sender-origin allowlist | `extension/background.js` | Defense in depth: even an allowlisted origin is re-checked before the pairing token is stored or cleared, so only the real Brief web app can touch it. |
 | 5 | Narrowed `web_accessible_resources` to only the page-injected assets (`bar.*`, `shot.*`, `fonts.css`, `fonts/*`) | `extension/manifest.json` | `offscreen.*` is loaded internally (never by a web page), and the `skill/*` docs were exposed to every site. Narrowing shrinks the attack and fingerprint surface. |
 | 6 | Added a public privacy-policy page | `web/app/privacy/page.tsx`, `web/proxy.ts` | The store requires a privacy policy for an extension that records screen, audio, and keystrokes and stores an auth token. Served at `cloud.get-brief.app/privacy`. |
 
@@ -70,7 +70,7 @@ Compress-Archive -Path extension\* -DestinationPath brief-cloud-1.3.0.zip -Force
 - **Version:** `manifest.json` is `1.3.0` for this release. Every subsequent
   upload must have a **higher** version (e.g. `1.3.1`), or the dashboard rejects it.
 - **Optional clean-up:** `extension/skill/` is documentation for the local-agent
-  edition and is not used by Brief Cloud. It is no longer web-exposed, so it is
+  edition and is not used by Brief. It is no longer web-exposed, so it is
   harmless, but you can exclude it for a tidier package:
   ```powershell
   $tmp = "build\extension"; Remove-Item build -Recurse -Force -ErrorAction SilentlyContinue
@@ -141,26 +141,26 @@ $src = "file:///" + $f.Replace('\','/')
 **Item name** (45 char max):
 
 ```
-Brief Cloud: record a bug, file the ticket
+Brief: record a bug, file the ticket
 ```
 
 **Summary / short description** (132 char max):
 
 ```
-Record a bug, hit stop. Brief Cloud writes a clear ticket and files it to your Linear or Jira automatically. No local agent.
+Record a bug, hit stop. Brief writes a clear ticket and files it to your Linear or Jira automatically. No local agent.
 ```
 
 **Detailed description:**
 
 ```
-Half the bugs your team hits never get filed, because writing a good ticket takes five minutes and nobody bothers. Brief Cloud fixes that.
+Half the bugs your team hits never get filed, because writing a good ticket takes five minutes and nobody bothers. Brief fixes that.
 
-Hit the mark, talk through the bug while it is on screen, and stop. Brief Cloud captures the tab, your voice, screenshots, and the console errors, then writes a clear, structured ticket and files it straight to your connected Linear or Jira. No copy and paste, no local agent to run.
+Hit the mark, talk through the bug while it is on screen, and stop. Brief captures the tab, your voice, screenshots, and the console errors, then writes a clear, structured ticket and files it straight to your connected Linear or Jira. No copy and paste, no local agent to run.
 
 HOW IT WORKS
 1. Connect Linear or Jira once on the web, then pair the extension.
 2. Record a brief on any tab. Add a note, custom fields, or a screenshot if you want.
-3. Hit Create ticket. Brief Cloud transcribes your voice, reads the evidence, and files the issue with reproduction steps attached.
+3. Hit Create ticket. Brief transcribes your voice, reads the evidence, and files the issue with reproduction steps attached.
 
 WHAT GOES INTO EVERY TICKET
 - A clean, written description from your spoken narration
@@ -184,7 +184,7 @@ Full policy: https://cloud.get-brief.app/privacy
 ## 6. Single purpose (paste into the "Single purpose" field)
 
 ```
-Brief Cloud lets a user record a bug or feature request in the browser (tab video,
+Brief lets a user record a bug or feature request in the browser (tab video,
 voice narration, screenshots, and runtime errors) and turns that recording into a
 written issue that is filed to the user's connected Linear or Jira tracker.
 ```
@@ -209,9 +209,9 @@ an explicit user gesture on the visible tab.
 **tabs**
 ```
 Used to (1) open the extension's own helper pages (the microphone-permission page, the
-Brief Cloud pairing page, and the filed-ticket page) with tabs.create/update; (2) read
+Brief pairing page, and the filed-ticket page) with tabs.create/update; (2) read
 the active tab's URL and title so each filed ticket records where the bug happened; and
-(3) focus an already-open Brief Cloud tab instead of opening duplicates, which requires
+(3) focus an already-open Brief tab instead of opening duplicates, which requires
 reading tab URLs.
 ```
 
@@ -228,7 +228,7 @@ code is ever loaded or executed.
 **storage**
 ```
 Used as the extension's only persistence layer: the local inbox of pending briefs, the
-Brief Cloud pairing token, a cached microphone-grant flag so the popup opens instantly,
+Brief pairing token, a cached microphone-grant flag so the popup opens instantly,
 the recording bar's dragged position, and a short-lived flag telling the popup which
 brief to expand after a capture. All stored locally on the user's device.
 ```
@@ -246,7 +246,7 @@ user-initiated.
 An MV3 service worker cannot run getUserMedia, MediaRecorder, AudioContext, or canvas
 keyframe extraction. The extension creates one offscreen document (reasons USER_MEDIA
 and DISPLAY_MEDIA) to host the recorder: it captures and mixes the streams, records the
-webm, extracts keyframes, and uploads the finished brief to Brief Cloud in the
+webm, extracts keyframes, and uploads the finished brief to Brief in the
 background.
 ```
 
@@ -270,9 +270,9 @@ function; nothing is fetched and executed at runtime.
 ## 8. Privacy practices (the "Data collection" form)
 
 Declare the categories below. For each, the form asks you to confirm the data is
-collected; map them to what Brief Cloud actually sends:
+collected; map them to what Brief actually sends:
 
-| Web Store category | Declare? | What it maps to in Brief Cloud |
+| Web Store category | Declare? | What it maps to in Brief |
 |--------------------|:--------:|--------------------------------|
 | Personally identifiable information | **Yes** | The brief name, your typed description, and custom fields may contain whatever you type, including PII. |
 | Authentication information | **Yes** | The pairing token that authenticates the extension to your account (stored locally, sent only to cloud.get-brief.app). |
@@ -281,7 +281,7 @@ collected; map them to what Brief Cloud actually sends:
 | Web history | **Your call** | We capture the URL/title of the page you record, not your browsing history. If you prefer to over-disclose for a smooth review, check it; otherwise leave it. |
 | Health, Financial, Location, Personal communications | No | None collected. |
 
-Then check the three required certifications (all true for Brief Cloud):
+Then check the three required certifications (all true for Brief):
 
 - [x] I do not sell or transfer user data to third parties outside the approved use cases.
 - [x] I do not use or transfer user data for purposes unrelated to my item's single purpose.

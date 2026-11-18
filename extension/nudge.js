@@ -85,7 +85,7 @@ export function missedNudge(now = Date.now()) {
 export const CARD_EVENTS = ['nudge.shown', 'nudge.brief_it', 'nudge.closed'];
 
 /**
- * Tell Brief Cloud what happened to the reminder: it opened (`replay`: over a
+ * Tell Brief what happened to the reminder: it opened (`replay`: over a
  * Replay site or not), a capture started from it, or it closed with none.
  * `push`: the id of the owner's push that opened it, so /admin/card can say
  * what each person did with it. Fire and forget, with the pairing token.

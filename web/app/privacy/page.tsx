@@ -3,12 +3,12 @@ import Link from "next/link";
 import StandalonePage, { SHEET } from "@/components/StandalonePage";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy · Brief Cloud",
+  title: "Privacy Policy · Brief",
   description:
-    "What the Brief Cloud Chrome extension and web app collect, why, where it goes, and how long it is kept.",
+    "What the Brief Chrome extension and web app collect, why, where it goes, and how long it is kept.",
 };
 
-// Public, static privacy policy for the Brief Cloud Chrome Web Store listing.
+// Public, static privacy policy for the Brief Chrome Web Store listing.
 // Reachable at https://cloud.get-brief.app/privacy (allowlisted in proxy.ts).
 // Keep this in sync with the Chrome Web Store "Privacy practices" disclosures.
 
@@ -36,7 +36,7 @@ export default function PrivacyPage() {
     <StandalonePage>
       <article className={`${SHEET} max-w-[720px] px-6 py-10 sm:px-14 sm:py-14`}>
         <header className="border-b hairline pb-7">
-          <p className="text-xs text-muted">Brief Cloud</p>
+          <p className="text-xs text-muted">Brief</p>
           <h1 className="mt-1.5 text-[28px] font-semibold leading-tight tracking-[-0.02em] text-ink">
             Privacy Policy
           </h1>
@@ -45,7 +45,7 @@ export default function PrivacyPage() {
 
         <div className="mt-7 space-y-3 text-sm leading-[1.7] text-ink-2">
           <p>
-            Brief Cloud is a Chrome extension and companion web app that lets you
+            Brief is a Chrome extension and companion web app that lets you
             record a bug or feature request, then writes a clear ticket from that
             recording and files it to your connected issue tracker (Linear,
             Jira, GitHub, GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana or
@@ -56,7 +56,7 @@ export default function PrivacyPage() {
           <p>
             Short version: we only handle the briefs you choose to record, we send
             them to our own backend so we can turn them into tickets, we keep our
-            own log of how Brief Cloud is used so we can improve it, we do not run
+            own log of how Brief is used so we can improve it, we do not run
             any advertising or third-party analytics trackers, and we never sell
             your data.
           </p>
@@ -123,8 +123,8 @@ export default function PrivacyPage() {
             shared with any third party.
           </p>
           <p>
-            Connecting a tracker gives Brief Cloud an access token for it, which is
-            kept in one of two places. For a connection made through Brief Cloud,
+            Connecting a tracker gives Brief an access token for it, which is
+            kept in one of two places. For a connection made through Brief,
             the authorization comes back to us, and we store the token (and the
             refresh token, when the tracker issues one) encrypted with AES-256 in
             our database. A Linear, Jira or GitHub connection may instead be made
@@ -141,7 +141,7 @@ export default function PrivacyPage() {
 
         <Section title="Usage log">
           <p>
-            Brief Cloud keeps a log of what you do with your account: the pages
+            Brief keeps a log of what you do with your account: the pages
             you open in the web app, the setup steps you reach, the trackers you
             connect or disconnect, when the extension is paired or its popup
             opens, and when a brief is created, filed or fails. When you sign up
@@ -149,7 +149,7 @@ export default function PrivacyPage() {
             you came from.
           </p>
           <p>
-            We use this log only to see where Brief Cloud is hard to use and fix
+            We use this log only to see where Brief is hard to use and fix
             it. It is kept in our own database, it is not shared with anyone, and
             it uses no cookies and no third-party analytics. The extension itself
             sends no analytics: the log is made from the requests it already sends
@@ -180,7 +180,7 @@ export default function PrivacyPage() {
           <p>Your brief data is sent to the following services, and no others:</p>
           <ul className="ml-5 list-disc space-y-2 marker:text-muted">
             <li>
-              <strong className="font-medium text-ink">Brief Cloud backend</strong> (cloud.get-brief.app), hosted on
+              <strong className="font-medium text-ink">Brief backend</strong> (cloud.get-brief.app), hosted on
               Fly.io, which receives the brief and orchestrates writing and filing
               the ticket.
             </li>
@@ -218,7 +218,7 @@ export default function PrivacyPage() {
             the recording&quot; option, so the brief&apos;s own page can show the
             same evidence; everything else is deleted. A record of the ticket you
             filed (its title, status, the written-up text, and the link to it in
-            your tracker) is kept in your account so your Brief Cloud feed and the
+            your tracker) is kept in your account so your Brief feed and the
             brief&apos;s page can show it.
           </p>
           <p>
@@ -277,7 +277,7 @@ export default function PrivacyPage() {
             to capture console and network errors during the recording, an
             offscreen document to run the recorder, and local storage to keep your
             brief inbox and pairing token on your device. The extension talks only
-            to the Brief Cloud web app for pairing.
+            to the Brief web app for pairing.
           </p>
         </Section>
 
@@ -303,7 +303,7 @@ export default function PrivacyPage() {
 
         <footer className="mt-12 border-t hairline pt-5 text-xs text-muted">
           <Link href="/" className="no-underline transition-colors hover:text-ink">
-            Back to Brief Cloud
+            Back to Brief
           </Link>
         </footer>
       </article>

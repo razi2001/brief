@@ -556,7 +556,7 @@ body.sheet-open { overflow:hidden; }
 .fly-dot { position:fixed; width:12px; height:12px; border-radius:50%; background:var(--accent); z-index:80; pointer-events:none;
   box-shadow:0 2px 8px rgba(221,105,54,.5); }
 
-/* not paired with Brief Cloud: the cloud button says Connect (it opens the
+/* not paired with Brief: the cloud button says Connect (it opens the
    pairing page) instead of sitting there as an unlabeled icon. Text only: with
    the icon too, "What's the brief?" no longer fits on one line. */
 .cloud-label { display:none; }

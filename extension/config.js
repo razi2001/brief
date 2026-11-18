@@ -1,7 +1,7 @@
-// Brief Cloud - which backend does the extension talk to?
+// Brief - which backend does the extension talk to?
 //
 // Change ENV below, then reload the extension at chrome://extensions
-// (hit the ↻ button on the Brief Cloud card). That's the only switch.
+// (hit the ↻ button on the Brief card). That's the only switch.
 //
 //   local → your dev server   (npm run dev in web/, http://localhost:3000)
 //   prod  → the deployed app   (https://cloud.get-brief.app)
