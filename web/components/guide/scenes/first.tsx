@@ -79,7 +79,7 @@ export const record = scene<RecordS>({
   ],
   View: ({ s }) =>
     s.ed ? (
-      <BrowserFrame url="Brief Cloud · Recording" title="Recording" fav="#dd6936">
+      <BrowserFrame url="Brief · Recording" title="Recording" fav="#dd6936">
         <MockEditor kind="recording" page="checkout" keep={s.ed.keep} crop={s.ed.crop} tool={s.ed.tool} mark={s.ed.mark} actionOn={s.ed.saveOn} head={s.ed.keep[0] + 22} />
       </BrowserFrame>
     ) : (
@@ -118,7 +118,7 @@ export const create = scene<CreateS>({
   ],
   View: ({ s }) =>
     s.feed ? (
-      <BrowserFrame url={`${APP}/tickets${s.feed === "drafts" ? "?show=drafts" : ""}`} title="Tickets · Brief Cloud" fav="#dd6936">
+      <BrowserFrame url={`${APP}/tickets${s.feed === "drafts" ? "?show=drafts" : ""}`} title="Tickets · Brief" fav="#dd6936">
         <MockApp active="Tickets">
           {s.feed === "drafts" ? (
             <MockFeed

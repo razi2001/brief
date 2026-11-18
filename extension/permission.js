@@ -2,7 +2,7 @@
 //
 // This page exists only to fire Chrome's native mic prompt reliably (a
 // top-level extension tab is the one context where it works). Once mic is
-// granted, we hand off to the Brief Cloud connect page so the user can pair the
+// granted, we hand off to the Brief connect page so the user can pair the
 // extension (the old settings/options page has been removed). A blocked or
 // missing mic must not stop the pairing: after a failure, the user can go on
 // without it.
@@ -30,7 +30,7 @@ async function checkMic() {
 }
 
 function goToOnboarding() {
-  // Send the user to Brief Cloud to pair the extension.
+  // Send the user to Brief to pair the extension.
   location.href = `${APP_URL}/connect?ext=${chrome.runtime.id}`;
 }
 

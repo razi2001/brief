@@ -16,7 +16,7 @@
 .gd-canvas {
   --u: calc(100cqw / 800);
   /* one real pixel of the extension popup and bar (shown a touch larger), and
-     of a 1000px-wide browser page (Brief Cloud, the editor) */
+     of a 1000px-wide browser page (Brief, the editor) */
   --p: calc(var(--u) * 0.78);
   --a: calc(var(--u) * 0.756);
   position: absolute;
@@ -292,7 +292,7 @@
 
 /* ---------- the evidence editor (editor.css, 1 px = --a) ---------- */
 
-/* ---------- Brief Cloud (1 px = --a) ---------- */
+/* ---------- Brief (1 px = --a) ---------- */
 
 /* Settings */
 .gd-site { display: inline-flex; align-items: center; gap: calc(6 * var(--a)); padding: calc(4 * var(--a)) calc(8 * var(--a)); border-radius: calc(6 * var(--a)); border: calc(1 * var(--a)) solid rgba(26, 22, 18, 0.09); background: #fff; font-family: var(--font-mono), ui-monospace, monospace; font-size: calc(12 * var(--a)); color: #3a3530; animation: gd-pop 0.2s both; }

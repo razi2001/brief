@@ -1,5 +1,5 @@
   // ---- the popup and the account's tracker status (/api/me) ----
-  // Every Brief Cloud call from the extension is answered here (nothing leaves
+  // Every Brief call from the extension is answered here (nothing leaves
   // the machine); /api/me says whatever the current case needs.
   const shot = async (sid, name) => fs.writeFileSync(`${SCRATCH}/${name}`, Buffer.from((await b.send('Page.captureScreenshot', { format: 'png' }, sid)).data, 'base64'));
   const APP = 'https://cloud.get-brief.app';

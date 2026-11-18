@@ -12,7 +12,7 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const lesson = lessonBySlug(slug);
-  return { title: lesson ? `${lesson.title} · How to use Brief` : "How to use Brief · Brief Cloud" };
+  return { title: lesson ? `${lesson.title} · How to use Brief` : "How to use Brief" };
 }
 
 export default async function LessonPage({ params }: { params: Promise<{ slug: string }> }) {

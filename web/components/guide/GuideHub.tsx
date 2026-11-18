@@ -98,7 +98,7 @@ export default function GuideHub() {
       {facts.extension === false && (
         <section className="card mt-7 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
           <BrandMark size={36} className="shrink-0" />
-          <div className="flex-1 text-[15px] font-semibold text-ink">Brief Cloud for Chrome</div>
+          <div className="flex-1 text-[15px] font-semibold text-ink">Brief for Chrome</div>
           <a href={CHROME_STORE_URL} target="_blank" rel="noopener" className="btn-accent justify-center">
             Add to Chrome
             <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">

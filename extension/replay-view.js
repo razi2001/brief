@@ -23,7 +23,7 @@ import { APP_URL } from './config.js';
 
 // Nothing in the buffer: say for which page (the tab this editor was opened
 // from), and whether Replay is on for its site at all - the sites are set in
-// Brief Cloud, Connections > Replay.
+// Brief, Connections > Replay.
 async function nothingRecorded(page) {
   page.save.hidden = true;
   const settings = { label: 'Set up Replay', href: `${APP_URL}/connections#replay` };

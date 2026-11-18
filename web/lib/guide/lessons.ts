@@ -48,10 +48,10 @@ export const LESSONS: readonly Lesson[] = [
     title: "Install the extension",
     blurb: "You capture bugs in Chrome, right on the page where they happen.",
     steps: [
-      `Add [Brief Cloud](${CHROME_STORE_URL}) from the Chrome Web Store.`,
+      `Add [Brief](${CHROME_STORE_URL}) from the Chrome Web Store.`,
       "A setup tab opens: click **Grant microphone access**, then **Allow**.",
-      "The tab moves on to Brief Cloud and connects the extension to your account: *Connected*.",
-      "Pin it: the puzzle icon, then the pin next to Brief Cloud.",
+      "The tab moves on to Brief and connects the extension to your account: *Connected*.",
+      "Pin it: the puzzle icon, then the pin next to Brief.",
     ],
     scene: "install",
     tryIt: { kind: "install" },

@@ -4,14 +4,13 @@ Run Brief on your own machine or server, with your own accounts. Your recordings
 
 **You need:** Docker, Node 20+, Chrome, and free accounts at [Supabase](https://supabase.com), [Clerk](https://clerk.com) and [OpenAI](https://platform.openai.com) (pay as you go, about a cent per ticket).
 
-## The fast way: let Claude set it up
+## With a coding agent
 
-Open [Claude Code](https://claude.com/claude-code) (or any coding agent that can run commands) in an empty folder and paste:
+Ask Claude Code (or any agent that can run commands): *Clone https://github.com/razi2001/brief and set it up for me by following SELF_HOSTING.md.*
 
-```text
-Set up a self-hosted Brief for me from https://github.com/razi2001/brief.
+**Agent: do these steps, one at a time. "Me" is the person you are setting it up for.**
 
-1. Clone the repo and read SELF_HOSTING.md and .env.example. Follow the manual steps in SELF_HOSTING.md.
+1. Read this file and .env.example. The manual steps below are the reference.
 2. Check that docker, node (20+) and git are installed. Tell me what's missing and stop if anything is.
 3. Copy .env.example to .env. Generate CONNECTIONS_KEY yourself.
 4. Walk me through each account ONE AT A TIME, telling me exactly which page to open and which value to copy:
@@ -26,7 +25,6 @@ Set up a self-hosted Brief for me from https://github.com/razi2001/brief.
    ask me for the extension id it shows, put it in NEXT_PUBLIC_EXTENSION_ID and rebuild (docker compose up -d --build web).
 8. Have me open APP_URL, sign up, connect my tracker, record a 10 second test brief, and confirm the ticket landed.
 9. Finish with a short summary: the URL, where .env is, how to update (git pull && docker compose up -d --build), and how to back up.
-```
 
 ## The manual way
 

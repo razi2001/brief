@@ -13,7 +13,7 @@ import type { ProviderKey } from "@/lib/tracker";
 import { Real } from "./Real";
 
 /*
- * Brief Cloud in the Guide: the app's own markup and classes (AppShell, Nav,
+ * Brief in the Guide: the app's own markup and classes (AppShell, Nav,
  * BriefsFeed, SettingsView and the rows it opens), drawn at real size inside
  * <Real> and scaled as a whole, so the pictures are the app. Where the real
  * component only draws from its props (StatusGlyph, TrackerLogo, BriefListRow)

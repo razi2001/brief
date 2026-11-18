@@ -13,7 +13,7 @@
     res.writeHead(200, { 'content-type': 'text/html' }); res.end(C.html);
   }).listen(CPORT);
 
-  // Answer Brief Cloud here (nothing leaves the machine) and keep what was sent.
+  // Answer Brief here (nothing leaves the machine) and keep what was sent.
   const uploads = new Map();
   let overrides = null;
   const APP = 'https://cloud.get-brief.app';

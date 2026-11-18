@@ -1048,7 +1048,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (ended?.capture === 'window') closeBars(sender?.tab?.id);
           if (ACTIVE_BAR_TAB_ID != null) chrome.tabs.sendMessage(ACTIVE_BAR_TAB_ID, { type: 'BRIEF_STOP' }).catch(() => {});
           // Close the offscreen document UNLESS it's still uploading to
-          // Brief Cloud in the background (the pending-uploads count was bumped
+          // Brief in the background (the pending-uploads count was bumped
           // by the STOP relay before the bar could send BRIEF_STOP). This
           // also covers the legacy-relay and cancel paths, where the
           // OFFSCREEN_DONE message arrives while recording is still flagged
@@ -1496,12 +1496,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Brief Cloud pairing: the web app pushes/revokes the token (externally_connectable).
+// Brief pairing: the web app pushes/revokes the token (externally_connectable).
 //
 // Defense in depth: manifest "externally_connectable.matches" already restricts
 // which origins Chrome will deliver here, but we ALSO re-check the sender against
 // an explicit allowlist before touching the stored pairing token. That way a
-// pairing token can only be planted or wiped by the real Brief Cloud web app, not
+// pairing token can only be planted or wiped by the real Brief web app, not
 // by any other allowlisted-but-unexpected origin. APP_URL covers the active
 // backend (cloud.get-brief.app in prod, http://localhost:3000 when ENV="local").
 const BRIEF_CLOUD_ORIGINS = new Set([
@@ -1520,7 +1520,7 @@ function isTrustedBriefCloudSender(sender) {
 chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   if (!isTrustedBriefCloudSender(sender)) {
     sendResponse({ ok: false, error: "untrusted_sender" });
-    return; // ignore anything that is not the Brief Cloud web app
+    return; // ignore anything that is not the Brief web app
   }
   if (msg && msg.type === "brief-cloud-token" && typeof msg.token === "string") {
     chrome.storage.local.set({ briefCloudToken: msg.token }, () => sendResponse({ ok: true }));
