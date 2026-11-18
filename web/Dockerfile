@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- deps: install with the lockfile ----
-FROM node:20-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -14,7 +14,7 @@ COPY supabase ./supabase
 CMD ["sh", "-c", "node scripts/migrate.mjs && node scripts/ensure-bucket.mjs"]
 
 # ---- builder: produce the standalone server ----
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 WORKDIR /app
 # NEXT_PUBLIC_* are inlined at build time, so they must be present here (passed
 # as --build-arg / compose build.args / fly.toml [build.args], NOT runtime secrets).
@@ -44,7 +44,7 @@ COPY . .
 RUN npm run build
 
 # ---- runner: slim runtime ----
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
