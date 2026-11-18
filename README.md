@@ -4,7 +4,11 @@
 
 **Talk through a bug. Brief writes the ticket and files it.**
 
-[Chrome Web Store](https://chromewebstore.google.com/detail/heekinkibhgbilagcdnmcjajijaalpcc) · [cloud.get-brief.app](https://cloud.get-brief.app) · MIT
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/heekinkibhgbilagcdnmcjajijaalpcc?label=Chrome%20Web%20Store&color=dd6936)](https://chromewebstore.google.com/detail/heekinkibhgbilagcdnmcjajijaalpcc)
+[![Release](https://img.shields.io/github/v/release/razi2001/brief?color=dd6936)](https://github.com/razi2001/brief/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-dd6936)](LICENSE)
+
+[Try it](https://get-brief.app) · [Self-host](SELF_HOSTING.md) · [Audit](AUDIT.md) · [Discussions](https://github.com/razi2001/brief/discussions)
 
 </div>
 
@@ -35,3 +39,7 @@ Paste into your agent:
 ```text
 Clone https://github.com/razi2001/brief and audit it by following AUDIT.md.
 ```
+
+---
+
+[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
