@@ -4,7 +4,7 @@
 
 Please report vulnerabilities privately through [GitHub's private vulnerability reporting](https://github.com/razi2001/brief/security/advisories/new), not in a public issue. We reply within three days and will credit you in the fix unless you'd rather not.
 
-In scope: the extension, the web app, the hosted instance at cloud.get-brief.app, and anything where the code does more with your data than [PRIVACY.md](PRIVACY.md) says.
+In scope: the extension, the web app, the hosted instance at cloud.get-brief.app, and anything where the code does more with your data than [PRIVACY.md](../docs/PRIVACY.md) says.
 
 ## How Brief is built to be safe
 

@@ -3,4 +3,4 @@
 **How I checked it**
 
 - [ ] `cd web && npx tsc --noEmit && npm run lint && npm test`
-- [ ] Owner views, activity log or telemetry see nothing new, or PRIVACY.md / TELEMETRY.md and the guard tests say so
+- [ ] Owner views, activity log or telemetry see nothing new, or docs/PRIVACY.md / docs/TELEMETRY.md and the guard tests say so

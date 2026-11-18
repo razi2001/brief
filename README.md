@@ -8,7 +8,7 @@
 [![Release](https://img.shields.io/github/v/release/razi2001/brief?color=dd6936)](https://github.com/razi2001/brief/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-dd6936)](LICENSE)
 
-[Try it](https://get-brief.app) · [Self-host](SELF_HOSTING.md) · [Audit](AUDIT.md) · [Discussions](https://github.com/razi2001/brief/discussions)
+[Try it](https://get-brief.app) · [Self-host](docs/SELF_HOSTING.md) · [Audit](docs/AUDIT.md) · [Discussions](https://github.com/razi2001/brief/discussions)
 
 </div>
 
@@ -22,14 +22,14 @@
 - **The service** (a Next.js app) transcribes it, writes the ticket with steps to reproduce, and files it to Linear, Jira, GitHub, GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana or Monday.
 - **Your data:** the people running a Brief server can't read your tickets in its admin views, and you can host your own.
 
-More in [ARCHITECTURE.md](ARCHITECTURE.md) and [PRIVACY.md](PRIVACY.md).
+More in [ARCHITECTURE.md](docs/ARCHITECTURE.md) and [PRIVACY.md](docs/PRIVACY.md).
 
 ## Self-host
 
 Paste into Claude Code (or any coding agent):
 
 ```text
-Clone https://github.com/razi2001/brief and set it up for me by following SELF_HOSTING.md.
+Clone https://github.com/razi2001/brief and set it up for me by following docs/SELF_HOSTING.md.
 ```
 
 ## Audit us
@@ -37,9 +37,9 @@ Clone https://github.com/razi2001/brief and set it up for me by following SELF_H
 Paste into your agent:
 
 ```text
-Clone https://github.com/razi2001/brief and audit it by following AUDIT.md.
+Clone https://github.com/razi2001/brief and audit it by following docs/AUDIT.md.
 ```
 
 ---
 
-[Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Security](SECURITY.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+[Contributing](.github/CONTRIBUTING.md) · [Changelog](docs/CHANGELOG.md) · [Security](.github/SECURITY.md) · [Code of conduct](.github/CODE_OF_CONDUCT.md)

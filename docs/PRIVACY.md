@@ -43,4 +43,4 @@ A self-hosted server sends one anonymous heartbeat a day: see [TELEMETRY.md](TEL
 
 ## Audit it with your agent
 
-Ask Claude Code or any coding agent to follow [AUDIT.md](AUDIT.md). Found a gap? Please report it as described in [SECURITY.md](SECURITY.md).
+Ask Claude Code or any coding agent to follow [AUDIT.md](AUDIT.md). Found a gap? Please report it as described in [SECURITY.md](../.github/SECURITY.md).
