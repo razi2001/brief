@@ -1,10 +1,22 @@
 /**
  * The owner's monitoring view (/admin): who may open it, and the pure
  * filtering behind it. Server loading lives in admin-server.ts.
+ *
+ * The view is content-blind on purpose: a row says who filed what kind of
+ * thing to which tracker and when, never what the ticket says. OWNER_FIELDS
+ * is the whole list, and a test fails if a row ever carries anything else.
  */
 
-/** The accounts allowed to see every ticket and draft, across all users. */
-export const ADMIN_EMAILS = ["fezzani.razi@gmail.com"];
+/**
+ * The accounts allowed to open the owner views, from BRIEF_OWNER_EMAILS
+ * (comma separated). Unset, nobody is an owner and the views 404.
+ */
+export function ownerEmails(env: string | undefined = process.env.BRIEF_OWNER_EMAILS): string[] {
+  return (env ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
 
 /** The parts of a Clerk email address the admin check reads. */
 export type EmailLike = {
@@ -19,14 +31,33 @@ export type EmailLike = {
  * account's address that way - so they never count here: holding a tracker
  * account must not be enough to open everyone's tickets.
  */
-export function isAdminEmail(emails: EmailLike[] | null | undefined): boolean {
+export function isAdminEmail(
+  emails: EmailLike[] | null | undefined,
+  owners: string[] = ownerEmails(),
+): boolean {
   return (emails ?? []).some(
     (e) =>
-      ADMIN_EMAILS.includes(e.emailAddress.trim().toLowerCase()) &&
+      owners.includes(e.emailAddress.trim().toLowerCase()) &&
       e.verification?.status === "verified" &&
       e.verification.strategy !== "admin",
   );
 }
+
+/**
+ * The only brief columns the owner view reads. Status and timing, never
+ * content. kindOf reads ticket_body only to tell a draft being written from a
+ * ticket being filed; without it such a row reads as a draft for a few
+ * seconds, which is fine.
+ */
+export const OWNER_COLUMNS = [
+  "id",
+  "user_id",
+  "status",
+  "created_at",
+  "archived_at",
+  "ticket_provider",
+  "filing_started_at",
+] as const;
 
 export type AdminKind = "ticket" | "draft";
 
@@ -44,19 +75,32 @@ export function kindOf(b: {
   return "ticket";
 }
 
+/**
+ * Everything the owner sees about one ticket or draft. No title, no text, no
+ * share link, no tracker link: those would let the owner read the ticket.
+ */
+export const OWNER_FIELDS = [
+  "id",
+  "kind",
+  "status",
+  "createdAt",
+  "deleted",
+  "provider",
+  "userId",
+  "personName",
+  "personEmail",
+  "personImage",
+  "orgKey",
+  "orgName",
+] as const;
+
 export type AdminRow = {
   id: string;
   kind: AdminKind;
   status: string;
-  title: string;
   createdAt: string | null;
   deleted: boolean;
-  shareId: string | null;
-  ticketUrl: string | null;
-  ticketIdentifier: string | null;
   provider: string | null;
-  stateName: string | null;
-  stateColor: string | null;
   userId: string;
   personName: string;
   personEmail: string | null;
@@ -117,7 +161,7 @@ function matchesExceptKind(r: AdminRow, f: AdminFilters): boolean {
   if (f.person && r.userId !== f.person) return false;
   const q = f.q.trim().toLowerCase();
   if (q) {
-    const hay = [r.title, r.ticketIdentifier, r.personName, r.personEmail, r.orgName, r.shareId]
+    const hay = [r.personName, r.personEmail, r.orgName, r.provider]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();

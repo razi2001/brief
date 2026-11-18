@@ -20,7 +20,7 @@ describe("the sidebar", () => {
       <Nav
         extra={
           <>
-            <Link href="/admin">All tickets</Link>
+            <Link href="/admin">Usage</Link>
             <Link href="/admin/activity">Activity</Link>
           </>
         }
@@ -30,7 +30,7 @@ describe("the sidebar", () => {
       "Tickets",
       "Quality competition",
       "Settings",
-      "All tickets",
+      "Usage",
       "Activity",
       "How to use Brief",
       "Feature requests",

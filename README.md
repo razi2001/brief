@@ -1,161 +1,87 @@
 <div align="center">
 
-# ✦ Brief
+<img src="docs/screenshots/hero.png" alt="Brief: voice the bug, your ticket writes itself" width="840">
 
-**Talk through a bug. Your agent writes the ticket.**
+# Brief
 
-Half the bugs your team sees never get filed. Writing a good ticket takes five minutes, so nobody bothers. Brief is a Chrome extension that captures voice + screen + logs in 30 seconds and hands the rest to your coding agent.
+**Talk through a bug. Brief writes the ticket and files it.**
 
-[**Install from Chrome Web Store →**](https://chromewebstore.google.com/detail/heekinkibhgbilagcdnmcjajijaalpcc) &nbsp; · &nbsp; [get-brief.app](https://get-brief.app)
+A Chrome extension and a small web app. Record your tab and your voice for thirty seconds; Brief turns it into a clear ticket with repro steps, screenshots and console errors, and files it to Linear, Jira, GitHub, GitLab, Azure DevOps, ClickUp, Notion, Trello, Asana or Monday.
 
-**New — [Brief Cloud](web/README.md) (optional, hosted):** connect Linear or Jira, pair the extension, and your recorded bugs become well-written, filed tickets automatically — no local agent needed. See [`web/`](web/README.md).
+[Chrome Web Store](https://chromewebstore.google.com/detail/heekinkibhgbilagcdnmcjajijaalpcc) · [Hosted: cloud.get-brief.app](https://cloud.get-brief.app) · [Self-host in 10 minutes](SELF_HOSTING.md) · [What we can see](PRIVACY.md)
+
+MIT licensed · open source · self-hostable
 
 </div>
 
 ---
 
-## The loop
+## How it works
 
-1. **Record.** Hit ✦, talk through the bug while it's on screen, stop.
-2. **Export.** Copy the prompt, paste it into your coding agent.
-3. **Ship.** Agent reads the brief, files the ticket in Linear / Jira / GitHub / Notion, deletes the source.
+<img src="docs/screenshots/how-it-works.png" alt="Record, it writes, filed" width="100%">
 
-Capture as many as you like through the day — they queue in your inbox. Process them whenever.
+1. **Record.** Click ✦ on any tab and talk through the bug while it's on screen.
+2. **It writes.** Brief transcribes what you said, reads the screenshots and runtime errors, and drafts a ticket with steps to reproduce and evidence.
+3. **Filed.** The ticket lands in your tracker with the right project, status and attachments.
 
-Everything stays on your machine. No accounts, no upload, 100% local. MIT licensed.
+<img src="docs/screenshots/popup.png" alt="The extension popup" width="100%">
 
-## What you need
+## Your data stays yours
 
-- **Chrome** (or any Chromium browser: Edge, Brave, Arc)
-- **A coding agent with file access and a tracker connected** — anything that can read local files and reach your tracker via an integration/MCP
+Brief handles bug recordings, which can show customer data. So we made the privacy story checkable instead of a promise:
 
-Brief does the capturing; your agent does the filing.
+- **The owner views can't read tickets.** The hosted operator sees who filed how many tickets to which tracker. Never a title, text, recording or link. The columns are an allowlist in code, and CI fails if one is added. ([PRIVACY.md](PRIVACY.md))
+- **You see what we see.** Every account has a *What we see* page that renders their own row of the operator's view with the same code.
+- **Media is deleted after filing.** Audio and keyframes go as soon as the ticket is filed.
+- **Self-host it.** One `docker compose up`, your own Supabase, Clerk and OpenAI keys. Then nobody but you holds anything. Self-hosted instances send one anonymous daily count (no content, [TELEMETRY.md](TELEMETRY.md)), off with `BRIEF_TELEMETRY=off`.
 
-## Brief vs. hand-written
+### Let your agent audit us
 
-|                | Brief        | By hand   |
-|----------------|--------------|-----------|
-| Time to write  | 20 seconds   | 5 minutes |
-| Attachment     | ✓            | ✕         |
-| Console logs   | ✓            | ✕         |
-| Repro steps    | ✓            | ✕         |
-| Follow-ups     | 0            | 3         |
+Paste this into Claude Code, Cursor or any coding agent:
 
----
-
-<details>
-<summary><b>Install unpacked (for the latest)</b></summary>
-
-<br>
-
-1. [Download the repo](https://github.com/razi2001/brief/archive/refs/heads/main.zip) and unzip it.
-2. Open `chrome://extensions`, toggle **Developer mode**, click **Load unpacked**, pick the `extension/` folder.
-3. Pin the ✦ icon to your toolbar.
-
-First click on ✦ opens a permission tab to grant the mic, then a short "how it works" page.
-
-**No skill to install separately.** Every brief is a self-contained zip — the filing playbook (`skill/SKILL.md` + playbooks) ships inside it. Any local agent that can read files and reach your tracker can file the ticket.
-
-</details>
-
-<details>
-<summary><b>How it works (under the hood)</b></summary>
-
-<br>
-
-```
-┌──────────────────┐    ┌────────────────────┐    ┌──────────────────┐
-│  Chrome ext      │ →  │  ~/Downloads/      │ →  │  Your agent      │
-│  records tab +   │    │  brief/            │    │  reads brief.json│
-│  voice           │    │  brief-<id>.zip    │    │  files ticket    │
-└──────────────────┘    └────────────────────┘    │  deletes brief   │
-       click ✦              local zip              └──────────────────┘
+```text
+Audit the privacy claims of the open source project Brief (https://github.com/razi2001/brief-cloud).
+Clone it, read PRIVACY.md, then check each claim against the code, not the docs:
+1. Which database columns and fields the owner views (/admin, /admin/activity) can read:
+   web/lib/admin-view.ts (OWNER_FIELDS, OWNER_COLUMNS), web/lib/admin-server.ts, web/lib/activity-server.ts.
+   Look for any other code path that reads briefs across users.
+2. What the activity log stores: web/lib/events.ts (pagePath, errorKind, every track() call).
+3. What leaves a self-hosted instance: web/lib/telemetry.ts, web/lib/telemetry-server.ts, web/instrumentation.ts.
+4. What the extension sends and to where: extension/config.js, extension/cloud.js, extension/background.js.
+5. What is deleted after filing: web/lib/agent/run-processing.ts and the storage cleanup it calls.
+6. Row level security: web/supabase/migrations (every public table should have RLS on).
+Run the guard tests: cd web && npm ci && npx vitest run lib/admin-view.test.ts lib/events-privacy.test.ts lib/telemetry.test.ts
+Report every place where the code does more than PRIVACY.md says, with file and line.
 ```
 
-A brief is a folder:
+## Get started
+
+| | |
+|---|---|
+| **Use the hosted app** | Install the [extension](https://chromewebstore.google.com/detail/heekinkibhgbilagcdnmcjajijaalpcc), sign in at [cloud.get-brief.app](https://cloud.get-brief.app), connect your tracker. |
+| **Self-host** | Paste the prompt in [SELF_HOSTING.md](SELF_HOSTING.md) into Claude Code. It walks you through the keys and runs it. Or follow the manual steps there. |
+| **Hack on it** | [CONTRIBUTING.md](CONTRIBUTING.md). |
+
+## Architecture
 
 ```
-~/Downloads/brief/<id>/
-├── brief.json              ← transcript, time-stamped chunks, events, console errors
-├── recording.webm          ← original screen + voice
-└── keyframes/
-    ├── keyframe-000.png    ← sampled every 2s
-    └── …
+Chrome extension (extension/)          Web app (web/, Next.js)                Your tracker
+ records tab + voice + console  ──►     transcribes, writes the ticket   ──►   Linear, Jira, GitHub,
+ uploads to signed storage URLs         with OpenAI, files it with your        GitLab, Azure DevOps,
+                                        OAuth connection                       ClickUp, Notion, ...
+                                              │
+                         Clerk (sign-in) ─────┤
+                         Supabase (Postgres + private Storage bucket)
 ```
 
-When your agent processes briefs, it:
+| Folder | What |
+|---|---|
+| `extension/` | Chrome MV3 extension: capture bar, screenshot annotator, popup, uploads. Plain JS, no build step. |
+| `web/` | Next.js app: API for the extension, the ticket agent (`lib/agent`), tracker clients (`lib/trackers`), dashboard. |
+| `web/supabase/migrations/` | The whole database schema, applied in order by `web/scripts/migrate.mjs`. |
+| `docker-compose.yml` | Self-hosting: a one-shot migrate step, then the app. |
+| `docs/` | Screenshots, and the design notes features were built from. |
 
-- Binary-searches keyframes (reads 3-5 strategic frames, not all 20+)
-- Maps your spoken words to the frames you said them on (±2s)
-- Picks the right Linear team / GitHub repo / Notion DB **without asking you**
-- Embeds keyframes inline as markdown images
-- Attaches the recording only when it beats the keyframes (motion, timing, multi-step bugs)
-- Includes console errors verbatim
-- **Deletes the brief once the ticket is confirmed filed**
+## License
 
-</details>
-
-<details>
-<summary><b>Voice quality, honestly</b></summary>
-
-<br>
-
-Brief uses Chrome's built-in speech recognition (`webkitSpeechRecognition`). Free and local, but:
-
-- One language per session — pick English or French on the bar; **no auto-switch**.
-- Accents, code, and jargon are mediocre.
-- The skill knows this. It tells the agent to treat the transcript as a draft and use keyframes + events as ground truth.
-
-Whisper support may land in a future release.
-
-</details>
-
-<details>
-<summary><b>Privacy</b></summary>
-
-<br>
-
-- Recording happens in your browser. The video never uploads.
-- Your mic audio passes through Google's speech-recognition service while transcribing (that's `webkitSpeechRecognition`, not us). Not stored.
-- Console-error capture runs only while recording, only on that tab, only forwards error messages — no DOM, no cookies, no storage.
-- Briefs are local. They never leave your machine unless your agent reads them.
-
-</details>
-
-<details>
-<summary><b>FAQ</b></summary>
-
-<br>
-
-**Which coding agents work?**
-Any local agent with file access and a tracker integration. The filing skill ships inside each brief.
-
-**Does it work on `chrome://` pages?**
-No. Chrome blocks tab capture on its own pages.
-
-**Firefox / Safari?**
-Chromium browsers only for now.
-
-**Where do briefs live?**
-- macOS / Linux: `~/Downloads/brief/`
-- Windows: `%USERPROFILE%\Downloads\brief\`
-
-**Can I share a brief with a teammate?**
-Yes — the zip includes the skill. They unzip it, point any local agent at `skill/SKILL.md`, and it'll file the ticket on their machine.
-
-</details>
-
-<details>
-<summary><b>Updating & uninstall</b></summary>
-
-<br>
-
-**Updating.** Pull the latest repo and reload the unpacked extension at `chrome://extensions`. New briefs bundle the newest skill automatically. (Web Store installs update on their own.)
-
-**Uninstall.** Remove the extension at `chrome://extensions`. Your briefs in `~/Downloads/brief/` stay put — delete the folder yourself if you want them gone.
-
-</details>
-
----
-
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

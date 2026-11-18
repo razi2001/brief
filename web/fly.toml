@@ -20,6 +20,10 @@ primary_region = 'cdg'
   # VM: a filing on 2026-11-18 died with "heap out of memory" while half the
   # RAM sat unused. 768 MB leaves room for buffers, zlib and the OS.
   NODE_OPTIONS = '--max-old-space-size=768'
+  # The hosted instance receives self-hosted heartbeats and sends none.
+  # BRIEF_OWNER_EMAILS is a Fly secret, not set here.
+  BRIEF_TELEMETRY = 'off'
+  BRIEF_TELEMETRY_RECEIVER = 'on'
 
 [http_service]
   internal_port = 3000

@@ -101,13 +101,47 @@ export function parseExtensionEvent(body: unknown): { name: ExtensionEvent; prop
   return { name: name as ExtensionEvent, props: out };
 }
 
+/**
+ * A page path with every id taken out, so the log says which kind of page
+ * was opened, never which brief: "/b/Xk3..." -> "/b/:share",
+ * "/tickets/6f1c-..." -> "/tickets/:id". A share id in the log would let
+ * whoever reads the log open that ticket.
+ */
+export function pagePath(path: string): string {
+  const clean = path.split(/[?#]/)[0] || "/";
+  return clean
+    .split("/")
+    .map((seg, i, all) => {
+      if (!seg) return seg;
+      if (i === 2 && all[1] === "b") return ":share";
+      if (/^[0-9a-f-]{16,}$/i.test(seg) || (/\d/.test(seg) && seg.length >= 8)) return ":id";
+      return seg;
+    })
+    .join("/");
+}
+
+/**
+ * A filing error reduced to its kind ("Linear 401", "timeout"), for the
+ * owner's log. The raw message can quote the ticket back (a tracker
+ * rejecting a field echoes it), so it only goes to the server log.
+ */
+export function errorKind(raw: string): string {
+  const trackers = ["Azure DevOps", "Jira", "Linear", "GitHub", "GitLab", "ClickUp", "Notion", "Trello", "Asana", "Monday", "OpenAI"];
+  const tracker = trackers.find((t) => raw.toLowerCase().includes(t.toLowerCase()));
+  const status = /\b([45]\d{2})\b/.exec(raw)?.[1];
+  if (status) return `${tracker ?? "HTTP"} ${status}`;
+  if (/time(d)?\s?out|aborted/i.test(raw)) return `${tracker ? `${tracker} ` : ""}timeout`;
+  if (/no tracker|not connected|reconnect/i.test(raw)) return "no tracker";
+  if (/did not create|no issue/i.test(raw)) return "agent made no ticket";
+  return tracker ? `${tracker} error` : "other";
+}
+
 /** A browser event, or null when the name isn't one the browser may send. */
 export function parseClientEvent(body: unknown): { name: ClientEvent; props: Props } | null {
   if (!body || typeof body !== "object") return null;
   const { name, props } = body as { name?: unknown; props?: unknown };
   if (!(CLIENT_EVENTS as readonly unknown[]).includes(name)) return null;
-  return {
-    name: name as ClientEvent,
-    props: cleanProps(props && typeof props === "object" ? (props as Record<string, unknown>) : {}),
-  };
+  const clean = cleanProps(props && typeof props === "object" ? (props as Record<string, unknown>) : {});
+  if (typeof clean.path === "string") clean.path = pagePath(clean.path);
+  return { name: name as ClientEvent, props: clean };
 }

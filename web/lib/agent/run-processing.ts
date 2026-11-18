@@ -11,7 +11,7 @@ import { loadBriefInput } from "@/lib/agent/load-brief-input";
 import { supabaseStore } from "@/lib/agent/brief-store";
 import { getUserSettings } from "@/lib/settings";
 import { briefPhase, releaseFiling } from "@/lib/brief-filing";
-import { track } from "@/lib/events";
+import { errorKind, track } from "@/lib/events";
 
 // moved to load-brief-input.ts; re-exported for existing importers
 export { loadBriefInput, nearestFrame, urlAt } from "@/lib/agent/load-brief-input";
@@ -129,7 +129,7 @@ export async function processBriefById(
   const { tracker, error } = await resolveTrackerOrError(filer, opts.provider);
   if (!tracker) {
     await releaseFiling(admin, userId, briefId, { status: "failed", error });
-    track(userId, "brief.failed", { stage: "file", error });
+    track(userId, "brief.failed", { stage: "file", error: errorKind(error) });
     return { ok: false, status: 409, error };
   }
 
@@ -269,7 +269,7 @@ export async function processBriefById(
     const explained = explainFilingError(raw, providerName(tracker.kind as ProviderKey));
     console.error(`[process] brief ${briefId} didn't file: ${raw}`);
     await releaseFiling(admin, userId, briefId, { status: "failed", error: explained });
-    track(userId, "brief.failed", { stage: "file", error: raw });
+    track(userId, "brief.failed", { stage: "file", error: errorKind(raw) });
     return { ok: false, status: 500, error: explained };
   }
 }
@@ -349,7 +349,7 @@ export async function draftBriefById(
     const explained = explainFilingError(raw, undefined, { stage: "draft" });
     console.error(`[process] brief ${briefId} draft failed: ${raw}`);
     await draftWrite({ status: "failed", error: explained });
-    track(userId, "brief.failed", { stage: "draft", error: raw });
+    track(userId, "brief.failed", { stage: "draft", error: errorKind(raw) });
     return { ok: false, status: 500, error: explained };
   }
 }

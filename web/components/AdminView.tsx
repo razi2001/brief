@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Avatar from "./Avatar";
 import RefreshButton from "./RefreshButton";
 import { TrackerLogo } from "./TrackerLogo";
-import TicketIdText from "./TicketIdText";
 import type { ProviderKey } from "@/lib/tracker";
 import {
   DEFAULT_FILTERS,
@@ -25,8 +24,8 @@ const KINDS: { key: KindFilter; label: string }[] = [
   { key: "draft", label: "Drafts" },
 ];
 
-// Title takes the slack; the rest are fixed so every row lines up.
-const GRID = "sm:grid sm:grid-cols-[minmax(0,1fr)_160px_112px_104px_40px_150px] sm:items-center sm:gap-x-4";
+// Person takes the slack; the rest are fixed so every row lines up.
+const GRID = "sm:grid sm:grid-cols-[minmax(0,1fr)_160px_120px_112px_48px] sm:items-center sm:gap-x-4";
 
 function relativeTime(iso?: string | null): string {
   if (!iso) return "";
@@ -51,104 +50,35 @@ function statusOf(r: AdminRow): { label: string; color: string } {
   }
   if (r.status === "failed") return { label: "Didn't file", color: "#c62828" };
   if (r.status === "processing") return { label: "Filing…", color: "#dd6936" };
-  return { label: r.stateName || "Filed", color: r.stateColor || "#2e7d32" };
-}
-
-const shareUrl = (shareId: string) => `${window.location.origin}/b/${shareId}`;
-
-const linkIcon = (
-  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5" />
-    <path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5" />
-  </svg>
-);
-const checkIcon = (
-  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M5 12l5 5L20 6" />
-  </svg>
-);
-
-/** Copy to the clipboard, then flash "copied" for a moment. */
-function useCopied(): [boolean, (text: string) => void] {
-  const [done, setDone] = useState(false);
-  const copy = (text: string) => {
-    navigator.clipboard.writeText(text).then(
-      () => {
-        setDone(true);
-        setTimeout(() => setDone(false), 1600);
-      },
-      () => {},
-    );
-  };
-  return [done, copy];
-}
-
-function ShareCell({ shareId }: { shareId: string | null }) {
-  const [done, copy] = useCopied();
-  if (!shareId) return <span className="text-xs text-muted/70">No share link</span>;
-  return (
-    <button
-      type="button"
-      onClick={() => copy(shareUrl(shareId))}
-      title={done ? "Copied" : "Copy share link"}
-      aria-label={`Copy share link /b/${shareId}`}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-hairline bg-surface px-2 py-1.5 font-mono sm:py-1 text-[11.5px] text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
-    >
-      <span className={done ? "text-[#2e7d32]" : "text-muted"}>{done ? checkIcon : linkIcon}</span>
-      {/* Icon only on a phone, so the title keeps the room. */}
-      <span className="hidden truncate sm:inline">{done ? "Copied" : `/b/${shareId}`}</span>
-    </button>
-  );
+  return { label: "Filed", color: "#2e7d32" };
 }
 
 function Row({ r }: { r: AdminRow }) {
   const status = statusOf(r);
-  const href = r.shareId ? `/b/${r.shareId}` : r.ticketUrl;
   const when = r.createdAt ? new Date(r.createdAt) : null;
   return (
     <li className={`flex items-center gap-3 px-4 py-2.5 ${GRID} ${r.deleted ? "opacity-60" : ""}`}>
-      {/* Title, with the tracker id under it. Below sm the person, org and
-          status fold into that second line. */}
-      <div className="min-w-0 flex-1">
-        {href ? (
-          <a href={href} target="_blank" rel="noreferrer" className="block truncate text-[13.5px] text-ink no-underline hover:underline">
-            {r.title}
-          </a>
-        ) : (
-          <span className="block truncate text-[13.5px] text-ink">{r.title}</span>
-        )}
-        <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted">
-          {r.ticketIdentifier && r.ticketUrl && (
-            <a
-              href={r.ticketUrl}
-              target="_blank"
-              rel="noreferrer"
-              title="Open in the tracker"
-              className="inline-flex shrink-0 items-center gap-1 font-mono text-muted no-underline hover:text-ink"
-            >
-              {r.provider && <TrackerLogo kind={r.provider} size={11} />}
-              <TicketIdText
-                identifier={r.ticketIdentifier}
-                provider={(r.provider ?? undefined) as ProviderKey | undefined}
-              />
-            </a>
-          )}
-          {r.deleted && <span className="pill shrink-0 !py-0 text-[10.5px]">Deleted</span>}
-          <span className="truncate sm:hidden">
-            {r.personName} · {r.orgName} · {status.label}
-          </span>
-        </div>
-      </div>
-
-      <div className="hidden min-w-0 items-center gap-2 sm:flex">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         <Avatar name={r.personName} imageUrl={r.personImage ?? undefined} size={22} />
         <div className="min-w-0">
           <div className="truncate text-[13px] text-ink-2">{r.personName}</div>
-          {r.personEmail && <div className="truncate text-[11px] text-muted">{r.personEmail}</div>}
+          <div className="truncate text-[11px] text-muted">
+            {r.personEmail}
+            <span className="sm:hidden">
+              {r.personEmail ? " · " : ""}
+              {r.orgName} · {status.label}
+            </span>
+          </div>
         </div>
+        {r.deleted && <span className="pill shrink-0 !py-0 text-[10.5px]">Deleted</span>}
       </div>
 
       <span className="hidden truncate text-[13px] text-ink-2 sm:block">{r.orgName}</span>
+
+      <span className="hidden min-w-0 items-center gap-1.5 text-[12.5px] text-ink-2 sm:flex">
+        {r.provider && <TrackerLogo kind={r.provider as ProviderKey} size={12} />}
+        <span className="truncate">{r.kind === "draft" ? "Draft" : "Ticket"}</span>
+      </span>
 
       <span className="hidden min-w-0 items-center gap-1.5 text-[12.5px] text-ink-2 sm:flex">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: status.color }} />
@@ -156,16 +86,12 @@ function Row({ r }: { r: AdminRow }) {
       </span>
 
       <span
-        className="hidden text-xs tabular-nums text-muted sm:block"
+        className="shrink-0 text-xs tabular-nums text-muted"
         title={when ? when.toLocaleString() : undefined}
         suppressHydrationWarning
       >
         {relativeTime(r.createdAt)}
       </span>
-
-      <div className="flex min-w-0 shrink-0 justify-end sm:justify-start">
-        <ShareCell shareId={r.shareId} />
-      </div>
     </li>
   );
 }
@@ -201,9 +127,10 @@ function Select({
 }
 
 /**
- * The owner's monitoring view: every ticket and draft anyone has made, with
- * its share link, filterable by organization and person. Filters live in the
- * URL so a filtered view can be bookmarked.
+ * The owner's monitoring view: who made a ticket or draft, in which org, for
+ * which tracker, and whether it filed. Never what it says: rows carry no
+ * title, text or link (lib/admin-view OWNER_FIELDS). Filters live in the URL
+ * so a filtered view can be bookmarked.
  */
 export default function AdminView({ rows, initial }: { rows: AdminRow[]; initial: AdminFilters }) {
   const [filters, setFilters] = useState<AdminFilters>(initial);
@@ -230,9 +157,6 @@ export default function AdminView({ rows, initial }: { rows: AdminRow[]; initial
   const filtered =
     filters.kind !== "all" || !!filters.org || !!filters.person || !!filters.q.trim() || filters.deleted;
 
-  const shareIds = visible.flatMap((r) => (r.shareId ? [r.shareId] : []));
-  const [copiedAll, copyAll] = useCopied();
-
   const totals = useMemo(() => {
     const live = rows.filter((r) => !r.deleted);
     return {
@@ -246,18 +170,8 @@ export default function AdminView({ rows, initial }: { rows: AdminRow[]; initial
   return (
     <section>
       <header className="flex items-center justify-between gap-4">
-        <h1 className="page-title">All tickets</h1>
+        <h1 className="page-title">Usage</h1>
         <div className="flex shrink-0 items-center gap-2">
-          <button
-            type="button"
-            onClick={() => copyAll(shareIds.map(shareUrl).join("\n"))}
-            disabled={shareIds.length === 0}
-            title="Copy the share links of every row shown, one per line"
-            className="btn h-8"
-          >
-            {copiedAll ? checkIcon : linkIcon}
-            {copiedAll ? "Copied" : `Copy ${shareIds.length} link${shareIds.length === 1 ? "" : "s"}`}
-          </button>
           <RefreshButton />
         </div>
       </header>
@@ -295,7 +209,7 @@ export default function AdminView({ rows, initial }: { rows: AdminRow[]; initial
           type="search"
           value={filters.q}
           onChange={(e) => set({ q: e.target.value })}
-          placeholder="Search…"
+          placeholder="Person, email or org"
           aria-label="Search"
           className="btn h-8 min-w-[160px] flex-1 cursor-text placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/25 sm:max-w-[260px]"
         />
@@ -317,12 +231,11 @@ export default function AdminView({ rows, initial }: { rows: AdminRow[]; initial
 
       <div className="card mt-4 overflow-hidden p-0">
         <div className={`hidden border-b border-hairline px-4 py-2 text-xs font-medium text-muted ${GRID}`}>
-          <span>Title</span>
           <span>Person</span>
           <span>Organization</span>
+          <span>Kind</span>
           <span>Status</span>
           <span>Created</span>
-          <span>Share link</span>
         </div>
         {visible.length > 0 ? (
           <ul className="divide-y divide-hairline">

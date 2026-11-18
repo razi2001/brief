@@ -1,0 +1,32 @@
+# Self-hosted Brief: `docker compose up -d --build`, then open http://localhost:3000.
+# Fill .env first (cp .env.example .env). SELF_HOSTING.md has the whole setup.
+services:
+  migrate:
+    build:
+      context: ./web
+      target: migrate
+    env_file: .env
+    restart: "no"
+
+  web:
+    build:
+      context: ./web
+      target: runner
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_EXTENSION_ID: ${NEXT_PUBLIC_EXTENSION_ID:-}
+    env_file: .env
+    environment:
+      NODE_OPTIONS: --max-old-space-size=768
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/sign-in"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

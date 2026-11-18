@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 import { clerkClient, currentUser } from "@clerk/nextjs/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { providerOf } from "@/lib/ticket-sync";
-import { NO_ORG, isAdminEmail, kindOf, type AdminRow } from "@/lib/admin-view";
+import { NO_ORG, OWNER_COLUMNS, isAdminEmail, kindOf, type AdminRow } from "@/lib/admin-view";
 
 /**
  * The owner's monitoring view reads EVERY user's briefs - the one place in the
- * app not scoped by user_id or org. Every entry point goes through
+ * app not scoped by user_id or org - but only the columns in OWNER_COLUMNS:
+ * no title, no ticket text, no share id, no tracker link. A test holds that
+ * list to an allowlist, so reading content here fails CI. Every entry point goes through
  * requireAdmin(), which checks the signed-in Clerk user's own verified email
  * server-side; nothing the client sends can widen it.
  */
@@ -25,24 +27,13 @@ type Row = {
   id: string;
   user_id: string;
   status: string;
-  title: string | null;
   created_at: string | null;
   archived_at: string | null;
-  share_id: string | null;
-  ticket_url: string | null;
-  ticket_identifier: string | null;
   ticket_provider: string | null;
-  ticket_title: string | null;
-  ticket_state_name: string | null;
-  ticket_state_color: string | null;
   filing_started_at: string | null;
 };
 
-// No ticket_body: it's the heavy column, and kindOf only needs it for a
-// "processing" row with no filing claim - a few seconds' window in which such
-// a row reads as a draft.
-const COLUMNS =
-  "id, user_id, status, title, created_at, archived_at, share_id, ticket_url, ticket_identifier, ticket_provider, ticket_title, ticket_state_name, ticket_state_color, filing_started_at";
+const COLUMNS = OWNER_COLUMNS.join(", ");
 
 const PAGE = 1000;
 
@@ -58,7 +49,7 @@ async function loadBriefs(): Promise<Row[]> {
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(error.message);
-    out.push(...((data ?? []) as Row[]));
+    out.push(...((data ?? []) as unknown as Row[]));
     if (!data || data.length < PAGE) return out;
   }
 }
@@ -112,15 +103,9 @@ export async function loadAdminRows(): Promise<AdminRow[]> {
       id: b.id,
       kind,
       status: b.status,
-      title: b.ticket_title || b.title || (kind === "draft" ? "Untitled draft" : "Untitled ticket"),
       createdAt: b.created_at,
       deleted: !!b.archived_at,
-      shareId: b.share_id,
-      ticketUrl: b.ticket_url,
-      ticketIdentifier: b.ticket_identifier,
-      provider: b.ticket_url || b.ticket_provider ? providerOf(b.ticket_url, b.ticket_provider) : null,
-      stateName: b.ticket_state_name,
-      stateColor: b.ticket_state_color,
+      provider: b.ticket_provider ? providerOf(null, b.ticket_provider) : null,
       userId: b.user_id,
       personName: person?.name || `User …${b.user_id.slice(-6)}`,
       personEmail: person?.email ?? null,

@@ -21,18 +21,20 @@ export default function ActivityTimeline({
   items,
   now,
   card,
+  back = { href: "/admin/activity", label: "Activity" },
 }: {
   person: PersonFacts;
   items: TimelineItem[];
   now: number;
   /** The owner's "Show the bug card" control. */
   card?: React.ReactNode;
+  back?: { href: string; label: string };
 }) {
   const src = sourceLine(p.signup);
   return (
     <section>
-      <Link href="/admin/activity" className="text-[13px] text-muted hover:text-ink">
-        ← Activity
+      <Link href={back.href} className="text-[13px] text-muted hover:text-ink">
+        ← {back.label}
       </Link>
       <header className="mt-3 flex items-center gap-3">
         <Avatar name={p.name || p.email || "?"} imageUrl={p.image ?? undefined} size={36} />

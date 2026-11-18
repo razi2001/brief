@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 // Reachable at https://cloud.get-brief.app/privacy (allowlisted in proxy.ts).
 // Keep this in sync with the Chrome Web Store "Privacy practices" disclosures.
 
-const LAST_UPDATED = "November 7, 2026";
+const LAST_UPDATED = "November 18, 2026";
 
 function Section({
   title,
@@ -226,6 +226,30 @@ export default function PrivacyPage() {
             (and that address is never indexed by search engines). Anyone with the
             link can view the ticket and its kept evidence, so only share it with
             people you trust. You can delete or archive briefs from the web app.
+          </p>
+        </Section>
+
+        <Section title="What the Brief team can see">
+          <p>
+            Our own usage pages show, for each ticket or draft, who made it, their
+            workspace, which tracker, its status and when. They never show a
+            ticket&apos;s title, text, recording or link: the code reads a fixed
+            list of columns with no ticket content, and a test fails if one is
+            added. You can see your own entry, exactly as we see it, on the{" "}
+            <Link href="/what-we-see" className="underline">
+              What we see
+            </Link>{" "}
+            page.
+          </p>
+          <p>
+            Brief is open source, so you can check this yourself, or{" "}
+            <a href="https://github.com/razi2001/brief-cloud/blob/main/SELF_HOSTING.md" className="underline">
+              run your own copy
+            </a>{" "}
+            so that nobody but your team holds your data. Our database is not
+            encrypted per user, so the people who administer it could read stored
+            ticket text directly; we don&apos;t, and self-hosting removes the need
+            to trust that.
           </p>
         </Section>
 

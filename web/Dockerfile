@@ -6,11 +6,18 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# ---- migrate: applies supabase/migrations and creates the storage bucket ----
+# docker compose runs this once before the app starts (docker-compose.yml).
+FROM deps AS migrate
+COPY scripts/migrate.mjs scripts/ensure-bucket.mjs ./scripts/
+COPY supabase ./supabase
+CMD ["sh", "-c", "node scripts/migrate.mjs && node scripts/ensure-bucket.mjs"]
+
 # ---- builder: produce the standalone server ----
 FROM node:20-alpine AS builder
 WORKDIR /app
 # NEXT_PUBLIC_* are inlined at build time, so they must be present here (passed
-# as --build-arg / fly.toml [build.args], NOT runtime secrets).
+# as --build-arg / compose build.args / fly.toml [build.args], NOT runtime secrets).
 ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
 ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
@@ -21,6 +28,8 @@ ARG NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
 ARG NEXT_PUBLIC_GITHUB_CLERK_STRATEGY=
 ARG NEXT_PUBLIC_LINEAR_CLERK_STRATEGY=
 ARG NEXT_PUBLIC_JIRA_CLERK_STRATEGY=
+# The extension's id, so the app pairs it without a click. Empty = the Web Store build.
+ARG NEXT_PUBLIC_EXTENSION_ID=
 ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
     NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL \
     NEXT_PUBLIC_CLERK_SIGN_IN_URL=$NEXT_PUBLIC_CLERK_SIGN_IN_URL \
@@ -28,6 +37,7 @@ ENV NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY \
     NEXT_PUBLIC_GITHUB_CLERK_STRATEGY=$NEXT_PUBLIC_GITHUB_CLERK_STRATEGY \
     NEXT_PUBLIC_LINEAR_CLERK_STRATEGY=$NEXT_PUBLIC_LINEAR_CLERK_STRATEGY \
     NEXT_PUBLIC_JIRA_CLERK_STRATEGY=$NEXT_PUBLIC_JIRA_CLERK_STRATEGY \
+    NEXT_PUBLIC_EXTENSION_ID=$NEXT_PUBLIC_EXTENSION_ID \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

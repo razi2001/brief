@@ -14,6 +14,8 @@ import { NextResponse } from "next/server";
 // renders broken.
 // /api/t is get-brief.app's page-view beacon: no session, app/api/t checks the
 // origin.
+// /api/telemetry receives self-hosted instances' anonymous daily counts
+// (lib/telemetry, TELEMETRY.md); off unless BRIEF_TELEMETRY_RECEIVER=on.
 const isPublic = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
@@ -28,6 +30,7 @@ const isPublic = createRouteMatcher([
   "/api/describe",
   "/api/evidence/(.*)",
   "/api/t",
+  "/api/telemetry",
 ]);
 
 // /b/<shareId>.md is that page as Markdown for a coding agent (the extension's

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import FreshOnReturn from "@/components/FreshOnReturn";
 import { requireUserId } from "@/lib/auth";
 import SettingsView from "@/components/SettingsView";
@@ -75,6 +76,11 @@ export default async function ConnectionsPage({
         openTeam={openTeam}
         openTracker={openTracker}
       />
+      <p className="mt-10 text-[13px]">
+        <Link href="/what-we-see" className="text-muted hover:text-ink">
+          What the Brief team sees about you
+        </Link>
+      </p>
     </>
   );
 }
