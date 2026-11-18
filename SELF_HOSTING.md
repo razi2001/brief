@@ -9,7 +9,7 @@ Run Brief on your own machine or server, with your own accounts. Your recordings
 Open [Claude Code](https://claude.com/claude-code) (or any coding agent that can run commands) in an empty folder and paste:
 
 ```text
-Set up a self-hosted Brief for me from https://github.com/razi2001/brief-cloud.
+Set up a self-hosted Brief for me from https://github.com/razi2001/brief.
 
 1. Clone the repo and read SELF_HOSTING.md and .env.example. Follow the manual steps in SELF_HOSTING.md.
 2. Check that docker, node (20+) and git are installed. Tell me what's missing and stop if anything is.
@@ -33,7 +33,7 @@ Set up a self-hosted Brief for me from https://github.com/razi2001/brief-cloud.
 ### 1. Get the code
 
 ```bash
-git clone https://github.com/razi2001/brief-cloud.git brief && cd brief
+git clone https://github.com/razi2001/brief.git brief && cd brief
 ```
 
 ```bash

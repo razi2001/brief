@@ -47,7 +47,7 @@ export default async function WhatWeSeePage() {
           ))}
         </ul>
         <p className="mt-4 text-[13px]">
-          <a href="https://github.com/razi2001/brief-cloud/blob/main/PRIVACY.md" className="text-muted hover:text-ink">
+          <a href="https://github.com/razi2001/brief/blob/main/PRIVACY.md" className="text-muted hover:text-ink">
             Check it in the code
           </a>
           <span className="text-muted"> · </span>

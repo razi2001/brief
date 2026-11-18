@@ -40,7 +40,7 @@ Brief handles bug recordings, which can show customer data. So we made the priva
 Paste this into Claude Code, Cursor or any coding agent:
 
 ```text
-Audit the privacy claims of the open source project Brief (https://github.com/razi2001/brief-cloud).
+Audit the privacy claims of the open source project Brief (https://github.com/razi2001/brief).
 Clone it, read PRIVACY.md, then check each claim against the code, not the docs:
 1. Which database columns and fields the owner views (/admin, /admin/activity) can read:
    web/lib/admin-view.ts (OWNER_FIELDS, OWNER_COLUMNS), web/lib/admin-server.ts, web/lib/activity-server.ts.
