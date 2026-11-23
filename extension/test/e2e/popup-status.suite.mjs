@@ -203,6 +203,24 @@
   const t7 = await evalIn(P7.sid, `(() => { const t = document.querySelector('#toast'); return { text: t.textContent, check: !!t.querySelector('svg'), oneLine: t.getBoundingClientRect().height < 40 }; })()`);
   check('it says "Link copied", on one line with a check', t7.text === 'Link copied' && t7.check && t7.oneLine, JSON.stringify(t7));
 
+  // Enter in the description sends the brief (what the button does); Shift+Enter is a new line
+  await W(`chrome.storage.local.set({ __copied: '', draft: { id: 'd-enter', createdAt: Date.now(), screenshots: [], description: '' } })`);
+  await b.send('Target.closeTarget', { targetId: P7.targetId }).catch(() => {});
+  P7 = await open(`chrome-extension://${extId}/popup.html`); await sleep(2000);
+  await stubCopy(P7.sid);
+  calls.length = 0;
+  await click(P7.sid, '#descField');
+  await b.send('Input.insertText', { text: 'Pay does nothing' }, P7.sid);
+  const key = (k, mods = 0) => ['keyDown', 'keyUp'].reduce((p, type) => p.then(() => b.send('Input.dispatchKeyEvent', { type, key: k, code: k, windowsVirtualKeyCode: 13, modifiers: mods, ...(type === 'keyDown' ? { text: '\r' } : {}) }, P7.sid)), Promise.resolve());
+  await key('Enter', 8); await sleep(800);
+  const afterShift = { value: await evalIn(P7.sid, `document.querySelector('#descField').value`), created: calls.some((c) => c.what === 'create') };
+  await b.send('Input.insertText', { text: 'on checkout' }, P7.sid);
+  await key('Enter'); await sleep(2500);
+  const entered = { link: await copiedText(), created: calls.find((c) => c.what === 'create') };
+  check('Shift+Enter in the description is a new line, Enter sends the brief',
+    afterShift.value === 'Pay does nothing\n' && !afterShift.created && !!entered.created && /\/b\/[A-Za-z0-9_-]{12}$/.test(entered.link),
+    JSON.stringify({ afterShift, link: entered.link, created: !!entered.created }));
+
   // A new brief, then Fix prompt: picking it asks which agent, once; the
   // button then copies the prompt and opens that agent with it.
   await W(`chrome.storage.local.set({ __copied: '', __launched: '', __opened: '', draft: { id: 'd-prompt', createdAt: Date.now(), screenshots: [], description: '  the Pay button does nothing\\nsecond line' } })`);
