@@ -9,6 +9,7 @@
   let active = false;
   let startedAt = 0;
   let iframeEl = null;
+  let barHost = null;
   // Dragged bar position as viewport fractions {leftPct, topPct}, or null for
   // the default bottom-center spot. Set by the bar via 'posChanged' messages.
   let barPosPct = null;
@@ -41,6 +42,81 @@
     }
     return false;
   });
+
+  // ---------- Overlay hosting ----------
+  // Our iframes (the bar, the screenshot editor) live in a closed shadow root on
+  // an element of our own under <html>, and show in the browser's top layer.
+  // Pages broke them when they sat in <body> as plain iframes:
+  //  - the page's CSS reached them (`iframe { … !important }`, pointer-events);
+  //  - a `transform`/`filter` on <body> or a high stacking context drew the
+  //    page over them, and a <frameset> page never drew them at all;
+  //  - an open modal <dialog> sits in the top layer and makes the rest of the
+  //    page inert: you couldn't draw on the screenshot;
+  //  - apps that re-render <body> threw them away.
+  // The top layer is above all of that; a modal dialog of our own takes over
+  // from the page's modal, so the editor keeps the pointer and the keys.
+  const hosts = new Map(); // host -> { again: what to redo once put back, tries }
+  function makeHost(id, onReattach) {
+    const host = document.createElement('brief-overlay');
+    host.id = id; // what the page (and the e2e suites) can see of us
+    host.setAttribute('style', 'all:initial !important;display:block !important;position:fixed !important;'
+      + 'top:0 !important;left:0 !important;width:0 !important;height:0 !important;'
+      + 'overflow:visible !important;z-index:2147483647 !important;visibility:visible !important;'
+      + 'opacity:1 !important;transform:none !important;filter:none !important;pointer-events:auto !important;');
+    const root = host.attachShadow({ mode: 'closed' });
+    root.innerHTML = '<style>:host{all:initial!important}'
+      + 'iframe,dialog{color-scheme:normal}'
+      + 'dialog::backdrop{background:transparent}</style>';
+    document.documentElement.appendChild(host);
+    hosts.set(host, { again: onReattach, tries: 0 });
+    watchRoot();
+    return { host, root };
+  }
+  function dropHost(host) {
+    if (!host) return;
+    hosts.delete(host);
+    host.remove();
+  }
+  // A page that throws our element out (or rebuilds <html>) gets it put back,
+  // a couple of times; a page that keeps <html> to itself gets it in <body>
+  // (not watched there: we never fight the page in a loop).
+  let watchedRoot = null;
+  const rootObserver = new MutationObserver(() => {
+    watchRoot();
+    for (const [h, st] of hosts) {
+      if (h.isConnected || !document.documentElement) continue;
+      st.tries++;
+      const body = document.body?.tagName === 'BODY' ? document.body : null;
+      const into = st.tries <= 2 ? document.documentElement : st.tries <= 3 ? body : null;
+      if (!into) continue;
+      into.appendChild(h);
+      st.again?.();
+    }
+  });
+  function watchRoot() {
+    if (watchedRoot === document.documentElement) return;
+    watchedRoot = document.documentElement;
+    rootObserver.disconnect();
+    rootObserver.observe(document, { childList: true });
+    if (watchedRoot) rootObserver.observe(watchedRoot, { childList: true });
+  }
+  // Focus traps of the page's own modals pull focus back when it leaves them -
+  // here, into our editor. They never hear about focus moving into ours.
+  for (const type of ['focusin', 'focus']) {
+    window.addEventListener(type, (e) => { if (e.target instanceof Element && hosts.has(e.target)) e.stopImmediatePropagation(); }, true);
+  }
+  function showTop(el, modal) {
+    try {
+      if (modal) {
+        if (el.matches(':modal')) return;
+        // put back after the page removed it: open, but no longer modal
+        el.removeAttribute('open');
+        el.showModal();
+        return;
+      }
+      if (!el.matches(':popover-open')) el.showPopover();
+    } catch { /* old browser or detached: the fixed position + z-index still apply */ }
+  }
 
   // ---------- Screenshot countdown ----------
   // A small dark banner at the foot of the page: "Screenshot in 3", Cancel.
@@ -111,23 +187,31 @@
   // is loaded ahead, hidden (not in the picture, not in your way, no focus),
   // so at zero it only has to be shown and handed the picture.
   let shotReady = false, shotPreloaded = false, preloadTimer = null;
+  // The editor's iframe sits in a <dialog> of ours, opened as a modal (top
+  // layer, the page inert under it) once it is shown; a preloaded one stays a
+  // closed dialog, out of sight and out of the way, while its page loads.
+  let shotHost = null, shotDialog = null;
   function createShotFrame(itemId, hidden) {
     shotReady = false;
     const url = chrome.runtime.getURL('shot.html') + '#itemId=' + encodeURIComponent(itemId);
+    const { host, root } = makeHost('__brief_shot__', () => { if (!shotPreloaded && shotDialog) showTop(shotDialog, true); });
+    shotHost = host;
+    shotDialog = document.createElement('dialog');
+    shotDialog.setAttribute('style', 'position:fixed;inset:0;width:100vw;height:100vh;max-width:none;max-height:none;'
+      + 'margin:0;padding:0;border:0;background:transparent;overflow:hidden;outline:none;z-index:2147483647;');
+    // Esc while the page side has focus: the editor's Cancel, not a bare close
+    shotDialog.addEventListener('cancel', (e) => { e.preventDefault(); removeShot(); });
+    // closed by the browser anyway (repeated Esc): don't leave a dead editor
+    shotDialog.addEventListener('close', () => { if (shotEl && !shotPreloaded) removeShot(); });
     shotEl = document.createElement('iframe');
     shotEl.id = '__brief_shot__';
     shotEl.src = url;
-    Object.assign(shotEl.style, {
-      position: 'fixed',
-      inset: '0',
-      width: '100vw',
-      height: '100vh',
-      border: '0',
-      background: 'transparent',
-      zIndex: '2147483647',
-      colorScheme: 'normal',
-    }, hidden ? { visibility: 'hidden', pointerEvents: 'none' } : {});
-    (document.body || document.documentElement).appendChild(shotEl);
+    shotEl.allow = 'clipboard-write';
+    shotEl.setAttribute('style', 'display:block;width:100%;height:100%;border:0;margin:0;padding:0;'
+      + 'background:transparent;color-scheme:normal;');
+    shotDialog.appendChild(shotEl);
+    root.appendChild(shotDialog);
+    if (!hidden) showTop(shotDialog, true);
     window.addEventListener('message', onShotMessage);
   }
   function preloadShot(itemId) {
@@ -155,8 +239,7 @@
     if (reuse) {
       clearTimeout(preloadTimer); preloadTimer = null;
       shotPreloaded = false;
-      shotEl.style.visibility = '';
-      shotEl.style.pointerEvents = '';
+      showTop(shotDialog, true);
       if (shotReady) postShotImage();
       return;
     }
@@ -188,8 +271,11 @@
   function removeShot() {
     if (shotEl) {
       window.removeEventListener('message', onShotMessage);
-      shotEl.remove();
       shotEl = null;
+      const d = shotDialog; shotDialog = null;
+      try { if (d?.open) d.close(); } catch {}
+      dropHost(shotHost);
+      shotHost = null;
       shotImg = '';
       shotPageUrl = '';
       shotPageTitle = '';
@@ -219,6 +305,8 @@
     const url = chrome.runtime.getURL('bar.html') + '#' + hashParts.join('&');
 
     iframeEl = document.createElement('iframe');
+    // a manual popover: top layer, never dismissed by a click or Esc
+    iframeEl.setAttribute('popover', 'manual');
     iframeEl.id = '__brief_iframe__';
     iframeEl.src = url;
     iframeEl.allow = 'microphone; camera; display-capture; clipboard-write';
@@ -231,8 +319,12 @@
     // "sharing a window" bar during a recording (a corner went unnoticed).
     Object.assign(iframeEl.style, {
       position: 'fixed',
+      top: 'auto',
+      right: 'auto',
       bottom: '52px',
       left: '50%',
+      margin: '0',
+      padding: '0',
       transform: 'translateX(-50%)',
       width: '400px',
       height: '104px', // room under the pill for its shadow, now off the window's edge
@@ -245,7 +337,11 @@
       boxShadow: 'none',
       transition: 'opacity 0.14s ease-out',
     });
-    (document.body || document.documentElement).appendChild(iframeEl);
+    const bar = iframeEl;
+    const { host, root } = makeHost('__brief_iframe__', () => showTop(bar, false));
+    barHost = host;
+    root.appendChild(iframeEl);
+    showTop(iframeEl, false);
 
     // Restore a previously dragged position (viewport fractions). The iframe
     // keeps its fixed size; only its left/top move.
@@ -276,8 +372,8 @@
     const T = Math.max(0, Math.min(maxTopPct, topPct));
     iframeEl.style.left = `${L}%`;
     iframeEl.style.top = `${T}%`;
-    iframeEl.style.right = '';
-    iframeEl.style.bottom = '';
+    iframeEl.style.right = 'auto';
+    iframeEl.style.bottom = 'auto';
     iframeEl.style.transform = ''; // drop the default translateX centering
   }
 
@@ -308,8 +404,8 @@
     top = Math.max(0, Math.min(vh - h, top));
     iframeEl.style.left = `${(left / vw) * 100}%`;
     iframeEl.style.top = `${(top / vh) * 100}%`;
-    iframeEl.style.right = '';
-    iframeEl.style.bottom = '';
+    iframeEl.style.right = 'auto';
+    iframeEl.style.bottom = 'auto';
     iframeEl.style.transform = '';
   }
 
@@ -355,6 +451,8 @@
       window.removeEventListener('message', onIframeMessage);
       iframeEl.remove();
       iframeEl = null;
+      dropHost(barHost);
+      barHost = null;
     }
   }
 

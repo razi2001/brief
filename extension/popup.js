@@ -334,6 +334,13 @@ function initAdditionalData() {
   let dt = null;
   descField.addEventListener('input', () => { clearTimeout(dt); dt = setTimeout(persistDesc, 250); });
   descField.addEventListener('blur', () => { clearTimeout(dt); persistDesc(); });
+  // Enter sends the brief (what the Create button does); Shift+Enter is a new line
+  descField.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.shiftKey || e.isComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    clearTimeout(dt);
+    persistDesc().then(() => { if (!createBtn.disabled) createBtn.click(); });
+  });
   attachVoiceDictation(descField, descWrap, persistDesc);
   // One line until there is more to say: the box grows with its text (up to
   // about five lines, then it scrolls), whether typed or spoken.
