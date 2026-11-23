@@ -2,6 +2,11 @@
 
 The extension's version is in `extension/manifest.json`. The web app deploys from `main`.
 
+## 1.8.4 (2026-11-23)
+
+- **Enter sends the brief** from the description box (Shift+Enter is a new line).
+- **The screenshot editor works on every page:** over the page's own pop-up dialogs, framesets, shadow-DOM overlays, page CSS on iframes and apps that rebuild the page. The recording bar stays on top of the same pages.
+
 ## 1.8.3 (2026-11-18)
 
 Brief is open source.
