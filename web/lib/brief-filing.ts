@@ -116,12 +116,16 @@ export class FilingStopped extends Error {
   }
 }
 
+/** What a stopped capture shows: it didn't file, because you stopped it. */
+export const STOPPED_ERROR = "Stopped before it was filed";
+
 /**
  * Stop a filing that hasn't produced a ticket yet: the claim is cleared and
- * the brief goes back to what it was before filing - a written draft
- * ('drafted', when Export was filing it) or an unfiled capture ('uploaded',
- * media intact) that the extension takes back into its popup. The running
- * agent sees its claim gone at its next checkpoint and ends without filing.
+ * the brief goes back to a written draft ('drafted', when Export was filing
+ * it), or, for a capture sent from the extension, to 'failed' with
+ * STOPPED_ERROR: it stays in the list, media intact, and Retry files it. The
+ * running agent sees its claim gone at its next checkpoint and ends without
+ * filing.
  *
  * Returns what it went back to, or null when there is nothing to stop
  * (already filed, or not filing). A run already inside create_issue can still
@@ -131,12 +135,12 @@ export async function stopFiling(
   admin: SupabaseClient,
   userId: string,
   briefId: string,
-): Promise<"drafted" | "uploaded" | null> {
-  const stopTo = async (back: "drafted" | "uploaded", hasBody: boolean): Promise<boolean> => {
+): Promise<"drafted" | "failed" | null> {
+  const stopTo = async (back: "drafted" | "failed", hasBody: boolean): Promise<boolean> => {
     const filter = (hasBody ? "ticket_body.not.is.null" : "ticket_body.is.null");
     const { data } = await admin
       .from("briefs")
-      .update({ status: back, filing_started_at: null, error: null, updated_at: new Date().toISOString() })
+      .update({ status: back, filing_started_at: null, error: back === "failed" ? STOPPED_ERROR : null, updated_at: new Date().toISOString() })
       .eq("id", briefId)
       .eq("user_id", userId)
       .eq("status", "processing")
@@ -148,7 +152,7 @@ export async function stopFiling(
     return !!data;
   };
   if (await stopTo("drafted", true)) return "drafted";
-  if (await stopTo("uploaded", false)) return "uploaded";
+  if (await stopTo("failed", false)) return "failed";
   return null;
 }
 

@@ -147,10 +147,10 @@ describe("stopFiling", () => {
     expect(updates[0].filters).toContainEqual(["or", "ticket_body.not.is.null"]);
   });
 
-  test("a ticket sent from the extension goes back to an unfiled capture", async () => {
+  test("a ticket sent from the extension shows as not filed, with Retry", async () => {
     const { client, updates } = scriptedClient([null, { id: "b1" }]);
-    expect(await stopFiling(client, "user_1", "b1")).toBe("uploaded");
-    expect(updates[1].values).toMatchObject({ status: "uploaded", filing_started_at: null });
+    expect(await stopFiling(client, "user_1", "b1")).toBe("failed");
+    expect(updates[1].values).toMatchObject({ status: "failed", filing_started_at: null, error: "Stopped before it was filed" });
     expect(updates[1].filters).toContainEqual(["or", "ticket_body.is.null"]);
   });
 

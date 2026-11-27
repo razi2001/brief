@@ -324,22 +324,13 @@ export default function TicketChat({
   }
 
   // Filing: Stop takes it back before it reaches the tracker. An Export goes
-  // back to its draft (this page, refreshed); a ticket sent from the extension
-  // goes back into the extension's popup, so the page leaves for the list.
+  // back to its draft; a capture from the extension shows as not filed, with
+  // Retry. Either way this page, refreshed, shows where it stands.
   const [stopping, setStopping] = useState(false);
   async function stopFiling() {
     if (stopping) return;
     setStopping(true);
-    try {
-      const res = await fetch(`/api/briefs/${briefId}/stop`, { method: "POST", credentials: "same-origin" });
-      const body = (await res.json().catch(() => ({}))) as { back?: string };
-      if (res.ok && body.back === "uploaded") {
-        window.location.assign("/");
-        return;
-      }
-    } catch {
-      /* the refresh below shows where it stands */
-    }
+    await fetch(`/api/briefs/${briefId}/stop`, { method: "POST", credentials: "same-origin" }).catch(() => {});
     window.location.reload();
   }
 

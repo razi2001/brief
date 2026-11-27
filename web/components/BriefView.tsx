@@ -8,10 +8,11 @@ import { providerName as providerLabelFor } from "@/lib/trackers/registry";
 import { BRIEF_URL, type ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { displayIdentifier, keylessTrackerName, providerOf, shortIdentifier } from "@/lib/ticket-sync";
-import { briefPhase } from "@/lib/brief-filing";
+import { briefPhase, STOPPED_ERROR } from "@/lib/brief-filing";
 import { findRecordingName } from "@/lib/brief";
 import { explainFilingError } from "@/lib/filing-errors";
 import BrandMark from "@/components/BrandMark";
+import RetryButton from "@/components/RetryButton";
 import TicketDoc from "@/components/TicketDoc";
 import {
   BriefPageFrame,
@@ -222,6 +223,19 @@ export default async function BriefView({ shareId, section }: { shareId: string;
   const home = appSectionOf(brief);
   if (inApp && section !== home) redirect(`/${home}/${shareId}`);
 
+
+  // ── Stopped while it was filing: nothing reached the tracker ──
+  if (phase === "failed" && brief.error === STOPPED_ERROR) {
+    return (
+      <BriefFrame home={inApp ? home : undefined} signedIn={!!viewerId} title={brief.title || "Bug report"}>
+        <ReadingColumn className="flex flex-col items-center gap-3 py-24 text-center sm:py-28">
+          <BrandMark size={32} />
+          <p className="page-title">Stopped before it was filed.</p>
+          {!!viewerId && viewerId === brief.user_id && <RetryButton briefId={brief.id} />}
+        </ReadingColumn>
+      </BriefFrame>
+    );
+  }
 
   // ── Couldn't be written ──
   if (phase === "failed") {

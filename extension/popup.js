@@ -176,40 +176,6 @@ async function readTicketsInFlight() {
     ticketsInFlight = Object.keys(filingDrafts).length;
   } catch { ticketsInFlight = 0; }
   briefCloudBtn?.classList.toggle('sending', ticketsInFlight > 0);
-  renderInFlight();
-}
-
-// Tickets on their way (still uploading here, or being filed by the server),
-// each with a Stop: it comes back into this popup, nothing sent to the tracker.
-// Asking the worker also takes back one stopped on its brief page.
-let inFlightTimer = null;
-async function renderInFlight() {
-  const box = $('#inflight');
-  if (!box) return;
-  let items = [];
-  try { items = (await chrome.runtime.sendMessage({ type: 'IN_FLIGHT' }))?.items || []; } catch {}
-  box.replaceChildren(...items.map((it) => {
-    const row = document.createElement('div');
-    row.className = 'inflight-row';
-    const spin = document.createElement('span'); spin.className = 'spin'; spin.setAttribute('aria-hidden', 'true');
-    const t = document.createElement('span'); t.className = 't';
-    t.textContent = `${it.stage === 'sending' ? 'Sending' : 'Filing'}${it.title ? ` · ${it.title}` : '…'}`;
-    const stop = document.createElement('button'); stop.type = 'button'; stop.textContent = 'Stop';
-    stop.addEventListener('click', async () => {
-      stop.disabled = true;
-      let res = null;
-      try { res = await chrome.runtime.sendMessage({ type: 'STOP_FILING', id: it.id }); }
-      catch (err) { res = { ok: false, error: String(err?.message || err) }; }
-      if (!res?.ok) showInlineError(`Couldn’t stop it: ${res?.error || 'unknown error'}`);
-      renderInFlight();
-    });
-    row.append(spin, t, stop);
-    return row;
-  }));
-  box.hidden = !items.length;
-  // the server's side changes with no storage event here: look again while any is on its way
-  clearTimeout(inFlightTimer);
-  if (items.length) inFlightTimer = setTimeout(renderInFlight, 3000);
 }
 function render() {
   renderGallery();
@@ -1101,14 +1067,12 @@ async function primaryCreate() {
 // A ticket that failed in the background while a new draft was already in
 // progress: say so, and offer it back (the two swap, nothing is dropped).
 function showFailedDraft(failed) {
-  showInlineError(failed.stopped ? 'A stopped ticket is waiting.' : `A ticket didn’t file: ${failed.fileError || 'unknown error'}`, {
+  showInlineError(`A ticket didn’t file: ${failed.fileError || 'unknown error'}`, {
     label: 'Bring it back',
     run: async () => {
       const now = await getDraft();
       await chrome.storage.local.set({ failedDraft: now && isReadyDraft(now) ? { ...now, fileError: null } : null });
-      const back = { ...failed, fileError: null };
-      delete back.stopped;
-      await setDraft(back);
+      await setDraft({ ...failed, fileError: null });
       if (!(now && isReadyDraft(now))) await chrome.storage.local.remove('failedDraft');
       clearInlineError();
     },
@@ -1603,7 +1567,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   // A ticket handed to the server is only queued: the agent writes and files
   // it there afterwards, so nothing here says "created" (the cloud's dot leads
   // to the list, where its real state shows).
-  if (area === 'local' && (changes.filingDrafts || changes.sentDrafts)) readTicketsInFlight();
+  if (area === 'local' && changes.filingDrafts) readTicketsInFlight();
   if (area === 'local' && changes.briefCloudToken) bcRefresh();
   if (area === 'local' && changes.failedDraft?.newValue) showFailedDraft(changes.failedDraft.newValue);
   if (area !== 'local' || !changes.draft) return;

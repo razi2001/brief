@@ -244,31 +244,6 @@ export async function createDraft(briefId, overrides = {}) {
   return body?.shareId || null;
 }
 
-// Stop a ticket the server is filing, before it reaches the tracker. Resolves
-// { ok: true }, or { ok: false, tooLate } when there was nothing left to stop
-// (it filed, or failed).
-export async function stopFilingOnServer(briefId) {
-  const token = await getCloudToken();
-  if (!token) throw new Error("Not connected to Brief");
-  const res = await fetchOrThrow(`${APP_URL}/api/briefs/${briefId}/stop`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  }, "stop filing");
-  if (res.ok) return { ok: true };
-  return { ok: false, tooLate: res.status === 409, error: `stop failed: ${res.status}` };
-}
-
-// Where a ticket handed to the server stands: 'filing', 'stopped' (Stop was
-// pressed on its brief page) or 'done' (filed, failed or gone).
-export async function filingStateOnServer(briefId) {
-  const token = await getCloudToken();
-  if (!token) return null;
-  const res = await fetch(`${APP_URL}/api/briefs/${briefId}/stop`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) return null;
-  const body = await res.json().catch(() => ({}));
-  return body?.state || null;
-}
-
 // Absolute URL of a brief's hosted page.
 export function briefPageUrl(shareId) {
   return `${APP_URL}/b/${shareId}`;
