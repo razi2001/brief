@@ -372,27 +372,6 @@ export function resolveCustomer(want: string, list: LinearCustomer[]): LinearCus
   return canonical ? list.find((c) => c.name === canonical) : undefined;
 }
 
-const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * The customers a ticket's text mentions: by name as a whole word ("Acme
- * Corp", not "acmecorp"), or by domain, subdomains included ("app.acme.com"
- * names acme.com). Names under 3 characters are too ambiguous to match. At
- * most 3, in list order - a ticket naming more is about something else.
- */
-export function detectCustomers(text: string, list: LinearCustomer[]): LinearCustomer[] {
-  if (!text.trim() || !list.length) return [];
-  const found = list.filter((c) => {
-    const name = c.name.trim();
-    if (name.length >= 3 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, "iu").test(text)) return true;
-    return (c.domains ?? []).some((d) => {
-      const dom = d.trim().toLowerCase().replace(/^www\./, "");
-      return dom.includes(".") && new RegExp(`(?<![a-z0-9-])${escapeRe(dom)}(?![a-z0-9-]|\\.[a-z])`, "i").test(text);
-    });
-  });
-  return found.slice(0, 3);
-}
-
 /** Linear numeric priority for our normalized names (0 = none). */
 const LINEAR_PRIORITY: Record<TrackerPriority, number> = {
   urgent: 1,
@@ -569,6 +548,9 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       comments: true,
       nativeAttachments: true,
       customers: true,
+    },
+    async listCustomers() {
+      return (await loadCustomers()).map((c) => ({ name: c.name, domains: c.domains ?? [] }));
     },
     async listTargets() {
       // Include each team's labels/states + the workspace members so the agent
@@ -751,19 +733,15 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       }
 
       // Link the customer it was reported for, as a customer request
-      // (best-effort). The agent's pick wins; without one, any customer the
-      // ticket mentions by name or domain is linked by default.
-      try {
-        const wanted = customer?.trim()
-          ? [customer.trim()]
-          : detectCustomers(`${title}
-${descriptionMarkdown}`, await loadCustomers()).map((c) => c.name);
-        for (const want of wanted) {
-          const r = await linkCustomer(issue.id, want, title);
+      // (best-effort). The agent decides which one from the report: it reads
+      // meaning, so "the CSM said" and a customer named CSM don't collide.
+      if (customer?.trim()) {
+        try {
+          const r = await linkCustomer(issue.id, customer.trim(), title);
           if (!r.ok) console.warn("[linear-tracker] customer link failed:", r.error);
+        } catch (err) {
+          console.warn("[linear-tracker] customer link failed:", err);
         }
-      } catch (err) {
-        console.warn("[linear-tracker] customer link failed:", err);
       }
 
       return { id: issue.id, identifier: issue.identifier, url: issue.url, title: issue.title };

@@ -186,7 +186,7 @@ export async function processBrief(
   };
 
   const CUSTOMER_HELP =
-    "The customer this issue was reported for (a name or domain from the target's customers, e.g. \"Acme\" or \"acme.com\") - links the issue to that customer as a customer request. Set it BY DEFAULT whenever the report mentions one of the target's customers - their name, their domain in the page URL, or the reporter saying who hit it (call get_target_details to see the customer list) - and whenever the preferences name one. Never guess a customer the report doesn't mention.";
+    "The customer this issue was reported for (a name or domain from the target's customers, e.g. \"Acme\" or \"acme.com\") - links the issue to that customer as a customer request. Set it whenever the report shows which of the CUSTOMERS hit the problem (the reporter names them, their domain or product is the page, or the preferences name one). Judge by meaning: a word that merely equals a customer name is not a mention. Never guess.";
 
   const PROJECT_HELP: Record<string, string> = {
     azure:
@@ -395,6 +395,21 @@ export async function processBrief(
   const manifest = buildEvidenceManifest(brief.evidence.items, brief.evidence.includeVideo);
   if (manifest) tail.push(text(manifest));
   tail.push(text(`Available ${noun}s (use search_issues first to learn routing precedent, then pick the most appropriate one and pass its id as targetId):\n${targetList}`));
+  // The workspace's customers, so the agent can link the one this was reported
+  // for. It judges from meaning, not a word match: a customer named like a
+  // common word ("CSM") is linked only when the report means that customer.
+  const customers = caps.customers && tracker.listCustomers ? await tracker.listCustomers().catch(() => []) : [];
+  if (customers.length) {
+    const list = customers
+      .slice(0, 200)
+      .map((c) => (c.domains.length ? `- ${c.name} (${c.domains.join(", ")})` : `- ${c.name}`))
+      .join("\n");
+    tail.push(
+      text(
+        `CUSTOMERS in this workspace. If the report shows which customer hit this - the reporter names them, the page is on their domain or product, the preferences name one - pass that customer's exact name as create_issue's customer. Only when the report really means that customer: a word that happens to equal a customer name is not a mention. None clearly meant: leave customer out.\n${list}`,
+      ),
+    );
+  }
   tail.push(text(`File exactly one ticket for this. Call search_issues for precedent, pick the best ${noun}, then create the issue.`));
 
   // The images as a labelled, ordered storyboard (times, pages, notes).
