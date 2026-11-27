@@ -95,12 +95,14 @@ export async function processBrief(
     caps.states && "state",
     "assignee",
     caps.projects && "project",
+    caps.customers && "customer",
     caps.comments && "comment",
     caps.customFields && "custom_fields",
   ].filter(Boolean) as string[];
 
   const detailsExtras = [
     caps.projects && "projects",
+    caps.customers && "customers",
     caps.issueTypes && "issue types",
     caps.customFields && "custom fields (with their field ids and allowed values)",
   ].filter(Boolean) as string[];
@@ -110,7 +112,7 @@ export async function processBrief(
     (tracker.bodyGuidance ? ` ${tracker.bodyGuidance}` : "") +
     `\n\nTOOLING: You drive the tracker through tools, MCP-style. search_issues(query) looks up EXISTING issues so you can route and label by precedent - call it before picking a ${noun}. list_targets shows where you can file. get_target_details(targetId) returns the ${noun}'s real states, labels, members${detailsExtras.length ? `, and ${detailsExtras.join(", ")}` : ""} - call it BEFORE create_issue whenever the preferences mention any of those, and use the exact names it returns.${caps.customFields ? " It also marks the custom fields the target REQUIRES: create_issue must set every required one, or the tracker refuses the ticket." : ""} create_issue files the one issue (targetId + title + markdown description, plus optional ${settable.join("/")}). After creating, get_issue(identifier) reads back the live field values and update_issue(identifier, ...) repairs anything that didn't land - its error messages list the valid options, so correct the value and retry once.${caps.comments ? " The comment is posted on the issue after it's created; it's separate from the description." : ""} Evidence: choose what to attach via create_issue's attach parameter (file names from the EVIDENCE AVAILABLE list) - pick the minimal set that proves the issue; the system ${caps.nativeAttachments ? "uploads and embeds" : "embeds"} your selection automatically. In the title/description do NOT invent image URLs, do NOT paste data: URIs, and do NOT reference attachment file names - write as if the evidence is shown inline. When the issue is created and verified, reply with a short plain-text confirmation (no tool call) to finish.` +
     (prefs
-      ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice)${caps.states ? ", workflow state/status" : ""}, assignee${caps.projects ? ", project" : ""}${caps.labels ? ", labels" : ""}${caps.priority ? ", priority" : ""}${caps.customFields ? ", custom fields" : ""}, wording, format, and what to include. Pass each through the matching tool parameter - do not just mention it in the description - and VERIFY it landed via get_issue, repairing with update_issue. They never override the banned-vocabulary or evidence rules.\n${prefs}`
+      ? `\n\nUSER TICKET PREFERENCES - these are binding instructions from the ticket owner. Apply every one that maps to something you control: where to file (${noun} choice)${caps.states ? ", workflow state/status" : ""}, assignee${caps.projects ? ", project" : ""}${caps.customers ? ", customer" : ""}${caps.labels ? ", labels" : ""}${caps.priority ? ", priority" : ""}${caps.customFields ? ", custom fields" : ""}, wording, format, and what to include. Pass each through the matching tool parameter - do not just mention it in the description - and VERIFY it landed via get_issue, repairing with update_issue. They never override the banned-vocabulary or evidence rules.\n${prefs}`
       : "") +
     (fixed
       ? `\n\nALREADY-WRITTEN TICKET - DO NOT REWRITE. The reporter has finalized this ticket's title and description (they iterated on it themselves). Your ONLY job is to route it: pick the right ${noun} (use search_issues for precedent), set ${settable.filter((x) => x !== "comment").join("/")} per precedent and the user's preferences, and attach the right evidence. When you call create_issue, pass the EXACT title and description below, byte for byte - do NOT rewrite, rephrase, summarize, translate, re-section, or "improve" them. The banned-vocabulary rule does not apply to their text; file it as written.\n\nTITLE:\n${fixed.title}\n\nDESCRIPTION:\n${fixed.description}`
@@ -182,6 +184,9 @@ export async function processBrief(
     monday:
       "Item priority - only when the preferences or report justify one. Applied to the board's Priority column when it has one, skipped otherwise.",
   };
+
+  const CUSTOMER_HELP =
+    "The customer this issue was reported for (a name or domain from the target's customers, e.g. \"Acme\" or \"acme.com\") - links the issue to that customer as a customer request. Set it BY DEFAULT whenever the report mentions one of the target's customers - their name, their domain in the page URL, or the reporter saying who hit it (call get_target_details to see the customer list) - and whenever the preferences name one. Never guess a customer the report doesn't mention.";
 
   const PROJECT_HELP: Record<string, string> = {
     azure:
@@ -275,6 +280,14 @@ export async function processBrief(
                 },
               }
             : {}),
+          ...(caps.customers
+            ? {
+                customer: {
+                  type: "string",
+                  description: CUSTOMER_HELP,
+                },
+              }
+            : {}),
           ...(caps.comments
             ? {
                 comment: {
@@ -337,6 +350,7 @@ export async function processBrief(
           ...(caps.projects
             ? { project: { type: "string", description: PROJECT_HELP[tracker.kind] ?? "Project name or id to move the issue under" } }
             : {}),
+          ...(caps.customers ? { customer: { type: "string", description: "Customer name or domain to link the issue to (adds a customer request)" } } : {}),
           ...(caps.customFields ? { custom_fields: customFieldsParam } : {}),
         },
         required: ["identifier"],
@@ -512,6 +526,7 @@ export async function processBrief(
                 state: str(args.state),
                 assignee: str(args.assignee),
                 project: str(args.project),
+                customer: str(args.customer),
                 comment: str(args.comment),
                 extraFields: obj(args.custom_fields),
                 evidence: evidenceFiles,
@@ -536,6 +551,7 @@ export async function processBrief(
                 : undefined,
               priority: priority(args.priority),
               project: str(args.project),
+              customer: str(args.customer),
               extraFields: obj(args.custom_fields),
             });
           default:

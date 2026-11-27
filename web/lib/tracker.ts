@@ -69,6 +69,8 @@ export interface TrackerCapabilities {
    * so the filing path has to keep the evidence and its share URL for it.
    */
   nativeAttachments: boolean;
+  /** The issue can be linked to one of the workspace's customers (Linear customer requests). */
+  customers?: boolean;
 }
 
 export interface TrackerTarget {
@@ -99,6 +101,8 @@ export interface TargetDetails {
   members: string[];
   /** Linear: the team's projects (assignable via create/update `project`). */
   projects?: Array<{ id: string; name: string }>;
+  /** Linear: the workspace's customers (linkable via create/update `customer`). */
+  customers?: Array<{ name: string; domains: string[] }>;
   /** Jira: non-subtask issue type names. */
   issueTypes?: string[];
   /** Jira: settable fields from createmeta, including custom fields. */
@@ -152,6 +156,8 @@ export interface IssueInput {
   assignee?: string;
   /** Project name or id to file the issue under (Linear projects). */
   project?: string;
+  /** Customer name or domain to link the issue to (a Linear customer request). */
+  customer?: string;
   /** A comment to post on the issue right after it's created (e.g. "In progress"). */
   comment?: string;
   /**
@@ -194,6 +200,8 @@ export interface IssuePatch {
   labels?: string[];
   priority?: TrackerPriority;
   project?: string;
+  /** Customer name or domain to link the issue to (Linear customer request). */
+  customer?: string;
   extraFields?: Record<string, unknown>;
 }
 
