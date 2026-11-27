@@ -10,7 +10,7 @@ import type { BriefOverrides } from "@/lib/agent/overrides";
 import { loadBriefInput } from "@/lib/agent/load-brief-input";
 import { supabaseStore } from "@/lib/agent/brief-store";
 import { getUserSettings } from "@/lib/settings";
-import { briefPhase, releaseFiling } from "@/lib/brief-filing";
+import { FilingStopped, briefPhase, claimCheckpoint, releaseFiling } from "@/lib/brief-filing";
 import { errorKind, track } from "@/lib/events";
 
 // moved to load-brief-input.ts; re-exported for existing importers
@@ -135,6 +135,9 @@ export async function processBriefById(
 
   const guidance = [await loadGuidance(filer), opts.instruction ?? ""].filter(Boolean).join("\n");
   const verbatim = !!opts.fixed || !!opts.useExistingContent;
+  // The claim this run holds: Stop takes it back (stopFiling), and the run
+  // ends at its next checkpoint without filing.
+  const checkpoint = claimCheckpoint(admin, briefId, (brief.filing_started_at as string | null) ?? null);
 
   try {
     const prefix = brief.storage_prefix as string;
@@ -183,7 +186,8 @@ export async function processBriefById(
           }
         : undefined;
 
-    const result = await processBrief(input, tracker, guidance, fixed);
+    await checkpoint();
+    const result = await processBrief(input, tracker, guidance, fixed, checkpoint);
     track(userId, "brief.filed", { provider: tracker.kind });
 
     const filedPatch = {
@@ -261,6 +265,11 @@ export async function processBriefById(
 
     return { ok: true, result };
   } catch (e) {
+    // The owner stopped it: Stop already put the row back, leave it alone.
+    if (e instanceof FilingStopped) {
+      console.log(`[process] brief ${briefId}: stopped before filing`);
+      return { ok: false, status: 409, error: "stopped" };
+    }
     // Nothing was filed (the throw is from before create_issue, or from a run
     // that never created one) - fail the brief AND hand the claim back so the
     // owner can retry straight away. The row (shown on Tickets and in the

@@ -75,6 +75,9 @@ export async function processBrief(
   // files THIS title + description verbatim and only routes/sets fields - it does
   // not rewrite the content.
   fixed?: { title: string; description: string },
+  // Throws to stop the run (the owner pressed Stop). Only honoured until the
+  // issue exists: a created ticket is never abandoned mid-verify.
+  checkpoint?: () => Promise<void>,
 ): Promise<FileResult> {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const model = agentModel();
@@ -446,6 +449,7 @@ export async function processBrief(
       content,
       tools,
       maxTurns: 14,
+      checkpoint: checkpoint ? async () => { if (!state.created) await checkpoint(); } : undefined,
       // The issue already exists - a failed VERIFICATION turn must not lose
       // it (marking the brief failed would file a duplicate on retry).
       onTurnError: (e) => {

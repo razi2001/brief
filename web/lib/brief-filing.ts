@@ -107,3 +107,63 @@ export async function releaseFiling(
     .eq("user_id", userId)
     .is("ticket_url", null);
 }
+
+/** Thrown inside a filing run whose claim was taken back by Stop. */
+export class FilingStopped extends Error {
+  constructor() {
+    super("Filing stopped");
+    this.name = "FilingStopped";
+  }
+}
+
+/**
+ * Stop a filing that hasn't produced a ticket yet: the claim is cleared and
+ * the brief goes back to what it was before filing - a written draft
+ * ('drafted', when Export was filing it) or an unfiled capture ('uploaded',
+ * media intact) that the extension takes back into its popup. The running
+ * agent sees its claim gone at its next checkpoint and ends without filing.
+ *
+ * Returns what it went back to, or null when there is nothing to stop
+ * (already filed, or not filing). A run already inside create_issue can still
+ * land its ticket - the row then turns 'filed' and that wins.
+ */
+export async function stopFiling(
+  admin: SupabaseClient,
+  userId: string,
+  briefId: string,
+): Promise<"drafted" | "uploaded" | null> {
+  const stopTo = async (back: "drafted" | "uploaded", hasBody: boolean): Promise<boolean> => {
+    const filter = (hasBody ? "ticket_body.not.is.null" : "ticket_body.is.null");
+    const { data } = await admin
+      .from("briefs")
+      .update({ status: back, filing_started_at: null, error: null, updated_at: new Date().toISOString() })
+      .eq("id", briefId)
+      .eq("user_id", userId)
+      .eq("status", "processing")
+      .is("ticket_url", null)
+      .not("filing_started_at", "is", null)
+      .or(filter)
+      .select("id")
+      .maybeSingle();
+    return !!data;
+  };
+  if (await stopTo("drafted", true)) return "drafted";
+  if (await stopTo("uploaded", false)) return "uploaded";
+  return null;
+}
+
+/** Throws FilingStopped once this run's claim (`claimedAt`) is no longer on the row. */
+export function claimCheckpoint(admin: SupabaseClient, briefId: string, claimedAt: string | null) {
+  return async () => {
+    if (!claimedAt) return;
+    const { data } = await admin
+      .from("briefs")
+      .select("filing_started_at, ticket_url")
+      .eq("id", briefId)
+      .maybeSingle();
+    if (!data || data.ticket_url) throw new FilingStopped();
+    if (!data.filing_started_at || new Date(data.filing_started_at as string).getTime() !== new Date(claimedAt).getTime()) {
+      throw new FilingStopped();
+    }
+  };
+}

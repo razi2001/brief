@@ -323,6 +323,26 @@ export default function TicketChat({
     abort.current?.abort();
   }
 
+  // Filing: Stop takes it back before it reaches the tracker. An Export goes
+  // back to its draft (this page, refreshed); a ticket sent from the extension
+  // goes back into the extension's popup, so the page leaves for the list.
+  const [stopping, setStopping] = useState(false);
+  async function stopFiling() {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      const res = await fetch(`/api/briefs/${briefId}/stop`, { method: "POST", credentials: "same-origin" });
+      const body = (await res.json().catch(() => ({}))) as { back?: string };
+      if (res.ok && body.back === "uploaded") {
+        window.location.assign("/");
+        return;
+      }
+    } catch {
+      /* the refresh below shows where it stands */
+    }
+    window.location.reload();
+  }
+
   // The selection toolbar's AI actions: run one now, or "Ask…" to quote the
   // passage in the composer and type what to do with it.
   useEffect(() => {
@@ -568,13 +588,14 @@ export default function TicketChat({
                 }
                 className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-[13px] leading-relaxed text-ink outline-none placeholder:text-muted disabled:opacity-70"
               />
-              {busy ? (
+              {busy || mode === "filing" ? (
                 <button
                   type="button"
-                  onClick={stop}
-                  aria-label="Stop"
-                  title="Stop (Esc)"
-                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink text-white transition hover:brightness-110"
+                  onClick={mode === "filing" ? () => void stopFiling() : stop}
+                  disabled={stopping}
+                  aria-label={mode === "filing" ? "Stop filing" : "Stop"}
+                  title={mode === "filing" ? "Stop filing" : "Stop (Esc)"}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ink text-white transition hover:brightness-110 disabled:opacity-50"
                 >
                   <span className="h-2.5 w-2.5 rounded-[2px] bg-white" aria-hidden />
                 </button>

@@ -8,7 +8,7 @@
 // draft (a reopened popup shows "Filing…" or the error), and opens the brief page
 // when done.
 
-import { uploadDraft, uploadFilesToDraft, processBrief, createDraft } from './cloud.js';
+import { uploadDraft, uploadFilesToDraft, processBrief, createDraft, stopFilingOnServer, filingStateOnServer } from './cloud.js';
 import { getDraft, setDraft, clearDraft, updateDraft, emptyDraft, isReadyDraft } from './draft.js';
 import { deleteFile, draftKeys, getFile, replayKey, replayVoiceKey, replayFramesKey, replayVideoKey, replayVideoStateKey } from './filestore.js';
 
@@ -29,6 +29,7 @@ async function replayVideo(d) {
   if (!rev) return null;
   const until = Date.now() + VIDEO_WAIT_MS;
   while (Date.now() < until) {
+    if (stopAsked.has(d.id)) throw new Stopped();
     const st = await getFile(replayVideoStateKey(d.id)).then((b) => b && b.text()).then((t) => t && JSON.parse(t)).catch(() => null);
     if (st?.rev === rev) return st.status === 'ready' ? getFile(replayVideoKey(d.id)) : null;
     await new Promise((r) => setTimeout(r, 500));
@@ -167,6 +168,42 @@ async function dropFilingDraft(id) {
 // Filings running in THIS worker, so a resume never starts one twice.
 const running = new Set();
 
+// Stop, pressed while the worker still has the brief (uploading it, waiting
+// for its replay video): the filing ends at its next checkpoint and the brief
+// comes back into the popup, nothing sent to the tracker.
+const stopAsked = new Set();
+class Stopped extends Error {}
+function checkpoint(d) { if (stopAsked.has(d.id)) throw new Stopped(); }
+
+// A ticket handed to the server is kept here, with its blobs, while the
+// server's agent writes and files it: Stop (in the popup, or on its brief
+// page) brings it back into the popup. Dropped once the server says it's
+// done, or after the server's own filing limit.
+const SENT_KEEP_MS = 10 * 60 * 1000;
+async function getSent() {
+  const { sentDrafts = {} } = await chrome.storage.local.get('sentDrafts');
+  return sentDrafts;
+}
+async function setSent(sentDrafts) { await chrome.storage.local.set({ sentDrafts }); }
+async function dropSent(id, { keepBlobs = false } = {}) {
+  const sent = await getSent();
+  const d = sent[id];
+  if (!d) return;
+  delete sent[id];
+  await setSent(sent);
+  if (!keepBlobs) for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
+}
+
+// Back into the popup, as it was before Create: the current draft if the
+// popup is empty, otherwise waiting as `failedDraft` (the popup offers it back).
+async function giveBack(d) {
+  const back = { ...d, filing: false, fileError: null };
+  delete back.filingMode; delete back.filingStartedAt; delete back.sentAt;
+  const now = await getDraft();
+  if (!now || !isReadyDraft(now)) await setDraft(back);
+  else await chrome.storage.local.set({ failedDraft: { ...back, stopped: true } });
+}
+
 // Chrome shuts an idle extension worker down after ~30s, and a filing can
 // wait minutes for its replay video - a pending promise alone doesn't count
 // as activity. So while one runs, an extension API call every 20s keeps the
@@ -193,10 +230,56 @@ export async function resumeFiling() {
   }
 }
 
-/** Every blob the drafts being filed still need (kept when pruning). */
+/** Every blob the drafts being filed (or kept for Stop) still need (kept when pruning). */
 export async function filingKeys() {
+  const { filingDrafts = {}, sentDrafts = {}, failedDraft = null } = await chrome.storage.local.get(['filingDrafts', 'sentDrafts', 'failedDraft']);
+  return [...Object.values(filingDrafts), ...Object.values(sentDrafts), failedDraft].flatMap((d) => draftKeys(d));
+}
+
+/**
+ * Tickets on their way, for the popup's Stop: the ones the worker still has
+ * (`stage: 'sending'`) and the ones the server is filing (`stage: 'filing'`).
+ * Asks the server about each kept copy first: a copy stopped on its brief
+ * page comes back into the popup here; a filed one is dropped.
+ */
+export async function inFlight() {
+  for (const d of Object.values(await getSent())) {
+    if (Date.now() - (d.sentAt || 0) > SENT_KEEP_MS) { await dropSent(d.id); continue; }
+    const state = await filingStateOnServer(d.cloudBriefId).catch(() => null);
+    if (state === 'stopped') { await dropSent(d.id, { keepBlobs: true }); await giveBack(d); }
+    else if (state === 'done') await dropSent(d.id);
+  }
   const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
-  return Object.values(filingDrafts).flatMap((d) => draftKeys(d));
+  const row = (d, stage) => ({ id: d.id, stage, title: d.name || (d.description || '').split('\n')[0].trim() });
+  return [
+    ...Object.values(filingDrafts).filter((d) => (d.filingMode || 'ticket') === 'ticket' && !stopAsked.has(d.id)).map((d) => row(d, 'sending')),
+    ...Object.values(await getSent()).map((d) => row(d, 'filing')),
+  ];
+}
+
+/**
+ * Stop a ticket before it reaches the tracker. Resolves { ok } once it is on
+ * its way back into the popup, or { ok: false, error } when it was too late.
+ */
+export async function stopFiling(id) {
+  const { filingDrafts = {} } = await chrome.storage.local.get('filingDrafts');
+  if (filingDrafts[id]) {
+    if (running.has(id)) { stopAsked.add(id); return { ok: true }; }
+    // left by a worker that went down, not resumed yet: hand it back now
+    await dropFilingDraft(id);
+    await giveBack(filingDrafts[id]);
+    return { ok: true };
+  }
+  const d = (await getSent())[id];
+  if (!d) return { ok: false, error: 'It already filed' };
+  const res = await stopFilingOnServer(d.cloudBriefId).catch((err) => ({ ok: false, error: String(err?.message || err) }));
+  if (!res.ok) {
+    if (res.tooLate) await dropSent(id);
+    return { ok: false, error: res.tooLate ? 'It already filed' : res.error };
+  }
+  await dropSent(id, { keepBlobs: true });
+  await giveBack(d);
+  return { ok: true };
 }
 
 async function fileOne(d, mode) {
@@ -207,7 +290,9 @@ async function fileOne(d, mode) {
   const draft = mode !== 'ticket';
   const run = async () => {
     const shareId = draft ? d.shareId : undefined;
+    checkpoint(d);
     await ensureUploaded(d, { waitVideo: !draft, shareId });
+    checkpoint(d);
     const overrides = buildOverrides(d);
     return mode === 'ticket' ? processBrief(d.cloudBriefId, overrides) : createDraft(d.cloudBriefId, { ...overrides, ...(shareId ? { shareId } : {}) });
   };
@@ -215,11 +300,24 @@ async function fileOne(d, mode) {
     try {
       await run();
     } catch (err) {
+      if (err instanceof Stopped) throw err;
       if (err?.code === 'already_filed') { /* it exists: a success */ }
       else if (err?.status === 404 && d.cloudBriefId) { d.cloudBriefId = null; await run(); }
       else throw err;
     }
+    // Stop pressed while the server took it: take it back there too.
+    if (stopAsked.has(d.id) && !draft && d.cloudBriefId) {
+      const res = await stopFilingOnServer(d.cloudBriefId).catch(() => ({ ok: false }));
+      if (res.ok) throw new Stopped();
+      stopAsked.delete(d.id); // too late: it files
+    }
   } catch (err) {
+    if (err instanceof Stopped) {
+      stopAsked.delete(d.id);
+      await dropFilingDraft(d.id);
+      await giveBack(d);
+      return;
+    }
     // Nothing is lost: the draft comes back with the error. Into the popup if
     // it is empty; otherwise it waits as `failedDraft` (the popup offers it back).
     await dropFilingDraft(d.id);
@@ -234,7 +332,12 @@ async function fileOne(d, mode) {
     const video = await replayVideo(d);
     if (video) await uploadFilesToDraft(d.cloudBriefId, [{ name: 'replay.webm', blob: video, contentType: 'video/webm' }]).catch(() => {});
   }
-  for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
+  if (mode === 'ticket' && d.cloudBriefId) {
+    // kept (blobs too) while the server files it, so Stop can bring it back
+    await setSent({ ...(await getSent()), [d.id]: { ...d, sentAt: Date.now() } });
+  } else {
+    for (const k of draftKeys(d)) await deleteFile(k).catch(() => {});
+  }
   await dropFilingDraft(d.id);
   // Unseen until the cloud button is clicked: the popup marks it with a dot,
   // and the button opens the list it landed in (Tickets or Drafts).
