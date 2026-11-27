@@ -45,7 +45,12 @@ vi.mock("@/lib/agent/load-brief-input", () => ({
   urlAt: vi.fn(),
 }));
 vi.mock("@/lib/settings", () => ({ getUserSettings: async () => ({ ticketGuidance: "", role: "" }) }));
-vi.mock("@/lib/brief-filing", () => ({ briefPhase: vi.fn(), releaseFiling: vi.fn() }));
+vi.mock("@/lib/brief-filing", () => ({
+  briefPhase: vi.fn(),
+  releaseFiling: vi.fn(),
+  claimCheckpoint: () => async () => {},
+  FilingStopped: class extends Error {},
+}));
 
 import { filedTicketState, processBriefById } from "./run-processing";
 

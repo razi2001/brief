@@ -46,10 +46,14 @@ export async function runToolLoop(opts: {
   maxTurns: number;
   onCall: (name: string, args: Record<string, unknown>) => Promise<unknown>;
   onTurnError?: (e: unknown) => boolean;
+  /** Checked before every turn and every tool call: throw to end the run (a
+   *  throw here is not handed to the model as a tool error). */
+  checkpoint?: () => Promise<void>;
 }): Promise<string> {
   const input: ResponseInputItem[] = [{ role: "user", content: opts.content }];
   const tools = toTools(opts.tools);
   for (let turn = 0; turn < opts.maxTurns; turn++) {
+    await opts.checkpoint?.();
     let resp;
     try {
       resp = await opts.client.responses.create({
@@ -68,6 +72,7 @@ export async function runToolLoop(opts: {
     const calls = resp.output.filter((o): o is ResponseFunctionToolCall => o.type === "function_call");
     if (!calls.length) return resp.output_text ?? "";
     for (const c of calls) {
+      await opts.checkpoint?.();
       let result: unknown;
       try {
         result = await opts.onCall(c.name, c.arguments ? JSON.parse(c.arguments) : {});

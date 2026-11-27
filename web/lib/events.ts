@@ -19,6 +19,7 @@ export const SERVER_EVENTS = [
   "brief.filed",
   "brief.drafted",
   "brief.failed",
+  "brief.stopped",
   "brief.retry",
   "brief.archived",
   "brief.deleted",

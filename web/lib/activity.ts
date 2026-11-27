@@ -143,6 +143,8 @@ export function lineOf(e: Pick<EventRow, "name" | "props">): Line | null {
         text: `${str(p.stage) === "draft" ? "Draft" : "Filing"} failed: ${str(p.error) || "unknown error"}`,
         bad: true,
       };
+    case "brief.stopped":
+      return { kind: "brief", text: "Stopped a ticket before it filed" };
     case "brief.retry":
       return { kind: "brief", text: "Retried a brief" };
     case "brief.archived":
