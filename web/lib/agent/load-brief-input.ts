@@ -7,6 +7,7 @@ import { techFromReplay, techFromRecording, isEmpty as isTechEmpty, type VideoLo
 import { summarizeReplay, type ReplaySummary } from "@/lib/agent/replay-steps";
 import { findRecordingName, isRecordingName, isTranscribableRecording, recordingContentType, type RecordingName } from "@/lib/brief";
 import type { BriefStore } from "./brief-store";
+import { fixWebmDuration } from "@/lib/webm-duration";
 
 // Assembling what the ticket writers read from a brief's stored files. Reads
 // through a BriefStore, so the ticket eval can feed it a folder.
@@ -310,7 +311,9 @@ export async function loadBriefInput(
     if (opts.uploadsVideo) {
       const video = await dl(`${prefix}/replay.webm`);
       if (video) {
-        files.push({ filename: "replay.webm", contentType: "video/webm", bytes: video, url: evidenceUrl("replay.webm") });
+        // MediaRecorder leaves no duration in the file: without one, the
+        // tracker's player can't seek (see lib/webm-duration).
+        files.push({ filename: "replay.webm", contentType: "video/webm", bytes: fixWebmDuration(video), url: evidenceUrl("replay.webm") });
         items.push({ name: "replay.webm", kind: "replay-video" });
         markedStills.push("replay.webm");
         videoAttached = true;
@@ -343,7 +346,8 @@ export async function loadBriefInput(
       files.push({
         filename: recName,
         contentType: recordingContentType(recName),
-        bytes: rec,
+        // Seekable in the tracker's player: write the duration MediaRecorder left out.
+        bytes: fixWebmDuration(rec),
         url: evidenceUrl(recName),
       });
       items.push({ name: recName, kind: "recording" });

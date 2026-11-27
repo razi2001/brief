@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import BrandMark from "./BrandMark";
 import EvidenceCard from "./EvidenceCard";
+import AttachmentUpload from "./AttachmentUpload";
 import { StatusGlyph } from "./StatusBadge";
 import { groupOfState } from "@/lib/status-group";
 import { CHROME_STORE_URL } from "@/lib/chrome-store";
@@ -147,20 +148,24 @@ export function Attachments({
   briefId,
   assets,
   canRemove,
+  canAdd = false,
 }: {
   briefId: string;
   assets: BriefAsset[];
   canRemove: boolean;
+  /** The owner of a draft can add images and a video. */
+  canAdd?: boolean;
 }) {
-  if (assets.length === 0) return null;
+  if (assets.length === 0 && !canAdd) return null;
   const images = assets.filter((a) => a.kind === "image").length;
   return (
     <section className="mt-12">
       <h2 className="flex items-center gap-2 text-[13px] font-medium text-ink-2">
         Attachments
-        <span className="text-xs font-normal tabular-nums text-muted">{assets.length}</span>
+        {assets.length > 0 && <span className="text-xs font-normal tabular-nums text-muted">{assets.length}</span>}
+        {canAdd && <AttachmentUpload briefId={briefId} />}
       </h2>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className={`grid gap-3 sm:grid-cols-2 ${assets.length ? "mt-3" : ""}`}>
         {assets.map((a, i) => {
           const wide = a.kind !== "image" || images === 1;
           return (

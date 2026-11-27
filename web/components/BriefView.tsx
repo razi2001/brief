@@ -9,6 +9,7 @@ import { BRIEF_URL, type ProviderKey } from "@/lib/tracker";
 import { createAdminSupabase } from "@/lib/supabase/server";
 import { displayIdentifier, keylessTrackerName, providerOf, shortIdentifier } from "@/lib/ticket-sync";
 import { briefPhase } from "@/lib/brief-filing";
+import { findRecordingName } from "@/lib/brief";
 import { explainFilingError } from "@/lib/filing-errors";
 import BrandMark from "@/components/BrandMark";
 import TicketDoc from "@/components/TicketDoc";
@@ -73,10 +74,12 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
   const shots = (shotList ?? []).map((o) => o.name).sort();
   const rootNames = new Set((rootList ?? []).map((o) => o.name));
   const has = (f: string) => rootNames.has(f);
+  // A video uploaded from a file keeps its container (.mp4 / .mov).
+  const recName = findRecordingName(rootNames);
   const [shotUrls, legacyShot, recording, replay, voice] = await Promise.all([
     Promise.all(shots.map((o) => sign(`${prefix}/screenshots/${o}`))),
     has("screenshot.png") ? sign(`${prefix}/screenshot.png`) : null,
-    has("recording.webm") ? sign(`${prefix}/recording.webm`) : null,
+    recName ? sign(`${prefix}/${recName}`) : null,
     // The extension's replay (rrweb events + the edit), played in the page.
     has("replay.json") ? sign(`${prefix}/replay.json`) : null,
     has("replay-voice.webm") ? sign(`${prefix}/replay-voice.webm`) : null,
@@ -89,7 +92,9 @@ async function loadMedia(prefix: string, idBase: string): Promise<Asset[]> {
     if (url) assets.push({ url, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: `screenshots/${o}` });
   });
   if (legacyShot) assets.push({ url: legacyShot, filename: `${idBase}-screenshot-${++n}.png`, kind: "image", path: "screenshot.png" });
-  if (recording) assets.push({ url: recording, filename: `${idBase}-recording.webm`, kind: "video", path: "recording.webm" });
+  if (recording && recName) {
+    assets.push({ url: recording, filename: `${idBase}-${recName}`, kind: "video", path: recName });
+  }
   if (replay) assets.push({ url: replay, filename: `${idBase}-replay.json`, kind: "replay", path: "replay.json", voiceUrl: voice ?? undefined });
   return assets;
 }
@@ -440,7 +445,7 @@ export default async function BriefView({ shareId, section }: { shareId: string;
 
           {/* ── Attachments ── (the ticket's own text often has an "Evidence"
               section already: this is the media itself, so it says so) */}
-          <Attachments briefId={brief.id} assets={assets} canRemove={isOwner} />
+          <Attachments briefId={brief.id} assets={assets} canRemove={isOwner} canAdd={isOwner && isDraft} />
         </>
       )}
       </article>

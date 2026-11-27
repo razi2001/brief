@@ -345,6 +345,54 @@ export function makeLinearApi(tok: LinearTok): LinearApi {
   };
 }
 
+export interface LinearCustomer {
+  id: string;
+  name: string;
+  domains: string[];
+}
+
+/**
+ * The customer a free-text value names: "Acme", "acme.com",
+ * "https://www.acme.com/x" or "jane@acme.com". Exact name or domain first,
+ * then the forgiving name match the other fields use.
+ */
+export function resolveCustomer(want: string, list: LinearCustomer[]): LinearCustomer | undefined {
+  const w = want.trim().toLowerCase();
+  if (!w) return undefined;
+  const domain = w
+    .replace(/^.*@/, "")
+    .replace(/^[a-z]+:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[/?#].*$/, "");
+  const byName = list.find((c) => c.name.toLowerCase() === w);
+  if (byName) return byName;
+  const byDomain = list.find((c) => (c.domains ?? []).some((d) => d.toLowerCase().replace(/^www\./, "") === domain));
+  if (byDomain) return byDomain;
+  const canonical = resolveName(want, list.map((c) => c.name));
+  return canonical ? list.find((c) => c.name === canonical) : undefined;
+}
+
+const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The customers a ticket's text mentions: by name as a whole word ("Acme
+ * Corp", not "acmecorp"), or by domain, subdomains included ("app.acme.com"
+ * names acme.com). Names under 3 characters are too ambiguous to match. At
+ * most 3, in list order - a ticket naming more is about something else.
+ */
+export function detectCustomers(text: string, list: LinearCustomer[]): LinearCustomer[] {
+  if (!text.trim() || !list.length) return [];
+  const found = list.filter((c) => {
+    const name = c.name.trim();
+    if (name.length >= 3 && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRe(name)}(?![\\p{L}\\p{N}])`, "iu").test(text)) return true;
+    return (c.domains ?? []).some((d) => {
+      const dom = d.trim().toLowerCase().replace(/^www\./, "");
+      return dom.includes(".") && new RegExp(`(?<![a-z0-9-])${escapeRe(dom)}(?![a-z0-9-]|\\.[a-z])`, "i").test(text);
+    });
+  });
+  return found.slice(0, 3);
+}
+
 /** Linear numeric priority for our normalized names (0 = none). */
 const LINEAR_PRIORITY: Record<TrackerPriority, number> = {
   urgent: 1,
@@ -468,6 +516,47 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
     return partial?.id;
   }
 
+  // The workspace's customers (Linear "Customer requests"). Empty when the
+  // workspace hasn't turned the feature on, or the token can't read them -
+  // linking a customer is then simply not offered.
+  let customers: LinearCustomer[] | null = null;
+  async function loadCustomers(): Promise<LinearCustomer[]> {
+    if (customers) return customers;
+    try {
+      const d = await linearGraphQL<{ customers: { nodes: LinearCustomer[] } }>(
+        tok,
+        `query Customers { customers(first: 250) { nodes { id name domains } } }`,
+        {},
+      );
+      customers = d.customers?.nodes ?? [];
+    } catch (err) {
+      console.warn("[linear-tracker] customers unavailable:", errorMessage(err));
+      customers = [];
+    }
+    return customers;
+  }
+
+  /** Adds a customer request (need) linking `issueId` to the customer `want` names. */
+  async function linkCustomer(issueId: string, want: string, body?: string): Promise<UpdateResult> {
+    const list = await loadCustomers();
+    const found = resolveCustomer(want, list);
+    if (!found) {
+      return {
+        ok: false,
+        error: list.length
+          ? `no customer matched "${want}". Customers: ${list.map((c) => c.name).slice(0, 60).join(", ")}`
+          : "this Linear workspace has no customers (Customer requests may be turned off)",
+      };
+    }
+    const r = await linearGraphQL<{ customerNeedCreate: { success: boolean } }>(
+      tok,
+      `mutation NeedCreate($input: CustomerNeedCreateInput!) { customerNeedCreate(input: $input) { success } }`,
+      { input: { issueId, customerId: found.id, ...(body ? { body } : {}) } },
+    );
+    if (!r.customerNeedCreate?.success) return { ok: false, error: "Linear customerNeedCreate returned success=false" };
+    return { ok: true };
+  }
+
   return {
     kind: "linear",
     targetNoun: "team",
@@ -479,6 +568,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       labels: true,
       comments: true,
       nativeAttachments: true,
+      customers: true,
     },
     async listTargets() {
       // Include each team's labels/states + the workspace members so the agent
@@ -523,7 +613,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
       }
     },
     async getTargetDetails(targetId): Promise<TargetDetails> {
-      const [d, members] = await Promise.all([loadTeamMeta(), loadUsers()]);
+      const [d, members, custs] = await Promise.all([loadTeamMeta(), loadUsers(), loadCustomers()]);
       const meta = d.get(targetId);
       if (!meta) {
         const known = [...d.entries()].map(([id, m]) => `${m.name} (id: ${id})`).join(", ");
@@ -538,9 +628,10 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         labels: meta.labels.map((l) => l.name),
         members: members.map((u) => u.displayName || u.name).filter(Boolean),
         projects: meta.projects.map((p) => ({ id: p.id, name: p.name })),
+        ...(custs.length ? { customers: custs.map((c) => ({ name: c.name, domains: c.domains ?? [] })) } : {}),
       };
     },
-    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, project, comment, extraFields, evidence, details }) {
+    async fileIssue({ targetId, title, descriptionMarkdown, labels, priority, state, assignee, project, customer, comment, extraFields, evidence, details }) {
       let description = descriptionMarkdown;
       // Upload each evidence file and embed it inline (Linear-hosted asset URL).
       const embeds: string[] = [];
@@ -659,6 +750,22 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         }
       }
 
+      // Link the customer it was reported for, as a customer request
+      // (best-effort). The agent's pick wins; without one, any customer the
+      // ticket mentions by name or domain is linked by default.
+      try {
+        const wanted = customer?.trim()
+          ? [customer.trim()]
+          : detectCustomers(`${title}
+${descriptionMarkdown}`, await loadCustomers()).map((c) => c.name);
+        for (const want of wanted) {
+          const r = await linkCustomer(issue.id, want, title);
+          if (!r.ok) console.warn("[linear-tracker] customer link failed:", r.error);
+        }
+      } catch (err) {
+        console.warn("[linear-tracker] customer link failed:", err);
+      }
+
       return { id: issue.id, identifier: issue.identifier, url: issue.url, title: issue.title };
     },
     async updateIssue(identifier, patch: IssuePatch): Promise<UpdateResult> {
@@ -711,6 +818,11 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
           if (missing.length) return { ok: false, error: `labels not found: ${missing.join(", ")}. Valid labels: ${meta.labels.map((l) => l.name).join(", ")}` };
           input.labelIds = ids;
         }
+        if (patch.customer) {
+          const linked = await linkCustomer(d.issue.id, patch.customer);
+          if (!linked.ok) return linked;
+          if (!Object.keys(input).length) return { ok: true };
+        }
         if (!Object.keys(input).length) return { ok: false, error: "nothing to update" };
 
         const r = await linearGraphQL<{ issueUpdate: { success: boolean } }>(
@@ -732,6 +844,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
           assignee?: { name?: string; displayName?: string } | null;
           labels?: { nodes?: Array<{ name: string }> } | null;
           project?: { name?: string } | null;
+          needs?: { nodes?: Array<{ customer?: { name?: string } | null }> } | null;
         } | null;
       }>(
         tok,
@@ -742,6 +855,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
             assignee { name displayName }
             labels { nodes { name } }
             project { name }
+            needs(first: 20) { nodes { customer { name } } }
           }
         }`,
         { id: identifier },
@@ -759,6 +873,7 @@ export function makeLinearTracker(tok: LinearTok): Tracker {
         labels: (i.labels?.nodes ?? []).map((l) => l.name),
         project: i.project?.name ?? null,
         priority: priorityName,
+        customers: (i.needs?.nodes ?? []).map((n) => n.customer?.name).filter(Boolean),
       };
     },
     async getLiveIssues(identifiers): Promise<LiveIssueLookup> {

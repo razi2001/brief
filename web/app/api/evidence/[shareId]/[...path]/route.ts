@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { createAdminSupabase } from "@/lib/supabase/server";
+import { fixWebmDuration } from "@/lib/webm-duration";
+import { parseRange } from "@/lib/http-range";
 
 /**
  * Stable, permanent URLs for a brief's evidence images.
@@ -39,7 +41,7 @@ const CONTENT_TYPE: Record<string, string> = {
 };
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ shareId: string; path: string[] }> },
 ) {
   const { shareId, path: segments } = await ctx.params;
@@ -62,13 +64,34 @@ export async function GET(
   if (!data) return new Response("not found", { status: 404 });
 
   const ext = rel.split(".").pop() ?? "";
-  return new Response(await data.arrayBuffer(), {
-    headers: {
-      "Content-Type": CONTENT_TYPE[ext] ?? "application/octet-stream",
-      // Evidence at a given path is immutable, and these URLs are embedded in
-      // tickets that get loaded for years - let every layer cache them hard.
-      "Cache-Control": "public, max-age=31536000, immutable",
-      "Content-Disposition": "inline",
-    },
-  });
+  let bytes: Buffer = Buffer.from(await data.arrayBuffer());
+  // A browser recording has no duration in its file, so a player can't seek
+  // in it. Write it in (a no-op for anything that already has one).
+  if (ext === "webm") bytes = fixWebmDuration(bytes);
+
+  const headers: Record<string, string> = {
+    "Content-Type": CONTENT_TYPE[ext] ?? "application/octet-stream",
+    // Evidence at a given path is immutable, and these URLs are embedded in
+    // tickets that get loaded for years - let every layer cache them hard.
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "Content-Disposition": "inline",
+    // Video players seek with Range requests; without them the seek bar is dead.
+    "Accept-Ranges": "bytes",
+  };
+  const range = parseRange(req.headers.get("range"), bytes.length);
+  if (range === "invalid") {
+    return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${bytes.length}` } });
+  }
+  if (range) {
+    const part = bytes.subarray(range.start, range.end + 1);
+    return new Response(new Uint8Array(part), {
+      status: 206,
+      headers: {
+        ...headers,
+        "Content-Range": `bytes ${range.start}-${range.end}/${bytes.length}`,
+        "Content-Length": String(part.length),
+      },
+    });
+  }
+  return new Response(new Uint8Array(bytes), { headers: { ...headers, "Content-Length": String(bytes.length) } });
 }
