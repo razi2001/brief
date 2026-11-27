@@ -16,7 +16,7 @@
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.1",
     "next": "^16.2.8",
-    "openai": "^6.42.0",
+    "openai": "^7.57.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "rrweb-player": "2.1.7"
