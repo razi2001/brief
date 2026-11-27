@@ -4,6 +4,7 @@ import { createAdminSupabase } from "@/lib/supabase/server";
 import { RECORDING_NAMES, isRecordingName } from "@/lib/brief";
 import { briefPhase } from "@/lib/brief-filing";
 import { isUploadPath } from "@/lib/draft-uploads";
+import { fixWebmDuration } from "@/lib/webm-duration";
 
 /**
  * The owner adds images and a video to a draft from its page.
@@ -70,6 +71,19 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   // One recording per brief: a new one replaces any other container's.
   const others = RECORDING_NAMES.filter((n) => n !== recording).map((n) => `${own.prefix}/${n}`);
   await bucket.remove(others);
+
+  // A browser-made WebM has no duration, so no player can seek in it - this
+  // page's included. Repair the stored copy once (best-effort).
+  if (recording === "recording.webm") {
+    const { data: video } = await bucket.download(`${own.prefix}/${recording}`);
+    if (video) {
+      const raw = Buffer.from(await video.arrayBuffer());
+      const fixed = fixWebmDuration(raw);
+      if (fixed !== raw) {
+        await bucket.upload(`${own.prefix}/${recording}`, fixed, { contentType: "video/webm", upsert: true });
+      }
+    }
+  }
 
   // brief.json says which recording is the one and that it goes on the ticket.
   // A blank draft has none yet: start one.
