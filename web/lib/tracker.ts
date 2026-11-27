@@ -258,6 +258,11 @@ export interface Tracker {
   site?: string;
   listTargets(): Promise<TrackerTarget[]>;
   /**
+   * The workspace's customers, for linking a ticket to the one it was
+   * reported for (capabilities.customers). [] when the workspace has none.
+   */
+  listCustomers?(): Promise<Array<{ name: string; domains: string[] }>>;
+  /**
    * Search EXISTING issues for routing/labeling precedent. Best-effort:
    * returns [] on any failure (a search outage must never break filing).
    */

@@ -1,22 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { detectCustomers, makeLinearTracker, resolveCustomer, type LinearCustomer } from "./linear";
+import { makeLinearTracker, resolveCustomer, type LinearCustomer } from "./linear";
 
 const CUSTOMERS: LinearCustomer[] = [
   { id: "c-acme", name: "Acme Corp", domains: ["acme.com"] },
   { id: "c-globex", name: "Globex", domains: ["globex.io", "www.globex.com"] },
 ];
-
-describe("detectCustomers", () => {
-  it("finds names as whole words and domains with subdomains", () => {
-    expect(detectCustomers("Reported by ACME CORP support", CUSTOMERS).map((c) => c.id)).toEqual(["c-acme"]);
-    expect(detectCustomers("on https://eu.acme.com/x", CUSTOMERS).map((c) => c.id)).toEqual(["c-acme"]);
-    expect(detectCustomers("www.globex.com and acme.com", CUSTOMERS).map((c) => c.id)).toEqual(["c-acme", "c-globex"]);
-  });
-  it("ignores partial words, look-alike domains and short names", () => {
-    expect(detectCustomers("acmecorp, notacme.com, acme.com.evil.net", CUSTOMERS)).toEqual([]);
-    expect(detectCustomers("io is fine", [{ id: "x", name: "io", domains: [] }])).toEqual([]);
-  });
-});
 
 describe("resolveCustomer", () => {
   it("matches a name, a domain, an email or a URL", () => {
@@ -70,20 +58,18 @@ describe("Linear customer requests", () => {
     expect(need?.variables.input).toEqual({ issueId: "i1", customerId: "c-acme", body: "Checkout 500" });
   });
 
-  it("links a customer the ticket mentions, by default, when the agent set none", async () => {
+  it("links no customer on its own: the agent decides, a name in the text is not enough", async () => {
     const ops = fakeLinear({ customers: CUSTOMERS });
-    await makeLinearTracker({ token: "tok" }).fileIssue({
-      ...base,
-      descriptionMarkdown: "Page: https://app.globex.io/billing\n\nThe invoice total is wrong.",
-    });
-    const needs = ops.filter((o) => o.query.includes("NeedCreate"));
-    expect(needs.map((o) => (o.variables.input as { customerId: string }).customerId)).toEqual(["c-globex"]);
+    await makeLinearTracker({ token: "tok" }).fileIssue({ ...base, descriptionMarkdown: "Globex's CSM saw this on app.globex.io" });
+    expect(ops.some((o) => o.query.includes("NeedCreate"))).toBe(false);
   });
 
-  it("links nothing when no customer is mentioned", async () => {
-    const ops = fakeLinear({ customers: CUSTOMERS });
-    await makeLinearTracker({ token: "tok" }).fileIssue({ ...base, descriptionMarkdown: "acmecorp-style typo and globexx.io" });
-    expect(ops.some((o) => o.query.includes("NeedCreate"))).toBe(false);
+  it("lists the customers for the agent", async () => {
+    fakeLinear({ customers: CUSTOMERS });
+    expect(await makeLinearTracker({ token: "tok" }).listCustomers!()).toEqual([
+      { name: "Acme Corp", domains: ["acme.com"] },
+      { name: "Globex", domains: ["globex.io", "www.globex.com"] },
+    ]);
   });
 
   it("files the issue without a link when the customer is unknown", async () => {

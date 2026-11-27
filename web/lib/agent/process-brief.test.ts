@@ -128,3 +128,28 @@ test("search_issues and the prompt name the tracker by its own name, whichever i
   expect(search?.description).not.toMatch(/Linear|Jira/);
   expect(params.instructions).toContain("THIS TRACKER: Azure DevOps.");
 });
+
+test("the agent sees the workspace's customers and its pick reaches the tracker", async () => {
+  create.mockReset();
+  create
+    .mockResolvedValueOnce(callTurn({ targetId: "t1", title: "Checkout 500", description: "It 500s.", customer: "SNCF Connect" }))
+    .mockResolvedValue(doneTurn);
+  const fileIssue = vi.fn(tracker.fileIssue);
+  await processBrief(brief as never, {
+    ...tracker,
+    capabilities: { ...NO_CAPABILITIES, customers: true },
+    listCustomers: async () => [{ name: "SNCF Connect", domains: [] }, { name: "CSM", domains: [] }],
+    fileIssue,
+  });
+  const prompt = JSON.stringify(create.mock.calls[0][0].input);
+  expect(prompt).toContain("CUSTOMERS in this workspace");
+  expect(prompt).toContain("- SNCF Connect");
+  const tools = create.mock.calls[0][0].tools as Array<{ name: string; parameters: { properties: Record<string, unknown> } }>;
+  expect(tools.find((t) => t.name === "create_issue")?.parameters.properties).toHaveProperty("customer");
+  expect(fileIssue.mock.calls[0][0].customer).toBe("SNCF Connect");
+});
+
+test("no customers in the workspace: no customer list in the prompt", async () => {
+  await processBrief(brief as never, { ...tracker, capabilities: { ...NO_CAPABILITIES, customers: true }, listCustomers: async () => [] });
+  expect(JSON.stringify(create.mock.calls[0][0].input)).not.toContain("CUSTOMERS in this workspace");
+});
